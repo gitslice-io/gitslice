@@ -16,9 +16,11 @@ require (
 	github.com/hanwen/go-fuse/v2 v2.12.0
 	github.com/itchyny/gojq v0.12.17
 	github.com/jackc/pgx/v5 v5.7.1
+	github.com/microcosm-cc/bluemonday v1.0.27
 	github.com/peterh/liner v1.2.2
 	github.com/posthog/posthog-go v1.19.0
 	github.com/spf13/cobra v1.10.2
+	github.com/yuin/goldmark v1.8.6
 	golang.org/x/image v0.25.0
 	golang.org/x/net v0.28.0
 	golang.org/x/sync v0.12.0
@@ -39,8 +41,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/checksum v1.9.22 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.29 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/s3shared v1.19.29 // indirect
+	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/gorilla/css v1.0.1 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/itchyny/timefmt-go v0.1.6 // indirect

@@ -37,6 +37,12 @@ export async function findNestedReadme(
   }
 }
 
+// nestedReadmeQueryKey caches findNestedReadme's answer for a folder whose
+// only entry is the folder at onlyPath; the page's server render fills it.
+export function nestedReadmeQueryKey(sliceRef: SliceRef | undefined, commitId: string, onlyPath: string) {
+  return ["sliceNestedReadme", sliceRef?.account ?? "", sliceRef?.slice ?? "", commitId, onlyPath] as const;
+}
+
 // useFolderReadme finds a folder's README as findNestedReadme does. The
 // listings it reads are the ones the folder pages use, so opening the folder
 // it went through is instant.
@@ -52,7 +58,7 @@ export function useFolderReadme(
   const onlyPath = only ? normalizeRepositoryPath(only.path ?? "") : "";
   const query = useQuery({
     enabled: Boolean(only && commitId && sliceRef?.account && sliceRef?.slice),
-    queryKey: ["sliceNestedReadme", sliceRef?.account ?? "", sliceRef?.slice ?? "", commitId, onlyPath],
+    queryKey: nestedReadmeQueryKey(sliceRef, commitId, onlyPath),
     queryFn: async () =>
       (await findNestedReadme(entries, (path) =>
         queryClient.fetchQuery({

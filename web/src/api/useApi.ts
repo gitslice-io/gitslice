@@ -114,6 +114,8 @@ import type {
   BlameFileResponse,
   ReadFileRequest,
   ReadFileResponse,
+  RenderFileRequest,
+  RenderFileResponse,
   ReparentStackEntryRequest,
   Ref,
   RestackRequest,
@@ -194,6 +196,9 @@ export interface ApiClient {
     request: ListDirectoryRequest
   ): Promise<ListDirectoryResponse>;
   readFile(request: ReadFileRequest): Promise<ReadFileResponse>;
+  // renderFile is a Markdown file as safe HTML, rendered on the server, so a
+  // README can be part of the server-rendered page.
+  renderFile(request: RenderFileRequest): Promise<RenderFileResponse>;
   blameFile(request: BlameFileRequest): Promise<BlameFileResponse>;
   getCommit(request: GetCommitRequest): Promise<Commit>;
   listCommits(request: ListCommitsRequest): Promise<ListCommitsResponse>;

@@ -107,8 +107,15 @@ export function resolvePictures(html: string, dark: boolean): string {
     const image = picture.querySelector("img");
     const sources = Array.from(picture.querySelectorAll("source"));
     const chosen = sources.find((source) => sourceMatches(source.getAttribute("media"), dark));
-    const url = chosen ? firstSrcsetUrl(chosen.getAttribute("srcset")) : "";
-    if (image && url) {
+    // A server-rendered source in the repository carries its path, not a
+    // srcset: the chosen one becomes the image to load through the API.
+    const repoPath = chosen?.getAttribute("data-repo-srcset") ?? "";
+    const url = chosen && !repoPath ? firstSrcsetUrl(chosen.getAttribute("srcset")) : "";
+    if (image && repoPath) {
+      image.removeAttribute("src");
+      image.removeAttribute("srcset");
+      image.setAttribute("data-repo-image", repoPath);
+    } else if (image && url) {
       image.setAttribute("src", url);
       image.removeAttribute("srcset");
     }

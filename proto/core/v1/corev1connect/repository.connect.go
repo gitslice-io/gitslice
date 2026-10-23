@@ -42,6 +42,9 @@ const (
 	// RepositoryServiceReadFileProcedure is the fully-qualified name of the RepositoryService's
 	// ReadFile RPC.
 	RepositoryServiceReadFileProcedure = "/gitslice.core.v1.RepositoryService/ReadFile"
+	// RepositoryServiceRenderFileProcedure is the fully-qualified name of the RepositoryService's
+	// RenderFile RPC.
+	RepositoryServiceRenderFileProcedure = "/gitslice.core.v1.RepositoryService/RenderFile"
 	// RepositoryServiceReadFilesProcedure is the fully-qualified name of the RepositoryService's
 	// ReadFiles RPC.
 	RepositoryServiceReadFilesProcedure = "/gitslice.core.v1.RepositoryService/ReadFiles"
@@ -76,6 +79,12 @@ type RepositoryServiceClient interface {
 	ResolvePath(context.Context, *connect.Request[v1.ResolvePathRequest]) (*connect.Response[v1.ResolvePathResponse], error)
 	ListDirectory(context.Context, *connect.Request[v1.ListDirectoryRequest]) (*connect.Response[v1.ListDirectoryResponse], error)
 	ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error)
+	// RenderFile renders a Markdown file to HTML that is safe to put in a page
+	// as it is (raw HTML in it sanitized to an allowlist), so a slice's page can
+	// be served with its README already in it. Images in the repository come
+	// back in data-repo-image (data-repo-srcset in a <picture>) instead of src,
+	// for the client to load through the API.
+	RenderFile(context.Context, *connect.Request[v1.RenderFileRequest]) (*connect.Response[v1.RenderFileResponse], error)
 	// ReadFiles reads many files at one commit in one call, so a checkout pays
 	// one round trip and one authorization per batch rather than per file. The
 	// files' sizes must total at most 32 MiB; larger files use ReadBlobStream.
@@ -123,6 +132,12 @@ func NewRepositoryServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			httpClient,
 			baseURL+RepositoryServiceReadFileProcedure,
 			connect.WithSchema(repositoryServiceMethods.ByName("ReadFile")),
+			connect.WithClientOptions(opts...),
+		),
+		renderFile: connect.NewClient[v1.RenderFileRequest, v1.RenderFileResponse](
+			httpClient,
+			baseURL+RepositoryServiceRenderFileProcedure,
+			connect.WithSchema(repositoryServiceMethods.ByName("RenderFile")),
 			connect.WithClientOptions(opts...),
 		),
 		readFiles: connect.NewClient[v1.ReadFilesRequest, v1.ReadFilesResponse](
@@ -187,6 +202,7 @@ type repositoryServiceClient struct {
 	resolvePath               *connect.Client[v1.ResolvePathRequest, v1.ResolvePathResponse]
 	listDirectory             *connect.Client[v1.ListDirectoryRequest, v1.ListDirectoryResponse]
 	readFile                  *connect.Client[v1.ReadFileRequest, v1.ReadFileResponse]
+	renderFile                *connect.Client[v1.RenderFileRequest, v1.RenderFileResponse]
 	readFiles                 *connect.Client[v1.ReadFilesRequest, v1.ReadFilesResponse]
 	checkout                  *connect.Client[v1.CheckoutRequest, v1.CheckoutResponse]
 	getCommit                 *connect.Client[v1.GetCommitRequest, v1.Commit]
@@ -211,6 +227,11 @@ func (c *repositoryServiceClient) ListDirectory(ctx context.Context, req *connec
 // ReadFile calls gitslice.core.v1.RepositoryService.ReadFile.
 func (c *repositoryServiceClient) ReadFile(ctx context.Context, req *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error) {
 	return c.readFile.CallUnary(ctx, req)
+}
+
+// RenderFile calls gitslice.core.v1.RepositoryService.RenderFile.
+func (c *repositoryServiceClient) RenderFile(ctx context.Context, req *connect.Request[v1.RenderFileRequest]) (*connect.Response[v1.RenderFileResponse], error) {
+	return c.renderFile.CallUnary(ctx, req)
 }
 
 // ReadFiles calls gitslice.core.v1.RepositoryService.ReadFiles.
@@ -263,6 +284,12 @@ type RepositoryServiceHandler interface {
 	ResolvePath(context.Context, *connect.Request[v1.ResolvePathRequest]) (*connect.Response[v1.ResolvePathResponse], error)
 	ListDirectory(context.Context, *connect.Request[v1.ListDirectoryRequest]) (*connect.Response[v1.ListDirectoryResponse], error)
 	ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error)
+	// RenderFile renders a Markdown file to HTML that is safe to put in a page
+	// as it is (raw HTML in it sanitized to an allowlist), so a slice's page can
+	// be served with its README already in it. Images in the repository come
+	// back in data-repo-image (data-repo-srcset in a <picture>) instead of src,
+	// for the client to load through the API.
+	RenderFile(context.Context, *connect.Request[v1.RenderFileRequest]) (*connect.Response[v1.RenderFileResponse], error)
 	// ReadFiles reads many files at one commit in one call, so a checkout pays
 	// one round trip and one authorization per batch rather than per file. The
 	// files' sizes must total at most 32 MiB; larger files use ReadBlobStream.
@@ -306,6 +333,12 @@ func NewRepositoryServiceHandler(svc RepositoryServiceHandler, opts ...connect.H
 		RepositoryServiceReadFileProcedure,
 		svc.ReadFile,
 		connect.WithSchema(repositoryServiceMethods.ByName("ReadFile")),
+		connect.WithHandlerOptions(opts...),
+	)
+	repositoryServiceRenderFileHandler := connect.NewUnaryHandler(
+		RepositoryServiceRenderFileProcedure,
+		svc.RenderFile,
+		connect.WithSchema(repositoryServiceMethods.ByName("RenderFile")),
 		connect.WithHandlerOptions(opts...),
 	)
 	repositoryServiceReadFilesHandler := connect.NewUnaryHandler(
@@ -370,6 +403,8 @@ func NewRepositoryServiceHandler(svc RepositoryServiceHandler, opts ...connect.H
 			repositoryServiceListDirectoryHandler.ServeHTTP(w, r)
 		case RepositoryServiceReadFileProcedure:
 			repositoryServiceReadFileHandler.ServeHTTP(w, r)
+		case RepositoryServiceRenderFileProcedure:
+			repositoryServiceRenderFileHandler.ServeHTTP(w, r)
 		case RepositoryServiceReadFilesProcedure:
 			repositoryServiceReadFilesHandler.ServeHTTP(w, r)
 		case RepositoryServiceCheckoutProcedure:
@@ -407,6 +442,10 @@ func (UnimplementedRepositoryServiceHandler) ListDirectory(context.Context, *con
 
 func (UnimplementedRepositoryServiceHandler) ReadFile(context.Context, *connect.Request[v1.ReadFileRequest]) (*connect.Response[v1.ReadFileResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.RepositoryService.ReadFile is not implemented"))
+}
+
+func (UnimplementedRepositoryServiceHandler) RenderFile(context.Context, *connect.Request[v1.RenderFileRequest]) (*connect.Response[v1.RenderFileResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.RepositoryService.RenderFile is not implemented"))
 }
 
 func (UnimplementedRepositoryServiceHandler) ReadFiles(context.Context, *connect.Request[v1.ReadFilesRequest]) (*connect.Response[v1.ReadFilesResponse], error) {

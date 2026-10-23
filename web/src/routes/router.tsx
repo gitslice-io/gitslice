@@ -24,12 +24,16 @@ import { RpcError } from "../api/client";
 import {
   sliceDirectoryQueryKey,
   sliceFileQueryKey,
-  slicePathQueryKey
+  slicePathQueryKey,
+  sliceRenderedFileQueryKey
 } from "../lib/sliceQueryKeys";
 import {
   isSliceProjectionDirectoryPath,
-  listDirectoryAll
+  listDirectoryAll,
+  normalizeRepositoryPath
 } from "../components/source/sourceUtils";
+import { findNestedReadme, nestedReadmeQueryKey, onlyDirectory } from "./slice-detail/nestedReadme";
+import { findReadmeEntry, README_MAX_BYTES } from "./slice-detail/readme";
 import { initialTreeExpansion, pathSearchValue } from "./slice-detail/sourceTree";
 import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
@@ -428,6 +432,28 @@ const sliceDetailRoute = createRoute({
                   slice: sliceRef
                 })
             });
+          // A folder's README is part of its page: find it as the page does
+          // (through single-folder levels), and ask the server for it
+          // rendered, so the page is served with it.
+          const readmeFor = async (path: string) => {
+            const entries = await listing(path);
+            const readme = await findNestedReadme(entries, listing);
+            const only = findReadmeEntry(entries) ? undefined : onlyDirectory(entries);
+            if (only) {
+              context.queryClient.setQueryData(
+                nestedReadmeQueryKey(sliceRef, commitId, normalizeRepositoryPath(only.path ?? "")),
+                readme ?? null
+              );
+            }
+            if (!readme || Number(readme.size) > README_MAX_BYTES) {
+              return;
+            }
+            const readmePath = normalizeRepositoryPath(readme.path ?? "");
+            await context.queryClient.ensureQueryData({
+              queryKey: sliceRenderedFileQueryKey(sliceRef, commitId, readmePath),
+              queryFn: () => api.renderFile({ commitId, path: readmePath, slice: sliceRef })
+            });
+          };
           const navigatorPaths = new Set(
             initialTreeExpansion(selectedPath, includedPaths, false)
           );
@@ -443,7 +469,7 @@ const sliceDetailRoute = createRoute({
                 .then((resolved): Promise<unknown> | undefined => {
                   const kind = resolved.entry?.kind;
                   if (kind === "ENTRY_KIND_DIRECTORY") {
-                    return listing(selectedPath);
+                    return readmeFor(selectedPath);
                   }
                   if (kind === "ENTRY_KIND_FILE") {
                     return context.queryClient.ensureQueryData({
@@ -455,8 +481,9 @@ const sliceDetailRoute = createRoute({
                   return undefined;
                 })
             );
-          } else if (selectedPath) {
-            work.push(listing(selectedPath));
+          } else {
+            // A projected folder, or the slice's root.
+            work.push(readmeFor(selectedPath));
           }
           await Promise.race([
             Promise.allSettled(work),

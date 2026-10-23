@@ -19,3 +19,7 @@ export function sliceDirectoryQueryKey(ref: SliceRef | undefined, commitId: stri
 export function sliceFileQueryKey(ref: SliceRef | undefined, commitId: string, path: string) {
   return ["sliceFile", ...refParts(ref), commitId, path] as const;
 }
+
+export function sliceRenderedFileQueryKey(ref: SliceRef | undefined, commitId: string, path: string) {
+  return ["sliceRenderedFile", ...refParts(ref), commitId, path] as const;
+}

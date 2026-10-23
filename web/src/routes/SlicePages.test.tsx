@@ -5,7 +5,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { marked } from "marked";
+
 import { RpcError } from "../api/client";
+import { decodeBase64File } from "../components/source/sourceUtils";
+import { markRepoImages, projectRoot } from "../lib/repoLinks";
 import { AccountPage } from "./AccountPage";
 import { HomePage } from "./HomePage";
 import { NewOrganizationPage } from "./NewOrganizationPage";
@@ -1132,7 +1136,7 @@ function makeApi() {
     definitionHash: "sha256:abc",
     ciDaemonId: ""
   };
-  return {
+  const api = {
     resolveSlice: vi.fn().mockResolvedValue(slice),
     getSlice: vi.fn().mockResolvedValue(slice),
     listSlices: vi.fn().mockResolvedValue({ slices: [slice], nextCursor: "" }),
@@ -1172,4 +1176,15 @@ function makeApi() {
     updateChangeset: vi.fn(),
     createChangeset: vi.fn()
   };
+  // The server renders a README (RenderFile); here it is rendered from what
+  // readFile gives, as the server does: Markdown, then repository images
+  // marked for the viewer to load.
+  return Object.assign(api, {
+    renderFile: vi.fn(async (request: { commitId?: string; path?: string; slice?: unknown }) => {
+      const read = await (api as unknown as { readFile(r: unknown): Promise<{ data?: string }> }).readFile(request);
+      const path = request.path ?? "";
+      const html = marked(decodeBase64File(read.data), { async: false }) as string;
+      return { html: markRepoImages(html, path.slice(0, path.lastIndexOf("/")), projectRoot(["/nic"], path)) };
+    })
+  });
 }

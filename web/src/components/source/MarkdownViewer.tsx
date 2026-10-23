@@ -11,7 +11,13 @@ interface MarkdownRenderState {
 }
 
 interface MarkdownViewerProps {
-  source: string;
+  // The document's Markdown, rendered and sanitized here, in the browser.
+  source?: string;
+  // Or the document already rendered and sanitized by the server
+  // (RenderFile), shown as it is on the first render (on the server and in
+  // the browser alike, so a server-rendered page hydrates without a
+  // mismatch), then with its <picture>s resolved for the site's theme.
+  html?: string;
   // When the document lives in a repository directory, its relative links open
   // that path in the app (instead of resolving against the page's own address),
   // and its relative images are loaded from the repository with loadImage
@@ -27,10 +33,10 @@ interface MarkdownViewerProps {
   };
 }
 
-export function MarkdownViewer({ source, links }: MarkdownViewerProps): JSX.Element {
+export function MarkdownViewer({ source = "", html: serverHtml, links }: MarkdownViewerProps): JSX.Element {
   const [rendered, setRendered] = useState<MarkdownRenderState>({
     error: false,
-    html: null
+    html: serverHtml ?? null
   });
   const imageDirectory = links?.directory;
   const imageRoot = links?.root;
@@ -43,6 +49,18 @@ export function MarkdownViewer({ source, links }: MarkdownViewerProps): JSX.Elem
   }, []);
 
   useEffect(() => {
+    if (serverHtml === undefined) {
+      return;
+    }
+    // Already safe: only the theme's choice of picture is left to make.
+    const html = resolvePictures(serverHtml, dark);
+    setRendered((current) => (current.html === html && !current.error ? current : { error: false, html }));
+  }, [serverHtml, dark]);
+
+  useEffect(() => {
+    if (serverHtml !== undefined) {
+      return;
+    }
     let active = true;
 
     async function renderMarkdown() {
@@ -71,7 +89,7 @@ export function MarkdownViewer({ source, links }: MarkdownViewerProps): JSX.Elem
     return () => {
       active = false;
     };
-  }, [source, imageDirectory, imageRoot, dark]);
+  }, [source, imageDirectory, imageRoot, dark, serverHtml]);
 
   const container = useRef<HTMLDivElement>(null);
   const linkDirectory = links?.directory;

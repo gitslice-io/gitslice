@@ -5,13 +5,12 @@ import type { SliceRef, TreeEntry } from "../../api/types";
 import { MarkdownViewer } from "../../components/source/MarkdownViewer";
 import { useRepoImageLoader } from "../../components/source/useRepoImageLoader";
 import {
-  decodeBase64File,
   entryDisplayName,
   formatSize,
   normalizeRepositoryPath
 } from "../../components/source/sourceUtils";
 import { projectRoot } from "../../lib/repoLinks";
-import { sliceFileQueryKey } from "../../lib/sliceQueryKeys";
+import { sliceRenderedFileQueryKey } from "../../lib/sliceQueryKeys";
 import { README_MAX_BYTES } from "./readme";
 
 interface FolderReadmeProps {
@@ -33,13 +32,16 @@ export function FolderReadme({ canEdit, commitId, entry, includedPaths, label, o
   const directory = path.slice(0, path.lastIndexOf("/"));
   const name = entryDisplayName(entry);
   const tooLarge = Number(entry.size) > README_MAX_BYTES;
+  // Rendered and sanitized by the server, which the page's own server render
+  // also asks for, so a README arrives with the page.
   const query = useQuery({
     enabled: Boolean(commitId && sliceRef?.account && sliceRef?.slice) && !tooLarge,
-    // The file view reads the same key, so opening the README is instant.
-    queryKey: sliceFileQueryKey(sliceRef, commitId, path),
-    queryFn: () => api.readFile({ commitId, path, slice: sliceRef })
+    queryKey: sliceRenderedFileQueryKey(sliceRef, commitId, path),
+    queryFn: () => api.renderFile({ commitId, path, slice: sliceRef }),
+    // A commit's file never changes.
+    staleTime: Number.POSITIVE_INFINITY
   });
-  const source = decodeBase64File(query.data?.data);
+  const html = query.data?.html ?? "";
   const loadImage = useRepoImageLoader(commitId, sliceRef);
 
   let body;
@@ -64,10 +66,10 @@ export function FolderReadme({ canEdit, commitId, entry, includedPaths, label, o
         <div className="h-4 w-2/3 animate-pulse rounded bg-slate-100 dark:bg-zinc-800" />
       </div>
     );
-  } else if (!source.trim()) {
+  } else if (!html.trim()) {
     body = <p className="p-4 text-sm text-slate-600 dark:text-zinc-400">{name} is empty.</p>;
   } else {
-    body = <MarkdownViewer links={{ directory, loadImage, onOpenPath: onSelectPath, root: projectRoot(includedPaths, path) }} source={source} />;
+    body = <MarkdownViewer html={html} links={{ directory, loadImage, onOpenPath: onSelectPath, root: projectRoot(includedPaths, path) }} />;
   }
 
   return (

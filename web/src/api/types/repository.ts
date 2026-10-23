@@ -58,6 +58,20 @@ export interface ReadFileRequest {
   slice?: SliceRef;
 }
 
+export interface RenderFileRequest {
+  commitId?: string;
+  path?: string;
+  slice?: SliceRef;
+}
+
+// RenderFileResponse is a Markdown file as safe HTML, rendered and sanitized by
+// the server; repository images carry data-repo-image (data-repo-srcset in a
+// <picture>) instead of src.
+export interface RenderFileResponse {
+  html?: string;
+  contentHash?: string;
+}
+
 export interface ReadFileResponse {
   data?: Base64String;
   offset?: Int64String;

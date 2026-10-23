@@ -116,6 +116,33 @@ func local_request_RepositoryService_ReadFile_0(ctx context.Context, marshaler r
 	return msg, metadata, err
 }
 
+func request_RepositoryService_RenderFile_0(ctx context.Context, marshaler runtime.Marshaler, client RepositoryServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq RenderFileRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	msg, err := client.RenderFile(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_RepositoryService_RenderFile_0(ctx context.Context, marshaler runtime.Marshaler, server RepositoryServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq RenderFileRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.RenderFile(ctx, &protoReq)
+	return msg, metadata, err
+}
+
 func request_RepositoryService_ReadFiles_0(ctx context.Context, marshaler runtime.Marshaler, client RepositoryServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq ReadFilesRequest
@@ -417,6 +444,26 @@ func RegisterRepositoryServiceHandlerServer(ctx context.Context, mux *runtime.Se
 		}
 		forward_RepositoryService_ReadFile_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_RepositoryService_RenderFile_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/gitslice.core.v1.RepositoryService/RenderFile", runtime.WithHTTPPathPattern("/gitslice.core.v1.RepositoryService/RenderFile"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_RepositoryService_RenderFile_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_RepositoryService_RenderFile_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodPost, pattern_RepositoryService_ReadFiles_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -662,6 +709,23 @@ func RegisterRepositoryServiceHandlerClient(ctx context.Context, mux *runtime.Se
 		}
 		forward_RepositoryService_ReadFile_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_RepositoryService_RenderFile_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/gitslice.core.v1.RepositoryService/RenderFile", runtime.WithHTTPPathPattern("/gitslice.core.v1.RepositoryService/RenderFile"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_RepositoryService_RenderFile_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_RepositoryService_RenderFile_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodPost, pattern_RepositoryService_ReadFiles_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -822,6 +886,7 @@ var (
 	pattern_RepositoryService_ResolvePath_0               = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.RepositoryService", "ResolvePath"}, ""))
 	pattern_RepositoryService_ListDirectory_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.RepositoryService", "ListDirectory"}, ""))
 	pattern_RepositoryService_ReadFile_0                  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.RepositoryService", "ReadFile"}, ""))
+	pattern_RepositoryService_RenderFile_0                = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.RepositoryService", "RenderFile"}, ""))
 	pattern_RepositoryService_ReadFiles_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.RepositoryService", "ReadFiles"}, ""))
 	pattern_RepositoryService_Checkout_0                  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.RepositoryService", "Checkout"}, ""))
 	pattern_RepositoryService_GetCommit_0                 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.RepositoryService", "GetCommit"}, ""))
@@ -837,6 +902,7 @@ var (
 	forward_RepositoryService_ResolvePath_0               = runtime.ForwardResponseMessage
 	forward_RepositoryService_ListDirectory_0             = runtime.ForwardResponseMessage
 	forward_RepositoryService_ReadFile_0                  = runtime.ForwardResponseMessage
+	forward_RepositoryService_RenderFile_0                = runtime.ForwardResponseMessage
 	forward_RepositoryService_ReadFiles_0                 = runtime.ForwardResponseMessage
 	forward_RepositoryService_Checkout_0                  = runtime.ForwardResponseStream
 	forward_RepositoryService_GetCommit_0                 = runtime.ForwardResponseMessage

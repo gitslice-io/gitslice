@@ -205,6 +205,10 @@ func (a connectRepositoryAdapter) ReadFile(ctx context.Context, req *connect.Req
 	return connectResponse(a.svc.ReadFile(ctx, req.Msg))
 }
 
+func (a connectRepositoryAdapter) RenderFile(ctx context.Context, req *connect.Request[corev1.RenderFileRequest]) (*connect.Response[corev1.RenderFileResponse], error) {
+	return connectResponse(a.svc.RenderFile(ctx, req.Msg))
+}
+
 func (a connectRepositoryAdapter) ReadFiles(ctx context.Context, req *connect.Request[corev1.ReadFilesRequest]) (*connect.Response[corev1.ReadFilesResponse], error) {
 	return connectResponse(a.svc.ReadFiles(ctx, req.Msg))
 }

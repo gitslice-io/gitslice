@@ -647,3 +647,24 @@ Not in web MVP:
 - workspace management UI
 - repository migration tooling
 - IDE plugin surfaces
+
+## Server-rendered READMEs (2026-10-23)
+
+A slice's page was server-rendered except its README, which the browser
+rendered (marked, then DOMPurify) after hydration, so the served HTML had a
+loading skeleton where the README goes. DOMPurify cannot run in the
+Cloudflare Worker that renders pages: there is no DOM, and with `linkedom` it
+silently returns its input unsanitized (`<script>`, `onerror` and
+`javascript:` links kept), so it is not used there.
+
+The API renders READMEs instead: `RepositoryService.RenderFile`
+(`internal/markdown`) turns Markdown into HTML with goldmark (GitHub-flavored,
+raw HTML allowed), marks repository images (`data-repo-image`, and
+`data-repo-srcset` for a `<picture>` source) and adds `target`/`rel` to links
+as the viewer does, then sanitizes with bluemonday last, so nothing after the
+sanitizer can reintroduce markup. The route's server loader finds the folder's
+README as the page does (through single-folder levels) and fetches it rendered
+within its prefetch budget; the viewer shows that HTML as it is on its first
+render, on the server and in the browser alike, and only resolves `<picture>`
+sources for the site's theme afterwards. Opening a `.md` file still renders it
+in the browser.

@@ -11,6 +11,12 @@ service RepositoryService {
   rpc ResolvePath(ResolvePathRequest) returns (ResolvePathResponse);
   rpc ListDirectory(ListDirectoryRequest) returns (ListDirectoryResponse);
   rpc ReadFile(ReadFileRequest) returns (ReadFileResponse);
+  // RenderFile renders a Markdown file to HTML that is safe to put in a page
+  // as it is (raw HTML in it sanitized to an allowlist), so a slice's page can
+  // be served with its README already in it. Images in the repository come
+  // back in data-repo-image (data-repo-srcset in a <picture>) instead of src,
+  // for the client to load through the API.
+  rpc RenderFile(RenderFileRequest) returns (RenderFileResponse);
   // ReadFiles reads many files at one commit in one call, so a checkout pays
   // one round trip and one authorization per batch rather than per file. The
   // files' sizes must total at most 32 MiB; larger files use ReadBlobStream.
@@ -116,6 +122,19 @@ message ReadFileRequest {
   // Optional slice projection. When set, read authorization is evaluated
   // through this slice and the requested file must be included by it.
   SliceRef slice = 6;
+}
+
+message RenderFileRequest {
+  string commit_id = 1;
+  string path = 2;
+  // Optional slice projection, as for ReadFile; it also sets the project
+  // root that root-absolute image paths are relative to.
+  SliceRef slice = 3;
+}
+
+message RenderFileResponse {
+  string html = 1;
+  string content_hash = 2;
 }
 
 message ReadFileResponse {

@@ -22,6 +22,7 @@ const (
 	RepositoryService_ResolvePath_FullMethodName               = "/gitslice.core.v1.RepositoryService/ResolvePath"
 	RepositoryService_ListDirectory_FullMethodName             = "/gitslice.core.v1.RepositoryService/ListDirectory"
 	RepositoryService_ReadFile_FullMethodName                  = "/gitslice.core.v1.RepositoryService/ReadFile"
+	RepositoryService_RenderFile_FullMethodName                = "/gitslice.core.v1.RepositoryService/RenderFile"
 	RepositoryService_ReadFiles_FullMethodName                 = "/gitslice.core.v1.RepositoryService/ReadFiles"
 	RepositoryService_Checkout_FullMethodName                  = "/gitslice.core.v1.RepositoryService/Checkout"
 	RepositoryService_GetCommit_FullMethodName                 = "/gitslice.core.v1.RepositoryService/GetCommit"
@@ -40,6 +41,12 @@ type RepositoryServiceClient interface {
 	ResolvePath(ctx context.Context, in *ResolvePathRequest, opts ...grpc.CallOption) (*ResolvePathResponse, error)
 	ListDirectory(ctx context.Context, in *ListDirectoryRequest, opts ...grpc.CallOption) (*ListDirectoryResponse, error)
 	ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (*ReadFileResponse, error)
+	// RenderFile renders a Markdown file to HTML that is safe to put in a page
+	// as it is (raw HTML in it sanitized to an allowlist), so a slice's page can
+	// be served with its README already in it. Images in the repository come
+	// back in data-repo-image (data-repo-srcset in a <picture>) instead of src,
+	// for the client to load through the API.
+	RenderFile(ctx context.Context, in *RenderFileRequest, opts ...grpc.CallOption) (*RenderFileResponse, error)
 	// ReadFiles reads many files at one commit in one call, so a checkout pays
 	// one round trip and one authorization per batch rather than per file. The
 	// files' sizes must total at most 32 MiB; larger files use ReadBlobStream.
@@ -89,6 +96,15 @@ func (c *repositoryServiceClient) ListDirectory(ctx context.Context, in *ListDir
 func (c *repositoryServiceClient) ReadFile(ctx context.Context, in *ReadFileRequest, opts ...grpc.CallOption) (*ReadFileResponse, error) {
 	out := new(ReadFileResponse)
 	err := c.cc.Invoke(ctx, RepositoryService_ReadFile_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *repositoryServiceClient) RenderFile(ctx context.Context, in *RenderFileRequest, opts ...grpc.CallOption) (*RenderFileResponse, error) {
+	out := new(RenderFileResponse)
+	err := c.cc.Invoke(ctx, RepositoryService_RenderFile_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -229,6 +245,12 @@ type RepositoryServiceServer interface {
 	ResolvePath(context.Context, *ResolvePathRequest) (*ResolvePathResponse, error)
 	ListDirectory(context.Context, *ListDirectoryRequest) (*ListDirectoryResponse, error)
 	ReadFile(context.Context, *ReadFileRequest) (*ReadFileResponse, error)
+	// RenderFile renders a Markdown file to HTML that is safe to put in a page
+	// as it is (raw HTML in it sanitized to an allowlist), so a slice's page can
+	// be served with its README already in it. Images in the repository come
+	// back in data-repo-image (data-repo-srcset in a <picture>) instead of src,
+	// for the client to load through the API.
+	RenderFile(context.Context, *RenderFileRequest) (*RenderFileResponse, error)
 	// ReadFiles reads many files at one commit in one call, so a checkout pays
 	// one round trip and one authorization per batch rather than per file. The
 	// files' sizes must total at most 32 MiB; larger files use ReadBlobStream.
@@ -261,6 +283,9 @@ func (UnimplementedRepositoryServiceServer) ListDirectory(context.Context, *List
 }
 func (UnimplementedRepositoryServiceServer) ReadFile(context.Context, *ReadFileRequest) (*ReadFileResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReadFile not implemented")
+}
+func (UnimplementedRepositoryServiceServer) RenderFile(context.Context, *RenderFileRequest) (*RenderFileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RenderFile not implemented")
 }
 func (UnimplementedRepositoryServiceServer) ReadFiles(context.Context, *ReadFilesRequest) (*ReadFilesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ReadFiles not implemented")
@@ -351,6 +376,24 @@ func _RepositoryService_ReadFile_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RepositoryServiceServer).ReadFile(ctx, req.(*ReadFileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _RepositoryService_RenderFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RenderFileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RepositoryServiceServer).RenderFile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: RepositoryService_RenderFile_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RepositoryServiceServer).RenderFile(ctx, req.(*RenderFileRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -541,6 +584,10 @@ var RepositoryService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ReadFile",
 			Handler:    _RepositoryService_ReadFile_Handler,
+		},
+		{
+			MethodName: "RenderFile",
+			Handler:    _RepositoryService_RenderFile_Handler,
 		},
 		{
 			MethodName: "ReadFiles",
