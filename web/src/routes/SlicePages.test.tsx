@@ -366,14 +366,17 @@ describe("slice route pages (render smoke)", () => {
     const dir = { kind: "ENTRY_KIND_DIRECTORY", name: "nic", path: "/nic" };
     const file = (name: string) => ({ kind: "ENTRY_KIND_FILE", name, path: `/nic/${name}`, size: "20" });
 
-    it("shows the root's README first and the tree below it", async () => {
+    it("puts the Files bar above the README on a phone, so the tree is not at the end of it", async () => {
       rootApi({ "": [dir], "/nic": [file("README.md"), file("main.go")] });
       renderRoute(<SliceDetailPage />);
       const heading = await screen.findByRole("heading", { name: "Hello root" }, { timeout: 5000 });
-      // The README's column leads on a phone, and is not hidden there.
-      const column = heading.closest(".max-lg\\:order-first");
+      // On a phone: the Files bar, the tree it opens, then the README, which
+      // is not hidden there.
+      const column = heading.closest(".max-lg\\:order-3");
       expect(column).not.toBeNull();
       expect(column?.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+      expect(screen.getByRole("button", { name: /^Files/ }).className).toMatch(/(^|\s)order-1(\s|$)/);
+      expect(document.getElementById("slice-file-tree-panel")?.className).toMatch(/max-lg:order-2/);
     });
 
     it("folds the whole tree behind a Files bar under the README, until asked for", async () => {

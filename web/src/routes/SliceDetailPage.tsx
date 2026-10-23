@@ -406,10 +406,11 @@ export function SliceDetailPage() {
       ? "block"
       : "hidden";
   const phoneTreeBar = !selectedPath && (readmeExpected || treeChoice !== null);
-  // At the root of a slice on a phone the README, when the root has one, comes
-  // first and the tree below it; with none, the tree alone is the page (the
-  // folder listing would repeat it).
-  const workspaceVisibility = selectedPath ? "block" : "block max-lg:order-first";
+  // At the root of a slice on a phone the README, when the root has one, is the
+  // page; with none, the tree alone is (the folder listing would repeat it).
+  // With a README the phone's order is the Files bar, the tree it opens (right
+  // under it, not at the end of a long README), then the README.
+  const workspaceVisibility = selectedPath ? "block" : phoneTreeBar ? "block max-lg:order-3" : "block max-lg:order-first";
   const sliceCrumbs = sliceBreadcrumbItems(sliceRef, accounts);
 
   const workspace = (
