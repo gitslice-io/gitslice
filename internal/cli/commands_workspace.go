@@ -86,7 +86,31 @@ matching files in the background; --read-only refuses writes.`,
 		},
 	}
 	workspaceSyncCmd.Flags().StringVar(&opts.SyncMerge, "merge", defaultWorkspaceSyncMergeStrategy, "merge strategy for same-path changes: line, manual, ours, or theirs")
-	workspaceCmd.AddCommand(workspaceInitCmd, workspaceHydrateCmd, workspaceSyncCmd)
+	workspaceDeleteForce := false
+	workspaceDeleteCmd := &cobra.Command{
+		Use:     "delete [dir]",
+		Aliases: []string{"rm", "remove"},
+		Short:   "Delete a workspace from this machine: unmount a lazy one, or remove a checkout",
+		Long: `Delete a workspace from this machine (default: the one at the current
+directory). A lazy workspace is unmounted, its local state (edits, checkpoints)
+deleted, and its mount directory removed if it is empty. A checkout's directory
+is removed, with everything in it.
+
+It refuses while the workspace has local edits that no changeset holds, and
+names them: run gs create to keep them, or pass --force to discard them.
+Changesets already created or submitted are on the server and are not touched.
+Pass the workspace's own directory, not a folder inside it.`,
+		Args: maxArgs(1, "gs workspace delete [dir] [--force]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			dir := ""
+			if len(args) > 0 {
+				dir = args[0]
+			}
+			return r.runWorkspaceDelete(cmd.Context(), *opts, dir, workspaceDeleteForce)
+		},
+	}
+	workspaceDeleteCmd.Flags().BoolVar(&workspaceDeleteForce, "force", false, "delete even when there are local edits no changeset holds, discarding them")
+	workspaceCmd.AddCommand(workspaceInitCmd, workspaceHydrateCmd, workspaceSyncCmd, workspaceDeleteCmd)
 
 	syncCmd := &cobra.Command{
 		Use:   "sync",

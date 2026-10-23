@@ -228,9 +228,11 @@ workspace. `gs fetch` fetches ahead of time for offline work, and
 background. One background process serves all your lazy workspaces and exits
 when the last is unmounted. `gs unmount <dir>` unmounts one, keeping its edits,
 and `gs mount <dir>` brings it back (after a reboot too); `gs mount list` shows
-them all and `gs mount discard <dir> --yes` deletes one with its edits. The
-directory must be empty and not inside another workspace. Without FUSE, use
-plain `gs init`.
+them all. When you are done with a workspace, lazy or not,
+`gs workspace delete <dir>` removes it from this machine (unmounting a lazy one);
+it refuses while there are edits no changeset holds, so `gs create` first or
+pass `--force` to discard them. The directory must be empty and not inside
+another workspace. Without FUSE, use plain `gs init`.
 
 ## Go modules
 

@@ -252,7 +252,7 @@ func (r Runner) runUnmount(ctx context.Context, opts commandOptions, selector st
 		return r.writeJSONOutput(opts, map[string]any{"id": rec.ID, "mount_path": rec.MountPath, "unmounted": true})
 	}
 	if !opts.Quiet {
-		fmt.Fprintf(r.Stdout, "unmounted %s; the workspace is kept (gs mount %s:%s %s re-attaches it)\n", rec.MountPath, rec.Account, rec.Slice, rec.MountPath)
+		fmt.Fprintf(r.Stdout, "unmounted %s; the workspace is kept (gs mount %s:%s %s re-attaches it, gs workspace delete %s deletes it)\n", rec.MountPath, rec.Account, rec.Slice, rec.MountPath, rec.MountPath)
 	}
 	return nil
 }

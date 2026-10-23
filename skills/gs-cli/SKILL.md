@@ -174,6 +174,7 @@ gs restore path/to/file                 # drop a local edit (or --all)
 gs checkpoint -m "before the refactor"  # save the edits on this machine; also automatic before sync/switch/restore/rewind
 gs rewind                               # back to the newest checkpoint that differs (gs rewind <n> for one); undoable
 gs fork <n> ../try-b                    # a second lazy workspace showing checkpoint n, to try another way
+gs workspace delete ~/w/payment         # done with it: unmount and delete (a checkout's directory too); refuses while edits no changeset holds remain (--force discards them)
 gs create --all --message "..." --submit
 gs sync                                 # moves the base; files nobody changed cost nothing
 gs fetch                                # fetch everything now, for offline work or a build

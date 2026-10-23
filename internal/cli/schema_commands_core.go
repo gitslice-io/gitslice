@@ -290,6 +290,15 @@ func schemaWorkspaceCommands() []map[string]any {
 			"machine_output": []string{"files", "fetched", "fetched_bytes", "already_cached"},
 		},
 		{
+			"use":            "gs workspace delete [dir]",
+			"summary":        "delete a workspace from this machine: unmount a lazy one and delete its state, or remove a checkout; refuses while it has local edits no changeset holds unless --force",
+			"aliases":        []string{"gs ws delete [dir]", "gs workspace rm [dir]"},
+			"args":           []string{"dir"},
+			"flags":          []string{"--force"},
+			"writes_stdout":  true,
+			"machine_output": []string{"path", "kind", "slice", "deleted", "discarded_edits"},
+		},
+		{
 			"use":            "gs workspace hydrate <path> [path...]",
 			"summary":        "hydrate workspace files through the client object cache",
 			"aliases":        []string{"gs ws hydrate <path> [path...]"},
