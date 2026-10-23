@@ -36,8 +36,10 @@ export function UnifiedDiff({
   );
 
   return (
-    <pre className="overflow-x-auto bg-white dark:bg-zinc-900 text-xs leading-4 md:text-[13px]">
-      <code className="block min-w-max py-1.5">
+    // Long lines wrap inside the viewport (no horizontal scrolling); a wrapped
+    // line keeps its number on the first visual row.
+    <pre className="bg-white dark:bg-zinc-900 text-xs leading-4 md:text-[13px]">
+      <code className="block py-1.5">
         {segments.map((segment) =>
           segment.type === "gap" ? (
             <ExpandSeparator
@@ -53,7 +55,7 @@ export function UnifiedDiff({
                 return (
                   <span
                     className={cn(
-                      "grid min-h-4 grid-cols-[1.75rem_minmax(0,1fr)] whitespace-pre px-1.5 sm:grid-cols-[3.5rem_3.5rem_minmax(0,1fr)] sm:px-4",
+                      "grid min-h-4 grid-cols-[1.75rem_minmax(0,1fr)] px-1.5 sm:grid-cols-[3.5rem_3.5rem_minmax(0,1fr)] sm:px-4",
                       diffLineClass(line.kind)
                     )}
                     key={`${index}-${line.text}`}
@@ -64,7 +66,9 @@ export function UnifiedDiff({
                     <span className="select-none pr-1 text-right text-[10px] text-slate-400 dark:text-zinc-500 sm:pr-3 sm:text-xs">
                       {line.newNumber ?? ""}
                     </span>
-                    <span>{line.text || " "}</span>
+                    <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">
+                      {line.text || " "}
+                    </span>
                   </span>
                 );
               })}

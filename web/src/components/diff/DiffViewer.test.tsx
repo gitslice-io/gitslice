@@ -50,6 +50,41 @@ describe("DiffViewer", () => {
     ).toBeInTheDocument();
   });
 
+  it("wraps long lines to the panel width instead of scrolling sideways", () => {
+    const long = `const x = "${"a".repeat(400)}";`;
+    const diff = [
+      "diff --git a/long.ts b/long.ts",
+      "--- a/long.ts",
+      "+++ b/long.ts",
+      "@@ -1 +1 @@",
+      "-const x = 1;",
+      `+${long}`,
+      ""
+    ].join("\n");
+
+    const { container } = render(
+      <DiffViewer
+        diffResponse={{ changedPaths: ["long.ts"], diff }}
+        error={null}
+        isError={false}
+        isLoading={false}
+      />
+    );
+
+    const expectWrapped = (text: string) => {
+      expect(container.querySelector(".overflow-x-auto")).toBeNull();
+      expect(container.querySelector(".min-w-max, .w-max")).toBeNull();
+      expect(screen.getByText(text)).toHaveClass(
+        "whitespace-pre-wrap",
+        "[overflow-wrap:anywhere]"
+      );
+    };
+
+    expectWrapped(`+${long}`);
+    fireEvent.click(screen.getByRole("button", { name: "split" }));
+    expectWrapped(long);
+  });
+
   it("offers each file in full, with its change kind and old path", () => {
     const diff = [
       "diff --git a/old.go b/new.go",

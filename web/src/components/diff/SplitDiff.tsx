@@ -47,8 +47,8 @@ export function SplitDiff({
   }
 
   return (
-    <div className="overflow-x-auto bg-white dark:bg-zinc-900 text-xs leading-4 md:text-[13px]">
-      <div className="grid w-max min-w-full grid-cols-[1.75rem_minmax(16rem,max-content)_1.75rem_minmax(16rem,max-content)_1fr] py-1.5 sm:grid-cols-[3.5rem_minmax(24rem,max-content)_3.5rem_minmax(24rem,max-content)_1fr]">
+    <div className="bg-white dark:bg-zinc-900 text-xs leading-4 md:text-[13px]">
+      <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_1.75rem_minmax(0,1fr)] py-1.5 sm:grid-cols-[3.5rem_minmax(0,1fr)_3.5rem_minmax(0,1fr)]">
         {segments.map((segment) =>
           segment.type === "gap" ? (
             <ExpandSeparator
@@ -72,16 +72,16 @@ export function SplitDiff({
 }
 
 // Renders one split-view row as bare grid cells (a fragment, not a wrapper) so
-// every cell is a direct child of the single shared grid in SplitDiff. Direct
-// children make the `max-content` code columns size to the widest line and stay
-// aligned across rows, with one horizontal scrollbar — subgrid did neither
-// reliably on mobile Safari.
+// every cell is a direct child of the single shared grid in SplitDiff. The two
+// code columns split the panel width evenly and long lines wrap inside them, so
+// the two sides of a row stay the same height and nothing scrolls sideways —
+// subgrid did not align rows reliably on mobile Safari.
 function SplitRow({ row }: { row: DiffRow }) {
   if (row.kind === "hunk" || row.kind === "meta") {
     return (
       <div
         className={cn(
-          "col-span-full border-t border-slate-100 dark:border-zinc-800 px-4 py-0.5 font-mono",
+          "col-span-full whitespace-pre-wrap border-t border-slate-100 px-4 py-0.5 font-mono [overflow-wrap:anywhere] dark:border-zinc-800",
           row.kind === "hunk" && row.hunkText?.startsWith("@@")
             ? "bg-sky-50 dark:bg-sky-950/30 text-sky-700 dark:text-sky-300"
             : "bg-slate-50 dark:bg-zinc-950 text-slate-500 dark:text-zinc-400"
@@ -102,7 +102,6 @@ function SplitRow({ row }: { row: DiffRow }) {
         line={row.right}
         tone={row.kind === "add" || row.kind === "replace" ? "add" : "context"}
       />
-      <div className="border-t border-slate-100 dark:border-zinc-800 bg-white dark:bg-zinc-900" />
     </>
   );
 }
@@ -133,13 +132,18 @@ function SplitCell({
     <>
       <span
         className={cn(
-          "min-h-4 select-none whitespace-pre pl-2 pr-1 text-right text-[10px] text-slate-400 dark:text-zinc-500 sm:pl-4 sm:pr-3 sm:text-xs",
+          "min-h-4 select-none pl-2 pr-1 text-right text-[10px] text-slate-400 dark:text-zinc-500 sm:pl-4 sm:pr-3 sm:text-xs",
           toneClass
         )}
       >
         {tone === "add" ? line.newNumber : line.oldNumber}
       </span>
-      <span className={cn("min-h-4 whitespace-pre pr-2 font-mono sm:pr-4", toneClass)}>
+      <span
+        className={cn(
+          "min-h-4 min-w-0 whitespace-pre-wrap pr-2 font-mono [overflow-wrap:anywhere] sm:pr-4",
+          toneClass
+        )}
+      >
         {line.content || " "}
       </span>
     </>
