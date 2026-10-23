@@ -396,21 +396,25 @@ export function SliceDetailPage() {
     .filter(Boolean);
   const createDirectory =
     selectedPath || (projectedRoots.length === 1 ? projectedRoots[0] : "");
-  // On a phone a folder's page has no tree (the bar at the top goes back to
-  // the root's); the root has it, folded behind a bar when a README is shown.
-  const treePanelVisibility = selectedPath
+  // On a phone the tree is behind a Files bar on a page whose README has the
+  // page to itself, at the root or in a folder; on other pages the phone has
+  // the "← Files" button at the top (a folder's own listing is on the page).
+  // At the root with no README the open tree is the page.
+  const phoneTreeBar = readmeExpected || (!selectedPath && treeChoice !== null);
+  const treePanelVisibility = phoneTreeBar
     ? showTree
-      ? "hidden lg:block"
-      : "hidden"
-    : showTree
       ? "block"
-      : "hidden";
-  const phoneTreeBar = !selectedPath && (readmeExpected || treeChoice !== null);
-  // At the root of a slice on a phone the README, when the root has one, is the
-  // page; with none, the tree alone is (the folder listing would repeat it).
+      : "hidden"
+    : selectedPath
+      ? showTree
+        ? "hidden lg:block"
+        : "hidden"
+      : showTree
+        ? "block"
+        : "hidden";
   // With a README the phone's order is the Files bar, the tree it opens (right
   // under it, not at the end of a long README), then the README.
-  const workspaceVisibility = selectedPath ? "block" : phoneTreeBar ? "block max-lg:order-3" : "block max-lg:order-first";
+  const workspaceVisibility = phoneTreeBar ? "block max-lg:order-3" : selectedPath ? "block" : "block max-lg:order-first";
   const sliceCrumbs = sliceBreadcrumbItems(sliceRef, accounts);
 
   const workspace = (

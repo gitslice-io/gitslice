@@ -507,7 +507,7 @@ describe("slice route pages (render smoke)", () => {
       expect(rail.className).toMatch(/lg:flex/);
       expect(document.getElementById("slice-file-tree-panel")?.className).toMatch(/(^|\s)hidden(\s|$)/);
       fireEvent.click(rail);
-      expect(document.getElementById("slice-file-tree-panel")?.className).toMatch(/lg:block/);
+      expect(document.getElementById("slice-file-tree-panel")?.className).toMatch(/(^|\s)block(\s|$)/);
       // A relative image is read from the repository, next to the README.
       await waitFor(() => expect(screen.getByRole("img", { name: "logo" })).toHaveAttribute("src", expect.stringMatching(/^data:image\/png;base64,/)));
       expect(api.readFile).toHaveBeenCalledWith(expect.objectContaining({ path: "/nic/app/logo.png", commitId: expect.any(String) }));
@@ -646,6 +646,26 @@ describe("slice route pages (render smoke)", () => {
       // It says where the README is.
       expect(screen.getByRole("heading", { name: "macnativegames/app/README.md" })).toBeInTheDocument();
       expect(screen.queryByRole("complementary", { name: "Files" })).toBeNull();
+    });
+
+    it("has the Files bar on a phone for a README folder at any path, not only the root", async () => {
+      folderApi(entries, vi.fn().mockResolvedValue({ data: btoa(readmeText) }));
+      renderRoute(<SliceDetailPage />);
+      await screen.findByRole("heading", { name: "Hello app" });
+      const bar = screen.getByRole("button", { name: /^Files/ });
+      expect(bar).toHaveAttribute("aria-expanded", "false");
+      expect(bar.className).toMatch(/lg:hidden/);
+      expect(document.getElementById("slice-file-tree-panel")?.className).toMatch(/(^|\s)hidden(\s|$)/);
+      fireEvent.click(bar);
+      expect(bar).toHaveAttribute("aria-expanded", "true");
+      expect(document.getElementById("slice-file-tree-panel")?.className).toMatch(/(^|\s)block(\s|$)/);
+    });
+
+    it("has no Files bar for a folder without a README: its listing is on the page", async () => {
+      folderApi(entries.filter((entry) => entry.name !== "README.md"), vi.fn());
+      renderRoute(<SliceDetailPage />);
+      await screen.findByText("Content hash");
+      expect(screen.queryByRole("button", { name: /^Files/ })).toBeNull();
     });
 
     it("keeps the file tree open where there is no README to give the page to", async () => {
