@@ -11,7 +11,6 @@ import { diffFileId, parseDiff } from "./parseDiff";
 describe("DiffViewer", () => {
   afterEach(() => {
     cleanup();
-    window.localStorage.clear();
   });
 
   it("renders binary and too-large server stubs as meta rows in both views", () => {
@@ -87,7 +86,7 @@ describe("DiffViewer", () => {
     expectWrapped(long);
   });
 
-  it("hydrates server-rendered markup into the saved view mode, toggle included", async () => {
+  it("renders the view mode it is given, from the server render on, and reports toggles", async () => {
     const diff = [
       "diff --git a/a.ts b/a.ts",
       "--- a/a.ts",
@@ -97,34 +96,35 @@ describe("DiffViewer", () => {
       "+const a = 2;",
       ""
     ].join("\n");
+    const onViewModeChange = vi.fn();
     const viewer = (
       <DiffViewer
         diffResponse={{ changedPaths: ["a.ts"], diff }}
         error={null}
         isError={false}
         isLoading={false}
+        onViewModeChange={onViewModeChange}
+        viewMode="split"
       />
     );
     const container = document.createElement("div");
-    // The server cannot see the saved choice, so it renders unified.
     container.innerHTML = renderToString(viewer);
     document.body.appendChild(container);
-    expect(within(container).getByRole("button", { name: "unified" })).toHaveAttribute("aria-pressed", "true");
+    expect(within(container).getByRole("button", { name: "split" })).toHaveAttribute("aria-pressed", "true");
 
-    window.localStorage.setItem("gitslice.diffView", "split");
     const onRecoverableError = vi.fn();
     const root = await act(async () => hydrateRoot(container, viewer, { onRecoverableError }));
 
     expect(onRecoverableError).not.toHaveBeenCalled();
     expect(within(container).getByRole("button", { name: "split" })).toHaveAttribute("aria-pressed", "true");
-    expect(within(container).getByRole("button", { name: "unified" })).toHaveAttribute("aria-pressed", "false");
     // Split rows show the line without its +/- marker.
     expect(within(container).getByText("const a = 2;")).toBeInTheDocument();
     expect(within(container).queryByText("+const a = 2;")).toBeNull();
 
+    // The owner of the mode decides; the viewer only reports the choice.
     fireEvent.click(within(container).getByRole("button", { name: "unified" }));
-    expect(window.localStorage.getItem("gitslice.diffView")).toBe("unified");
-    expect(within(container).getByText("+const a = 2;")).toBeInTheDocument();
+    expect(onViewModeChange).toHaveBeenCalledWith("unified");
+    expect(within(container).getByRole("button", { name: "split" })).toHaveAttribute("aria-pressed", "true");
 
     act(() => root.unmount());
     container.remove();

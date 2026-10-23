@@ -1,11 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { DiffChangesetResponse } from "../../api/types";
 import { cn } from "../../lib/cn";
@@ -44,6 +37,13 @@ interface DiffViewerProps {
   onFileRetry?(path: string): void;
   /** Opens the whole file, before or after the change. */
   onViewFile?(file: DiffFile): void;
+  /**
+   * Unified or split. The changeset page keeps it in the URL (`?diff=split`) so
+   * a link opens in the mode it was shared in; without it the viewer keeps its
+   * own, starting unified.
+   */
+  viewMode?: ViewMode;
+  onViewModeChange?(mode: ViewMode): void;
 }
 
 export type DiffFileLoadStatus =
@@ -61,7 +61,6 @@ export interface DiffViewerFileState {
   status: DiffFileLoadStatus;
 }
 
-const diffViewStorageKey = "gitslice.diffView";
 const lazyDiffBodyRootMargin = "1200px 0px 1200px 0px";
 
 export function DiffViewer({
@@ -73,7 +72,9 @@ export function DiffViewer({
   fileStates,
   onFileNeeded,
   onFileRetry,
-  onViewFile
+  onViewFile,
+  viewMode: viewModeProp,
+  onViewModeChange
 }: DiffViewerProps) {
   const parsedFiles = useMemo(
     () =>
@@ -106,7 +107,9 @@ export function DiffViewer({
       ),
     [fileStates]
   );
-  const viewMode = useStoredViewMode();
+  const [ownViewMode, setOwnViewMode] = useState<ViewMode>("unified");
+  const viewMode = viewModeProp ?? ownViewMode;
+  const changeViewMode = onViewModeChange ?? setOwnViewMode;
   const [activeId, setActiveId] = useState<string | undefined>();
   const [mountedDiffBodies, setMountedDiffBodies] = useState<Set<string>>(
     () => new Set()
@@ -449,7 +452,7 @@ export function DiffViewer({
             </div>
             <div className="flex shrink-0 items-center justify-end gap-1.5 md:gap-2">
               {!isLoading && hasTextualDiff ? (
-                <ViewModeToggle value={viewMode} onChange={storeViewMode} />
+                <ViewModeToggle value={viewMode} onChange={changeViewMode} />
               ) : null}
             </div>
           </div>
@@ -539,56 +542,6 @@ function ViewModeToggle({
       ))}
     </div>
   );
-}
-
-// The saved view mode lives in localStorage, which the server cannot read. A
-// server render and the hydration that follows it both use "unified", so the
-// markup matches; then the toggle and every diff body switch to the saved mode
-// together. Client-side navigations read the saved mode at once.
-const viewModeListeners = new Set<() => void>();
-// Used when localStorage is unavailable (blocked or private mode).
-let unsavedViewMode: ViewMode = "unified";
-
-function subscribeViewMode(listener: () => void) {
-  viewModeListeners.add(listener);
-  const onStorage = (event: StorageEvent) => {
-    if (event.key === diffViewStorageKey) {
-      listener();
-    }
-  };
-  window.addEventListener("storage", onStorage);
-  return () => {
-    viewModeListeners.delete(listener);
-    window.removeEventListener("storage", onStorage);
-  };
-}
-
-function readStoredViewMode(): ViewMode {
-  try {
-    return window.localStorage.getItem(diffViewStorageKey) === "split"
-      ? "split"
-      : "unified";
-  } catch {
-    return unsavedViewMode;
-  }
-}
-
-function useStoredViewMode(): ViewMode {
-  return useSyncExternalStore(
-    subscribeViewMode,
-    readStoredViewMode,
-    () => "unified"
-  );
-}
-
-function storeViewMode(mode: ViewMode) {
-  unsavedViewMode = mode;
-  try {
-    window.localStorage.setItem(diffViewStorageKey, mode);
-  } catch {
-    // The choice then lasts only until the page reloads.
-  }
-  viewModeListeners.forEach((listener) => listener());
 }
 
 function navigationFileForState(state: DiffViewerFileState): DiffFile {

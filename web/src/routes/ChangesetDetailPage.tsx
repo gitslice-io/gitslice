@@ -28,6 +28,7 @@ import {
   type DiffViewerFileState
 } from "../components/diff/DiffViewer";
 import { type DiffFile } from "../components/diff/parseDiff";
+import { type ViewMode } from "../components/diff/diffViewShared";
 import { cn } from "../lib/cn";
 import { shortChangesetId } from "../lib/objectId";
 import { conversationsEnabled } from "../lib/features";
@@ -82,6 +83,7 @@ export function ChangesetDetailPage() {
     conversation?: unknown;
     view?: string;
     side?: string;
+    diff?: string;
   };
   const [abandonReason, setAbandonReason] = useState("");
   // On phones the page opens with its details (breadcrumbs, ids, patchsets,
@@ -465,6 +467,24 @@ export function ChangesetDetailPage() {
     },
     [changesetId, navigate]
   );
+  // The diff's unified/split mode lives in the URL (`?diff=split`), so the
+  // server renders the right mode and a shared link opens in it. Switching
+  // replaces the entry: back leaves the page rather than undoing the toggle.
+  const diffViewMode: ViewMode = search.diff === "split" ? "split" : "unified";
+  const setDiffViewMode = useCallback(
+    (mode: ViewMode) => {
+      void navigate({
+        params: { id: changesetId } as never,
+        replace: true,
+        search: ((prev: Record<string, unknown>) => ({
+          ...prev,
+          diff: mode === "split" ? "split" : undefined
+        })) as never,
+        to: "/cs/$id"
+      });
+    },
+    [changesetId, navigate]
+  );
   const closeFileView = useCallback(() => {
     if (fileViewPath) {
       router.history.back();
@@ -631,6 +651,8 @@ export function ChangesetDetailPage() {
               onFileNeeded={requestFileDiff}
               onFileRetry={retryFileDiff}
               onViewFile={openFileView}
+              onViewModeChange={setDiffViewMode}
+              viewMode={diffViewMode}
             />
           </div>
           <ConversationDrawer

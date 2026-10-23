@@ -92,7 +92,9 @@ vi.mock("../components/diff/DiffViewer", () => ({
     fileStates,
     onFileNeeded,
     onFileRetry,
-    onViewFile
+    onViewFile,
+    onViewModeChange,
+    viewMode
   }: {
     fileStates?: {
       path: string;
@@ -103,9 +105,18 @@ vi.mock("../components/diff/DiffViewer", () => ({
     onFileNeeded?(path: string): void;
     onFileRetry?(path: string): void;
     onViewFile?(file: { path: string; changeKind: string }): void;
+    onViewModeChange?(mode: string): void;
+    viewMode?: string;
   }) => (
     <div data-testid="diff-viewer">
       Diff viewer
+      <span data-testid="diff-view-mode">{viewMode}</span>
+      <button onClick={() => onViewModeChange?.("split")} type="button">
+        Use split
+      </button>
+      <button onClick={() => onViewModeChange?.("unified")} type="button">
+        Use unified
+      </button>
       <button
         onClick={() => onViewFile?.({ changeKind: "modified", path: "acme/payment/parser.go" })}
         type="button"
@@ -284,6 +295,33 @@ describe("changeset detail page", () => {
 
     expect(await screen.findByText("add expenses")).toBeInTheDocument();
     expect(routerMock.navigate).not.toHaveBeenCalledWith(expect.objectContaining({ to: "/cs/$id" }));
+  });
+
+  it("keeps the diff's unified/split mode in the URL, alongside other params", async () => {
+    routerMock.params = { id: "cf52df6ccb" };
+    routerMock.search = { diff: "split", file: "acme/payment/parser.go" };
+    const api = makeApi();
+    api.diffChangeset = vi.fn().mockResolvedValue({ changedPaths: [], diff: "" });
+    api.getChangeset = vi
+      .fn()
+      .mockResolvedValue(changeset("cs_cf52df6ccbcb849a1b29b76c6b98335f", "add expenses"));
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+
+    expect(await screen.findByTestId("diff-view-mode")).toHaveTextContent("split");
+
+    fireEvent.click(screen.getByRole("button", { name: "Use unified" }));
+    expect(routerMock.navigate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ replace: true, to: "/cs/$id" })
+    );
+    // Unified is the default, so it leaves the URL clean.
+    expect(routerMock.search).toEqual({ diff: undefined, file: "acme/payment/parser.go" });
+    expect(screen.getByTestId("diff-view-mode")).toHaveTextContent("unified");
+
+    fireEvent.click(screen.getByRole("button", { name: "Use split" }));
+    expect(routerMock.search).toEqual({ diff: "split", file: "acme/payment/parser.go" });
+    expect(screen.getByTestId("diff-view-mode")).toHaveTextContent("split");
   });
 
   it("drives the diff from URL from/to params on first render", async () => {
