@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -666,6 +666,57 @@ describe("slice route pages (render smoke)", () => {
       renderRoute(<SliceDetailPage />);
       await screen.findByText("Content hash");
       expect(screen.queryByRole("button", { name: /^Files/ })).toBeNull();
+    });
+
+    it("does not open the tree while moving to another README folder, only to fold it again", async () => {
+      const api = folderApi(entries, vi.fn().mockResolvedValue({ data: btoa(readmeText) }));
+      // The second folder's kind arrives late, as it does when navigating.
+      let resolveSecond: (value: unknown) => void = () => {};
+      const second = new Promise((resolve) => {
+        resolveSecond = resolve;
+      });
+      api.resolvePath = vi.fn((request: { path?: string }) =>
+        request.path === "/nic/docs" ? second : Promise.resolve({ entry: { kind: "ENTRY_KIND_DIRECTORY", path: "/nic/app" } })
+      ) as typeof api.resolvePath;
+      const panel = () => document.getElementById("slice-file-tree-panel")?.className ?? "";
+      const folded = (className: string) => /(^|\s)hidden(\s|$)/.test(className) && !/lg:block/.test(className);
+
+      const view = renderRoute(<SliceDetailPage />);
+      await screen.findByRole("heading", { name: "Hello app" });
+      expect(folded(panel())).toBe(true);
+
+      // Into another folder: while it loads, the tree stays folded.
+      routerMock.search = { path: "/nic/docs" };
+      view.rerender(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <SliceDetailPage />
+        </QueryClientProvider>
+      );
+      const states: string[] = [panel()];
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 50));
+      });
+      states.push(panel());
+      resolveSecond({ entry: { kind: "ENTRY_KIND_DIRECTORY", path: "/nic/docs" } });
+      await screen.findByRole("heading", { name: "Hello app" });
+      states.push(panel());
+      expect(states.every(folded)).toBe(true);
+    });
+
+    it("on a first visit, keeps the tree folded until it knows there is no README, then opens it", async () => {
+      const api = folderApi(entries.filter((entry) => entry.name !== "README.md"), vi.fn());
+      const pending: Array<(value: unknown) => void> = [];
+      const resolveKind = (value: unknown) => pending.splice(0).forEach((resolve) => resolve(value));
+      api.resolvePath = vi.fn(() => new Promise((resolve) => {
+        pending.push(resolve);
+      })) as typeof api.resolvePath;
+      renderRoute(<SliceDetailPage />);
+      const panel = () => document.getElementById("slice-file-tree-panel")?.className ?? "";
+      await waitFor(() => expect(pending.length).toBeGreaterThan(0));
+      expect(panel()).not.toMatch(/lg:block/);
+      resolveKind({ entry: { kind: "ENTRY_KIND_DIRECTORY", path: "/nic/app" } });
+      await screen.findByText("Content hash");
+      await waitFor(() => expect(panel()).toMatch(/lg:block/));
     });
 
     it("keeps the file tree open where there is no README to give the page to", async () => {

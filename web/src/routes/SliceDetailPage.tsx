@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@clerk/tanstack-react-start";
 import {
   Link,
@@ -231,8 +231,23 @@ export function SliceDetailPage() {
   const folderEntries =
     isDirectory && !directoryQuery.isPending && !directoryQuery.error ? (directoryQuery.data ?? []) : [];
   const { loading: readmeLoading, readme: folderReadme } = useFolderReadme(commitId, sliceRef, folderEntries);
-  const readmeExpected = isDirectory && (Boolean(folderReadme) || readmeLoading);
-  const showTree = treeChoice ?? !readmeExpected;
+  // Whether the page shows a README decides the tree's default, and is known
+  // only once the path's kind, its listing and any README search are in. Until
+  // then the tree stays as it was on the page before (moving between folders
+  // inside the app), or folded on a first visit, so it never opens and then
+  // folds; a folder without a README opens it once that is known.
+  const folderKnown =
+    entry !== undefined && (!isDirectory || (!directoryQuery.isPending && !readmeLoading));
+  const readmeShown = isDirectory && Boolean(folderReadme);
+  const lastReadmeShown = useRef<boolean | null>(null);
+  if (folderKnown) {
+    lastReadmeShown.current = readmeShown;
+  }
+  const foldTree = folderKnown ? readmeShown : (lastReadmeShown.current ?? true);
+  // The phone's Files bar waits for the README to be known (or the page
+  // before to have had one), so it does not appear on a folder without one.
+  const readmeExpected = folderKnown ? readmeShown : (lastReadmeShown.current ?? false);
+  const showTree = treeChoice ?? !foldTree;
 
   const fileQuery = useQuery({
     // Fire readFile in parallel with resolvePath rather than waiting for it to
