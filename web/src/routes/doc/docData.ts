@@ -30,7 +30,7 @@ export const docSections: Array<{
   {
     id: "agents",
     title: "Agents",
-    description: "Let an agent sign itself up, or run your own agent daemon."
+    description: "Let an agent sign itself up, and claim it, without a browser."
   },
   {
     id: "lazy",
@@ -293,7 +293,7 @@ export const commandGroups = [
     commands: [
       [
         "gs agent start",
-        "Run a local agent daemon in an empty directory (codex runtime)."
+        "Run an agent daemon in an empty directory; with --ci it runs your slices' checks."
       ],
       [
         "gs agent status",
@@ -307,11 +307,7 @@ export const commandGroups = [
         "gs agent rename <daemon> <name>",
         "Name a daemon; the name shows in the web app, slice settings and check runs. --clear drops it."
       ],
-      ["gs agent stop", "How to stop a running daemon (Ctrl-C)."],
-      [
-        "gs cs conversation",
-        "Show the agent conversation that produced each patchset."
-      ]
+      ["gs agent stop", "How to stop a running daemon (Ctrl-C)."]
     ]
   }
 ];

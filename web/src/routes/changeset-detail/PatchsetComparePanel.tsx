@@ -19,7 +19,8 @@ export function PatchsetComparePanel({
   fromPatchset: string;
   onFromPatchsetChange(value: string): void;
   onToPatchsetChange(value: string): void;
-  onToggleConversation(): void;
+  // Absent while conversations are not offered (lib/features): no toggle.
+  onToggleConversation?(): void;
   patchsets: Patchset[];
   toPatchset: string;
 }) {
@@ -101,21 +102,23 @@ export function PatchsetComparePanel({
             </span>
           </button>
         </div>
-        <button
-          aria-expanded={conversationOpen}
-          aria-label="Toggle conversation for the selected patchset"
-          className={cn(
-            "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 text-[11px] font-medium shadow-sm transition active:scale-[0.98] md:text-xs",
-            conversationOpen
-              ? "border-zinc-900 dark:border-zinc-100 bg-zinc-950 dark:bg-zinc-100 text-white dark:text-zinc-950 hover:bg-zinc-800 dark:hover:bg-white"
-              : "border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50"
-          )}
-          onClick={onToggleConversation}
-          type="button"
-        >
-          <span aria-hidden="true">💬</span>
-          <span className="hidden sm:inline">Conversation</span>
-        </button>
+        {onToggleConversation ? (
+          <button
+            aria-expanded={conversationOpen}
+            aria-label="Toggle conversation for the selected patchset"
+            className={cn(
+              "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 text-[11px] font-medium shadow-sm transition active:scale-[0.98] md:text-xs",
+              conversationOpen
+                ? "border-zinc-900 dark:border-zinc-100 bg-zinc-950 dark:bg-zinc-100 text-white dark:text-zinc-950 hover:bg-zinc-800 dark:hover:bg-white"
+                : "border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50"
+            )}
+            onClick={onToggleConversation}
+            type="button"
+          >
+            <span aria-hidden="true">💬</span>
+            <span className="hidden sm:inline">Conversation</span>
+          </button>
+        ) : null}
       </div>
       <div
         className={cn(

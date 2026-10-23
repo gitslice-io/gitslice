@@ -7,6 +7,7 @@ import { NewConversationDialog } from "../components/slices/NewConversationDialo
 import { PendingClaims } from "../components/slices/PendingClaims";
 import { PendingInvitations } from "../components/slices/PendingInvitations";
 import { RecentConversations } from "../components/slices/RecentConversations";
+import { conversationsEnabled } from "../lib/features";
 import { SlicesList } from "../components/slices/SlicesList";
 import { SharedSlices } from "../components/slices/SharedSlices";
 import { kindLabel } from "../lib/accounts";
@@ -41,13 +42,15 @@ export function HomePage() {
     <section className="mx-auto w-full max-w-[100rem]">
       <PageHeader
         primaryAction={
-          <button
-            className="rounded-md bg-zinc-950 dark:bg-zinc-100 px-3 py-2 text-sm font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98]"
-            onClick={() => setIsCreateOpen(true)}
-            type="button"
-          >
-            New conversation
-          </button>
+          conversationsEnabled ? (
+            <button
+              className="rounded-md bg-zinc-950 dark:bg-zinc-100 px-3 py-2 text-sm font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98]"
+              onClick={() => setIsCreateOpen(true)}
+              type="button"
+            >
+              New conversation
+            </button>
+          ) : undefined
         }
         title={
           <h1 className="truncate text-base font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 sm:text-lg">
@@ -55,15 +58,19 @@ export function HomePage() {
           </h1>
         }
       />
-      <NewConversationDialog
-        onClose={() => setIsCreateOpen(false)}
-        onCreated={navigateToConversation}
-        open={isCreateOpen}
-      />
+      {conversationsEnabled ? (
+        <NewConversationDialog
+          onClose={() => setIsCreateOpen(false)}
+          onCreated={navigateToConversation}
+          open={isCreateOpen}
+        />
+      ) : null}
       <div className="mt-2 grid gap-8">
         <PendingInvitations />
         {personal ? <PendingClaims /> : null}
-        <RecentConversations accounts={contextAccounts.length > 0 ? contextAccounts : undefined} />
+        {conversationsEnabled ? (
+          <RecentConversations accounts={contextAccounts.length > 0 ? contextAccounts : undefined} />
+        ) : null}
         <SlicesList />
         {personal ? <SharedSlices /> : null}
       </div>

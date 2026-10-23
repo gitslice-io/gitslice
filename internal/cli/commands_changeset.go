@@ -141,7 +141,10 @@ func (r Runner) changesetCommand(opts *commandOptions) *cobra.Command {
 	csConversationCmd := &cobra.Command{
 		Use:   "conversation [changeset]",
 		Short: "Show the agent conversation that produced each patchset",
-		Args:  maxArgs(1, "gs cs conversation [changeset] [--patchset n]"),
+		// Conversations are not offered for now: the command works for
+		// anyone who has it in a script, but help does not list it.
+		Hidden: true,
+		Args:   maxArgs(1, "gs cs conversation [changeset] [--patchset n]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := ""
 			if len(args) > 0 {

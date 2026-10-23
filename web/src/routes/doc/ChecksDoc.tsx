@@ -264,7 +264,7 @@ checks:
           Run a CI daemon on any machine
         </h2>
         <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-          A CI-only daemon runs checks and is never offered for conversations.
+          A CI-only daemon runs checks and nothing else.
           It needs only <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">gs</code>{" "}
           and, when checks use <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">image</code>{" "}
           or <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">build</code>, Docker or Podman.

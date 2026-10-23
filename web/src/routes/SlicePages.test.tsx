@@ -51,6 +51,15 @@ const selectionMock = vi.hoisted(() => {
   };
 });
 
+// Conversations are off in the product (lib/features); a test turns them on
+// to keep covering them.
+const featuresMock = vi.hoisted(() => ({ conversationsEnabled: false }));
+vi.mock("../lib/features", () => ({
+  get conversationsEnabled() {
+    return featuresMock.conversationsEnabled;
+  }
+}));
+
 vi.mock("../api/useApi", () => ({
   useApi: () => apiMock.current
 }));
@@ -89,6 +98,7 @@ describe("slice route pages (render smoke)", () => {
   });
 
   afterEach(() => {
+    featuresMock.conversationsEnabled = false;
     cleanup();
     consoleError.mockRestore();
     vi.clearAllMocks();
@@ -114,6 +124,20 @@ describe("slice route pages (render smoke)", () => {
     expectHealthy();
   });
 
+  it("offers no conversations on Home while they are not offered", async () => {
+    authMock.current = { isLoaded: true, isSignedIn: true };
+    const api = makeApi();
+    api.listConversations = vi.fn().mockResolvedValue({
+      conversations: [{ id: "c1", title: "Personal chat", slice: { account: "nic", slice: "home" }, createdAt: "2026-10-01T00:00:00Z" }]
+    });
+    apiMock.current = api;
+    renderRoute(<HomePage />);
+    await waitFor(() => expect(api.listSlices).toHaveBeenCalled());
+    expect(screen.queryByRole("button", { name: "New conversation" })).toBeNull();
+    expect(screen.queryByText("Personal chat")).toBeNull();
+    expect(api.listConversations).not.toHaveBeenCalled();
+  });
+
   it("scopes Home to the active organization and offers invitations", async () => {
     authMock.current = { isLoaded: true, isSignedIn: true };
     const setActiveAccount = vi.fn();
@@ -126,6 +150,7 @@ describe("slice route pages (render smoke)", () => {
       memberships: [...selectionMock.current.memberships, acme],
       setActiveAccount
     };
+    featuresMock.conversationsEnabled = true;
     const api = makeApi();
     api.listConversations = vi.fn().mockResolvedValue({
       conversations: [

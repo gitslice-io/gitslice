@@ -30,6 +30,7 @@ import {
 import { type DiffFile } from "../components/diff/parseDiff";
 import { cn } from "../lib/cn";
 import { shortChangesetId } from "../lib/objectId";
+import { conversationsEnabled } from "../lib/features";
 
 import {
   ChangesetSkeleton,
@@ -89,7 +90,9 @@ export function ChangesetDetailPage() {
   const [actionError, setActionError] = useState("");
   // The conversation drawer's open state lives in the URL so browser/mobile
   // back closes it instead of leaving the changeset detail page.
-  const conversationOpen = Boolean(search.conversation);
+  // Conversations are not offered for now (lib/features): an old link that
+  // asks for the drawer opens the changeset without it.
+  const conversationOpen = conversationsEnabled && Boolean(search.conversation);
   const [isWide, setIsWide] = useState(() =>
     typeof window === "undefined" || typeof window.matchMedia !== "function"
       ? false
@@ -600,7 +603,7 @@ export function ChangesetDetailPage() {
               fromPatchset={fromPatchset}
               onFromPatchsetChange={handleFromPatchsetChange}
               onToPatchsetChange={handleToPatchsetChange}
-              onToggleConversation={toggleConversation}
+              onToggleConversation={conversationsEnabled ? toggleConversation : undefined}
               patchsets={patchsets}
               toPatchset={selectedToPatchset}
             />
@@ -632,7 +635,7 @@ export function ChangesetDetailPage() {
           </div>
           <ConversationDrawer
             docked={isWide}
-            enabled={Boolean(isLoaded)}
+            enabled={conversationsEnabled && Boolean(isLoaded)}
             fromPatchsetId={fromPatchset}
             onClose={closeConversation}
             open={conversationOpen}

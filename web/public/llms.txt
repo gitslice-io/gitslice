@@ -201,8 +201,8 @@ minutes and polls every 30 seconds for queued checks, so an idle daemon costs
 the server almost nothing; a check may start up to about 30 seconds later.
 `--detach-after 0` keeps it connected.
 
-Remove its user service with `gs agent uninstall my-ci`. CI-only daemons never
-host conversations. When the selected CI daemon is offline, its runs stay
+Remove its user service with `gs agent uninstall my-ci`. CI-only daemons only
+run checks. When the selected CI daemon is offline, its runs stay
 queued; the Checks panel and `gs submit` say that checks are waiting for it.
 
 ## Large slices: lazy workspaces

@@ -62,6 +62,7 @@ import {
 } from "./slice-detail/CopyMove";
 import { canModifyPath } from "./slice-detail/DirectoryHeader";
 import { useFolderReadme } from "./slice-detail/nestedReadme";
+import { conversationsEnabled } from "../lib/features";
 import { SliceSourceWorkspace } from "./slice-detail/SliceSourceWorkspace";
 
 interface SliceParams {
@@ -506,7 +507,7 @@ export function SliceDetailPage() {
               >
                 Changesets
               </Link>
-              {isSignedIn && sliceRouteParams ? (
+              {conversationsEnabled && isSignedIn && sliceRouteParams ? (
                 <Link
                   className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
                   params={sliceRouteParams as never}

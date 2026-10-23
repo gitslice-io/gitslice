@@ -39,4 +39,14 @@ describe("TopBar", () => {
     expect(screen.queryByRole("link", { name: "Blog" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Doc" })).toBeInTheDocument();
   });
+
+  it("has no Conversations entry while conversations are not offered", () => {
+    for (const signedIn of [false, true]) {
+      auth.current = { isLoaded: true, isSignedIn: signedIn };
+      render(<TopBar />);
+      expect(screen.queryByRole("link", { name: /Conversations/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /Home/ })).toBeInTheDocument();
+      cleanup();
+    }
+  });
 });

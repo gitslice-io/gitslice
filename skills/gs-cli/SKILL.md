@@ -179,7 +179,7 @@ gs sync                                 # moves the base; files nobody changed c
 gs fetch                                # fetch everything now, for offline work or a build
 ```
 
-Every workspace command works in a mount: `gs sync`, `gs submit`, and switching changesets (`gs switch`, `gs up`, `gs down`) move the mount's layers without rewriting or fetching files; a changeset's files are fetched when something reads them. `gs init --lazy --prefetch 'acme/payment/**/*.go' <slice> <dir>` fetches matching files in the background. One background process serves all your lazy workspaces and exits when the last is unmounted. The directory must be empty and outside any other workspace. `gs agent start --lazy` mounts each conversation's workspace instead of checking it out (design/30_lazy_workspaces.md).
+Every workspace command works in a mount: `gs sync`, `gs submit`, and switching changesets (`gs switch`, `gs up`, `gs down`) move the mount's layers without rewriting or fetching files; a changeset's files are fetched when something reads them. `gs init --lazy --prefetch 'acme/payment/**/*.go' <slice> <dir>` fetches matching files in the background. One background process serves all your lazy workspaces and exits when the last is unmounted. The directory must be empty and outside any other workspace.
 
 Workspace-aware commands discover `.gs/` by walking up from subdirectories. Keep edits under the materialized path for the bound slice. For a slice that includes `/acme/payment`, edit files under `acme/payment/...` inside the workspace.
 

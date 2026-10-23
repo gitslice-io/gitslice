@@ -3,6 +3,7 @@ import {
   Outlet,
   Scripts,
   createRootRouteWithContext,
+  redirect,
   createRoute,
   createRouter,
   useRouter
@@ -39,6 +40,7 @@ import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
 import type { Slice } from "../api/types";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
+import { conversationsEnabled } from "../lib/features";
 import { sliceHead, SITE_DESCRIPTION, type SliceSocial } from "../lib/socialMeta";
 import { SelectionProvider, useSelection } from "../state/selection";
 import { THEME_BOOTSTRAP_SCRIPT } from "../theme";
@@ -309,9 +311,16 @@ const claimsRoute = createRoute({
   component: ClaimsPage
 });
 
+// Conversations are not offered for now (lib/features): their addresses go
+// to the home page, or to the slice, instead of showing the feature.
 const conversationsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "conversations",
+  beforeLoad: () => {
+    if (!conversationsEnabled) {
+      throw redirect({ replace: true, to: "/" });
+    }
+  },
   component: ConversationsPage
 });
 
@@ -565,12 +574,22 @@ const sliceSettingsRoute = createRoute({
 const sliceAgentsRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "slices/$account/$slice/agents",
+  beforeLoad: ({ params }) => {
+    if (!conversationsEnabled) {
+      throw redirect({ params: { account: params.account, slice: params.slice }, replace: true, to: "/slices/$account/$slice" });
+    }
+  },
   component: SliceAgentsPage
 });
 
 const sliceAgentConversationRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "slices/$account/$slice/agents/$conversationId",
+  beforeLoad: ({ params }) => {
+    if (!conversationsEnabled) {
+      throw redirect({ params: { account: params.account, slice: params.slice }, replace: true, to: "/slices/$account/$slice" });
+    }
+  },
   loader: async ({ context, params }) => {
     if (import.meta.env.SSR && params.conversationId) {
       try {

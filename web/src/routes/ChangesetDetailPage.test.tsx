@@ -47,6 +47,15 @@ const routerMock = vi.hoisted(() => {
   };
 });
 
+// Conversations are off in the product (lib/features); a test turns them on
+// to keep covering them.
+const featuresMock = vi.hoisted(() => ({ conversationsEnabled: false }));
+vi.mock("../lib/features", () => ({
+  get conversationsEnabled() {
+    return featuresMock.conversationsEnabled;
+  }
+}));
+
 vi.mock("../api/useApi", () => ({
   useApi: () => apiMock.current
 }));
@@ -155,6 +164,7 @@ describe("changeset detail page", () => {
   });
 
   afterEach(() => {
+    featuresMock.conversationsEnabled = false;
     cleanup();
     vi.clearAllMocks();
   });
@@ -409,7 +419,19 @@ describe("changeset detail page", () => {
     });
   });
 
+  it("has no conversation toggle or drawer while conversations are not offered, even from an old link", async () => {
+    routerMock.params = { id: "cs_child" };
+    routerMock.search = { conversation: "1" };
+    const api = makeApi();
+    apiMock.current = api;
+    renderRoute(<ChangesetDetailPage />);
+    await screen.findByRole("heading", { level: 1 });
+    expect(screen.queryByRole("button", { name: "Toggle conversation for the selected patchset" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Agent conversation" })).toBeNull();
+  });
+
   it("opens the conversation drawer from the URL", async () => {
+    featuresMock.conversationsEnabled = true;
     routerMock.params = { id: "cs_child" };
     routerMock.search = { conversation: "1" };
     const api = makeApi();
@@ -450,6 +472,7 @@ describe("changeset detail page", () => {
   });
 
   it("preserves existing changeset search params when opening the conversation drawer", async () => {
+    featuresMock.conversationsEnabled = true;
     routerMock.params = { id: "cs_child" };
     routerMock.search = {
       file: "/acme/payment/parser.go",

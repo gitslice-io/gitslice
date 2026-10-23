@@ -133,7 +133,11 @@ func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
 	startCmd.Flags().DurationVar(&start.IdleTimeout, "idle-timeout", start.IdleTimeout, "disconnect and exit after this much conversation inactivity (0 = never)")
 	startCmd.Flags().BoolVar(&start.Lazy, "lazy", start.Lazy, "mount each conversation's workspace lazily (gs mount) instead of checking it out; falls back to a checkout without FUSE")
 	startCmd.Flags().DurationVar(&start.DetachAfter, "detach-after", defaultDetachAfter, "checks-only daemons (--ci): detach from the server after this long with nothing to run, and poll for queued checks (0 = stay connected; env GITSLICE_AGENT_DETACH_AFTER). The server then has no stream to hold open and can scale to zero")
-	startCmd.Flags().BoolVar(&start.CI, "ci", false, "run checks only: no conversations, no agent runtime, any directory")
+	startCmd.Flags().BoolVar(&start.CI, "ci", false, "run checks only: no agent runtime, any directory")
+	// Flags for hosting agent conversations, which are not offered for now:
+	// they keep working, but help does not list them.
+	_ = startCmd.Flags().MarkHidden("idle-timeout")
+	_ = startCmd.Flags().MarkHidden("lazy")
 
 	statusSlice := ""
 	statusCmd := &cobra.Command{

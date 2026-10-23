@@ -2,20 +2,24 @@ import { Link, useRouterState } from "@tanstack/react-router";
 import { useAuth, UserButton } from "@clerk/tanstack-react-start";
 
 import { cn } from "../lib/cn";
+import { conversationsEnabled } from "../lib/features";
 import { useSelection } from "../state/selection";
 import { AccountSwitcher } from "./AccountSwitcher";
 import { ClaimsNotice } from "./ClaimsNotice";
 import { BrandMark } from "./BrandMark";
 import { ThemeToggle } from "./ThemeToggle";
 
-const navItems = [
+const allNavItems = [
   { label: "Home", to: "/", section: "slices" },
   { label: "Conversations", to: "/conversations", section: "conversations" },
   { label: "Doc", to: "/doc", section: "doc" },
   { label: "Blog", to: "/blogs", section: "blog" }
 ] as const;
 
-type NavSection = (typeof navItems)[number]["section"];
+// Conversations are not offered for now (lib/features).
+const navItems = allNavItems.filter((item) => item.section !== "conversations" || conversationsEnabled);
+
+type NavSection = (typeof allNavItems)[number]["section"];
 
 function NavIcon({ section }: { section: NavSection }) {
   const common = {
