@@ -5,7 +5,6 @@ import { entryKindLabel } from "../../components/source/sourceUtils";
 import { DirectoryCreateControls, type PendingEdit } from "../../components/source/SliceEditing";
 import { DirectoryHeader } from "./DirectoryHeader";
 import { FolderWithReadme } from "./FolderWithReadme";
-import { useFolderReadme } from "./nestedReadme";
 import { SliceDirectoryTable } from "./SliceDirectoryTable";
 import { EditableFileView } from "./EditableFileView";
 import { SourceSkeleton } from "./skeletons";
@@ -32,6 +31,10 @@ interface SliceSourceWorkspaceProps {
   onStageEdit?: (edit: PendingEdit) => void;
   pathError: Error | null;
   pendingEdits: PendingEdit[];
+  // The README the folder shows (see useFolderReadme), found by the page,
+  // which folds its file tree when there is one.
+  readme?: TreeEntry;
+  readmeLoading?: boolean;
   // The slice's root, which a phone shows as the README above the tree and
   // not as a folder listing or a skeleton of one.
   rootOnPhone?: boolean;
@@ -61,6 +64,8 @@ export function SliceSourceWorkspace({
   onStageEdit,
   pathError,
   pendingEdits,
+  readme,
+  readmeLoading = false,
   rootOnPhone = false,
   selectedPath,
   sliceRef
@@ -71,12 +76,6 @@ export function SliceSourceWorkspace({
     </div>
   ) : (
     <SourceSkeleton />
-  );
-  const isDirectory = entry?.kind === "ENTRY_KIND_DIRECTORY" && !isDirectoryLoading && !directoryError;
-  const { loading: readmeLoading, readme } = useFolderReadme(
-    commitId,
-    sliceRef,
-    isDirectory ? directoryEntries : []
   );
 
   if (isLatestLoading || isPathLoading) {
@@ -135,7 +134,6 @@ export function SliceSourceWorkspace({
         <FolderWithReadme
           commitId={commitId}
           createDirectory={createDirectory}
-          entries={directoryEntries}
           includedPaths={includedPaths}
           onOpenHistory={onOpenHistory}
           onSelectPath={onSelectPath}

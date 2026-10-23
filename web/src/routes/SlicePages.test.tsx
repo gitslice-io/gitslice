@@ -376,6 +376,30 @@ describe("slice route pages (render smoke)", () => {
       expect(column?.className).not.toMatch(/(^|\s)hidden(\s|$)/);
     });
 
+    it("folds the whole tree behind a Files bar under the README, until asked for", async () => {
+      rootApi({ "": [dir], "/nic": [file("README.md"), file("main.go")] });
+      renderRoute(<SliceDetailPage />);
+      await screen.findByRole("heading", { name: "Hello root" }, { timeout: 5000 });
+      const bar = screen.getByRole("button", { name: /^Files/ });
+      expect(bar).toHaveAttribute("aria-expanded", "false");
+      expect(bar.className).toMatch(/lg:hidden/);
+      expect(document.getElementById("slice-file-tree-panel")?.className).toMatch(/(^|\s)hidden(\s|$)/);
+      fireEvent.click(bar);
+      expect(bar).toHaveAttribute("aria-expanded", "true");
+      expect(document.getElementById("slice-file-tree-panel")?.className).toMatch(/(^|\s)block(\s|$)/);
+      // And folds again.
+      fireEvent.click(bar);
+      expect(bar).toHaveAttribute("aria-expanded", "false");
+    });
+
+    it("has no Files bar where the root has no README: the open tree is the page", async () => {
+      rootApi({ "": [dir], "/nic": [file("main.go"), file("util.go")] });
+      renderRoute(<SliceDetailPage />);
+      await screen.findByText("Content hash");
+      expect(screen.queryByRole("button", { name: /^Files/ })).toBeNull();
+      expect(document.getElementById("slice-file-tree-panel")?.className).toMatch(/(^|\s)block(\s|$)/);
+    });
+
     it("leaves the tree alone when the root has no README, not repeating it as a listing", async () => {
       rootApi({ "": [dir], "/nic": [file("main.go"), file("util.go")] });
       renderRoute(<SliceDetailPage />);
@@ -461,7 +485,7 @@ describe("slice route pages (render smoke)", () => {
       { kind: "ENTRY_KIND_FILE", name: "main.go", path: "/nic/app/main.go", size: "40", contentHash: "sha256:abcdef0123456789" }
     ];
 
-    it("shows the README first, with the files in a compact list beside it", async () => {
+    it("gives the README the page: no list of the folder's own files, and the tree folded", async () => {
       const api = folderApi(entries, vi.fn(async (request: { path?: string }) => ({ data: request.path?.endsWith(".png") ? btoa("png") : btoa(readmeText) })));
       renderRoute(<SliceDetailPage />);
       // The first README render loads the Markdown renderer, which can take over
@@ -469,13 +493,18 @@ describe("slice route pages (render smoke)", () => {
       expect(await screen.findByRole("heading", { name: "Hello app" }, { timeout: 5000 })).toBeInTheDocument();
       expect(api.readFile).toHaveBeenCalledWith(expect.objectContaining({ path: "/nic/app/README.md" }));
 
-      // The files are there, as names only: no kind, size or hash columns, no
-      // commit line.
-      const files = screen.getByRole("complementary", { name: "Files" });
-      expect(within(files).getByRole("button", { name: "docs/" })).toBeInTheDocument();
-      expect(within(files).getByRole("button", { name: "main.go" })).toBeInTheDocument();
+      // No second list of what the file tree has: no Files column, no
+      // kind, size or hash columns, no commit line.
+      expect(screen.queryByRole("complementary", { name: "Files" })).toBeNull();
       expect(screen.queryByText("Content hash")).toBeNull();
       expect(screen.queryByText(/^Commit$/)).toBeNull();
+      // The full tree is folded to the rail that opens it, and stays open once
+      // someone opens it.
+      const rail = screen.getByRole("button", { name: "Show files" });
+      expect(rail.className).toMatch(/lg:flex/);
+      expect(document.getElementById("slice-file-tree-panel")?.className).toMatch(/(^|\s)hidden(\s|$)/);
+      fireEvent.click(rail);
+      expect(document.getElementById("slice-file-tree-panel")?.className).toMatch(/lg:block/);
       // A relative image is read from the repository, next to the README.
       await waitFor(() => expect(screen.getByRole("img", { name: "logo" })).toHaveAttribute("src", expect.stringMatching(/^data:image\/png;base64,/)));
       expect(api.readFile).toHaveBeenCalledWith(expect.objectContaining({ path: "/nic/app/logo.png", commitId: expect.any(String) }));
@@ -578,14 +607,13 @@ describe("slice route pages (render smoke)", () => {
       renderRoute(<SliceDetailPage />);
       expect(await screen.findByText(/too large to show here/)).toBeInTheDocument();
       expect(readFile).not.toHaveBeenCalledWith(expect.objectContaining({ path: "/nic/app/README.md" }));
-      expect(within(screen.getByRole("complementary", { name: "Files" })).getByRole("button", { name: "main.go" })).toBeInTheDocument();
     });
 
-    it("says when the README cannot be loaded and still lists the files", async () => {
+    it("says when the README cannot be loaded, and the file tree is still there", async () => {
       folderApi(entries, vi.fn().mockRejectedValue(new Error("boom")));
       renderRoute(<SliceDetailPage />);
       expect(await screen.findByRole("alert")).toHaveTextContent("Could not load README.md: boom");
-      expect(within(screen.getByRole("complementary", { name: "Files" })).getByRole("button", { name: "main.go" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Show files" })).toBeInTheDocument();
     });
 
     it("keeps the file table when the folder has no README", async () => {
@@ -612,20 +640,17 @@ describe("slice route pages (render smoke)", () => {
       renderRoute(<SliceDetailPage />);
       expect(await screen.findByRole("heading", { name: "Hello app" }, { timeout: 5000 })).toBeInTheDocument();
       expect(api.readFile).toHaveBeenCalledWith(expect.objectContaining({ path: "/sunny/macnativegames/app/README.md" }));
-      // It says where the README is, and the folder's own files stay beside it.
+      // It says where the README is.
       expect(screen.getByRole("heading", { name: "macnativegames/app/README.md" })).toBeInTheDocument();
-      const files = screen.getByRole("complementary", { name: "Files" });
-      expect(within(files).getByRole("button", { name: "macnativegames/" })).toBeInTheDocument();
+      expect(screen.queryByRole("complementary", { name: "Files" })).toBeNull();
     });
 
-    it("folds the files on a phone until asked for", async () => {
-      folderApi(entries, vi.fn().mockResolvedValue({ data: btoa(readmeText) }));
+    it("keeps the file tree open where there is no README to give the page to", async () => {
+      folderApi(entries.filter((entry) => entry.name !== "README.md"), vi.fn());
       renderRoute(<SliceDetailPage />);
-      await screen.findByRole("heading", { name: "Hello app" });
-      const toggle = screen.getByRole("button", { name: /Files \(3\)/ });
-      expect(toggle).toHaveAttribute("aria-expanded", "false");
-      fireEvent.click(toggle);
-      expect(toggle).toHaveAttribute("aria-expanded", "true");
+      await screen.findByText("Content hash");
+      expect(screen.getByRole("button", { name: "Show files" }).className).not.toMatch(/lg:flex/);
+      expect(document.getElementById("slice-file-tree-panel")?.className).toMatch(/lg:block/);
     });
   });
 

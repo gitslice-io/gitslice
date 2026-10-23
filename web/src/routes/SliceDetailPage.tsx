@@ -61,6 +61,7 @@ import {
   type LandedPathOperation,
 } from "./slice-detail/CopyMove";
 import { canModifyPath } from "./slice-detail/DirectoryHeader";
+import { useFolderReadme } from "./slice-detail/nestedReadme";
 import { SliceSourceWorkspace } from "./slice-detail/SliceSourceWorkspace";
 
 interface SliceParams {
@@ -103,7 +104,10 @@ export function SliceDetailPage() {
   const historyOpen = Boolean(search.history);
   const blameOn = Boolean(search.blame);
   const blameAt = typeof search.blameAt === "string" ? search.blameAt : "";
-  const [showTree, setShowTree] = useState(true);
+  // The file tree is open unless the folder shows a README, which has the page
+  // to itself with the tree folded until asked for. What someone chooses stays
+  // chosen from folder to folder.
+  const [treeChoice, setTreeChoice] = useState<boolean | null>(null);
   // On phones a file or folder opens with its details (breadcrumbs, path,
   // counts) folded; the bar at the top unfolds them.
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -221,6 +225,14 @@ export function SliceDetailPage() {
         slice: sliceRef,
       }),
   });
+
+  // The README a folder shows. Found here, not where it is drawn, because the
+  // page folds its file tree for it.
+  const folderEntries =
+    isDirectory && !directoryQuery.isPending && !directoryQuery.error ? (directoryQuery.data ?? []) : [];
+  const { loading: readmeLoading, readme: folderReadme } = useFolderReadme(commitId, sliceRef, folderEntries);
+  const readmeExpected = isDirectory && (Boolean(folderReadme) || readmeLoading);
+  const showTree = treeChoice ?? !readmeExpected;
 
   const fileQuery = useQuery({
     // Fire readFile in parallel with resolvePath rather than waiting for it to
@@ -384,13 +396,16 @@ export function SliceDetailPage() {
     .filter(Boolean);
   const createDirectory =
     selectedPath || (projectedRoots.length === 1 ? projectedRoots[0] : "");
+  // On a phone a folder's page has no tree (the bar at the top goes back to
+  // the root's); the root has it, folded behind a bar when a README is shown.
   const treePanelVisibility = selectedPath
     ? showTree
       ? "hidden lg:block"
       : "hidden"
     : showTree
       ? "block"
-      : "block lg:hidden";
+      : "hidden";
+  const phoneTreeBar = !selectedPath && (readmeExpected || treeChoice !== null);
   // At the root of a slice on a phone the README, when the root has one, comes
   // first and the tree below it; with none, the tree alone is the page (the
   // folder listing would repeat it).
@@ -419,6 +434,8 @@ export function SliceDetailPage() {
       onStageEdit={canEdit ? stagePendingEdit : undefined}
       pathError={pathQuery.error}
       pendingEdits={pendingEdits}
+      readme={folderReadme}
+      readmeLoading={readmeLoading}
       rootOnPhone={!selectedPath}
       selectedPath={selectedPath}
       sliceRef={sliceRef}
@@ -519,7 +536,7 @@ export function SliceDetailPage() {
                 "hidden h-full min-h-0 flex-col items-center gap-2 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5 py-3 text-xs font-semibold text-slate-600 dark:text-zinc-400 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]",
                 showTree ? "" : "lg:flex",
               )}
-              onClick={() => setShowTree(true)}
+              onClick={() => setTreeChoice(true)}
               title="Show files"
               type="button"
             >
@@ -528,9 +545,25 @@ export function SliceDetailPage() {
               </span>
               <span className="[writing-mode:vertical-rl]">Files</span>
             </button>
+            {phoneTreeBar ? (
+              // Folded: one row under the README that opens the whole tree.
+              <button
+                aria-controls="slice-file-tree-panel"
+                aria-expanded={showTree}
+                className="order-1 flex items-center justify-between rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-4 py-3 text-left text-sm font-semibold text-zinc-950 dark:text-zinc-50 lg:hidden"
+                onClick={() => setTreeChoice(!showTree)}
+                type="button"
+              >
+                <span>Files</span>
+                <span aria-hidden="true" className="text-xs font-normal text-slate-500 dark:text-zinc-400">
+                  {showTree ? "Hide" : "Show"}
+                </span>
+              </button>
+            ) : null}
             <aside
               className={cn(
                 "min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto",
+                phoneTreeBar && "max-lg:order-2",
                 treePanelVisibility,
               )}
               id="slice-file-tree-panel"
@@ -541,7 +574,7 @@ export function SliceDetailPage() {
                 includedPaths={includedPaths}
                 isLatestLoading={latestQuery.isPending}
                 isSelectedDirectory={isDirectory}
-                onCollapse={() => setShowTree(false)}
+                onCollapse={() => setTreeChoice(false)}
                 onSelectPath={selectPath}
                 selectedPath={selectedPath}
                 sliceId={sliceId || sliceRouteKey}
