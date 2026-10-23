@@ -38,6 +38,10 @@ export function useCopyMove() {
 }
 
 interface CopyMoveProviderProps {
+  // Off for a viewer who cannot change the slice: no copy or move actions.
+  // The provider stays in the tree either way, so when that becomes known
+  // after the page loads, nothing under it is rebuilt.
+  enabled?: boolean;
   canModify(path: string): boolean;
   // Whether the viewer may change files in another account's slices, for a
   // copy outside this slice.
@@ -57,6 +61,7 @@ export interface LandedPathOperation {
 }
 
 export function CopyMoveProvider({
+  enabled = true,
   canModify,
   canWriteAccount,
   children,
@@ -75,7 +80,7 @@ export function CopyMoveProvider({
   const value = useMemo(() => ({ request }), [request]);
 
   return (
-    <CopyMoveContext.Provider value={value}>
+    <CopyMoveContext.Provider value={enabled ? value : null}>
       {children}
       {active ? (
         <CopyMoveDialog

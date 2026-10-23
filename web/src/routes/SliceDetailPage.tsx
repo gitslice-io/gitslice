@@ -608,21 +608,18 @@ export function SliceDetailPage() {
                 workspaceVisibility,
               )}
             >
-              {canEdit ? (
-                <CopyMoveProvider
-                  canModify={(path) => canModifyPath(includedPaths, path)}
-                  canWriteAccount={(name) =>
-                    canWrite(membershipFor(memberships, name))
-                  }
-                  commitId={commitId}
-                  onLanded={openLandedPath}
-                  slice={sliceRef}
-                >
-                  {workspace}
-                </CopyMoveProvider>
-              ) : (
-                workspace
-              )}
+              <CopyMoveProvider
+                canModify={(path) => canModifyPath(includedPaths, path)}
+                canWriteAccount={(name) =>
+                  canWrite(membershipFor(memberships, name))
+                }
+                commitId={commitId}
+                enabled={canEdit}
+                onLanded={openLandedPath}
+                slice={sliceRef}
+              >
+                {workspace}
+              </CopyMoveProvider>
             </div>
           </div>
           <HistoryDrawer

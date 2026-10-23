@@ -387,10 +387,23 @@ const sliceDetailRoute = createRoute({
     }
     if (import.meta.env.SSR && params.account && params.slice) {
       try {
-        const { createServerApiClient } = await import("../api/serverApi");
+        const { createServerApiClient, isServerSignedIn } = await import("../api/serverApi");
         const { getRequestUrl } = await import("@tanstack/react-start/server");
         const api = await createServerApiClient();
         const ref = { account: params.account, slice: params.slice };
+        // A signed-in viewer's memberships decide what the page offers them
+        // (editing, settings). Known in the server render, those parts are in
+        // the page from the start instead of appearing after it loads and
+        // pushing the README down. Fetched alongside the slice and the ref,
+        // so it adds no wait of its own; a failure leaves it to the browser.
+        const memberships = isServerSignedIn().then((signedIn) =>
+          signedIn
+            ? context.queryClient.prefetchQuery({
+                queryKey: ["authStatus"],
+                queryFn: () => api.getAuthStatus({})
+              })
+            : undefined
+        );
         // The default view resolves the slice and the latest global ref (which
         // yields the commit the file tree renders from); both fire on first
         // paint and have no derived inputs, so prefetch them together.
@@ -412,6 +425,7 @@ const sliceDetailRoute = createRoute({
             }
           })
         ]);
+        await memberships.catch(() => undefined);
         social = sliceSocial(slice, params, deps.path, getRequestUrl().origin);
         const commitId = latest.commitId ?? "";
         const sliceRef = slice.ref ?? ref;

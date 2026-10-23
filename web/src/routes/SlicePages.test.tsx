@@ -723,6 +723,27 @@ describe("slice route pages (render smoke)", () => {
       await waitFor(() => expect(panel()).toMatch(/lg:block/));
     });
 
+    it("does not rebuild the README when the viewer turns out to be an editor after the page loads", async () => {
+      folderApi(entries, vi.fn().mockResolvedValue({ data: btoa(readmeText) }));
+      authMock.current = { isLoaded: true, isSignedIn: true };
+      const original = selectionMock.current;
+      // Memberships not known yet: not an editor.
+      selectionMock.current = { ...original, memberships: [] };
+      const view = renderRoute(<SliceDetailPage />);
+      const before = await screen.findByRole("heading", { name: "Hello app" });
+      // They arrive: an owner of the account, so an editor.
+      selectionMock.current = original;
+      view.rerender(
+        <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+          <SliceDetailPage />
+        </QueryClientProvider>
+      );
+      await waitFor(() => expect(screen.getByRole("button", { name: "Directory actions" })).toBeInTheDocument());
+      // The same element: nothing under the workspace was mounted again.
+      expect(screen.getByRole("heading", { name: "Hello app" })).toBe(before);
+      selectionMock.current = original;
+    });
+
     it("keeps the file tree open where there is no README to give the page to", async () => {
       folderApi(entries.filter((entry) => entry.name !== "README.md"), vi.fn());
       renderRoute(<SliceDetailPage />);

@@ -18,3 +18,9 @@ export async function createServerApiClient(
       authState.isAuthenticated ? await authState.getToken() : null
   });
 }
+
+// isServerSignedIn says whether the request being rendered is signed in, so
+// the server render can prefetch what only a signed-in viewer needs.
+export async function isServerSignedIn(): Promise<boolean> {
+  return (await auth()).isAuthenticated;
+}
