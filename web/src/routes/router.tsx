@@ -38,10 +38,17 @@ import { findReadmeEntry, README_MAX_BYTES } from "./slice-detail/readme";
 import { initialTreeExpansion, pathSearchValue } from "./slice-detail/sourceTree";
 import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
-import type { Slice } from "../api/types";
+import type { Changeset, Slice } from "../api/types";
+import { shortChangesetId } from "../lib/objectId";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { conversationsEnabled } from "../lib/features";
-import { sliceHead, SITE_DESCRIPTION, type SliceSocial } from "../lib/socialMeta";
+import {
+  changesetHead,
+  sliceHead,
+  SITE_DESCRIPTION,
+  type ChangesetSocial,
+  type SliceSocial
+} from "../lib/socialMeta";
 import { SelectionProvider, useSelection } from "../state/selection";
 import { THEME_BOOTSTRAP_SCRIPT } from "../theme";
 import { BlogListPage } from "./BlogListPage";
@@ -647,14 +654,26 @@ const changesetShortRoute = createRoute({
     to: (search as { to?: unknown }).to
   }),
   loader: async ({ context, deps, params }) => {
+    let social: ChangesetSocial | undefined;
+    if (!import.meta.env.SSR) {
+      // In the browser the page loads the changeset itself; the title follows
+      // whatever is already known.
+      const known = context.queryClient.getQueryData<Changeset>(["changeset", params.id]);
+      if (known) {
+        social = changesetSocial(known, params.id, window.location.origin);
+      }
+    }
     if (import.meta.env.SSR) {
       try {
         const { createServerApiClient } = await import("../api/serverApi");
+        const { getRequestUrl } = await import("@tanstack/react-start/server");
         const api = await createServerApiClient();
         const changeset = await context.queryClient.ensureQueryData({
           queryKey: ["changeset", params.id],
           queryFn: () => api.getChangeset({ changesetId: params.id })
         });
+        // Link previews read the server-rendered head (lib/socialMeta).
+        social = changesetSocial(changeset, params.id, getRequestUrl().origin);
         // The diff is the page's primary content; the slice's changesets back
         // the dependent-changeset list. Both render on first paint and derive
         // only from the changeset just fetched, so prefill them under the same
@@ -708,9 +727,31 @@ const changesetShortRoute = createRoute({
         // The component keeps the existing client-side load/error behavior.
       }
     }
+    return { social };
   },
+  // The page's title and what a shared link shows come from the changeset.
+  // Without one (not found, or not readable by this viewer) the head says
+  // nothing about it.
+  head: ({ loaderData, params }) =>
+    loaderData?.social
+      ? changesetHead(loaderData.social)
+      : { meta: [{ title: `Changeset ${params.id} · Gitslice` }] },
   component: ChangesetDetailPage
 });
+
+function changesetSocial(changeset: Changeset, requestedId: string, origin: string): ChangesetSocial {
+  return {
+    handle: shortChangesetId(changeset.id ?? "") || requestedId,
+    title: changeset.title ?? "",
+    description: changeset.description ?? "",
+    status: changeset.status ?? "",
+    author: changeset.author ?? "",
+    account: changeset.authoringSlice?.account ?? "",
+    slice: changeset.authoringSlice?.slice ?? "",
+    fileCount: changeset.affectedPaths?.length ?? 0,
+    origin
+  };
+}
 
 const routeTree = rootRoute.addChildren([
   indexRoute,

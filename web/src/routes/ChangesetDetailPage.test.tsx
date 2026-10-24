@@ -324,6 +324,22 @@ describe("changeset detail page", () => {
     expect(screen.getByTestId("diff-view-mode")).toHaveTextContent("split");
   });
 
+  it("names the browser tab after the changeset once it has loaded", async () => {
+    routerMock.params = { id: "cf52df6ccb" };
+    const api = makeApi();
+    api.diffChangeset = vi.fn().mockResolvedValue({ changedPaths: [], diff: "" });
+    api.getChangeset = vi
+      .fn()
+      .mockResolvedValue(changeset("cs_cf52df6ccbcb849a1b29b76c6b98335f", "add expenses"));
+    apiMock.current = api;
+    document.title = "Gitslice";
+
+    renderRoute(<ChangesetDetailPage />);
+
+    expect(await screen.findByText("add expenses")).toBeInTheDocument();
+    await waitFor(() => expect(document.title).toBe("add expenses · acme/payment · Gitslice"));
+  });
+
   it("drives the diff from URL from/to params on first render", async () => {
     routerMock.params = { id: "cs_child" };
     routerMock.search = { from: "ps_child_1", to: "ps_child_2" };

@@ -31,6 +31,7 @@ import { type DiffFile } from "../components/diff/parseDiff";
 import { type ViewMode } from "../components/diff/diffViewShared";
 import { cn } from "../lib/cn";
 import { shortChangesetId } from "../lib/objectId";
+import { changesetPageTitle } from "../lib/socialMeta";
 import { conversationsEnabled } from "../lib/features";
 
 import {
@@ -132,6 +133,18 @@ export function ChangesetDetailPage() {
 
   const changeset = changesetQuery.data;
   const authoringSlice = changeset?.authoringSlice;
+
+  // The tab and the browser history name the changeset. The route sets the
+  // title when it knows the changeset; this covers arriving by an in-app link,
+  // before the page has loaded it.
+  const pageTitle = changeset
+    ? changesetPageTitle(changeset.title ?? "", authoringSlice?.account ?? "", authoringSlice?.slice ?? "")
+    : "";
+  useEffect(() => {
+    if (pageTitle) {
+      document.title = pageTitle;
+    }
+  }, [pageTitle]);
 
   // A link made from a landed commit's id (gs shows commits shortened to 12
   // characters) still opens the changeset that landed it; switch the address
