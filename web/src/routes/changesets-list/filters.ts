@@ -3,7 +3,7 @@ import type { ListChangesetsRequest, ListChangesetsResponse, SliceRef } from "..
 
 // The changesets list shows one status group at a time (the review queue is
 // the open ones) and can narrow it by text and author. They live in the URL,
-// so a filtered list can be shared and the back button steps through it.
+// so a filtered list can be shared, and Back steps through the tabs visited.
 
 export type StatusTab = "open" | "landed" | "abandoned" | "all";
 

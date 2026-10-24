@@ -74,9 +74,11 @@ export function ChangesetsPage() {
   const queryError = changesetsQuery.error;
   const loadMoreFailed = changesetsQuery.isFetchNextPageError;
 
-  const setView = (next: { status?: StatusTab; q?: string }) =>
+  // A tab is a place to go back to, so choosing one adds a history entry;
+  // typing only refines the one you are on.
+  const setView = (next: { status?: StatusTab; q?: string }, replace: boolean) =>
     void navigate({
-      replace: true,
+      replace,
       search: ((prev: Record<string, unknown>) => {
         const status = next.status ?? tab;
         const q = next.q ?? typed;
@@ -116,7 +118,12 @@ export function ChangesetsPage() {
           <MissingSliceState navigateToChangeset={navigateToChangeset(navigate)} />
         ) : (
           <>
-            <ChangesetsToolbar onSearch={(q) => setView({ q })} onTab={(status) => setView({ status })} tab={tab} typed={typed} />
+            <ChangesetsToolbar
+              onSearch={(q) => setView({ q }, true)}
+              onTab={(status) => setView({ status }, false)}
+              tab={tab}
+              typed={typed}
+            />
             {!isLoaded || changesetsQuery.isPending ? (
               <SliceLoadingBlock />
             ) : changesetsQuery.isError && !changesetsQuery.data ? (
@@ -131,7 +138,7 @@ export function ChangesetsPage() {
                     {typed.trim() ? ` matches "${typed.trim()}"` : ""}.{" "}
                     <button
                       className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
-                      onClick={() => setView({ status: "all", q: "" })}
+                      onClick={() => setView({ status: "all", q: "" }, false)}
                       type="button"
                     >
                       Show all changesets
@@ -230,7 +237,7 @@ function ChangesetsToolbar({
       </div>
       <input
         aria-label="Search changesets"
-        className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none focus:border-slate-500 sm:max-w-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+        className="h-9 min-w-0 basis-full rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none focus:border-slate-500 sm:max-w-sm sm:flex-1 sm:basis-0 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
         onChange={(event) => setText(event.target.value)}
         placeholder="Search titles and ids, or author:name"
         type="search"

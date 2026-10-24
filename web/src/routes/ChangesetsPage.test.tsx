@@ -48,9 +48,9 @@ function renderPage() {
 }
 
 // The search a navigate call asked for, given the address it is applied to.
-function navigatedSearch(call: number, from: Record<string, unknown> = router.search) {
-  const { search, replace, to } = router.navigate.mock.calls[call][0];
-  expect(replace).toBe(true);
+function navigatedSearch(call: number, replace: boolean, from: Record<string, unknown> = router.search) {
+  const { search, replace: replaced, to } = router.navigate.mock.calls[call][0];
+  expect(replaced).toBe(replace);
   expect(to).toBe("/changesets");
   return search(from) as Record<string, unknown>;
 }
@@ -123,12 +123,13 @@ describe("changesets list", () => {
     await screen.findByText("one");
 
     fireEvent.click(screen.getByRole("button", { name: "Landed" }));
-    expect(navigatedSearch(0)).toEqual({ slice: "gitslice/gitslice", status: "landed", q: undefined });
+    // A tab adds a history entry, so Back returns to the one before.
+    expect(navigatedSearch(0, false)).toEqual({ slice: "gitslice/gitslice", status: "landed", q: undefined });
     fireEvent.click(screen.getByRole("button", { name: "All" }));
-    expect(navigatedSearch(1)).toEqual({ slice: "gitslice/gitslice", status: "all", q: undefined });
+    expect(navigatedSearch(1, false)).toEqual({ slice: "gitslice/gitslice", status: "all", q: undefined });
     // Open is the default, so it is not in the address.
     fireEvent.click(screen.getByRole("button", { name: "Open" }));
-    expect(navigatedSearch(2, { slice: "gitslice/gitslice", status: "landed" })).toEqual({
+    expect(navigatedSearch(2, false, { slice: "gitslice/gitslice", status: "landed" })).toEqual({
       slice: "gitslice/gitslice",
       status: undefined,
       q: undefined
@@ -141,7 +142,8 @@ describe("changesets list", () => {
     fireEvent.change(box, { target: { value: "blame author:sunny" } });
     expect(router.navigate).not.toHaveBeenCalled();
     await waitFor(() => expect(router.navigate).toHaveBeenCalledTimes(1));
-    expect(navigatedSearch(0)).toEqual({ slice: "gitslice/gitslice", status: undefined, q: "blame author:sunny" });
+    // Typing refines the entry you are on.
+    expect(navigatedSearch(0, true)).toEqual({ slice: "gitslice/gitslice", status: undefined, q: "blame author:sunny" });
   });
 
   it("lists what the address asks for, and offers every changeset when nothing matches", async () => {
@@ -162,7 +164,7 @@ describe("changesets list", () => {
     expect(screen.getByRole("searchbox", { name: "Search changesets" })).toHaveValue("fix author:Sunny");
 
     fireEvent.click(screen.getByRole("button", { name: "Show all changesets" }));
-    expect(navigatedSearch(0)).toEqual({ slice: "gitslice/gitslice", status: "all", q: undefined });
+    expect(navigatedSearch(0, false)).toEqual({ slice: "gitslice/gitslice", status: "all", q: undefined });
   });
 
   it("says a slice with no changesets has none yet, not that nothing matches", async () => {
