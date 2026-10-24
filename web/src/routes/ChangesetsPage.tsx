@@ -10,6 +10,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { Changeset, SliceRef } from "../api/types";
 import { type ApiClient, useApi } from "../api/useApi";
 import { AuthorLabel } from "../components/AccountAvatar";
+import { ChangesetMetaLine } from "./changeset-detail/ChangesetMetaLine";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
 import {
@@ -229,6 +230,10 @@ function ChangesetRow({
               <span className="mt-1 text-sm text-slate-500 dark:text-zinc-400">{label}</span>
             </>
           )}
+          {/* The Author column shows from md up; below it the name sits here. */}
+          <div className="md:hidden">
+            <ChangesetMetaLine changeset={changeset} />
+          </div>
           {changeset.affectedPaths?.length ? (
             <span
               className="text-xs text-slate-500 dark:text-zinc-400"

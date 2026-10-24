@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 
 import { useApi } from "../../api/useApi";
 import { canAdmin, type Membership } from "../../lib/accounts";
-import { AccountAvatar } from "../AccountAvatar";
+import { AccountAvatar, AccountLink } from "../AccountAvatar";
 import { SliceLoadingBlock, SliceNotice, getErrorMessage } from "./SlicePageParts";
 
 const ROLES = ["owner", "admin", "writer", "member", "reader"] as const;
@@ -115,7 +115,7 @@ export function AccountPeople({ account, membership }: { account: string; member
               <li className="flex flex-wrap items-center gap-3 px-4 py-3" key={member.subjectId || name}>
                 <AccountAvatar account={name} kind="personal" />
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-950 dark:text-zinc-50">
-                  {name}
+                  <AccountLink account={name} />
                   {member.displayName ? (
                     <span className="ml-2 font-normal text-slate-500 dark:text-zinc-400">{member.displayName}</span>
                   ) : null}
@@ -167,10 +167,15 @@ export function AccountPeople({ account, membership }: { account: string; member
               <li className="flex flex-wrap items-center gap-3 px-4 py-2.5" key={invitation.username}>
                 <AccountAvatar account={invitation.username ?? "?"} kind="personal" />
                 <span className="min-w-0 flex-1 truncate text-sm text-zinc-950 dark:text-zinc-50">
-                  {invitation.username}
+                  <AccountLink account={invitation.username ?? ""} />
                   <span className="ml-2 text-xs text-slate-500 dark:text-zinc-400">
                     invited as {invitation.role}
-                    {invitation.invitedBy ? ` by ${invitation.invitedBy}` : ""}
+                    {invitation.invitedBy ? (
+                      <>
+                        {" by "}
+                        <AccountLink account={invitation.invitedBy} />
+                      </>
+                    ) : null}
                   </span>
                 </span>
                 <button

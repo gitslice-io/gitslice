@@ -1,4 +1,5 @@
-import { useState, useSyncExternalStore } from "react";
+import { Link } from "@tanstack/react-router";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { cn } from "../lib/cn";
 
@@ -52,7 +53,7 @@ export function AccountAvatar({
 }: {
   account: string;
   kind: string;
-  size?: "xs" | "sm" | "lg";
+  size?: "xs" | "sm" | "lg" | "xl";
   /** The profile's avatarVersion when the caller has it. */
   version?: string;
 }) {
@@ -61,7 +62,7 @@ export function AccountAvatar({
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const shape = cn(
     "shrink-0",
-    size === "lg" ? "size-12" : size === "xs" ? "size-4" : "size-6",
+    size === "xl" ? "size-16 sm:size-20" : size === "lg" ? "size-12" : size === "xs" ? "size-4" : "size-6",
     // Organizations are square, people and agents round, as on GitHub.
     kind === "organization" ? "rounded-md" : "rounded-full"
   );
@@ -75,7 +76,7 @@ export function AccountAvatar({
         className={cn(
           shape,
           "grid place-items-center font-semibold uppercase text-white",
-          size === "lg" ? "text-lg" : size === "xs" ? "text-[9px]" : "text-[11px]",
+          size === "xl" ? "text-3xl" : size === "lg" ? "text-lg" : size === "xs" ? "text-[9px]" : "text-[11px]",
           kind === "organization" ? "bg-indigo-600" : kind === "agent" ? "bg-teal-600" : "bg-zinc-700"
         )}
       >
@@ -107,14 +108,58 @@ export function isAccountName(name: string) {
 }
 
 /**
- * An author's name with their picture in front, for bylines: changesets,
- * history, blame. Authors are people or agents, so the picture is round.
+ * A link to an account's profile page. A name that is not an account (an
+ * author the server could not name arrives as a raw subject id) is plain text.
+ * A link inside a clickable row passes onNavigate to stop the row reacting.
  */
-export function AuthorLabel({ className, name }: { className?: string; name: string }) {
+export function AccountLink({
+  account,
+  children,
+  className,
+  onNavigate
+}: {
+  account: string;
+  children?: ReactNode;
+  className?: string;
+  onNavigate?(): void;
+}) {
+  if (!isAccountName(account)) {
+    return <span className={className}>{children ?? account}</span>;
+  }
   return (
-    <span className={cn("inline-flex min-w-0 items-center gap-1.5", className)}>
+    <Link
+      className={cn("underline-offset-2 hover:underline", className)}
+      onClick={(event) => {
+        event.stopPropagation();
+        onNavigate?.();
+      }}
+      params={{ account }}
+      title={`View @${account}'s profile`}
+      to="/accounts/$account"
+    >
+      {children ?? account}
+    </Link>
+  );
+}
+
+/**
+ * An author's name with their picture in front, linked to their profile, for
+ * bylines: changesets, history, blame. Authors are people or agents, so the
+ * picture is round.
+ */
+export function AuthorLabel({
+  className,
+  name,
+  onNavigate
+}: {
+  className?: string;
+  name: string;
+  onNavigate?(): void;
+}) {
+  return (
+    <AccountLink account={name} className={cn("inline-flex min-w-0 items-center gap-1.5", className)} onNavigate={onNavigate}>
       {isAccountName(name) ? <AccountAvatar account={name} kind="personal" size="xs" /> : null}
       <span className="min-w-0 truncate">{name}</span>
-    </span>
+    </AccountLink>
   );
 }

@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
 import { useApi } from "../../api/useApi";
+import { AccountLink } from "../AccountAvatar";
 import { useSelection } from "../../state/selection";
 import { getErrorMessage } from "./SlicePageParts";
 
@@ -93,7 +94,12 @@ export function PendingInvitations() {
                   </Link>
                   <p className="truncate text-xs text-slate-500 dark:text-zinc-400">
                     As {invitation.role}
-                    {invitation.invitedBy ? `, invited by ${invitation.invitedBy}` : ""}
+                    {invitation.invitedBy ? (
+                      <>
+                        {", invited by "}
+                        <AccountLink account={invitation.invitedBy} />
+                      </>
+                    ) : null}
                   </p>
                 </div>
                 <div className="flex gap-2">

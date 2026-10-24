@@ -17,13 +17,13 @@ vi.mock("@tanstack/react-router", () => ({
     ...rest
   }: {
     children: ReactNode;
-    params?: { id?: string };
+    params?: { id?: string; account?: string };
     search?: { file?: string };
     to: string;
   }) => (
     <a
       {...(rest as Record<string, unknown>)}
-      href={`${to.replace("$id", params?.id ?? "")}${search?.file ? `?file=${search.file}` : ""}`}
+      href={`${to.replace("$id", params?.id ?? "").replace("$account", params?.account ?? "")}${search?.file ? `?file=${search.file}` : ""}`}
     >
       {children}
     </a>
@@ -66,7 +66,9 @@ describe("HistoryDrawer", () => {
     // The title is the link: no separate button.
     const link = await screen.findByRole("link", { name: "web: Home lists only the active account" });
     expect(link).toHaveAttribute("href", "/cs/b083ab0e70?file=gitslice/gitslice/web/src/routes/HomePage.tsx");
-    expect(screen.getAllByRole("link")).toHaveLength(1);
+    // The changeset link, and the author's link to their profile.
+    expect(screen.getAllByRole("link")).toHaveLength(2);
+    expect(screen.getByRole("link", { name: "gitslice-operator" })).toHaveAttribute("href", "/accounts/gitslice-operator");
     // A commit no changeset landed is not a link.
     expect(screen.getByText("imported").closest("a")).toBeNull();
     // No list of the slice's changesets is needed any more.

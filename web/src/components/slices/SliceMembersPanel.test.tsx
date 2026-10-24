@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
@@ -10,6 +11,13 @@ const api = vi.hoisted(() => ({
   removeSliceMember: vi.fn()
 }));
 vi.mock("../../api/useApi", () => ({ useApi: () => api }));
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children, params, to, ...rest }: { children: ReactNode; params?: { account?: string }; to: string }) => (
+    <a {...(rest as Record<string, unknown>)} href={to.replace("$account", params?.account ?? "")}>
+      {children}
+    </a>
+  )
+}));
 
 import { SliceMembersPanel } from "./SliceMembersPanel";
 
@@ -38,7 +46,7 @@ describe("SliceMembersPanel", () => {
     api.removeSliceMember.mockResolvedValue({});
     renderPanel();
 
-    expect(await screen.findByText("bob-agent")).toBeInTheDocument();
+    expect(await screen.findByRole("link", { name: "bob-agent" })).toHaveAttribute("href", "/accounts/bob-agent");
     expect(screen.getByText("agent")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Username"), { target: { value: "carol" } });

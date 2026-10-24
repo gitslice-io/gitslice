@@ -63,7 +63,7 @@ export function BlameGutter({
           {line.offset === 0 && line.first ? (
             <BlameHeadline commit={line.commit} commitId={line.commitId} focusFile={focusFile} line={line} onLeave={onLeave} />
           ) : line.offset === 1 ? (
-            <BlameByline commit={line.commit} line={line} />
+            <BlameByline commit={line.commit} line={line} onLeave={onLeave} />
           ) : null}
         </div>
       ))}
@@ -182,12 +182,14 @@ function BlameHeadline({
   );
 }
 
-function BlameByline({ commit, line }: { commit?: Commit; line: BlameLine }) {
+function BlameByline({ commit, line, onLeave }: { commit?: Commit; line: BlameLine; onLeave?(): void }) {
   const order = orderLabel(line.order, line.total);
   return (
     <>
       {commit?.author ? (
-        <AuthorLabel className="hidden flex-1 text-slate-500 sm:inline-flex dark:text-zinc-400" name={commit.author} />
+        <span className="hidden min-w-0 flex-1 sm:flex">
+          <AuthorLabel className="text-slate-500 dark:text-zinc-400" name={commit.author} onNavigate={onLeave} />
+        </span>
       ) : (
         <span className="hidden flex-1 sm:inline" />
       )}
@@ -244,7 +246,7 @@ export function BlameDetails({
           ) : (
             <span className="font-mono">{shortHash(line.commitId, 8)}</span>
           )}
-          {commit?.author ? <AuthorLabel name={commit.author} /> : null}
+          {commit?.author ? <AuthorLabel name={commit.author} onNavigate={onLeave} /> : null}
           <Timestamp dateOnly value={commit?.createdAt} />
           {line.order ? <span>{orderLabel(line.order, line.total)}</span> : null}
         </p>

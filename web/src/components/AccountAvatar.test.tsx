@@ -1,9 +1,18 @@
 import "@testing-library/jest-dom/vitest";
 
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AccountAvatar, AuthorLabel, avatarUrl, rememberAvatarVersion } from "./AccountAvatar";
+import { AccountAvatar, AccountLink, AuthorLabel, avatarUrl, rememberAvatarVersion } from "./AccountAvatar";
+
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ children, params, to, ...rest }: { children: ReactNode; params?: { account?: string }; to: string }) => (
+    <a {...(rest as Record<string, unknown>)} href={to.replace("$account", params?.account ?? "")}>
+      {children}
+    </a>
+  )
+}));
 
 afterEach(cleanup);
 
@@ -35,13 +44,34 @@ describe("AccountAvatar", () => {
     expect(container).toHaveTextContent("z");
   });
 
-  it("puts an author's picture before their name, but not before a raw subject id", () => {
+  it("puts an author's picture before their name, linked to their profile, but neither for a raw subject id", () => {
     const { container, rerender } = render(<AuthorLabel name="sunny" />);
     expect(container.querySelector("img")).toHaveAttribute("src", "/avatars/sunny.png");
     expect(container).toHaveTextContent("sunny");
+    // The picture and the name are one link.
+    const link = screen.getByRole("link", { name: "sunny" });
+    expect(link).toHaveAttribute("href", "/accounts/sunny");
+    expect(link.querySelector("img")).not.toBeNull();
 
     rerender(<AuthorLabel name="user_ext_7cac3e86bbbe5541" />);
     expect(container.querySelector("img")).toBeNull();
+    expect(screen.queryByRole("link")).toBeNull();
     expect(container).toHaveTextContent("user_ext_7cac3e86bbbe5541");
+  });
+
+  it("links an account name to its profile without triggering the row it sits in", () => {
+    let rowClicks = 0;
+    let navigated = 0;
+    render(
+      <div onClick={() => (rowClicks += 1)}>
+        <AccountLink account="bea" onNavigate={() => (navigated += 1)} />
+      </div>
+    );
+    const link = screen.getByRole("link", { name: "bea" });
+    expect(link).toHaveAttribute("href", "/accounts/bea");
+    expect(link).toHaveAttribute("title", "View @bea's profile");
+    fireEvent.click(link);
+    expect(navigated).toBe(1);
+    expect(rowClicks).toBe(0);
   });
 });

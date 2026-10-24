@@ -93,7 +93,7 @@ export function AccountPage() {
       ) : (
         <>
           <div className="mt-4 flex flex-wrap items-center gap-4">
-            <AccountAvatar account={account} kind={kind} size="lg" version={profile ? (profile.avatarVersion ?? "") : undefined} />
+            <AccountAvatar account={account} kind={kind} size="xl" version={profile ? (profile.avatarVersion ?? "") : undefined} />
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-xl font-semibold text-zinc-950 dark:text-zinc-50">
                 {profile?.displayName || account}

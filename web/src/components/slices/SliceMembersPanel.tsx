@@ -3,6 +3,7 @@ import { useState, type FormEvent } from "react";
 
 import type { SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
+import { AccountLink } from "../AccountAvatar";
 import { SliceLoadingBlock, SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
 
 export const SLICE_ROLES: { role: string; help: string }[] = [
@@ -111,7 +112,7 @@ export function SliceMembersPanel({ slice }: { slice: SliceRef }) {
                 return (
                   <li className="flex flex-wrap items-center gap-3 px-4 py-3" key={member.subjectId || name}>
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-zinc-950 dark:text-zinc-50">
-                      {name}
+                      <AccountLink account={name} />
                       {member.displayName ? (
                         <span className="ml-2 font-normal text-slate-500 dark:text-zinc-400">{member.displayName}</span>
                       ) : null}

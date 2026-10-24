@@ -267,6 +267,8 @@ describe("slice route pages (render smoke)", () => {
 
     // Before an upload, the generated picture.
     await waitFor(() => expect(container.querySelector('img[src="/avatars/nic.png?v=none"]')).not.toBeNull());
+    // The profile header shows it large (80px from sm up, 64px on phones).
+    expect(container.querySelector('img[src="/avatars/nic.png?v=none"]')).toHaveClass("size-16", "sm:size-20");
     fireEvent.click(await screen.findByRole("button", { name: "Edit profile" }));
     const form = screen.getByRole("form", { name: "Edit profile" });
     expect(within(form).queryByRole("button", { name: "Remove picture" })).toBeNull();

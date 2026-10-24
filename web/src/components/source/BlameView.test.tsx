@@ -19,11 +19,14 @@ vi.mock("@tanstack/react-router", () => ({
     ...rest
   }: {
     children: ReactNode;
-    params?: { id?: string };
+    params?: { id?: string; account?: string };
     search?: { file?: string };
     to: string;
   }) => (
-    <a {...(rest as Record<string, unknown>)} href={`${to.replace("$id", params?.id ?? "")}${search?.file ? `?file=${search.file}` : ""}`}>
+    <a
+      {...(rest as Record<string, unknown>)}
+      href={`${to.replace("$id", params?.id ?? "").replace("$account", params?.account ?? "")}${search?.file ? `?file=${search.file}` : ""}`}
+    >
       {children}
     </a>
   )
@@ -131,7 +134,9 @@ describe("blame on a file", () => {
     expect(within(details).getByText("Add the notes")).toBeInTheDocument();
     expect(within(details).getByText("alice")).toBeInTheDocument();
     expect(within(details).getByText("the oldest of 2 changes still in this file")).toBeInTheDocument();
-    expect(within(details).getByRole("link")).toHaveAttribute("href", "/cs/0123456789?file=acme/app/notes.txt");
+    expect(within(details).getByRole("link", { name: /^[0-9a-f]+$/ })).toHaveAttribute("href", "/cs/0123456789?file=acme/app/notes.txt");
+    // The author links to their profile.
+    expect(within(details).getByRole("link", { name: "alice" })).toHaveAttribute("href", "/accounts/alice");
 
     // Another block replaces it; the same block again, or Close, clears it.
     fireEvent.click(rows[2]);
