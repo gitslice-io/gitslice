@@ -1,14 +1,13 @@
 import { Fragment, useMemo } from "react";
 import { cn } from "../../lib/cn";
-import { computeSegments, type RevealState } from "./collapse";
+import { type RevealState } from "./collapse";
 import { type DiffFile, type DiffLine, type DiffRow } from "./parseDiff";
 
 import {
   type ExpandFn,
-  CONTEXT_LINES,
   gapKey,
-  EMPTY_REVEAL,
-  rangeIndexes
+  rangeIndexes,
+  splitSegments
 } from "./diffViewShared";
 import { ExpandSeparator } from "./ExpandSeparator";
 
@@ -23,18 +22,7 @@ export function SplitDiff({
 }) {
   const rows = file.rows;
   const segments = useMemo(
-    () =>
-      computeSegments(
-        rows.length,
-        (index) => rows[index].kind === "context",
-        (index) =>
-          rows[index].kind === "add" ||
-          rows[index].kind === "del" ||
-          rows[index].kind === "replace",
-        CONTEXT_LINES,
-        (gapIndex) =>
-          revealed[gapKey(file.id, "split", gapIndex)] ?? EMPTY_REVEAL
-      ),
+    () => splitSegments(file.id, rows, revealed),
     [file.id, rows, revealed]
   );
 

@@ -1,14 +1,13 @@
 import { Fragment, useMemo } from "react";
 import { cn } from "../../lib/cn";
-import { computeSegments, type RevealState } from "./collapse";
+import { type RevealState } from "./collapse";
 import { type DiffFile, type DiffLineKind } from "./parseDiff";
 
 import {
   type ExpandFn,
-  CONTEXT_LINES,
   gapKey,
-  EMPTY_REVEAL,
-  rangeIndexes
+  rangeIndexes,
+  unifiedSegments
 } from "./diffViewShared";
 import { ExpandSeparator } from "./ExpandSeparator";
 
@@ -22,16 +21,7 @@ export function UnifiedDiff({
   revealed: Record<string, RevealState>;
 }) {
   const segments = useMemo(
-    () =>
-      computeSegments(
-        file.lines.length,
-        (index) => file.lines[index].kind === "context",
-        (index) =>
-          file.lines[index].kind === "add" || file.lines[index].kind === "del",
-        CONTEXT_LINES,
-        (gapIndex) =>
-          revealed[gapKey(file.id, "unified", gapIndex)] ?? EMPTY_REVEAL
-      ),
+    () => unifiedSegments(file.id, file.lines, revealed),
     [file.id, file.lines, revealed]
   );
 

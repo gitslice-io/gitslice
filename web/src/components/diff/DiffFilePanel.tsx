@@ -11,7 +11,7 @@ import {
   type ViewMode,
   largeDiffLineLimit,
   errorMessage,
-  minDiffBodyPlaceholderHeight
+  estimatedDiffBodyHeight
 } from "./diffViewShared";
 import { ChangeKindBadge } from "./ChangeKindBadge";
 import { UnifiedDiff } from "./UnifiedDiff";
@@ -226,11 +226,4 @@ export function DiffErrorBox({ message }: { message: string }) {
       {message}
     </div>
   );
-}
-
-function estimatedDiffBodyHeight(file: DiffFile, viewMode: ViewMode) {
-  const estimatedHeight =
-    viewMode === "unified" ? file.lines.length * 16 : file.rows.length * 16;
-
-  return Math.max(minDiffBodyPlaceholderHeight, estimatedHeight);
 }
