@@ -71,6 +71,11 @@ service AuthService {
   // UpdateAccountProfile changes an account's profile: an organization's by
   // its owners and admins, a personal account's by its person.
   rpc UpdateAccountProfile(UpdateAccountProfileRequest) returns (AccountProfile);
+  // SetAccountAvatar uploads an account's picture, or with no image removes
+  // it, so the account shows its generated pixel picture again. The same
+  // people as UpdateAccountProfile may call it. Anyone reads a picture at
+  // GET /avatars/{account}.png.
+  rpc SetAccountAvatar(SetAccountAvatarRequest) returns (AccountProfile);
 }
 
 message StartCliLoginRequest {}
@@ -329,10 +334,21 @@ message AccountProfile {
   string website = 5;
   // RFC 3339.
   string created_at = 6;
+  // Names the uploaded picture; empty when the account shows its generated
+  // pixel picture. Clients add it to the picture's address
+  // (/avatars/{account}.png?v=...), so a new upload is a new address.
+  string avatar_version = 7;
 }
 
 message GetAccountProfileRequest {
   string account = 1;
+}
+
+message SetAccountAvatarRequest {
+  string account = 1;
+  // A PNG, JPEG, GIF or WebP file of at most 5 MB, stored as its largest
+  // centered square at 256x256. Empty removes the uploaded picture.
+  bytes image = 2;
 }
 
 message UpdateAccountProfileRequest {

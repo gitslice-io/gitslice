@@ -119,6 +119,9 @@ type AuthStore interface {
 	// UpdateAccountProfile sets an account's display name, description and
 	// website (already validated) and returns the profile.
 	UpdateAccountProfile(ctx context.Context, accountSlug string, profile AccountProfile) (*AccountProfile, error)
+	// SetAccountAvatar sets the object key of an account's uploaded picture
+	// ('' for none) and returns the key it replaced, or ErrNotFound.
+	SetAccountAvatar(ctx context.Context, accountSlug, avatarKey string) (string, error)
 }
 
 // AccountInvitation is a pending invitation to join an organization.
@@ -138,6 +141,8 @@ type AccountProfile struct {
 	Description string
 	Website     string
 	CreatedAt   time.Time
+	// AvatarKey is the object key of the uploaded picture, '' for none.
+	AvatarKey string
 }
 
 // AccountMember is one member of an account and their highest role.

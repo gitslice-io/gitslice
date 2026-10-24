@@ -1,6 +1,9 @@
-// Link-preview images (/og/...) are drawn by the API server and served from
-// the site's own address, cached at Cloudflare's edge, so a crawler fetching a
-// card rarely reaches the API (and does not wake it).
+// Link-preview images (/og/...) and account pictures (/avatars/...) are
+// drawn by the API server and served from the site's own address, cached at
+// Cloudflare's edge, so a crawler fetching a card, or a page listing many
+// accounts, rarely reaches the API (and does not wake it).
+
+const imagePrefixes = ["/og/", "/avatars/"];
 
 type EdgeCache = {
   match(request: Request): Promise<Response | undefined>;
@@ -13,7 +16,7 @@ export async function socialImageResponse(
   cache: EdgeCache | undefined = edgeCache()
 ): Promise<Response | null> {
   const url = new URL(request.url);
-  if (!url.pathname.startsWith("/og/") || !apiBase) {
+  if (!imagePrefixes.some((prefix) => url.pathname.startsWith(prefix)) || !apiBase) {
     return null;
   }
   if (request.method !== "GET" && request.method !== "HEAD") {

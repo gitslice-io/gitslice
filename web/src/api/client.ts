@@ -143,6 +143,10 @@ export function createApiClient({
       unary<Api.AccountProfile>(() =>
         auth.updateAccountProfile(toProtoRequest(request))
       ),
+    setAccountAvatar: (request) =>
+      unary<Api.AccountProfile>(() =>
+        auth.setAccountAvatar(toProtoRequest(request))
+      ),
     resolvePath: (request) =>
       unary<Api.ResolvePathResponse>(() =>
         repository.resolvePath(toProtoRequest(request))
@@ -409,6 +413,10 @@ function toProtoValue(
   }
   if (bytesFieldNames.has(key)) {
     return toBytes(value);
+  }
+  // Bytes a caller already holds (an uploaded file) go as they are.
+  if (value instanceof Uint8Array) {
+    return value;
   }
   if (Array.isArray(value)) {
     return value.map((item) =>

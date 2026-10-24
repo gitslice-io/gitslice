@@ -167,22 +167,8 @@ func (s *AuthService) UpdateAccountProfile(ctx context.Context, req *corev1.Upda
 		return nil, err
 	}
 	account := strings.TrimSpace(req.GetAccount())
-	kind, err := s.Auth.AccountKind(ctx, account)
-	if err != nil {
-		return nil, accountLookupError(err, account)
-	}
-	if kind == storage.AccountKindOrganization {
-		if err := s.authorizeMemberChange(ctx, subjectID, account, "", ""); err != nil {
-			return nil, err
-		}
-	} else if !s.isOperator(subjectID) {
-		names, err := s.Auth.UsernamesForSubjects(ctx, []string{subjectID})
-		if err != nil {
-			return nil, grpcError(err)
-		}
-		if names[subjectID] != account {
-			return nil, status.Error(codes.PermissionDenied, "only its person can change a personal profile")
-		}
+	if err := s.authorizeProfileChange(ctx, subjectID, account); err != nil {
+		return nil, err
 	}
 	profile := storage.AccountProfile{
 		DisplayName: strings.TrimSpace(req.GetDisplayName()),
@@ -206,6 +192,29 @@ func (s *AuthService) UpdateAccountProfile(ctx context.Context, req *corev1.Upda
 		return nil, accountLookupError(err, account)
 	}
 	return accountProfileProto(updated), nil
+}
+
+// authorizeProfileChange allows an organization's owners and admins, and a
+// personal account's own person, to change the account's profile.
+func (s *AuthService) authorizeProfileChange(ctx context.Context, subjectID, account string) error {
+	kind, err := s.Auth.AccountKind(ctx, account)
+	if err != nil {
+		return accountLookupError(err, account)
+	}
+	if kind == storage.AccountKindOrganization {
+		return s.authorizeMemberChange(ctx, subjectID, account, "", "")
+	}
+	if s.isOperator(subjectID) {
+		return nil
+	}
+	names, err := s.Auth.UsernamesForSubjects(ctx, []string{subjectID})
+	if err != nil {
+		return grpcError(err)
+	}
+	if names[subjectID] != account {
+		return status.Error(codes.PermissionDenied, "only its person can change a personal profile")
+	}
+	return nil
 }
 
 func (s *AuthService) invitationsProto(ctx context.Context, invitations []storage.AccountInvitation) ([]*corev1.AccountInvitation, error) {
@@ -232,12 +241,13 @@ func (s *AuthService) invitationsProto(ctx context.Context, invitations []storag
 
 func accountProfileProto(profile *storage.AccountProfile) *corev1.AccountProfile {
 	return &corev1.AccountProfile{
-		Account:     profile.Account,
-		Kind:        profile.Kind,
-		DisplayName: profile.DisplayName,
-		Description: profile.Description,
-		Website:     profile.Website,
-		CreatedAt:   formatTime(profile.CreatedAt),
+		Account:       profile.Account,
+		Kind:          profile.Kind,
+		DisplayName:   profile.DisplayName,
+		Description:   profile.Description,
+		Website:       profile.Website,
+		CreatedAt:     formatTime(profile.CreatedAt),
+		AvatarVersion: avatarVersion(profile.AvatarKey),
 	}
 }
 

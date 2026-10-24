@@ -44,6 +44,18 @@ describe("socialImageResponse", () => {
     expect(await head?.text()).toBe("");
   });
 
+  it("proxies account pictures the same way", async () => {
+    const fetchMock = vi.fn(async () => new Response("avatar-png", { headers: { "Content-Type": "image/png" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const cache = memoryCache();
+    const url = "https://gitslice.io/avatars/sunny.png?v=none";
+
+    expect(await (await socialImageResponse(new Request(url), "https://api.gitslice.io", cache))?.text()).toBe("avatar-png");
+    expect(fetchMock).toHaveBeenCalledWith("https://api.gitslice.io/avatars/sunny.png?v=none", { redirect: "follow" });
+    await socialImageResponse(new Request(url), "https://api.gitslice.io", cache);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("does not cache a failure, and refuses other methods", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("not found", { status: 404 })));
     const cache = memoryCache();

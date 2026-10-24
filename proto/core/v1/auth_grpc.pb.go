@@ -43,6 +43,7 @@ const (
 	AuthService_CancelAccountInvitation_FullMethodName = "/gitslice.core.v1.AuthService/CancelAccountInvitation"
 	AuthService_GetAccountProfile_FullMethodName       = "/gitslice.core.v1.AuthService/GetAccountProfile"
 	AuthService_UpdateAccountProfile_FullMethodName    = "/gitslice.core.v1.AuthService/UpdateAccountProfile"
+	AuthService_SetAccountAvatar_FullMethodName        = "/gitslice.core.v1.AuthService/SetAccountAvatar"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -115,6 +116,11 @@ type AuthServiceClient interface {
 	// UpdateAccountProfile changes an account's profile: an organization's by
 	// its owners and admins, a personal account's by its person.
 	UpdateAccountProfile(ctx context.Context, in *UpdateAccountProfileRequest, opts ...grpc.CallOption) (*AccountProfile, error)
+	// SetAccountAvatar uploads an account's picture, or with no image removes
+	// it, so the account shows its generated pixel picture again. The same
+	// people as UpdateAccountProfile may call it. Anyone reads a picture at
+	// GET /avatars/{account}.png.
+	SetAccountAvatar(ctx context.Context, in *SetAccountAvatarRequest, opts ...grpc.CallOption) (*AccountProfile, error)
 }
 
 type authServiceClient struct {
@@ -341,6 +347,15 @@ func (c *authServiceClient) UpdateAccountProfile(ctx context.Context, in *Update
 	return out, nil
 }
 
+func (c *authServiceClient) SetAccountAvatar(ctx context.Context, in *SetAccountAvatarRequest, opts ...grpc.CallOption) (*AccountProfile, error) {
+	out := new(AccountProfile)
+	err := c.cc.Invoke(ctx, AuthService_SetAccountAvatar_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations should embed UnimplementedAuthServiceServer
 // for forward compatibility
@@ -411,6 +426,11 @@ type AuthServiceServer interface {
 	// UpdateAccountProfile changes an account's profile: an organization's by
 	// its owners and admins, a personal account's by its person.
 	UpdateAccountProfile(context.Context, *UpdateAccountProfileRequest) (*AccountProfile, error)
+	// SetAccountAvatar uploads an account's picture, or with no image removes
+	// it, so the account shows its generated pixel picture again. The same
+	// people as UpdateAccountProfile may call it. Anyone reads a picture at
+	// GET /avatars/{account}.png.
+	SetAccountAvatar(context.Context, *SetAccountAvatarRequest) (*AccountProfile, error)
 }
 
 // UnimplementedAuthServiceServer should be embedded to have forward compatible implementations.
@@ -488,6 +508,9 @@ func (UnimplementedAuthServiceServer) GetAccountProfile(context.Context, *GetAcc
 }
 func (UnimplementedAuthServiceServer) UpdateAccountProfile(context.Context, *UpdateAccountProfileRequest) (*AccountProfile, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateAccountProfile not implemented")
+}
+func (UnimplementedAuthServiceServer) SetAccountAvatar(context.Context, *SetAccountAvatarRequest) (*AccountProfile, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetAccountAvatar not implemented")
 }
 
 // UnsafeAuthServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -933,6 +956,24 @@ func _AuthService_UpdateAccountProfile_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_SetAccountAvatar_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetAccountAvatarRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).SetAccountAvatar(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_SetAccountAvatar_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).SetAccountAvatar(ctx, req.(*SetAccountAvatarRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1035,6 +1076,10 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateAccountProfile",
 			Handler:    _AuthService_UpdateAccountProfile_Handler,
+		},
+		{
+			MethodName: "SetAccountAvatar",
+			Handler:    _AuthService_SetAccountAvatar_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

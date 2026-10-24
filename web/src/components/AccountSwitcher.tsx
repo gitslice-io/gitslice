@@ -6,6 +6,7 @@ import { kindLabel, type Membership } from "../lib/accounts";
 import { cn } from "../lib/cn";
 import { useSelection } from "../state/selection";
 import { useMyInvitations } from "./slices/PendingInvitations";
+import { AccountAvatar } from "./AccountAvatar";
 
 // The account switcher in the top bar: like GitHub's context switcher, it
 // picks which of the viewer's accounts (personal, organizations, claimed
@@ -240,20 +241,4 @@ export function menuPlace(button: { bottom: number; right: number }, viewportWid
   const left = Math.min(Math.max(MARGIN, button.right - width), viewportWidth - width - MARGIN);
   const top = Math.round(button.bottom + 4);
   return { left: Math.round(left), maxHeight: Math.max(160, viewportHeight - top - MARGIN), top, width };
-}
-
-export function AccountAvatar({ account, kind, size = "sm" }: { account: string; kind: string; size?: "sm" | "lg" }) {
-  return (
-    <span
-      aria-hidden
-      className={cn(
-        "grid shrink-0 place-items-center font-semibold uppercase text-white",
-        size === "lg" ? "size-12 text-lg" : "size-6 text-[11px]",
-        // Organizations are square, people and agents round, as on GitHub.
-        kind === "organization" ? "rounded-md bg-indigo-600" : kind === "agent" ? "rounded-full bg-teal-600" : "rounded-full bg-zinc-700"
-      )}
-    >
-      {account.slice(0, 1)}
-    </span>
-  );
 }

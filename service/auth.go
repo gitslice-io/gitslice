@@ -26,6 +26,9 @@ type AuthService struct {
 	// OperatorSubjects may create organization accounts
 	// (GITSLICE_OPERATOR_SUBJECTS).
 	OperatorSubjects []string
+	// ObjectStore holds uploaded account pictures. Without it, uploads are
+	// refused and every account shows its generated picture.
+	ObjectStore ObjectStore
 }
 
 // ClerkUserDirectory looks up a Clerk user's verified email addresses.

@@ -1,12 +1,12 @@
 import { useAuth } from "@clerk/tanstack-react-start";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 
 import { RpcError } from "../api/client";
 import type { AccountProfile, ListSlicesResponse } from "../api/types";
 import { useApi } from "../api/useApi";
-import { AccountAvatar } from "../components/AccountSwitcher";
+import { AccountAvatar, rememberAvatarVersion } from "../components/AccountAvatar";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
 import { AccountPeople } from "../components/slices/AccountPeople";
@@ -67,6 +67,13 @@ export function AccountPage() {
     retry: (count, error) => !isDefinite(error) && count < 2
   });
   const profile = profileQuery.data;
+  // Every avatar of this account on the page uses the picture the profile
+  // names, so an upload shows everywhere at once.
+  useEffect(() => {
+    if (profile?.account) {
+      rememberAvatarVersion(profile.account, profile.avatarVersion ?? "");
+    }
+  }, [profile?.account, profile?.avatarVersion]);
   const pages = slicesQuery.data?.pages ?? [];
   const slices = pages.flatMap((page: ListSlicesResponse) => page.slices ?? []);
   const kind = membership?.kind || profile?.kind || pages[0]?.accountKind || "";
@@ -86,7 +93,7 @@ export function AccountPage() {
       ) : (
         <>
           <div className="mt-4 flex flex-wrap items-center gap-4">
-            <AccountAvatar account={account} kind={kind} size="lg" />
+            <AccountAvatar account={account} kind={kind} size="lg" version={profile ? (profile.avatarVersion ?? "") : undefined} />
             <div className="min-w-0 flex-1">
               <h1 className="truncate text-xl font-semibold text-zinc-950 dark:text-zinc-50">
                 {profile?.displayName || account}
@@ -275,6 +282,75 @@ function YourAccounts({ memberships }: { memberships: readonly Membership[] }) {
   );
 }
 
+const pictureTypes = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+const maxPictureBytes = 5 * 1024 * 1024;
+
+// PictureEditor uploads or removes the account's picture. It saves at once,
+// apart from the profile form's Save; without an upload the account shows the
+// pixel picture generated from its name.
+function PictureEditor({ account, kind, version }: { account: string; kind: string; version: string }) {
+  const api = useApi();
+  const queryClient = useQueryClient();
+  const input = useRef<HTMLInputElement>(null);
+  const [problem, setProblem] = useState("");
+  const change = useMutation({
+    mutationFn: (image: Uint8Array | undefined) => api.setAccountAvatar({ account, image }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(["accountProfile", account], updated);
+      rememberAvatarVersion(account, updated.avatarVersion ?? "");
+    }
+  });
+
+  async function choose(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    // Choosing the same file again should upload it again.
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+    if (!pictureTypes.includes(file.type)) {
+      setProblem("Choose a PNG, JPEG, GIF or WebP picture.");
+      return;
+    }
+    if (file.size > maxPictureBytes) {
+      setProblem("Choose a picture of at most 5 MB.");
+      return;
+    }
+    setProblem("");
+    change.mutate(new Uint8Array(await file.arrayBuffer()));
+  }
+
+  const button =
+    "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950";
+  return (
+    <div className="grid gap-1 text-xs font-medium text-slate-600 dark:text-zinc-400">
+      Picture
+      <div className="flex flex-wrap items-center gap-3">
+        <AccountAvatar account={account} kind={kind} size="lg" version={version} />
+        <input accept={pictureTypes.join(",")} aria-label="Picture file" className="hidden" onChange={(e) => void choose(e)} ref={input} type="file" />
+        <button className={button} disabled={change.isPending} onClick={() => input.current?.click()} type="button">
+          {change.isPending ? "Saving..." : "Upload picture"}
+        </button>
+        {version ? (
+          <button className={button} disabled={change.isPending} onClick={() => change.mutate(undefined)} type="button">
+            Remove picture
+          </button>
+        ) : null}
+      </div>
+      <p className="font-normal text-slate-500 dark:text-zinc-500">
+        {version
+          ? "Shown cropped to its center square."
+          : "Without a picture of its own, the account shows the pixel picture made from its name."}
+      </p>
+      {problem || change.isError ? (
+        <SliceNotice title="Could not change the picture" tone="error">
+          {problem || getErrorMessage(change.error)}
+        </SliceNotice>
+      ) : null}
+    </div>
+  );
+}
+
 function article(role: string) {
   return /^[aeiou]/.test(role) ? "an" : "a";
 }
@@ -303,6 +379,7 @@ function ProfileEditor({ account, onDone, profile }: { account: string; onDone()
     "rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-slate-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
   return (
     <form aria-label="Edit profile" className="mt-4 grid max-w-xl gap-3" onSubmit={submit}>
+      <PictureEditor account={account} kind={profile.kind ?? ""} version={profile.avatarVersion ?? ""} />
       <label className="grid gap-1 text-xs font-medium text-slate-600 dark:text-zinc-400">
         Display name
         <input className={field} maxLength={64} onChange={(e) => setDisplayName(e.target.value)} value={displayName} />

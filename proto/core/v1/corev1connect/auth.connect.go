@@ -103,6 +103,9 @@ const (
 	// AuthServiceUpdateAccountProfileProcedure is the fully-qualified name of the AuthService's
 	// UpdateAccountProfile RPC.
 	AuthServiceUpdateAccountProfileProcedure = "/gitslice.core.v1.AuthService/UpdateAccountProfile"
+	// AuthServiceSetAccountAvatarProcedure is the fully-qualified name of the AuthService's
+	// SetAccountAvatar RPC.
+	AuthServiceSetAccountAvatarProcedure = "/gitslice.core.v1.AuthService/SetAccountAvatar"
 )
 
 // AuthServiceClient is a client for the gitslice.core.v1.AuthService service.
@@ -173,6 +176,11 @@ type AuthServiceClient interface {
 	// UpdateAccountProfile changes an account's profile: an organization's by
 	// its owners and admins, a personal account's by its person.
 	UpdateAccountProfile(context.Context, *connect.Request[v1.UpdateAccountProfileRequest]) (*connect.Response[v1.AccountProfile], error)
+	// SetAccountAvatar uploads an account's picture, or with no image removes
+	// it, so the account shows its generated pixel picture again. The same
+	// people as UpdateAccountProfile may call it. Anyone reads a picture at
+	// GET /avatars/{account}.png.
+	SetAccountAvatar(context.Context, *connect.Request[v1.SetAccountAvatarRequest]) (*connect.Response[v1.AccountProfile], error)
 }
 
 // NewAuthServiceClient constructs a client for the gitslice.core.v1.AuthService service. By
@@ -330,6 +338,12 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(authServiceMethods.ByName("UpdateAccountProfile")),
 			connect.WithClientOptions(opts...),
 		),
+		setAccountAvatar: connect.NewClient[v1.SetAccountAvatarRequest, v1.AccountProfile](
+			httpClient,
+			baseURL+AuthServiceSetAccountAvatarProcedure,
+			connect.WithSchema(authServiceMethods.ByName("SetAccountAvatar")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -359,6 +373,7 @@ type authServiceClient struct {
 	cancelAccountInvitation *connect.Client[v1.CancelAccountInvitationRequest, v1.CancelAccountInvitationResponse]
 	getAccountProfile       *connect.Client[v1.GetAccountProfileRequest, v1.AccountProfile]
 	updateAccountProfile    *connect.Client[v1.UpdateAccountProfileRequest, v1.AccountProfile]
+	setAccountAvatar        *connect.Client[v1.SetAccountAvatarRequest, v1.AccountProfile]
 }
 
 // StartCliLogin calls gitslice.core.v1.AuthService.StartCliLogin.
@@ -481,6 +496,11 @@ func (c *authServiceClient) UpdateAccountProfile(ctx context.Context, req *conne
 	return c.updateAccountProfile.CallUnary(ctx, req)
 }
 
+// SetAccountAvatar calls gitslice.core.v1.AuthService.SetAccountAvatar.
+func (c *authServiceClient) SetAccountAvatar(ctx context.Context, req *connect.Request[v1.SetAccountAvatarRequest]) (*connect.Response[v1.AccountProfile], error) {
+	return c.setAccountAvatar.CallUnary(ctx, req)
+}
+
 // AuthServiceHandler is an implementation of the gitslice.core.v1.AuthService service.
 type AuthServiceHandler interface {
 	StartCliLogin(context.Context, *connect.Request[v1.StartCliLoginRequest]) (*connect.Response[v1.StartCliLoginResponse], error)
@@ -549,6 +569,11 @@ type AuthServiceHandler interface {
 	// UpdateAccountProfile changes an account's profile: an organization's by
 	// its owners and admins, a personal account's by its person.
 	UpdateAccountProfile(context.Context, *connect.Request[v1.UpdateAccountProfileRequest]) (*connect.Response[v1.AccountProfile], error)
+	// SetAccountAvatar uploads an account's picture, or with no image removes
+	// it, so the account shows its generated pixel picture again. The same
+	// people as UpdateAccountProfile may call it. Anyone reads a picture at
+	// GET /avatars/{account}.png.
+	SetAccountAvatar(context.Context, *connect.Request[v1.SetAccountAvatarRequest]) (*connect.Response[v1.AccountProfile], error)
 }
 
 // NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -702,6 +727,12 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(authServiceMethods.ByName("UpdateAccountProfile")),
 		connect.WithHandlerOptions(opts...),
 	)
+	authServiceSetAccountAvatarHandler := connect.NewUnaryHandler(
+		AuthServiceSetAccountAvatarProcedure,
+		svc.SetAccountAvatar,
+		connect.WithSchema(authServiceMethods.ByName("SetAccountAvatar")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AuthServiceStartCliLoginProcedure:
@@ -752,6 +783,8 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceGetAccountProfileHandler.ServeHTTP(w, r)
 		case AuthServiceUpdateAccountProfileProcedure:
 			authServiceUpdateAccountProfileHandler.ServeHTTP(w, r)
+		case AuthServiceSetAccountAvatarProcedure:
+			authServiceSetAccountAvatarHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -855,4 +888,8 @@ func (UnimplementedAuthServiceHandler) GetAccountProfile(context.Context, *conne
 
 func (UnimplementedAuthServiceHandler) UpdateAccountProfile(context.Context, *connect.Request[v1.UpdateAccountProfileRequest]) (*connect.Response[v1.AccountProfile], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.UpdateAccountProfile is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) SetAccountAvatar(context.Context, *connect.Request[v1.SetAccountAvatarRequest]) (*connect.Response[v1.AccountProfile], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.SetAccountAvatar is not implemented"))
 }

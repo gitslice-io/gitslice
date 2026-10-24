@@ -126,8 +126,25 @@ func (s *AuthStore) UpdateAccountProfile(ctx context.Context, accountSlug string
 	if _, err := s.AccountKind(ctx, accountSlug); err != nil {
 		return nil, err
 	}
+	slug := strings.TrimSpace(accountSlug)
 	s.b.mu.Lock()
-	s.b.profiles[strings.TrimSpace(accountSlug)] = storage.AccountProfile{DisplayName: profile.DisplayName, Description: profile.Description, Website: profile.Website}
+	stored := s.b.profiles[slug]
+	stored.DisplayName, stored.Description, stored.Website = profile.DisplayName, profile.Description, profile.Website
+	s.b.profiles[slug] = stored
 	s.b.mu.Unlock()
 	return s.GetAccountProfile(ctx, accountSlug)
+}
+
+func (s *AuthStore) SetAccountAvatar(ctx context.Context, accountSlug, avatarKey string) (string, error) {
+	if _, err := s.AccountKind(ctx, accountSlug); err != nil {
+		return "", err
+	}
+	slug := strings.TrimSpace(accountSlug)
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	stored := s.b.profiles[slug]
+	previous := stored.AvatarKey
+	stored.AvatarKey = avatarKey
+	s.b.profiles[slug] = stored
+	return previous, nil
 }

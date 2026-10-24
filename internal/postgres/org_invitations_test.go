@@ -71,4 +71,22 @@ func TestOrganizationInvitationsAndProfiles(t *testing.T) {
 	if _, err := auth.GetAccountProfile(ctx, "nowhere"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unknown profile = %v", err)
 	}
+
+	// A picture's key is kept until replaced, and each change returns the
+	// key it replaced; profile edits leave it alone.
+	if previous, err := auth.SetAccountAvatar(ctx, "labs", "avatars/labs/one.png"); err != nil || previous != "" {
+		t.Fatalf("first avatar: previous %q, %v", previous, err)
+	}
+	if profile, err := auth.UpdateAccountProfile(ctx, "labs", istorage.AccountProfile{DisplayName: "Labs 2"}); err != nil || profile.AvatarKey != "avatars/labs/one.png" {
+		t.Fatalf("after a profile edit = %+v, %v", profile, err)
+	}
+	if previous, err := auth.SetAccountAvatar(ctx, "labs", ""); err != nil || previous != "avatars/labs/one.png" {
+		t.Fatalf("removing: previous %q, %v", previous, err)
+	}
+	if profile, err := auth.GetAccountProfile(ctx, "labs"); err != nil || profile.AvatarKey != "" {
+		t.Fatalf("after removing = %+v, %v", profile, err)
+	}
+	if _, err := auth.SetAccountAvatar(ctx, "nowhere", "x"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown account avatar = %v", err)
+	}
 }

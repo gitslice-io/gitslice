@@ -106,10 +106,18 @@ export interface AccountProfile {
   description?: string;
   website?: string;
   createdAt?: string;
+  /** Names the uploaded picture; empty when the generated one is shown. */
+  avatarVersion?: string;
 }
 
 export interface GetAccountProfileRequest {
   account?: string;
+}
+
+export interface SetAccountAvatarRequest {
+  account?: string;
+  /** The picture file; empty or absent removes the uploaded picture. */
+  image?: Uint8Array;
 }
 
 export interface UpdateAccountProfileRequest {

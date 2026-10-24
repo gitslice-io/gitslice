@@ -60,6 +60,7 @@ import type {
   ListMyInvitationsRequest,
   RespondToInvitationRequest,
   RespondToInvitationResponse,
+  SetAccountAvatarRequest,
   UpdateAccountProfileRequest,
   ListPendingClaimsRequest,
   ListPendingClaimsResponse,
@@ -191,6 +192,7 @@ export interface ApiClient {
   ): Promise<Record<string, never>>;
   getAccountProfile(request: GetAccountProfileRequest): Promise<AccountProfile>;
   updateAccountProfile(request: UpdateAccountProfileRequest): Promise<AccountProfile>;
+  setAccountAvatar(request: SetAccountAvatarRequest): Promise<AccountProfile>;
   resolvePath(request: ResolvePathRequest): Promise<ResolvePathResponse>;
   listDirectory(
     request: ListDirectoryRequest

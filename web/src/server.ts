@@ -29,7 +29,8 @@ export default createServerEntry({
       return release;
     }
 
-    // Link-preview images, drawn by the API and cached at the edge.
+    // Link-preview images and account pictures, drawn by the API and cached
+    // at the edge.
     const socialImage = await socialImageResponse(request, import.meta.env.VITE_API_BASE_URL ?? "");
     if (socialImage) {
       return socialImage;

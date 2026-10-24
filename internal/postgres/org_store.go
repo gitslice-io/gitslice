@@ -389,8 +389,8 @@ func (s *AuthStore) DeleteAccountInvitation(ctx context.Context, accountSlug, su
 func (s *AuthStore) GetAccountProfile(ctx context.Context, accountSlug string) (*storage.AccountProfile, error) {
 	var profile storage.AccountProfile
 	err := s.db.QueryRowContext(ctx, `
-		select slug, kind, display_name, description, website, created_at from accounts where slug = $1
-	`, strings.TrimSpace(accountSlug)).Scan(&profile.Account, &profile.Kind, &profile.DisplayName, &profile.Description, &profile.Website, &profile.CreatedAt)
+		select slug, kind, display_name, description, website, created_at, avatar_key from accounts where slug = $1
+	`, strings.TrimSpace(accountSlug)).Scan(&profile.Account, &profile.Kind, &profile.DisplayName, &profile.Description, &profile.Website, &profile.CreatedAt, &profile.AvatarKey)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -413,4 +413,17 @@ func (s *AuthStore) UpdateAccountProfile(ctx context.Context, accountSlug string
 		return nil, ErrNotFound
 	}
 	return s.GetAccountProfile(ctx, accountSlug)
+}
+
+func (s *AuthStore) SetAccountAvatar(ctx context.Context, accountSlug, avatarKey string) (string, error) {
+	var previous string
+	err := s.db.QueryRowContext(ctx, `
+		with old as (select id, avatar_key from accounts where slug = $1 for update)
+		update accounts a set avatar_key = $2, updated_at = now() from old where a.id = old.id
+		returning old.avatar_key
+	`, strings.TrimSpace(accountSlug), avatarKey).Scan(&previous)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return previous, err
 }

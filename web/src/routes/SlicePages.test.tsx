@@ -253,6 +253,43 @@ describe("slice route pages (render smoke)", () => {
     selectionMock.current = { ...selectionMock.current, accounts: ["nic"], memberships: selectionMock.current.memberships.slice(0, 1) };
   });
 
+  it("uploads and removes an account's picture, and shows it at its new address at once", async () => {
+    routerMock.params = { account: "nic" };
+    const api = makeApi();
+    api.listSlices = vi.fn().mockResolvedValue({ slices: [], accountKind: "personal" });
+    api.getAccountProfile = vi.fn().mockResolvedValue({ account: "nic", kind: "personal" });
+    api.setAccountAvatar = vi
+      .fn()
+      .mockResolvedValueOnce({ account: "nic", kind: "personal", avatarVersion: "0123abcd0123abcd" })
+      .mockResolvedValueOnce({ account: "nic", kind: "personal", avatarVersion: "" });
+    apiMock.current = api;
+    const { container } = renderRoute(<AccountPage />);
+
+    // Before an upload, the generated picture.
+    await waitFor(() => expect(container.querySelector('img[src="/avatars/nic.png?v=none"]')).not.toBeNull());
+    fireEvent.click(await screen.findByRole("button", { name: "Edit profile" }));
+    const form = screen.getByRole("form", { name: "Edit profile" });
+    expect(within(form).queryByRole("button", { name: "Remove picture" })).toBeNull();
+
+    // Not a picture: refused before uploading.
+    const input = within(form).getByLabelText("Picture file");
+    fireEvent.change(input, { target: { files: [new File(["<svg/>"], "x.svg", { type: "image/svg+xml" })] } });
+    expect(await within(form).findByText("Choose a PNG, JPEG, GIF or WebP picture.")).toBeInTheDocument();
+    expect(api.setAccountAvatar).not.toHaveBeenCalled();
+
+    fireEvent.change(input, { target: { files: [new File([new Uint8Array([137, 80, 78, 71])], "me.png", { type: "image/png" })] } });
+    await waitFor(() =>
+      expect(api.setAccountAvatar).toHaveBeenCalledWith({ account: "nic", image: new Uint8Array([137, 80, 78, 71]) })
+    );
+    // Every avatar of the account switches to the uploaded picture.
+    await waitFor(() => expect(container.querySelectorAll('img[src="/avatars/nic.png?v=0123abcd0123abcd"]').length).toBeGreaterThanOrEqual(2));
+    expect(container.querySelector('img[src="/avatars/nic.png?v=none"]')).toBeNull();
+
+    fireEvent.click(within(form).getByRole("button", { name: "Remove picture" }));
+    await waitFor(() => expect(api.setAccountAvatar).toHaveBeenLastCalledWith({ account: "nic", image: undefined }));
+    await waitFor(() => expect(container.querySelector('img[src="/avatars/nic.png?v=none"]')).not.toBeNull());
+  });
+
   it("lists your organizations and agents on your own page", async () => {
     const original = selectionMock.current;
     authMock.current = { isLoaded: true, isSignedIn: true };
@@ -1200,6 +1237,7 @@ function makeApi() {
       Promise.resolve({ account, kind: account === "nic" ? "personal" : "organization" })
     ),
     updateAccountProfile: vi.fn(),
+    setAccountAvatar: vi.fn(),
     createOrganization: vi.fn(),
     getRef: vi.fn().mockResolvedValue({ name: "refs/global/main", commitId: "commit_1" }),
     listDirectory: vi.fn().mockResolvedValue({

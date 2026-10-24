@@ -23,6 +23,8 @@ func NewConnectHandler(resolve subjectResolver, handlers *service.Handlers) http
 	}
 	// Shared-link preview images; anonymous by design (see social_image.go).
 	mux.Handle("/og/", newSocialImageHandler(handlers.Slice))
+	// Account pictures; public, like the profile they belong to.
+	mux.Handle("/avatars/", newAvatarImageHandler(handlers.Auth))
 	mount(corev1connect.NewAuthServiceHandler(connectAuthAdapter{svc: handlers.Auth}))
 	mount(corev1connect.NewRepositoryServiceHandler(connectRepositoryAdapter{svc: handlers.Repository}))
 	mount(corev1connect.NewBlobServiceHandler(connectBlobAdapter{svc: handlers.Blob}))
@@ -179,6 +181,10 @@ func (a connectAuthAdapter) CancelAccountInvitation(ctx context.Context, req *co
 
 func (a connectAuthAdapter) GetAccountProfile(ctx context.Context, req *connect.Request[corev1.GetAccountProfileRequest]) (*connect.Response[corev1.AccountProfile], error) {
 	return connectResponse(a.svc.GetAccountProfile(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) SetAccountAvatar(ctx context.Context, req *connect.Request[corev1.SetAccountAvatarRequest]) (*connect.Response[corev1.AccountProfile], error) {
+	return connectResponse(a.svc.SetAccountAvatar(ctx, req.Msg))
 }
 
 func (a connectAuthAdapter) UpdateAccountProfile(ctx context.Context, req *connect.Request[corev1.UpdateAccountProfileRequest]) (*connect.Response[corev1.AccountProfile], error) {

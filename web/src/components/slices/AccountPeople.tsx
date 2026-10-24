@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 
 import { useApi } from "../../api/useApi";
 import { canAdmin, type Membership } from "../../lib/accounts";
-import { AccountAvatar } from "../AccountSwitcher";
+import { AccountAvatar } from "../AccountAvatar";
 import { SliceLoadingBlock, SliceNotice, getErrorMessage } from "./SlicePageParts";
 
 const ROLES = ["owner", "admin", "writer", "member", "reader"] as const;
