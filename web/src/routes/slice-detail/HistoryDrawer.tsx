@@ -7,6 +7,7 @@ import type { ApiClient } from "../../api/useApi";
 import { shortChangesetId, shortHash } from "../../lib/objectId";
 import { SliceNotice } from "../../components/slices/SlicePageParts";
 import { GLOBAL_REF_NAME } from "../../lib/globalRef";
+import { AuthorLabel } from "../../components/AccountAvatar";
 import { Timestamp } from "../../components/Timestamp";
 
 const HISTORY_PAGE_SIZE = 50;
@@ -170,7 +171,7 @@ export function HistoryDrawer({
                           {shortCommitId}
                         </span>
                       ) : null}
-                      {commit.author ? <span>{commit.author}</span> : null}
+                      {commit.author ? <AuthorLabel name={commit.author} /> : null}
                       <Timestamp value={commit.createdAt} />
                     </div>
                   </div>

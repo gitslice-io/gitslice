@@ -9,6 +9,7 @@ import { useMemo, useState, type FormEvent } from "react";
 
 import type { Changeset, SliceRef } from "../api/types";
 import { type ApiClient, useApi } from "../api/useApi";
+import { AuthorLabel } from "../components/AccountAvatar";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
 import {
@@ -253,7 +254,7 @@ function ChangesetRow({
         <StatusBadge status={changeset.status} />
       </td>
       <td className="hidden px-4 py-4 text-slate-700 dark:text-zinc-300 md:table-cell">
-        {changeset.author || "not returned"}
+        {changeset.author ? <AuthorLabel name={changeset.author} /> : "not returned"}
       </td>
       <td className="hidden px-4 py-4 text-slate-700 dark:text-zinc-300 md:table-cell">
         {changeset.submitRequirements?.requiredApprovals ?? "not returned"}

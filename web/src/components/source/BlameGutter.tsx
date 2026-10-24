@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router";
 import type { Commit } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { shortChangesetId, shortHash } from "../../lib/objectId";
+import { AuthorLabel } from "../AccountAvatar";
 import { Timestamp } from "../Timestamp";
 import type { BlameBand, BlameLine } from "./blame";
 
@@ -185,9 +186,11 @@ function BlameByline({ commit, line }: { commit?: Commit; line: BlameLine }) {
   const order = orderLabel(line.order, line.total);
   return (
     <>
-      <span className="hidden min-w-0 flex-1 truncate text-slate-500 sm:inline dark:text-zinc-400">
-        {commit?.author ?? ""}
-      </span>
+      {commit?.author ? (
+        <AuthorLabel className="hidden flex-1 text-slate-500 sm:inline-flex dark:text-zinc-400" name={commit.author} />
+      ) : (
+        <span className="hidden flex-1 sm:inline" />
+      )}
       {line.order ? (
         <span
           className="ml-auto shrink-0 font-mono text-[11px] text-slate-400 dark:text-zinc-500"
@@ -241,7 +244,7 @@ export function BlameDetails({
           ) : (
             <span className="font-mono">{shortHash(line.commitId, 8)}</span>
           )}
-          {commit?.author ? <span>{commit.author}</span> : null}
+          {commit?.author ? <AuthorLabel name={commit.author} /> : null}
           <Timestamp dateOnly value={commit?.createdAt} />
           {line.order ? <span>{orderLabel(line.order, line.total)}</span> : null}
         </p>

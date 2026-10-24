@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { AccountAvatar, avatarUrl, rememberAvatarVersion } from "./AccountAvatar";
+import { AccountAvatar, AuthorLabel, avatarUrl, rememberAvatarVersion } from "./AccountAvatar";
 
 afterEach(cleanup);
 
@@ -33,5 +33,15 @@ describe("AccountAvatar", () => {
     fireEvent.error(container.querySelector("img")!);
     expect(container.querySelector("img")).toBeNull();
     expect(container).toHaveTextContent("z");
+  });
+
+  it("puts an author's picture before their name, but not before a raw subject id", () => {
+    const { container, rerender } = render(<AuthorLabel name="sunny" />);
+    expect(container.querySelector("img")).toHaveAttribute("src", "/avatars/sunny.png");
+    expect(container).toHaveTextContent("sunny");
+
+    rerender(<AuthorLabel name="user_ext_7cac3e86bbbe5541" />);
+    expect(container.querySelector("img")).toBeNull();
+    expect(container).toHaveTextContent("user_ext_7cac3e86bbbe5541");
   });
 });

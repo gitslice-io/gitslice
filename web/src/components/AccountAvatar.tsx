@@ -52,7 +52,7 @@ export function AccountAvatar({
 }: {
   account: string;
   kind: string;
-  size?: "sm" | "lg";
+  size?: "xs" | "sm" | "lg";
   /** The profile's avatarVersion when the caller has it. */
   version?: string;
 }) {
@@ -61,7 +61,7 @@ export function AccountAvatar({
   const [failedSrc, setFailedSrc] = useState<string | null>(null);
   const shape = cn(
     "shrink-0",
-    size === "lg" ? "size-12" : "size-6",
+    size === "lg" ? "size-12" : size === "xs" ? "size-4" : "size-6",
     // Organizations are square, people and agents round, as on GitHub.
     kind === "organization" ? "rounded-md" : "rounded-full"
   );
@@ -75,7 +75,7 @@ export function AccountAvatar({
         className={cn(
           shape,
           "grid place-items-center font-semibold uppercase text-white",
-          size === "lg" ? "text-lg" : "text-[11px]",
+          size === "lg" ? "text-lg" : size === "xs" ? "text-[9px]" : "text-[11px]",
           kind === "organization" ? "bg-indigo-600" : kind === "agent" ? "bg-teal-600" : "bg-zinc-700"
         )}
       >
@@ -95,5 +95,26 @@ export function AccountAvatar({
       onError={() => setFailedSrc(src)}
       src={src}
     />
+  );
+}
+
+// Account names: lowercase letters, digits and inner dashes. An author the
+// server could not name comes as a raw subject id, which has no picture.
+const accountName = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+
+export function isAccountName(name: string) {
+  return accountName.test(name);
+}
+
+/**
+ * An author's name with their picture in front, for bylines: changesets,
+ * history, blame. Authors are people or agents, so the picture is round.
+ */
+export function AuthorLabel({ className, name }: { className?: string; name: string }) {
+  return (
+    <span className={cn("inline-flex min-w-0 items-center gap-1.5", className)}>
+      {isAccountName(name) ? <AccountAvatar account={name} kind="personal" size="xs" /> : null}
+      <span className="min-w-0 truncate">{name}</span>
+    </span>
   );
 }
