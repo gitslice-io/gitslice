@@ -140,10 +140,20 @@ export interface ListChangesetsRequest {
   limit?: number;
   // Leave out patchsets (list views); see ListChangesetsRequest.summary.
   summary?: boolean;
+  // Only changesets in one of these statuses.
+  statuses?: string[];
+  // Only changesets whose title contains this text, or whose id starts with it.
+  query?: string;
+  // Only changesets by this username.
+  author?: string;
+  // The previous response's nextPageToken.
+  pageToken?: string;
 }
 
 export interface ListChangesetsResponse {
   changesets?: Changeset[];
+  // Empty when there are no more changesets after these.
+  nextPageToken?: string;
 }
 
 export interface CreateStackRequest {

@@ -1378,11 +1378,24 @@ type ListChangesetsRequest struct {
 	state          protoimpl.MessageState `protogen:"open.v1"`
 	AuthoringSlice *SliceRef              `protobuf:"bytes,1,opt,name=authoring_slice,json=authoringSlice,proto3" json:"authoring_slice,omitempty"`
 	Status         string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
-	Limit          int32                  `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
+	// At most this many changesets (1 to 200); without it, 50. Ask for the
+	// next ones with the response's next_page_token.
+	Limit int32 `protobuf:"varint,3,opt,name=limit,proto3" json:"limit,omitempty"`
 	// Leave out each changeset's patchsets, the heavy part, for list views.
 	// Everything else, including the current patchset's submit requirements, is
 	// still returned.
-	Summary       bool `protobuf:"varint,4,opt,name=summary,proto3" json:"summary,omitempty"`
+	Summary bool `protobuf:"varint,4,opt,name=summary,proto3" json:"summary,omitempty"`
+	// Only changesets in one of these statuses (open, pending_publish,
+	// submitted, abandoned), together with status when that is set.
+	Statuses []string `protobuf:"bytes,5,rep,name=statuses,proto3" json:"statuses,omitempty"`
+	// Only changesets whose title contains this text (any case), or whose id
+	// starts with it (the handle in a changeset's link, such as 97048df407).
+	Query string `protobuf:"bytes,6,opt,name=query,proto3" json:"query,omitempty"`
+	// Only changesets by this username. A name nobody has matches none.
+	Author string `protobuf:"bytes,7,opt,name=author,proto3" json:"author,omitempty"`
+	// The previous response's next_page_token, to continue after its last
+	// changeset. Use it with the same filters and limit.
+	PageToken     string `protobuf:"bytes,8,opt,name=page_token,json=pageToken,proto3" json:"page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1445,9 +1458,41 @@ func (x *ListChangesetsRequest) GetSummary() bool {
 	return false
 }
 
+func (x *ListChangesetsRequest) GetStatuses() []string {
+	if x != nil {
+		return x.Statuses
+	}
+	return nil
+}
+
+func (x *ListChangesetsRequest) GetQuery() string {
+	if x != nil {
+		return x.Query
+	}
+	return ""
+}
+
+func (x *ListChangesetsRequest) GetAuthor() string {
+	if x != nil {
+		return x.Author
+	}
+	return ""
+}
+
+func (x *ListChangesetsRequest) GetPageToken() string {
+	if x != nil {
+		return x.PageToken
+	}
+	return ""
+}
+
 type ListChangesetsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Changesets    []*Changeset           `protobuf:"bytes,1,rep,name=changesets,proto3" json:"changesets,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Most recently updated first. A request for the next changesets starts
+	// with them where this one ends.
+	Changesets []*Changeset `protobuf:"bytes,1,rep,name=changesets,proto3" json:"changesets,omitempty"`
+	// Empty when there are no more changesets after these.
+	NextPageToken string `protobuf:"bytes,2,opt,name=next_page_token,json=nextPageToken,proto3" json:"next_page_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1487,6 +1532,13 @@ func (x *ListChangesetsResponse) GetChangesets() []*Changeset {
 		return x.Changesets
 	}
 	return nil
+}
+
+func (x *ListChangesetsResponse) GetNextPageToken() string {
+	if x != nil {
+		return x.NextPageToken
+	}
+	return ""
 }
 
 type DiffChangesetRequest struct {
@@ -3550,16 +3602,22 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	"\x13parent_changeset_id\x18\a \x01(\tR\x11parentChangesetId\x12,\n" +
 	"\x12parent_patchset_id\x18\b \x01(\tR\x10parentPatchsetId\"8\n" +
 	"\x13GetChangesetRequest\x12!\n" +
-	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\"\xa4\x01\n" +
+	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\"\x8d\x02\n" +
 	"\x15ListChangesetsRequest\x12C\n" +
 	"\x0fauthoring_slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x0eauthoringSlice\x12\x16\n" +
 	"\x06status\x18\x02 \x01(\tR\x06status\x12\x14\n" +
 	"\x05limit\x18\x03 \x01(\x05R\x05limit\x12\x18\n" +
-	"\asummary\x18\x04 \x01(\bR\asummary\"U\n" +
+	"\asummary\x18\x04 \x01(\bR\asummary\x12\x1a\n" +
+	"\bstatuses\x18\x05 \x03(\tR\bstatuses\x12\x14\n" +
+	"\x05query\x18\x06 \x01(\tR\x05query\x12\x16\n" +
+	"\x06author\x18\a \x01(\tR\x06author\x12\x1d\n" +
+	"\n" +
+	"page_token\x18\b \x01(\tR\tpageToken\"}\n" +
 	"\x16ListChangesetsResponse\x12;\n" +
 	"\n" +
 	"changesets\x18\x01 \x03(\v2\x1b.gitslice.core.v1.ChangesetR\n" +
-	"changesets\"\xb1\x01\n" +
+	"changesets\x12&\n" +
+	"\x0fnext_page_token\x18\x02 \x01(\tR\rnextPageToken\"\xb1\x01\n" +
 	"\x14DiffChangesetRequest\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12\x1a\n" +
 	"\bpatchset\x18\x02 \x01(\tR\bpatchset\x12#\n" +

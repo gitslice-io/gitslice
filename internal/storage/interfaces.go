@@ -222,7 +222,9 @@ type ChangesetStore interface {
 	DetachStackEntry(ctx context.Context, subjectID string, req *corev1.DetachStackEntryRequest) (*corev1.DetachStackEntryResponse, error)
 	Create(ctx context.Context, subjectID string, req *corev1.CreateChangesetRequest) (*corev1.Changeset, error)
 	Get(ctx context.Context, changesetID string) (*corev1.Changeset, error)
-	List(ctx context.Context, req *corev1.ListChangesetsRequest) ([]*corev1.Changeset, error)
+	// List returns a page of changesets, most recently updated first, and the
+	// token that continues after it ("" when there are no more).
+	List(ctx context.Context, filter ChangesetListFilter) ([]*corev1.Changeset, string, error)
 	// PatchsetsByConversation returns every patchset stamped with the given
 	// authoring conversation id, across all changesets, ordered by
 	// authoring_conversation_seq ascending.
@@ -573,4 +575,25 @@ type AgentStore interface {
 	// LatestEventSeq returns the highest event seq for a conversation, or 0 when
 	// it has no events.
 	LatestEventSeq(ctx context.Context, conversationID string) (int64, error)
+}
+
+// ChangesetListFilter narrows and pages a list of changesets.
+type ChangesetListFilter struct {
+	// Slice limits the list to changesets authored against it; nil is all.
+	Slice *corev1.SliceRef
+	// Statuses limits the list to changesets in one of these statuses; empty
+	// is every status.
+	Statuses []string
+	// Query matches a title containing it (any case) or an id starting with it.
+	Query string
+	// AuthorSubjectID limits the list to one author's changesets when
+	// FilterAuthor is set (an author nobody has is "" and matches none).
+	AuthorSubjectID string
+	FilterAuthor    bool
+	// Limit is 1 to 200; anything else is 50.
+	Limit int
+	// PageToken is the previous page's token.
+	PageToken string
+	// Summary leaves out each changeset's patchsets.
+	Summary bool
 }

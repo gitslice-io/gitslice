@@ -40,6 +40,7 @@ import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
 import type { Changeset, Slice } from "../api/types";
 import { shortChangesetId } from "../lib/objectId";
+import { changesetsListQuery, parseStatusTab } from "./changesets-list/filters";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { conversationsEnabled } from "../lib/features";
 import {
@@ -621,7 +622,9 @@ const changesetsRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "changesets",
   loaderDeps: ({ search }) => ({
-    slice: (search as { slice?: unknown }).slice
+    slice: (search as { slice?: unknown }).slice,
+    status: (search as { status?: unknown }).status,
+    q: (search as { q?: unknown }).q
   }),
   loader: async ({ context, deps }) => {
     if (import.meta.env.SSR) {
@@ -630,12 +633,15 @@ const changesetsRoute = createRoute({
         try {
           const { createServerApiClient } = await import("../api/serverApi");
           const api = await createServerApiClient();
-          const { account, slice } = sliceRef;
-          await context.queryClient.ensureQueryData({
-            queryKey: ["changesets", account, slice],
-            queryFn: () =>
-              api.listChangesets({ authoringSlice: { account, slice }, summary: true })
-          });
+          // The page's first screen: the list as the address asks for it.
+          await context.queryClient.prefetchInfiniteQuery(
+            changesetsListQuery(
+              api,
+              sliceRef,
+              parseStatusTab(deps.status),
+              typeof deps.q === "string" ? deps.q : ""
+            )
+          );
         } catch {
           // The component keeps the existing client-side load/error behavior.
         }

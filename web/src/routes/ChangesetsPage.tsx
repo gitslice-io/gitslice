@@ -1,16 +1,18 @@
 import { useAuth } from "@clerk/tanstack-react-start";
 import {
+  keepPreviousData,
+  useInfiniteQuery,
   useMutation,
-  useQuery,
   useQueryClient
 } from "@tanstack/react-query";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 
 import type { Changeset, SliceRef } from "../api/types";
 import { type ApiClient, useApi } from "../api/useApi";
 import { AuthorLabel } from "../components/AccountAvatar";
 import { ChangesetMetaLine } from "./changeset-detail/ChangesetMetaLine";
+import { changesetsListQuery, parseStatusTab, statusTabs, type StatusTab } from "./changesets-list/filters";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
 import {
@@ -27,8 +29,12 @@ import { displaySubmitBlockedReason } from "./stackPageUtils";
 
 interface ChangesetsSearch {
   slice?: unknown;
+  // The status group (open when absent) and the typed text.
+  status?: unknown;
+  q?: unknown;
 }
 
+// The key every variant of the list shares, to refresh them all at once.
 type ChangesetsQueryKey = readonly ["changesets", string, string];
 
 export function ChangesetsPage() {
@@ -41,30 +47,48 @@ export function ChangesetsPage() {
   const sliceRef = parseSliceSearch(search.slice);
   const account = sliceRef?.account ?? "";
   const slice = sliceRef?.slice ?? "";
+  // Which changesets to list lives in the URL, so a view can be shared.
+  const tab = parseStatusTab(search.status);
+  const typed = typeof search.q === "string" ? search.q : "";
   const queryKey = useMemo<ChangesetsQueryKey>(
     () => ["changesets", account, slice],
     [account, slice]
   );
 
-  const changesetsQuery = useQuery({
+  const changesetsQuery = useInfiniteQuery({
+    ...changesetsListQuery(api, { account, slice }, tab, typed),
     // Wait for Clerk before fetching so a signed-in user's token is attached on
     // the first request (this public page renders before auth resolves). See
     // ChangesetDetailPage for the same reasoning.
     enabled: Boolean(isLoaded && account && slice),
-    queryKey,
-    queryFn: () =>
-      api.listChangesets({
-        authoringSlice: { account, slice },
-        // The list shows each changeset's own fields; patchsets are the heavy
-        // part of the answer.
-        summary: true
-      })
+    // Keep the list on screen, dimmed, while another view of it loads.
+    placeholderData: keepPreviousData
   });
 
+  // The server's order: most recently updated first, page after page.
   const changesets = useMemo(
-    () => sortChangesets(changesetsQuery.data?.changesets ?? []),
-    [changesetsQuery.data?.changesets]
+    () => changesetsQuery.data?.pages.flatMap((page) => page.changesets ?? []) ?? [],
+    [changesetsQuery.data?.pages]
   );
+  const filtered = tab !== "open" || typed.trim() !== "";
+  const queryError = changesetsQuery.error;
+  const loadMoreFailed = changesetsQuery.isFetchNextPageError;
+
+  const setView = (next: { status?: StatusTab; q?: string }) =>
+    void navigate({
+      replace: true,
+      search: ((prev: Record<string, unknown>) => {
+        const status = next.status ?? tab;
+        const q = next.q ?? typed;
+        return {
+          ...prev,
+          // Open and no text are the defaults, and keep the address clean.
+          status: status === "open" ? undefined : status,
+          q: q.trim() === "" ? undefined : q
+        };
+      }) as never,
+      to: "/changesets"
+    });
 
   const breadcrumbItems: Crumb[] = [{ label: "Home", to: "/" }];
   if (sliceRef) {
@@ -90,26 +114,129 @@ export function ChangesetsPage() {
       <div className="mt-0">
         {!sliceRef ? (
           <MissingSliceState navigateToChangeset={navigateToChangeset(navigate)} />
-        ) : !isLoaded || changesetsQuery.isPending ? (
-          <SliceLoadingBlock />
-        ) : changesetsQuery.isError ? (
-          <SliceNotice title="Could not load changesets" tone="error">
-            {getErrorMessage(changesetsQuery.error)}
-          </SliceNotice>
-        ) : changesets.length === 0 ? (
-          <SliceNotice title="No changesets for this slice yet.">
-            New changesets created from the slice workspace will appear here.
-          </SliceNotice>
         ) : (
-          <ChangesetsTable
-            api={api}
-            canManage={canManage}
-            changesets={changesets}
-            queryKey={queryKey}
-          />
+          <>
+            <ChangesetsToolbar onSearch={(q) => setView({ q })} onTab={(status) => setView({ status })} tab={tab} typed={typed} />
+            {!isLoaded || changesetsQuery.isPending ? (
+              <SliceLoadingBlock />
+            ) : changesetsQuery.isError && !changesetsQuery.data ? (
+              <SliceNotice title="Could not load changesets" tone="error">
+                {getErrorMessage(queryError)}
+              </SliceNotice>
+            ) : changesets.length === 0 ? (
+              <SliceNotice title={filtered ? "No changesets match." : "No changesets for this slice yet."}>
+                {filtered ? (
+                  <>
+                    Nothing in {tab === "all" ? "any status" : `the ${tab} changesets`}
+                    {typed.trim() ? ` matches "${typed.trim()}"` : ""}.{" "}
+                    <button
+                      className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+                      onClick={() => setView({ status: "all", q: "" })}
+                      type="button"
+                    >
+                      Show all changesets
+                    </button>
+                  </>
+                ) : (
+                  "New changesets created from the slice workspace will appear here."
+                )}
+              </SliceNotice>
+            ) : (
+              <div className={cn("transition-opacity", changesetsQuery.isPlaceholderData && "opacity-60")}>
+                <ChangesetsTable
+                  api={api}
+                  canManage={canManage}
+                  changesets={changesets}
+                  queryKey={queryKey}
+                />
+                <div className="mt-3 flex items-center justify-between gap-3 text-sm text-slate-500 dark:text-zinc-400">
+                  <span>
+                    {changesets.length} {changesets.length === 1 ? "changeset" : "changesets"}
+                    {changesetsQuery.hasNextPage ? " so far" : ""}
+                  </span>
+                  {changesetsQuery.hasNextPage ? (
+                    <button
+                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
+                      disabled={changesetsQuery.isFetchingNextPage}
+                      onClick={() => void changesetsQuery.fetchNextPage()}
+                      type="button"
+                    >
+                      {changesetsQuery.isFetchingNextPage ? "Loading…" : "Show more"}
+                    </button>
+                  ) : null}
+                </div>
+                {loadMoreFailed ? (
+                  <div className="mt-3">
+                    <SliceNotice title="Could not load more changesets" tone="error">
+                      {getErrorMessage(queryError)}
+                    </SliceNotice>
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </>
         )}
       </div>
     </section>
+  );
+}
+
+// ChangesetsToolbar picks which changesets to list: a status group, and text
+// to find in titles and ids or `author:name`. Typing updates the address after
+// a short pause, so each keystroke is not a request.
+function ChangesetsToolbar({
+  onSearch,
+  onTab,
+  tab,
+  typed
+}: {
+  onSearch(q: string): void;
+  onTab(tab: StatusTab): void;
+  tab: StatusTab;
+  typed: string;
+}) {
+  const [text, setText] = useState(typed);
+  // The address changed by other means (back, a link): show it.
+  useEffect(() => setText(typed), [typed]);
+  useEffect(() => {
+    if (text === typed) {
+      return;
+    }
+    const timer = window.setTimeout(() => onSearch(text), 300);
+    return () => window.clearTimeout(timer);
+    // onSearch is a new function each render; only typing should restart this.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="inline-flex h-9 w-fit overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-zinc-800 dark:bg-zinc-950" role="group" aria-label="Status">
+        {statusTabs.map((entry) => (
+          <button
+            aria-pressed={tab === entry.value}
+            className={cn(
+              "rounded px-3 text-sm font-medium transition",
+              tab === entry.value
+                ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-900 dark:text-zinc-50"
+                : "text-slate-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50"
+            )}
+            key={entry.value}
+            onClick={() => onTab(entry.value)}
+            type="button"
+          >
+            {entry.label}
+          </button>
+        ))}
+      </div>
+      <input
+        aria-label="Search changesets"
+        className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none focus:border-slate-500 sm:max-w-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+        onChange={(event) => setText(event.target.value)}
+        placeholder="Search titles and ids, or author:name"
+        type="search"
+        value={text}
+      />
+    </div>
   );
 }
 
@@ -384,24 +511,6 @@ function parseSliceSearch(value: unknown): Required<SliceRef> | null {
   }
 
   return { account, slice };
-}
-
-function sortChangesets(changesets: Changeset[]) {
-  return [...changesets].sort((left, right) => {
-    const rightNumber = changesetNumberValue(right);
-    const leftNumber = changesetNumberValue(left);
-
-    if (rightNumber !== leftNumber) {
-      return rightNumber - leftNumber;
-    }
-
-    return (right.id || "").localeCompare(left.id || "");
-  });
-}
-
-function changesetNumberValue(changeset: Changeset) {
-  const value = Number(changeset.number);
-  return Number.isFinite(value) ? value : 0;
 }
 
 function changesetLabel(changeset: Changeset) {

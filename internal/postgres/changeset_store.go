@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -202,76 +203,100 @@ func (s *ChangesetStore) listSummaries(ctx context.Context, ids []string) ([]*co
 	return out, nil
 }
 
-func (s *ChangesetStore) List(ctx context.Context, req *corev1.ListChangesetsRequest) ([]*corev1.Changeset, error) {
-	limit := int(req.Limit)
+// List pages through changesets, most recently updated first. A page asks for
+// one more than it returns, to know whether another follows; the token it
+// hands back is the last returned changeset's (updated_at, id), so a changeset
+// updated between two requests moves to the front without shifting the rest.
+func (s *ChangesetStore) List(ctx context.Context, filter storage.ChangesetListFilter) ([]*corev1.Changeset, string, error) {
+	limit := filter.Limit
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
-	var rows *sql.Rows
-	var err error
-	status := ""
-	if req.Status != "" {
-		status = req.Status
+	var where []string
+	var args []any
+	arg := func(value any) string {
+		args = append(args, value)
+		return fmt.Sprintf("$%d", len(args))
 	}
-	if req.AuthoringSlice != nil && status != "" {
-		rows, err = s.db.QueryContext(ctx, `
-			select id
-			from changesets
-			where authoring_account = $1 and authoring_slice = $2 and status = $3
-			order by updated_at desc, id desc
-			limit $4
-		`, req.AuthoringSlice.Account, req.AuthoringSlice.Slice, status, limit)
-	} else if req.AuthoringSlice != nil {
-		rows, err = s.db.QueryContext(ctx, `
-			select id
-			from changesets
-			where authoring_account = $1 and authoring_slice = $2
-			order by updated_at desc, id desc
-			limit $3
-		`, req.AuthoringSlice.Account, req.AuthoringSlice.Slice, limit)
-	} else if status != "" {
-		rows, err = s.db.QueryContext(ctx, `
-			select id
-			from changesets
-			where status = $1
-			order by updated_at desc, id desc
-			limit $2
-		`, status, limit)
-	} else {
-		rows, err = s.db.QueryContext(ctx, `
-			select id
-			from changesets
-			order by updated_at desc, id desc
-			limit $1
-		`, limit)
+	if filter.Slice != nil {
+		where = append(where, "authoring_account = "+arg(filter.Slice.Account)+" and authoring_slice = "+arg(filter.Slice.Slice))
 	}
+	if len(filter.Statuses) > 0 {
+		where = append(where, "status = any("+arg(filter.Statuses)+"::text[])")
+	}
+	if filter.FilterAuthor {
+		where = append(where, "author_subject_id = "+arg(filter.AuthorSubjectID))
+	}
+	if query := strings.TrimSpace(filter.Query); query != "" {
+		// strpos rather than like, so a % or _ in the text means itself.
+		where = append(where, "(strpos(lower(title), "+arg(strings.ToLower(query))+") > 0 or starts_with(id, "+arg("cs_"+strings.TrimPrefix(strings.ToLower(query), "cs_"))+"))")
+	}
+	if filter.PageToken != "" {
+		updatedAt, id, err := decodeChangesetPageToken(filter.PageToken)
+		if err != nil {
+			return nil, "", err
+		}
+		where = append(where, "(updated_at, id) < ("+arg(updatedAt)+"::timestamptz, "+arg(id)+")")
+	}
+	query := "select id, updated_at from changesets"
+	if len(where) > 0 {
+		query += " where " + strings.Join(where, " and ")
+	}
+	query += " order by updated_at desc, id desc limit " + arg(limit+1)
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer rows.Close()
 	var ids []string
+	var updated []time.Time
 	for rows.Next() {
 		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
+		var updatedAt time.Time
+		if err := rows.Scan(&id, &updatedAt); err != nil {
+			return nil, "", err
 		}
 		ids = append(ids, id)
+		updated = append(updated, updatedAt)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	if req.Summary {
-		return s.listSummaries(ctx, ids)
+	nextToken := ""
+	if len(ids) > limit {
+		ids, updated = ids[:limit], updated[:limit]
+		nextToken = encodeChangesetPageToken(updated[limit-1], ids[limit-1])
+	}
+	if filter.Summary {
+		out, err := s.listSummaries(ctx, ids)
+		return out, nextToken, err
 	}
 	out := make([]*corev1.Changeset, 0, len(ids))
 	for _, id := range ids {
 		cs, err := s.Get(ctx, id)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 		out = append(out, cs)
 	}
-	return out, nil
+	return out, nextToken, nil
+}
+
+func encodeChangesetPageToken(updatedAt time.Time, id string) string {
+	return base64.RawURLEncoding.EncodeToString([]byte(updatedAt.UTC().Format(time.RFC3339Nano) + "|" + id))
+}
+
+func decodeChangesetPageToken(token string) (time.Time, string, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return time.Time{}, "", fmt.Errorf("invalid page token: %w", ErrInvalid)
+	}
+	stamp, id, ok := strings.Cut(string(raw), "|")
+	updatedAt, parseErr := time.Parse(time.RFC3339Nano, stamp)
+	if !ok || id == "" || parseErr != nil {
+		return time.Time{}, "", fmt.Errorf("invalid page token: %w", ErrInvalid)
+	}
+	return updatedAt, id, nil
 }
 
 func (s *ChangesetStore) resolveChangesetSelector(ctx context.Context, selector string) (string, error) {

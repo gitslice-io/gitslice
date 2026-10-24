@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -73,20 +74,47 @@ func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.C
 	return out, nil
 }
 
-func (s *ChangesetStore) List(ctx context.Context, req *corev1.ListChangesetsRequest) ([]*corev1.Changeset, error) {
+// List filters like the Postgres store. It has no update times, so it lists in
+// id order and its token is the last id returned.
+func (s *ChangesetStore) List(ctx context.Context, filter storage.ChangesetListFilter) ([]*corev1.Changeset, string, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	var out []*corev1.Changeset
+	limit := filter.Limit
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	query := strings.ToLower(strings.TrimSpace(filter.Query))
+	var matched []*corev1.Changeset
 	for _, cs := range s.b.changesets {
-		if req.AuthoringSlice != nil && !sameSliceRef(cs.AuthoringSlice, req.AuthoringSlice) {
+		if filter.Slice != nil && !sameSliceRef(cs.AuthoringSlice, filter.Slice) {
 			continue
 		}
-		if req.Status != "" && cs.Status != req.Status {
+		if len(filter.Statuses) > 0 && !slices.Contains(filter.Statuses, cs.Status) {
 			continue
 		}
+		if filter.FilterAuthor && cs.Author != filter.AuthorSubjectID {
+			continue
+		}
+		if query != "" && !strings.Contains(strings.ToLower(cs.Title), query) &&
+			!strings.HasPrefix(cs.Id, "cs_"+strings.TrimPrefix(query, "cs_")) {
+			continue
+		}
+		if filter.PageToken != "" && cs.Id <= filter.PageToken {
+			continue
+		}
+		matched = append(matched, cs)
+	}
+	sort.Slice(matched, func(i, j int) bool { return matched[i].Id < matched[j].Id })
+	nextToken := ""
+	if len(matched) > limit {
+		matched = matched[:limit]
+		nextToken = matched[limit-1].Id
+	}
+	out := make([]*corev1.Changeset, 0, len(matched))
+	for _, cs := range matched {
 		clone := cloneChangeset(cs)
 		storage.PopulateChangesetHandles(clone)
-		if req.Summary {
+		if filter.Summary {
 			// Like the Postgres store: the current patchset's submit
 			// requirements stay, the patchsets go.
 			for _, patchset := range clone.Patchsets {
@@ -101,8 +129,7 @@ func (s *ChangesetStore) List(ctx context.Context, req *corev1.ListChangesetsReq
 		}
 		out = append(out, clone)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Id < out[j].Id })
-	return out, nil
+	return out, nextToken, nil
 }
 
 func (s *ChangesetStore) PatchsetsByConversation(ctx context.Context, conversationID string) ([]*corev1.Patchset, error) {

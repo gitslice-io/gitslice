@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"strings"
 
 	"gitslice.io/gitslice/internal/analytics"
@@ -85,8 +87,28 @@ func (s *ChangesetService) ListChangesets(ctx context.Context, req *corev1.ListC
 	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.AuthoringSlice, authz.ActionRead); err != nil {
 		return nil, err
 	}
-	changesets, err := s.Changesets.List(ctx, req)
+	filter := storage.ChangesetListFilter{
+		Slice:     req.AuthoringSlice,
+		Statuses:  listStatuses(req),
+		Query:     req.Query,
+		Limit:     int(req.Limit),
+		PageToken: req.PageToken,
+		Summary:   req.Summary,
+	}
+	if author := strings.TrimSpace(req.Author); author != "" {
+		filter.FilterAuthor = true
+		// A name nobody has leaves the subject empty, which matches no one.
+		if subjectID, err := s.Auth.SubjectIDForUsername(ctx, author); err == nil {
+			filter.AuthorSubjectID = subjectID
+		} else if !errors.Is(err, storage.ErrNotFound) {
+			return nil, grpcError(err)
+		}
+	}
+	changesets, nextPageToken, err := s.Changesets.List(ctx, filter)
 	if err != nil {
+		if errors.Is(err, storage.ErrInvalid) {
+			return nil, status.Error(codes.InvalidArgument, err.Error())
+		}
 		return nil, grpcError(err)
 	}
 	for _, cs := range changesets {
@@ -95,7 +117,18 @@ func (s *ChangesetService) ListChangesets(ctx context.Context, req *corev1.ListC
 	if err := s.resolveAuthors(ctx, changesets...); err != nil {
 		return nil, grpcError(err)
 	}
-	return &corev1.ListChangesetsResponse{Changesets: changesets}, nil
+	return &corev1.ListChangesetsResponse{Changesets: changesets, NextPageToken: nextPageToken}, nil
+}
+
+// listStatuses is the statuses a list asks for: status and statuses together.
+func listStatuses(req *corev1.ListChangesetsRequest) []string {
+	var out []string
+	for _, name := range append([]string{req.Status}, req.Statuses...) {
+		if name = strings.TrimSpace(name); name != "" && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // resolveAuthors rewrites every Changeset.Author and Patchset.Author from the

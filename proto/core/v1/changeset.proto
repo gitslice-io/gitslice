@@ -203,15 +203,32 @@ message GetChangesetRequest {
 message ListChangesetsRequest {
   SliceRef authoring_slice = 1;
   string status = 2;
+  // At most this many changesets (1 to 200); without it, 50. Ask for the
+  // next ones with the response's next_page_token.
   int32 limit = 3;
   // Leave out each changeset's patchsets, the heavy part, for list views.
   // Everything else, including the current patchset's submit requirements, is
   // still returned.
   bool summary = 4;
+  // Only changesets in one of these statuses (open, pending_publish,
+  // submitted, abandoned), together with status when that is set.
+  repeated string statuses = 5;
+  // Only changesets whose title contains this text (any case), or whose id
+  // starts with it (the handle in a changeset's link, such as 97048df407).
+  string query = 6;
+  // Only changesets by this username. A name nobody has matches none.
+  string author = 7;
+  // The previous response's next_page_token, to continue after its last
+  // changeset. Use it with the same filters and limit.
+  string page_token = 8;
 }
 
 message ListChangesetsResponse {
+  // Most recently updated first. A request for the next changesets starts
+  // with them where this one ends.
   repeated Changeset changesets = 1;
+  // Empty when there are no more changesets after these.
+  string next_page_token = 2;
 }
 
 message DiffChangesetRequest {
