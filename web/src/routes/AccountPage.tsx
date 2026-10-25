@@ -3,7 +3,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 
-import { RpcError } from "../api/client";
+import { RpcError, isNotFoundError } from "../api/client";
 import type { AccountProfile, ListSlicesResponse } from "../api/types";
 import { useApi } from "../api/useApi";
 import { AccountAvatar, rememberAvatarVersion } from "../components/AccountAvatar";
@@ -27,13 +27,6 @@ const PAGE_SIZE = 50;
 
 function isDefinite(error: unknown) {
   return error instanceof RpcError && [400, 401, 403, 404].includes(error.status);
-}
-
-function isNotFound(error: unknown) {
-  return (
-    error instanceof RpcError &&
-    (error.status === 404 || error.code === 5 || error.code === "5" || error.code === "NotFound" || error.code === "not_found")
-  );
 }
 
 // An account's page, personal or organization: its slices that the visitor can
@@ -77,7 +70,7 @@ export function AccountPage() {
   const pages = slicesQuery.data?.pages ?? [];
   const slices = pages.flatMap((page: ListSlicesResponse) => page.slices ?? []);
   const kind = membership?.kind || profile?.kind || pages[0]?.accountKind || "";
-  const notFound = isNotFound(slicesQuery.error) || isNotFound(profileQuery.error);
+  const notFound = isNotFoundError(slicesQuery.error) || isNotFoundError(profileQuery.error);
   // An organization's owners and admins edit its profile; a person edits their own.
   const canEditProfile =
     membership?.kind === "personal" || (membership?.kind === "organization" && canAdmin(membership));

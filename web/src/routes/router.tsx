@@ -6,6 +6,8 @@ import {
   redirect,
   createRoute,
   createRouter,
+  isNotFound,
+  notFound,
   useRouter
 } from "@tanstack/react-router";
 import {
@@ -38,6 +40,7 @@ import { findReadmeEntry, README_MAX_BYTES } from "./slice-detail/readme";
 import { initialTreeExpansion, pathSearchValue } from "./slice-detail/sourceTree";
 import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
+import { isNotFoundError } from "../api/client";
 import type { Changeset, Slice } from "../api/types";
 import { shortChangesetId } from "../lib/objectId";
 import { changesetsListQuery, parseStatusTab } from "./changesets-list/filters";
@@ -56,6 +59,7 @@ import { BlogListPage } from "./BlogListPage";
 import { BlogPostPage } from "./BlogPostPage";
 import { AccountPage } from "./AccountPage";
 import { ChangesetDetailPage, sortedPatchsets } from "./ChangesetDetailPage";
+import { AccountNotFound, ChangesetNotFound, PageNotFound, SliceNotFound } from "./NotFoundPage";
 import { ChangesetsPage } from "./ChangesetsPage";
 import { ChooseUsernamePage } from "./ChooseUsernamePage";
 import { CliLoginPage } from "./CliLoginPage";
@@ -380,9 +384,48 @@ const sliceCreateRoute = createRoute({
 // API can delay the first byte by at most this much.
 const SLICE_PATH_PREFETCH_BUDGET_MS = 1200;
 
+// lookupOrNotFound runs the server render's lookup of the page's own subject
+// (the slice, the changeset, the account). When the server says there is no
+// such thing and the request has no session, the page is a 404 (a crawler, curl
+// or an agent is told so, instead of being sent a page); for anyone who may be
+// signed in, the browser decides, as it always did.
+async function lookupOrNotFound<T>(lookup: () => Promise<T>): Promise<T> {
+  try {
+    return await lookup();
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      const { isAnonymousRequest } = await import("../api/serverApi");
+      if (await isAnonymousRequest()) {
+        throw notFound();
+      }
+    }
+    throw error;
+  }
+}
+
 const accountRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "accounts/$account",
+  loader: async ({ context, params }) => {
+    if (import.meta.env.SSR) {
+      try {
+        const { createServerApiClient } = await import("../api/serverApi");
+        const api = await createServerApiClient();
+        await lookupOrNotFound(() =>
+          context.queryClient.ensureQueryData({
+            queryKey: ["accountProfile", params.account],
+            queryFn: () => api.getAccountProfile({ account: params.account })
+          })
+        );
+      } catch (error) {
+        // Anything else the component finds out for itself.
+        if (isNotFound(error)) {
+          throw error;
+        }
+      }
+    }
+  },
+  notFoundComponent: AccountNotFound,
   component: AccountPage
 });
 
@@ -425,10 +468,12 @@ const sliceDetailRoute = createRoute({
         // yields the commit the file tree renders from); both fire on first
         // paint and have no derived inputs, so prefetch them together.
         const [slice, latest] = await Promise.all([
-          context.queryClient.ensureQueryData({
-            queryKey: ["sliceRef", params.account, params.slice],
-            queryFn: () => api.resolveSlice({ ref })
-          }),
+          lookupOrNotFound(() =>
+            context.queryClient.ensureQueryData({
+              queryKey: ["sliceRef", params.account, params.slice],
+              queryFn: () => api.resolveSlice({ ref })
+            })
+          ),
           context.queryClient.ensureQueryData({
             queryKey: ["globalRef", GLOBAL_REF_NAME],
             queryFn: async () => {
@@ -521,12 +566,16 @@ const sliceDetailRoute = createRoute({
             new Promise((resolve) => setTimeout(resolve, SLICE_PATH_PREFETCH_BUDGET_MS))
           ]);
         }
-      } catch {
-        // The component keeps the existing client-side load/error behavior.
+      } catch (error) {
+        // A 404 is the answer; any other failure leaves it to the component.
+        if (isNotFound(error)) {
+          throw error;
+        }
       }
     }
     return { social };
   },
+  notFoundComponent: SliceNotFound,
   // Link previews read these from the server-rendered page (lib/socialMeta).
   head: ({ loaderData, params }) =>
     loaderData?.social
@@ -674,10 +723,12 @@ const changesetShortRoute = createRoute({
         const { createServerApiClient } = await import("../api/serverApi");
         const { getRequestUrl } = await import("@tanstack/react-start/server");
         const api = await createServerApiClient();
-        const changeset = await context.queryClient.ensureQueryData({
-          queryKey: ["changeset", params.id],
-          queryFn: () => api.getChangeset({ changesetId: params.id })
-        });
+        const changeset = await lookupOrNotFound(() =>
+          context.queryClient.ensureQueryData({
+            queryKey: ["changeset", params.id],
+            queryFn: () => api.getChangeset({ changesetId: params.id })
+          })
+        );
         // Link previews read the server-rendered head (lib/socialMeta).
         social = changesetSocial(changeset, params.id, getRequestUrl().origin);
         // The diff is the page's primary content; the slice's changesets back
@@ -729,12 +780,16 @@ const changesetShortRoute = createRoute({
               })
             : Promise.resolve(undefined)
         ]);
-      } catch {
-        // The component keeps the existing client-side load/error behavior.
+      } catch (error) {
+        // A 404 is the answer; any other failure leaves it to the component.
+        if (isNotFound(error)) {
+          throw error;
+        }
       }
     }
     return { social };
   },
+  notFoundComponent: ChangesetNotFound,
   // The page's title and what a shared link shows come from the changeset.
   // Without one (not found, or not readable by this viewer) the head says
   // nothing about it.
@@ -798,6 +853,9 @@ export function getRouter() {
       getDehydratedQueryState: () => dehydratedQueryState,
       queryClient
     },
+    // A route with no page of its own for a missing thing, and an address that
+    // matches no route, get this.
+    defaultNotFoundComponent: PageNotFound,
     defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
     scrollRestoration: true,

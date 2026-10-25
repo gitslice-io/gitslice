@@ -35,6 +35,19 @@ export class RpcError extends Error {
   }
 }
 
+// isNotFoundError says the server answered that the thing asked for does not
+// exist (as opposed to failing, or refusing this caller).
+export function isNotFoundError(error: unknown): boolean {
+  return (
+    error instanceof RpcError &&
+    (error.status === 404 ||
+      error.code === 5 ||
+      error.code === "5" ||
+      error.code === "NotFound" ||
+      error.code === "not_found")
+  );
+}
+
 export const defaultApiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export interface CreateApiClientOptions {
