@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 export function base64ToBytes(data: string): Uint8Array<ArrayBuffer> {
-  const binary = window.atob(data);
+  const binary = globalThis.atob(data);
   const bytes = new Uint8Array(new ArrayBuffer(binary.length));
   for (let i = 0; i < binary.length; i++) {
     bytes[i] = binary.charCodeAt(i);

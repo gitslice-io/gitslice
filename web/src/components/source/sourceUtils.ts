@@ -280,7 +280,8 @@ export function decodeBase64File(data: string | undefined) {
   }
 
   try {
-    const binary = window.atob(data);
+    // globalThis, not window: the server renders file views too, and has none.
+    const binary = globalThis.atob(data);
     const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
     return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
   } catch {
