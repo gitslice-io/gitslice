@@ -351,6 +351,50 @@ describe("slice route pages (render smoke)", () => {
     expectHealthy();
   });
 
+  it("opens the go-to-file dialog with t or its button, lists the slice's files, and opens one", async () => {
+    Element.prototype.scrollIntoView = vi.fn();
+    const files = ["/nic/notes/todo.md", "/nic/src/main.go"];
+    // The page's api mock, which the test makes recursive-aware.
+    const api = apiMock.current as unknown as { listDirectory: ReturnType<typeof vi.fn> };
+    const plain = api.listDirectory as unknown as (request: { recursive?: boolean }) => Promise<unknown>;
+    api.listDirectory = vi.fn((request: { recursive?: boolean }) =>
+      request.recursive
+        ? Promise.resolve({ recursive: true, entries: files.map((path) => ({ kind: "ENTRY_KIND_FILE", path })) })
+        : plain(request)
+    );
+    renderRoute(<SliceDetailPage />);
+    await waitFor(() => expect(apiMock.current.resolveSlice).toHaveBeenCalled());
+    await flushAsync();
+    expect(screen.queryByRole("dialog", { name: "Find file" })).toBeNull();
+    // Nothing is listed until it is wanted.
+    expect((api.listDirectory.mock.calls as Array<[{ recursive?: boolean }]>).some(([request]) => request.recursive)).toBe(false);
+
+    // Typing into a field is not a command.
+    const field = document.createElement("input");
+    document.body.appendChild(field);
+    fireEvent.keyDown(field, { key: "t" });
+    fireEvent.keyDown(window, { key: "t", ctrlKey: true });
+    expect(screen.queryByRole("dialog", { name: "Find file" })).toBeNull();
+    field.remove();
+
+    fireEvent.keyDown(window, { key: "t" });
+    const dialog = await screen.findByRole("dialog", { name: "Find file" });
+    expect(await within(dialog).findByTitle("src/main.go")).toBeInTheDocument();
+    expect(api.listDirectory).toHaveBeenCalledWith(
+      expect.objectContaining({ commitId: "commit_1", path: "/nic", recursive: true, slice: { account: "nic", slice: "home" } })
+    );
+
+    fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "todo" } });
+    fireEvent.keyDown(within(dialog).getByRole("combobox"), { key: "Enter" });
+    expect(screen.queryByRole("dialog", { name: "Find file" })).toBeNull();
+    expect(routerMock.navigate).toHaveBeenCalledWith(expect.objectContaining({ search: { path: "/nic/notes/todo.md" } }));
+
+    // The header's button does the same.
+    fireEvent.click(screen.getByRole("button", { name: "Find file" }));
+    expect(await screen.findByRole("dialog", { name: "Find file" })).toBeInTheDocument();
+    expectHealthy();
+  });
+
   it("shows whose slice it is in the breadcrumb", async () => {
     renderRoute(<SliceDetailPage />);
     await waitFor(() => expect(apiMock.current.resolveSlice).toHaveBeenCalled());

@@ -42,11 +42,16 @@ export interface ListDirectoryRequest {
   pageSize?: number;
   slice?: SliceRef;
   rootTreeId?: string;
+  // List everything under the path, not just its entries, paged by path.
+  recursive?: boolean;
 }
 
 export interface ListDirectoryResponse {
   entries?: TreeEntry[];
   nextCursor?: string;
+  // The listing was recursive. A server too old for it lists one level and
+  // leaves this out.
+  recursive?: boolean;
 }
 
 export interface ReadFileRequest {

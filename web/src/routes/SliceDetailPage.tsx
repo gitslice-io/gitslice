@@ -54,6 +54,7 @@ import {
   slicePathQueryKey,
 } from "../lib/sliceQueryKeys";
 import { CheckoutMenu } from "./slice-detail/CheckoutMenu";
+import { FileFinder } from "./slice-detail/FileFinder";
 import { HistoryDrawer } from "./slice-detail/HistoryDrawer";
 import { SliceFolderNavigator } from "./slice-detail/SliceFolderNavigator";
 import {
@@ -112,6 +113,8 @@ export function SliceDetailPage() {
   // On phones a file or folder opens with its details (breadcrumbs, path,
   // counts) folded; the bar at the top unfolds them.
   const [detailsOpen, setDetailsOpen] = useState(false);
+  // The "go to file" dialog, opened with the t key or the header's button.
+  const [finderOpen, setFinderOpen] = useState(false);
   useEffect(() => {
     setDetailsOpen(false);
   }, [selectedPath]);
@@ -157,6 +160,25 @@ export function SliceDetailPage() {
     : `${routeAccount}:${routeSlice}`;
   const sliceLabel = sliceDisplayName(slice);
   const commitId = latestQuery.data?.commitId ?? "";
+  const canFindFiles = Boolean(commitId && slice);
+  useEffect(() => {
+    if (!canFindFiles) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "t" || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(?:input|textarea|select)$/i.test(target.tagName))) {
+        return;
+      }
+      event.preventDefault();
+      setFinderOpen(true);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [canFindFiles]);
   const draftChangeset = useDraftChangesetController({
     api,
     commitId,
@@ -525,6 +547,16 @@ export function SliceDetailPage() {
                   Settings
                 </Link>
               ) : null}
+              {commitId ? (
+                <button
+                  className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
+                  onClick={() => setFinderOpen(true)}
+                  title="Go to a file by name (t)"
+                  type="button"
+                >
+                  Find file
+                </button>
+              ) : null}
               <CheckoutMenu gitUrl={gitCloneHint.url} sliceRef={sliceLabel} />
             </>
           }
@@ -623,6 +655,16 @@ export function SliceDetailPage() {
               </CopyMoveProvider>
             </div>
           </div>
+          {finderOpen && commitId && sliceRef ? (
+            <FileFinder
+              api={api}
+              commitId={commitId}
+              includedPaths={includedPaths}
+              onClose={() => setFinderOpen(false)}
+              onSelectPath={selectPath}
+              slice={sliceRef}
+            />
+          ) : null}
           <HistoryDrawer
             api={api}
             commitId={commitId}
