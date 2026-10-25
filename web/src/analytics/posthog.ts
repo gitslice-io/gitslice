@@ -1,6 +1,7 @@
 import type { PostHogConfig, Properties } from "posthog-js";
 
 import { AnalyticsEvents, AnalyticsProps } from "./events";
+import { afterPageLoad } from "./idle";
 
 type PostHogModule = typeof import("posthog-js");
 type PostHogClient = PostHogModule["default"];
@@ -24,6 +25,7 @@ const posthogHost = env.VITE_POSTHOG_HOST;
 const posthogEnvironment = env.VITE_POSTHOG_ENV || "development";
 
 let posthogModulePromise: Promise<PostHogModule> | undefined;
+let pageLoaded: Promise<void> | undefined;
 let initialized = false;
 let originalDistinctIdForAlias: string | undefined;
 let lastAliasKey: string | undefined;
@@ -45,6 +47,8 @@ async function loadPostHog(): Promise<PostHogClient | undefined> {
   }
 
   try {
+    // Not before the page itself has loaded (see afterPageLoad).
+    await (pageLoaded ??= afterPageLoad());
     posthogModulePromise ??= import("posthog-js");
     const { default: posthog } = await posthogModulePromise;
 
