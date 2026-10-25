@@ -665,6 +665,7 @@ export function ChangesetDetailPage() {
               onFileRetry={retryFileDiff}
               onViewFile={openFileView}
               onViewModeChange={setDiffViewMode}
+              viewedScope={canonicalChangesetId}
               viewMode={diffViewMode}
             />
           </div>

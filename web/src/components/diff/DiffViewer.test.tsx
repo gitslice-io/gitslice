@@ -17,15 +17,15 @@ describe("DiffViewer", () => {
     const diff = [
       "diff --git a/image.png b/image.png",
       "Binary files a/image.png and b/image.png differ",
-      "diff --git a/generated.txt b/generated.txt",
-      "Diff too large to render: generated.txt (8.4 MB)",
+      "diff --git a/big-output.txt b/big-output.txt",
+      "Diff too large to render: big-output.txt (8.4 MB)",
       ""
     ].join("\n");
 
     render(
       <DiffViewer
         diffResponse={{
-          changedPaths: ["generated.txt", "image.png"],
+          changedPaths: ["big-output.txt", "image.png"],
           diff
         }}
         error={null}
@@ -38,7 +38,7 @@ describe("DiffViewer", () => {
       screen.getByText("Binary files a/image.png and b/image.png differ")
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Diff too large to render: generated.txt (8.4 MB)")
+      screen.getByText("Diff too large to render: big-output.txt (8.4 MB)")
     ).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "split" }));
@@ -47,7 +47,7 @@ describe("DiffViewer", () => {
       screen.getByText("Binary files a/image.png and b/image.png differ")
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Diff too large to render: generated.txt (8.4 MB)")
+      screen.getByText("Diff too large to render: big-output.txt (8.4 MB)")
     ).toBeInTheDocument();
   });
 

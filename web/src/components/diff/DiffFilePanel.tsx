@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+
+import { cn } from "../../lib/cn";
 import { type RevealState } from "./collapse";
 import { type DiffFile } from "./parseDiff";
 
@@ -18,24 +20,36 @@ import { UnifiedDiff } from "./UnifiedDiff";
 import { SplitDiff } from "./SplitDiff";
 
 export function DiffFilePanel({
+  collapsed = false,
   file,
   fileState,
+  generated = false,
   isBodyMounted,
   onExpand,
   onRetry,
+  onToggleCollapsed,
+  onToggleViewed,
   onViewFile,
   refCallback,
   revealed,
+  viewed = false,
   viewMode
 }: {
+  // The body is hidden: the file was viewed, is generated, or was folded.
+  collapsed?: boolean;
   file: DiffFile;
   fileState?: DiffViewerFileState;
+  // A tool wrote this file; it starts collapsed.
+  generated?: boolean;
   isBodyMounted: boolean;
   onExpand: ExpandFn;
   onRetry?(path: string): void;
+  onToggleCollapsed?(): void;
+  onToggleViewed?(): void;
   onViewFile?(file: DiffFile): void;
   refCallback(node: HTMLElement | null): void;
   revealed: Record<string, RevealState>;
+  viewed?: boolean;
   viewMode: ViewMode;
 }) {
   const [showLargeDiff, setShowLargeDiff] = useState(false);
@@ -54,6 +68,30 @@ export function DiffFilePanel({
     >
       <div className="flex flex-col gap-1.5 border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-4 sm:py-3">
         <div className="flex min-w-0 items-center gap-2">
+          {onToggleCollapsed ? (
+            <button
+              aria-controls={`${file.id}-body`}
+              aria-expanded={!collapsed}
+              aria-label={`${collapsed ? "Expand" : "Collapse"} ${file.path}`}
+              className="-my-1.5 -ml-1.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-200/70 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+              onClick={onToggleCollapsed}
+              title={collapsed ? "Show the diff" : "Hide the diff"}
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                className={cn("size-4 transition-transform", collapsed && "-rotate-90")}
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="2"
+                viewBox="0 0 16 16"
+              >
+                <path d="m4 6 4 4 4-4" />
+              </svg>
+            </button>
+          ) : null}
           <ChangeKindBadge kind={file.changeKind} />
           <h3 className="min-w-0 truncate font-mono text-xs font-semibold text-zinc-950 dark:text-zinc-50 sm:text-sm">
             {file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path}
@@ -70,6 +108,14 @@ export function DiffFilePanel({
               </span>
             </div>
           ) : null}
+          {generated ? (
+            <span
+              className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+              title="Written by a tool, so it starts collapsed"
+            >
+              Generated
+            </span>
+          ) : null}
           {onViewFile ? (
             <button
               className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98] sm:px-2 sm:py-1"
@@ -80,29 +126,51 @@ export function DiffFilePanel({
               View file
             </button>
           ) : null}
+          {onToggleViewed && status === "loaded" ? (
+            <label
+              className={cn(
+                "inline-flex min-h-8 cursor-pointer select-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition sm:px-2",
+                viewed
+                  ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
+                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
+              )}
+              title="Mark this file as reviewed (v). It stays marked until the file changes."
+            >
+              <input
+                aria-label={`Viewed ${file.path}`}
+                checked={viewed}
+                className="size-3.5 accent-emerald-600"
+                onChange={onToggleViewed}
+                type="checkbox"
+              />
+              Viewed
+            </label>
+          ) : null}
         </div>
       </div>
-      {status !== "loaded" ? (
-        <PendingDiffBody
-          error={fileState?.error}
-          onRetry={onRetry ? () => onRetry(file.path) : undefined}
-          status={status}
-        />
-      ) : isLargeDiff && !showLargeDiff ? (
-        <LargeDiffGuard
-          lineCount={file.lines.length}
-          onShow={() => setShowLargeDiff(true)}
-        />
-      ) : isBodyMounted || showLargeDiff ? (
-        <DiffFileBody
-          file={file}
-          onExpand={onExpand}
-          revealed={revealed}
-          viewMode={viewMode}
-        />
-      ) : (
-        <DiffBodyPlaceholder file={file} viewMode={viewMode} />
-      )}
+      <div id={`${file.id}-body`}>
+        {collapsed && status !== "error" ? null : status !== "loaded" ? (
+          <PendingDiffBody
+            error={fileState?.error}
+            onRetry={onRetry ? () => onRetry(file.path) : undefined}
+            status={status}
+          />
+        ) : isLargeDiff && !showLargeDiff ? (
+          <LargeDiffGuard
+            lineCount={file.lines.length}
+            onShow={() => setShowLargeDiff(true)}
+          />
+        ) : isBodyMounted || showLargeDiff ? (
+          <DiffFileBody
+            file={file}
+            onExpand={onExpand}
+            revealed={revealed}
+            viewMode={viewMode}
+          />
+        ) : (
+          <DiffBodyPlaceholder file={file} viewMode={viewMode} />
+        )}
+      </div>
     </article>
   );
 }

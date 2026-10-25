@@ -4,6 +4,8 @@ import type { DiffChangesetResponse } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { type RevealState } from "./collapse";
+import { fileFingerprint, isGeneratedFile, isViewed } from "./reviewState";
+import { useViewedFiles } from "./useViewedFiles";
 import { FilePickerSheet, MobileFileSwitcher } from "./FileSwitcher";
 import {
   diffFileId,
@@ -37,6 +39,11 @@ interface DiffViewerProps {
   onFileRetry?(path: string): void;
   /** Opens the whole file, before or after the change. */
   onViewFile?(file: DiffFile): void;
+  /**
+   * What the reviewer's "Viewed" marks belong to (the changeset). They are kept
+   * on this browser; without it they last until the page closes.
+   */
+  viewedScope?: string;
   /**
    * Unified or split. The changeset page keeps it in the URL (`?diff=split`) so
    * a link opens in the mode it was shared in; without it the viewer keeps its
@@ -73,6 +80,7 @@ export function DiffViewer({
   onFileNeeded,
   onFileRetry,
   onViewFile,
+  viewedScope,
   viewMode: viewModeProp,
   onViewModeChange
 }: DiffViewerProps) {
@@ -115,6 +123,10 @@ export function DiffViewer({
     () => new Set()
   );
   const [filePickerOpen, setFilePickerOpen] = useState(false);
+  const { viewed, mark } = useViewedFiles(viewedScope);
+  // Files the reviewer opened or folded by hand. Without a say here, a file
+  // is folded when it is viewed or generated.
+  const [collapseOverride, setCollapseOverride] = useState<Record<string, boolean>>({});
   const [revealed, setRevealed] = useState<Record<string, RevealState>>({});
   const panelRefs = useRef<Record<string, HTMLElement | null>>({});
   // When the user explicitly picks a file (prev/next or the picker), pin it as
@@ -146,6 +158,7 @@ export function DiffViewer({
   // Reset collapse state whenever a new diff loads.
   useEffect(() => {
     setRevealed({});
+    setCollapseOverride({});
   }, [diffResponse?.diff, fileListKey]);
 
   useEffect(() => {
@@ -412,6 +425,68 @@ export function DiffViewer({
     setFocusTargetId(target.id);
   }, [files, focusFilePath, selectFile]);
 
+  const viewedIds = useMemo(
+    () => new Set(files.filter((file) => isViewed(file, viewed)).map((file) => file.id)),
+    [files, viewed]
+  );
+  const isCollapsed = (file: DiffFile) =>
+    collapseOverride[file.id] ?? (viewedIds.has(file.id) || isGeneratedFile(file));
+
+  const toggleCollapsed = (file: DiffFile) => {
+    const collapse = !isCollapsed(file);
+    setCollapseOverride((current) => ({ ...current, [file.id]: collapse }));
+    if (!collapse) {
+      // Opened by hand: draw its body now, and fetch it if it has not come.
+      mountFileBody(file.id);
+      onFileNeeded?.(file.path);
+    }
+  };
+
+  // Marking a file viewed folds it, as unmarking opens it; the file's diff
+  // must have loaded, since the mark is of what it shows.
+  const toggleViewed = (file: DiffFile) => {
+    if (file.lines.length === 0) {
+      return;
+    }
+    const wasViewed = viewedIds.has(file.id);
+    mark(file.path, wasViewed ? null : fileFingerprint(file));
+    setCollapseOverride((current) => ({ ...current, [file.id]: !wasViewed }));
+    if (wasViewed) {
+      mountFileBody(file.id);
+    }
+  };
+
+  // j and k move between files, v marks the one in view as viewed.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (target && (target.isContentEditable || /^(?:input|textarea|select)$/i.test(target.tagName))) {
+        return;
+      }
+      if (event.key !== "j" && event.key !== "k" && event.key !== "v") {
+        return;
+      }
+      const index = Math.max(0, files.findIndex((file) => file.id === currentActiveId));
+      if (event.key === "v") {
+        if (files[index]) {
+          toggleViewed(files[index]);
+        }
+        return;
+      }
+      const next = files[index + (event.key === "j" ? 1 : -1)];
+      if (next) {
+        selectFile(next.id);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // toggleViewed and selectFile read what is listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, currentActiveId, viewedIds, collapseOverride, selectFile]);
+
   return (
     <>
       <section className="mt-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50 md:mt-3">
@@ -429,6 +504,14 @@ export function DiffViewer({
                   <span className="flex gap-1.5 font-mono text-xs">
                     <span className="text-emerald-700 dark:text-emerald-300">+{totalAdditions}</span>
                     <span className="text-rose-700 dark:text-rose-300">-{totalDeletions}</span>
+                  </span>
+                ) : null}
+                {!isLoading && files.length > 1 ? (
+                  <span
+                    className="text-xs text-slate-500 dark:text-zinc-400"
+                    title="j and k: next and previous file. v: mark the file viewed."
+                  >
+                    {viewedIds.size} of {files.length} viewed
                   </span>
                 ) : null}
               </div>
@@ -471,22 +554,28 @@ export function DiffViewer({
                 activeId={activeId}
                 files={files}
                 onSelect={selectFile}
+                viewedIds={viewedIds}
               />
             </aside>
             <div className="grid grid-cols-1 min-w-0 gap-3 md:gap-4">
               {files.map((file) => (
                 <DiffFilePanel
+                  collapsed={isCollapsed(file)}
                   file={file}
                   fileState={fileStatesById.get(file.id)}
+                  generated={isGeneratedFile(file)}
                   isBodyMounted={mountedDiffBodies.has(file.id)}
                   key={file.id}
                   onExpand={expandGap}
                   onRetry={onFileRetry}
+                  onToggleCollapsed={() => toggleCollapsed(file)}
+                  onToggleViewed={() => toggleViewed(file)}
                   onViewFile={onViewFile}
                   refCallback={(node) => {
                     panelRefs.current[file.id] = node;
                   }}
                   revealed={revealed}
+                  viewed={viewedIds.has(file.id)}
                   viewMode={viewMode}
                 />
               ))}

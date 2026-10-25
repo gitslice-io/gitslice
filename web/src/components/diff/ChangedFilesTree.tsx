@@ -9,6 +9,8 @@ interface ChangedFilesTreeProps {
   files: DiffFile[];
   onSelect(id: string): void;
   scrollClassName?: string;
+  // Files the reviewer has marked viewed; they are dimmed and ticked.
+  viewedIds?: ReadonlySet<string>;
 }
 
 interface DirectoryNode {
@@ -38,7 +40,8 @@ export function ChangedFilesTree({
   activeId,
   files,
   onSelect,
-  scrollClassName
+  scrollClassName,
+  viewedIds
 }: ChangedFilesTreeProps) {
   const tree = useMemo(() => buildTree(files), [files]);
   const [collapsedPaths, setCollapsedPaths] = useState<Set<string>>(
@@ -85,6 +88,7 @@ export function ChangedFilesTree({
             node={node}
             onSelect={onSelect}
             onToggleDirectory={toggleDirectory}
+            viewedIds={viewedIds}
           />
         ))}
       </div>
@@ -98,7 +102,8 @@ function TreeNodeRow({
   depth,
   node,
   onSelect,
-  onToggleDirectory
+  onToggleDirectory,
+  viewedIds
 }: {
   activeId?: string;
   collapsedPaths: Set<string>;
@@ -106,6 +111,7 @@ function TreeNodeRow({
   node: TreeNode;
   onSelect(id: string): void;
   onToggleDirectory(path: string): void;
+  viewedIds?: ReadonlySet<string>;
 }) {
   if (node.type === "file") {
     return (
@@ -115,6 +121,7 @@ function TreeNodeRow({
         file={node.file}
         name={node.name}
         onSelect={onSelect}
+        viewed={viewedIds?.has(node.file.id) ?? false}
       />
     );
   }
@@ -152,6 +159,7 @@ function TreeNodeRow({
               node={child}
               onSelect={onSelect}
               onToggleDirectory={onToggleDirectory}
+              viewedIds={viewedIds}
             />
           ))
         : null}
@@ -164,13 +172,15 @@ function FileRow({
   depth,
   file,
   name,
-  onSelect
+  onSelect,
+  viewed
 }: {
   active: boolean;
   depth: number;
   file: DiffFile;
   name: string;
   onSelect(id: string): void;
+  viewed: boolean;
 }) {
   return (
     <button
@@ -193,7 +203,7 @@ function FileRow({
       >
         {statusGlyph(file.changeKind)}
       </span>
-      <span className="flex min-w-0 items-center gap-1.5" title={file.path}>
+      <span className={cn("flex min-w-0 items-center gap-1.5", viewed && !active && "opacity-60")} title={file.path}>
         <FileTypeIcon name={name} />
         <span className="min-w-0 truncate">{name}</span>
       </span>
@@ -203,6 +213,11 @@ function FileRow({
           active ? "text-slate-200" : "text-slate-500 dark:text-zinc-400"
         )}
       >
+        {viewed ? (
+          <span aria-label="viewed" className={active ? "text-emerald-200" : "text-emerald-700 dark:text-emerald-300"} role="img">
+            ✓
+          </span>
+        ) : null}
         <span className={active ? "text-emerald-200" : "text-emerald-700 dark:text-emerald-300"}>
           +{file.additions}
         </span>
