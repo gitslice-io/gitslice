@@ -92,9 +92,11 @@ export function AccountPage() {
         </div>
       ) : (
         <>
-          <div className="mt-4 flex flex-wrap items-center gap-4">
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3">
             <AccountAvatar account={account} kind={kind} size="xl" version={profile ? (profile.avatarVersion ?? "") : undefined} />
-            <div className="min-w-0 flex-1">
+            {/* At least this wide, so the buttons wrap below it on a phone
+                instead of squeezing the name into a sliver. */}
+            <div className="min-w-[12rem] flex-1">
               <h1 className="truncate text-xl font-semibold text-zinc-950 dark:text-zinc-50">
                 {profile?.displayName || account}
               </h1>
@@ -104,6 +106,7 @@ export function AccountPage() {
                 {membership?.role ? ` · you are ${article(membership.role)} ${membership.role}` : ""}
               </p>
             </div>
+            <div className="flex basis-full flex-wrap items-center gap-2 sm:basis-auto">
             {canEditProfile && !editing ? (
               <button
                 className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
@@ -131,6 +134,7 @@ export function AccountPage() {
                 New slice
               </Link>
             ) : null}
+            </div>
           </div>
 
           {editing && profile ? (
