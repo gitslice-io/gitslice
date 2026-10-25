@@ -8,7 +8,8 @@ import {
   createRouter,
   isNotFound,
   notFound,
-  useRouter
+  useRouter,
+  useRouterState
 } from "@tanstack/react-router";
 import {
   HydrationBoundary,
@@ -40,6 +41,8 @@ import { findReadmeEntry, README_MAX_BYTES } from "./slice-detail/readme";
 import { initialTreeExpansion, pathSearchValue } from "./slice-detail/sourceTree";
 import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
+import { VisitorBanner } from "../components/VisitorBanner";
+import { visitorBannerWanted } from "../lib/visitorBanner";
 import { isNotFoundError } from "../api/client";
 import type { Changeset, Slice } from "../api/types";
 import { shortChangesetId } from "../lib/objectId";
@@ -281,12 +284,28 @@ const appRoute = createRoute({
 const publicAppRoute = createRoute({
   getParentRoute: () => rootRoute,
   id: "publicApp",
-  component: () => (
-    <SelectionProvider>
-      <AppShell />
-    </SelectionProvider>
-  )
+  // Whether to offer a visitor with no session an introduction: from the
+  // cookies, which the server render and the browser both see.
+  loader: async () => {
+    if (import.meta.env.SSR) {
+      const { getRequestHeader } = await import("@tanstack/react-start/server");
+      return { visitorBanner: visitorBannerWanted(getRequestHeader("cookie") ?? "") };
+    }
+    return { visitorBanner: visitorBannerWanted(document.cookie) };
+  },
+  component: PublicAppLayout
 });
+
+function PublicAppLayout(): JSX.Element {
+  const loaded = useRouterState({
+    select: (state) => state.matches.find((match) => match.routeId === publicAppRoute.id)?.loaderData
+  }) as { visitorBanner?: boolean } | undefined;
+  return (
+    <SelectionProvider>
+      <AppShell banner={<VisitorBanner show={loaded?.visitorBanner ?? false} />} />
+    </SelectionProvider>
+  );
+}
 
 function UsernameGate({ children }: { children: ReactNode }) {
   const { error, isLoading, needsUsername } = useSelection();
