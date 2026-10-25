@@ -6,6 +6,7 @@ import {
   redirect,
   createRoute,
   createRouter,
+  lazyRouteComponent,
   isNotFound,
   notFound,
   useRouter,
@@ -58,27 +59,36 @@ import {
 } from "../lib/socialMeta";
 import { SelectionProvider, useSelection } from "../state/selection";
 import { THEME_BOOTSTRAP_SCRIPT } from "../theme";
-import { BlogListPage } from "./BlogListPage";
-import { BlogPostPage } from "./BlogPostPage";
-import { AccountPage } from "./AccountPage";
-import { ChangesetDetailPage, sortedPatchsets } from "./ChangesetDetailPage";
+import { sortedPatchsets } from "./changeset-detail/patchsetUtils";
+import { UsernameGate } from "./UsernameGate";
 import { AccountNotFound, ChangesetNotFound, PageNotFound, SliceNotFound } from "./NotFoundPage";
-import { ChangesetsPage } from "./ChangesetsPage";
 import { ChooseUsernamePage } from "./ChooseUsernamePage";
-import { CliLoginPage } from "./CliLoginPage";
-import { ClaimsPage } from "./ClaimsPage";
-import { ConversationsPage } from "./ConversationsPage";
-import { DocPage } from "./DocPage";
-import { HomePage } from "./HomePage";
-import { LandingPage } from "./LandingPage";
-import { LoginPage } from "./LoginPage";
-import { SignupPage } from "./SignupPage";
-import { NewOrganizationPage } from "./NewOrganizationPage";
-import { SliceCreatePage } from "./SliceCreatePage";
-import { SliceAgentsPage } from "./SliceAgentsPage";
-import { SliceDetailPage } from "./SliceDetailPage";
-import { SliceSettingsPage } from "./SliceSettingsPage";
 import { parseSliceSearch } from "./stackPageUtils";
+
+// Each page's code is fetched when its route is opened, not with every page:
+// a visitor reading a slice does not download the docs, the blog, the diff
+// viewer or the settings forms. The router loads a matched page's chunk before
+// it renders and hydrates, on the server and in the browser alike.
+const lazyPages = {
+  AccountPage: lazyRouteComponent(() => import("./AccountPage"), "AccountPage"),
+  BlogListPage: lazyRouteComponent(() => import("./BlogListPage"), "BlogListPage"),
+  BlogPostPage: lazyRouteComponent(() => import("./BlogPostPage"), "BlogPostPage"),
+  ChangesetDetailPage: lazyRouteComponent(() => import("./ChangesetDetailPage"), "ChangesetDetailPage"),
+  ChangesetsPage: lazyRouteComponent(() => import("./ChangesetsPage"), "ChangesetsPage"),
+  ClaimsPage: lazyRouteComponent(() => import("./ClaimsPage"), "ClaimsPage"),
+  CliLoginPage: lazyRouteComponent(() => import("./CliLoginPage"), "CliLoginPage"),
+  ConversationsPage: lazyRouteComponent(() => import("./ConversationsPage"), "ConversationsPage"),
+  DocPage: lazyRouteComponent(() => import("./DocPage"), "DocPage"),
+  HomePage: lazyRouteComponent(() => import("./HomePage"), "HomePage"),
+  IndexPage: lazyRouteComponent(() => import("./IndexPage"), "IndexPage"),
+  LoginPage: lazyRouteComponent(() => import("./LoginPage"), "LoginPage"),
+  NewOrganizationPage: lazyRouteComponent(() => import("./NewOrganizationPage"), "NewOrganizationPage"),
+  SignupPage: lazyRouteComponent(() => import("./SignupPage"), "SignupPage"),
+  SliceAgentsPage: lazyRouteComponent(() => import("./SliceAgentsPage"), "SliceAgentsPage"),
+  SliceCreatePage: lazyRouteComponent(() => import("./SliceCreatePage"), "SliceCreatePage"),
+  SliceDetailPage: lazyRouteComponent(() => import("./SliceDetailPage"), "SliceDetailPage"),
+  SliceSettingsPage: lazyRouteComponent(() => import("./SliceSettingsPage"), "SliceSettingsPage")
+};
 
 interface RouterContext {
   getDehydratedQueryState: () => DehydratedState | undefined;
@@ -170,7 +180,7 @@ function RootDocument({ children }: { children: ReactNode }) {
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
-  component: LoginPage
+  component: lazyPages.LoginPage
 });
 
 const loginFlowRoute = createRoute({
@@ -180,13 +190,13 @@ const loginFlowRoute = createRoute({
   // whole flow mounted on the same component instead of treating those paths
   // as application 404s.
   path: "/login/$",
-  component: LoginPage
+  component: lazyPages.LoginPage
 });
 
 const signupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/signup",
-  component: SignupPage
+  component: lazyPages.SignupPage
 });
 
 const signupFlowRoute = createRoute({
@@ -194,13 +204,13 @@ const signupFlowRoute = createRoute({
   // Clerk's sign-up flow nests verification steps under the page, as sign-in
   // does under /login.
   path: "/signup/$",
-  component: SignupPage
+  component: lazyPages.SignupPage
 });
 
 const cliLoginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/cli-login",
-  component: CliLoginPage
+  component: lazyPages.CliLoginPage
 });
 
 const indexRoute = createRoute({
@@ -225,28 +235,8 @@ const indexRoute = createRoute({
       }
     }
   },
-  component: IndexPage
+  component: lazyPages.IndexPage
 });
-
-function IndexPage() {
-  const { isLoaded, isSignedIn } = useAuth();
-
-  if (isLoaded && isSignedIn) {
-    return (
-      <RequireAuth>
-        <SelectionProvider>
-          <UsernameGate>
-            <AppShell>
-              <HomePage />
-            </AppShell>
-          </UsernameGate>
-        </SelectionProvider>
-      </RequireAuth>
-    );
-  }
-
-  return <LandingPage />;
-}
 
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -307,39 +297,10 @@ function PublicAppLayout(): JSX.Element {
   );
 }
 
-function UsernameGate({ children }: { children: ReactNode }) {
-  const { error, isLoading, needsUsername } = useSelection();
-
-  if (isLoading) {
-    return (
-      <main className="grid min-h-[100dvh] place-items-center bg-slate-50 dark:bg-zinc-950 p-6 text-sm text-slate-600 dark:text-zinc-400">
-        Loading session...
-      </main>
-    );
-  }
-
-  if (error) {
-    return (
-      <main className="grid min-h-[100dvh] place-items-center bg-slate-50 dark:bg-zinc-950 p-6 text-sm text-slate-600 dark:text-zinc-400">
-        <section className="w-full max-w-md rounded-lg border border-rose-200 dark:border-rose-900/60 bg-white dark:bg-zinc-900 p-5 text-rose-900 dark:text-rose-200 shadow-sm shadow-slate-200/50 dark:shadow-black/50">
-          <p className="font-semibold">Could not load session</p>
-          <p className="mt-2 leading-6">{error.message}</p>
-        </section>
-      </main>
-    );
-  }
-
-  if (needsUsername) {
-    return <ChooseUsernamePage />;
-  }
-
-  return <>{children}</>;
-}
-
 const claimsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "claims",
-  component: ClaimsPage
+  component: lazyPages.ClaimsPage
 });
 
 // Conversations are not offered for now (lib/features): their addresses go
@@ -352,50 +313,50 @@ const conversationsRoute = createRoute({
       throw redirect({ replace: true, to: "/" });
     }
   },
-  component: ConversationsPage
+  component: lazyPages.ConversationsPage
 });
 
 // Public docs: reachable from the signed-out landing page.
 const docRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "doc",
-  component: DocPage
+  component: lazyPages.DocPage
 });
 
 const docSectionRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "doc/$section",
-  component: DocPage
+  component: lazyPages.DocPage
 });
 
 const blogsRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "blogs",
-  component: BlogListPage
+  component: lazyPages.BlogListPage
 });
 
 const blogPostRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "blogs/$slug",
-  component: BlogPostPage
+  component: lazyPages.BlogPostPage
 });
 
 const slicesRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "slices",
-  component: HomePage
+  component: lazyPages.HomePage
 });
 
 const organizationCreateRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "organizations/new",
-  component: NewOrganizationPage
+  component: lazyPages.NewOrganizationPage
 });
 
 const sliceCreateRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "slices/new",
-  component: SliceCreatePage
+  component: lazyPages.SliceCreatePage
 });
 
 // Upper bound on how long SSR waits for path-specific prefetches. Anything that
@@ -445,7 +406,7 @@ const accountRoute = createRoute({
     }
   },
   notFoundComponent: AccountNotFound,
-  component: AccountPage
+  component: lazyPages.AccountPage
 });
 
 const sliceDetailRoute = createRoute({
@@ -600,7 +561,7 @@ const sliceDetailRoute = createRoute({
     loaderData?.social
       ? sliceHead(loaderData.social)
       : { meta: [{ title: `${params.account}/${params.slice} · Gitslice` }] },
-  component: SliceDetailPage
+  component: lazyPages.SliceDetailPage
 });
 
 function sliceSocial(
@@ -644,7 +605,7 @@ const sliceSettingsRoute = createRoute({
       }
     }
   },
-  component: SliceSettingsPage
+  component: lazyPages.SliceSettingsPage
 });
 
 const sliceAgentsRoute = createRoute({
@@ -655,7 +616,7 @@ const sliceAgentsRoute = createRoute({
       throw redirect({ params: { account: params.account, slice: params.slice }, replace: true, to: "/slices/$account/$slice" });
     }
   },
-  component: SliceAgentsPage
+  component: lazyPages.SliceAgentsPage
 });
 
 const sliceAgentConversationRoute = createRoute({
@@ -681,7 +642,7 @@ const sliceAgentConversationRoute = createRoute({
       }
     }
   },
-  component: SliceAgentsPage
+  component: lazyPages.SliceAgentsPage
 });
 
 // Public, shareable changeset list URL: /changesets?slice=<account:slice>.
@@ -716,7 +677,7 @@ const changesetsRoute = createRoute({
       }
     }
   },
-  component: ChangesetsPage
+  component: lazyPages.ChangesetsPage
 });
 
 // Primary, shareable changeset URL: /cs/<short changeset id>.
@@ -816,7 +777,7 @@ const changesetShortRoute = createRoute({
     loaderData?.social
       ? changesetHead(loaderData.social)
       : { meta: [{ title: `Changeset ${params.id} · Gitslice` }] },
-  component: ChangesetDetailPage
+  component: lazyPages.ChangesetDetailPage
 });
 
 function changesetSocial(changeset: Changeset, requestedId: string, origin: string): ChangesetSocial {
