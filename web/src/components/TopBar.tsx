@@ -87,12 +87,18 @@ export function TopBar() {
   const isBlogActive = pathname.startsWith("/blogs");
   const isConversationsActive = pathname.startsWith("/conversations");
 
+  const isActive = (section: string) =>
+    (section === "slices" && isSlicesActive) ||
+    (section === "doc" && isDocActive) ||
+    (section === "blog" && isBlogActive) ||
+    (section === "conversations" && isConversationsActive);
+
   return (
     <header className="border-b border-slate-200 bg-white/95 px-3 backdrop-blur transition-colors duration-200 dark:border-zinc-800 dark:bg-zinc-950/90 sm:px-4 md:px-6">
       <div className="mx-auto flex min-h-14 w-full max-w-[100rem] flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2 sm:min-h-16 sm:flex-nowrap sm:py-0">
         <div className="flex min-w-0 items-center gap-3 sm:gap-5">
           <Link
-            className="flex shrink-0 items-center gap-2 text-sm font-semibold tracking-normal text-zinc-950 dark:text-zinc-50"
+            className="-my-2 flex shrink-0 items-center gap-2 py-2 text-sm font-semibold tracking-normal text-zinc-950 dark:text-zinc-50"
             to="/"
           >
             <BrandMark className="size-6" />
@@ -106,28 +112,21 @@ export function TopBar() {
               .filter((item) => !(isSignedIn && item.section === "blog"))
               .map((item) => (
               <Link
-                aria-current={
-                  (item.section === "slices" && isSlicesActive) ||
-                  (item.section === "doc" && isDocActive) ||
-                  (item.section === "blog" && isBlogActive) ||
-                  (item.section === "conversations" && isConversationsActive)
-                    ? "page"
-                    : undefined
-                }
+                aria-current={isActive(item.section) ? "page" : undefined}
                 className={cn(
                   "inline-flex items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50 sm:px-3",
-                  ((item.section === "slices" && isSlicesActive) ||
-                    (item.section === "doc" && isDocActive) ||
-                    (item.section === "blog" && isBlogActive) ||
-                    (item.section === "conversations" &&
-                      isConversationsActive)) &&
+                  isActive(item.section) &&
                     "bg-zinc-950 text-white hover:bg-zinc-950 hover:text-white dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white dark:hover:text-zinc-950"
                 )}
                 key={item.label}
                 to={item.to}
               >
                 <NavIcon section={item.section} />
-                <span className="sr-only sm:not-sr-only">{item.label}</span>
+                {/* Icons alone on a phone, but the page you are on says its
+                    name: the others are labeled for screen readers. */}
+                <span className={isActive(item.section) ? undefined : "sr-only sm:not-sr-only"}>
+                  {item.label}
+                </span>
               </Link>
             ))}
           </nav>

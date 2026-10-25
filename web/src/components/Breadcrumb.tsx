@@ -28,7 +28,7 @@ export function Breadcrumb({ items }: { items: Crumb[] }): JSX.Element {
               ) : null}
               {item.to && !isLast ? (
                 <Link
-                  className="min-w-0 truncate break-all font-medium text-slate-600 dark:text-zinc-400 transition hover:text-zinc-950 dark:hover:text-zinc-50"
+                  className="-my-1.5 min-w-0 truncate break-all py-1.5 font-medium text-slate-600 dark:text-zinc-400 transition hover:text-zinc-950 dark:hover:text-zinc-50"
                   params={item.params as never}
                   search={item.search as never}
                   title={item.title}

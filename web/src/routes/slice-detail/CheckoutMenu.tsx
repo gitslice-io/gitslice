@@ -52,7 +52,7 @@ export function CheckoutMenu({ gitUrl, sliceRef }: CheckoutMenuProps) {
             recommended
           </span>
         </div>
-        <CopyRow value={gsCommand} />
+        <CopyRow label="gs command to check out this slice" value={gsCommand} />
         <p className="mt-1.5 text-xs leading-5 text-slate-500 dark:text-zinc-400">
           Creates a workspace for this slice. Sign in first with{" "}
           <code className="rounded bg-slate-100 dark:bg-zinc-800 px-1 py-0.5 font-mono text-[0.7rem] text-slate-700 dark:text-zinc-300">
@@ -73,7 +73,7 @@ export function CheckoutMenu({ gitUrl, sliceRef }: CheckoutMenuProps) {
           <span className="text-xs font-semibold uppercase tracking-normal text-slate-600 dark:text-zinc-400">
             Large slice
           </span>
-          <CopyRow value={lazyCommand} />
+          <CopyRow label="gs command to mount this slice" value={lazyCommand} />
           <p className="mt-1.5 text-xs leading-5 text-slate-500 dark:text-zinc-400">
             Mounts it instead of downloading everything: files arrive as they are read, and your edits
             stay on your machine until you create a changeset. Linux and macOS, with FUSE.
@@ -84,7 +84,7 @@ export function CheckoutMenu({ gitUrl, sliceRef }: CheckoutMenuProps) {
           <span className="text-xs font-semibold uppercase tracking-normal text-slate-600 dark:text-zinc-400">
             Git
           </span>
-          <CopyRow value={`git clone ${gitUrl}`} />
+          <CopyRow label="git clone command" value={`git clone ${gitUrl}`} />
         </div>
       </div>
     </details>

@@ -61,7 +61,7 @@ export function LoginPage() {
   }
 
   return (
-    <AuthFrame title="Sign in">
+    <AuthFrame title="Sign in" titleIsHeading={false}>
       <SignIn
         appearance={{
           elements: {

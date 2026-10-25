@@ -125,7 +125,7 @@ export function HeaderCard({
                 </button>
               ) : null}
             </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px] text-slate-600 dark:text-zinc-400 md:mt-2 md:gap-x-2 md:gap-y-1.5 md:text-xs">
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-slate-600 dark:text-zinc-400 md:mt-2 md:gap-x-2 md:gap-y-1.5">
               <span
                 className={cn(
                   "max-w-[12rem] truncate rounded bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 font-mono text-slate-700 dark:text-zinc-300 md:px-2 md:py-1",

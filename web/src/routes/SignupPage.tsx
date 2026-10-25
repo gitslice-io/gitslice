@@ -23,7 +23,7 @@ export function SignupPage() {
   }
 
   return (
-    <AuthFrame title="Sign up">
+    <AuthFrame title="Sign up" titleIsHeading={false}>
       <SignUp
         appearance={{
           elements: {

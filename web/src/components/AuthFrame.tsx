@@ -6,12 +6,15 @@ import { ThemeToggle } from "./ThemeToggle";
 interface AuthFrameProps {
   eyebrow?: string;
   title: string;
+  // False where the page hosts a card with a heading of its own.
+  titleIsHeading?: boolean;
   children: ReactNode;
 }
 
 export function AuthFrame({
   eyebrow = "Gitslice",
   title,
+  titleIsHeading = true,
   children
 }: AuthFrameProps) {
   return (
@@ -24,9 +27,17 @@ export function AuthFrame({
           </p>
           <ThemeToggle />
         </div>
-        <h1 className="mt-2 text-xl font-semibold tracking-normal sm:text-2xl">
-          {title}
-        </h1>
+        {/* The sign-in and sign-up cards carry their own h1 ("Sign in to
+            Gitslice"), so theirs stays the page's only one. */}
+        {titleIsHeading ? (
+          <h1 className="mt-2 text-xl font-semibold tracking-normal sm:text-2xl">
+            {title}
+          </h1>
+        ) : (
+          <p className="mt-2 text-xl font-semibold tracking-normal sm:text-2xl">
+            {title}
+          </p>
+        )}
         <div className="mt-6">{children}</div>
       </section>
     </main>

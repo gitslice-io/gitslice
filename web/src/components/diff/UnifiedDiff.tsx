@@ -45,15 +45,15 @@ export function UnifiedDiff({
                 return (
                   <span
                     className={cn(
-                      "grid min-h-4 grid-cols-[1.75rem_minmax(0,1fr)] px-1.5 sm:grid-cols-[3.5rem_3.5rem_minmax(0,1fr)] sm:px-4",
+                      "grid min-h-4 grid-cols-[2rem_minmax(0,1fr)] px-1.5 sm:grid-cols-[3.5rem_3.5rem_minmax(0,1fr)] sm:px-4",
                       diffLineClass(line.kind)
                     )}
                     key={`${index}-${line.text}`}
                   >
-                    <span className="hidden select-none pr-1 text-right text-[10px] text-slate-400 dark:text-zinc-500 sm:block sm:pr-3 sm:text-xs">
+                    <span className="hidden select-none pr-1 text-right text-[11px] text-slate-400 dark:text-zinc-500 sm:block sm:pr-3 sm:text-xs">
                       {line.oldNumber ?? ""}
                     </span>
-                    <span className="select-none pr-1 text-right text-[10px] text-slate-400 dark:text-zinc-500 sm:pr-3 sm:text-xs">
+                    <span className="select-none pr-1 text-right text-[11px] text-slate-400 dark:text-zinc-500 sm:pr-3 sm:text-xs">
                       {line.newNumber ?? ""}
                     </span>
                     <span className="min-w-0 whitespace-pre-wrap [overflow-wrap:anywhere]">

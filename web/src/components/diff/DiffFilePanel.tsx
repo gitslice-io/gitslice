@@ -72,7 +72,7 @@ export function DiffFilePanel({
           ) : null}
           {onViewFile ? (
             <button
-              className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98] sm:py-1"
+              className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98] sm:px-2 sm:py-1"
               onClick={() => onViewFile({ ...file, changeKind: fileState?.changeKind ?? file.changeKind, oldPath: file.oldPath ?? fileState?.oldPath })}
               title="Read the whole file, before or after this change"
               type="button"

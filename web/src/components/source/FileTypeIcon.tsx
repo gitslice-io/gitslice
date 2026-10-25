@@ -106,14 +106,17 @@ export function FileTypeIcon({
   className?: string;
 }): JSX.Element {
   const icon = categoryForName(name);
-  const longLabel = Boolean(icon.label && icon.label.length > 3);
+  // A badge makes room for its letters: 16px for one or two, 20px for three
+  // and 24px for more, at sizes that are still readable.
+  const labelLength = icon.label?.length ?? 0;
 
   return (
     <span
       aria-hidden="true"
       className={cn(
         "inline-flex h-4 w-4 shrink-0 items-center justify-center overflow-hidden rounded-[3px] border px-px font-mono font-bold leading-none tracking-normal",
-        longLabel && "w-5",
+        labelLength === 3 && "w-5",
+        labelLength > 3 && "w-6",
         icon.classes,
         className
       )}
@@ -196,14 +199,14 @@ function isConfigName(basename: string) {
 
 function labelClass(label: string) {
   if (label.length > 3) {
-    return "text-[6px]";
+    return "text-[7px]";
   }
 
   if (label === "{}" || label === "<>" || label === ">_") {
-    return "text-[8px]";
+    return "text-[9px]";
   }
 
-  return "text-[7px]";
+  return "text-[8px]";
 }
 
 function ImageMark() {

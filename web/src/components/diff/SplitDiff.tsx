@@ -36,7 +36,7 @@ export function SplitDiff({
 
   return (
     <div className="bg-white dark:bg-zinc-900 text-xs leading-4 md:text-[13px]">
-      <div className="grid grid-cols-[1.75rem_minmax(0,1fr)_1.75rem_minmax(0,1fr)] py-1.5 sm:grid-cols-[3.5rem_minmax(0,1fr)_3.5rem_minmax(0,1fr)]">
+      <div className="grid grid-cols-[2rem_minmax(0,1fr)_2rem_minmax(0,1fr)] py-1.5 sm:grid-cols-[3.5rem_minmax(0,1fr)_3.5rem_minmax(0,1fr)]">
         {segments.map((segment) =>
           segment.type === "gap" ? (
             <ExpandSeparator
@@ -120,7 +120,7 @@ function SplitCell({
     <>
       <span
         className={cn(
-          "min-h-4 select-none pl-2 pr-1 text-right text-[10px] text-slate-400 dark:text-zinc-500 sm:pl-4 sm:pr-3 sm:text-xs",
+          "min-h-4 select-none pl-2 pr-1 text-right text-[11px] text-slate-400 dark:text-zinc-500 sm:pl-4 sm:pr-3 sm:text-xs",
           toneClass
         )}
       >

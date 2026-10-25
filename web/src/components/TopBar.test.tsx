@@ -49,4 +49,14 @@ describe("TopBar", () => {
       cleanup();
     }
   });
+
+  it("shows the name of the page you are on beside its icon, and leaves the others to screen readers on a phone", () => {
+    auth.current = { isLoaded: true, isSignedIn: false };
+    render(<TopBar />);
+    // On "/", Home is the current page: its label is visible at every width.
+    expect(screen.getByText("Home")).not.toHaveClass("sr-only");
+    // The others show only their icon below sm, but are still named.
+    expect(screen.getByText("Doc")).toHaveClass("sr-only", "sm:not-sr-only");
+    expect(screen.getByText("Blog")).toHaveClass("sr-only", "sm:not-sr-only");
+  });
 });

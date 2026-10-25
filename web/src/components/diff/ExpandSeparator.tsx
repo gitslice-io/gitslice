@@ -2,6 +2,12 @@ import { cn } from "../../lib/cn";
 
 import { type ExpandFn, EXPAND_CHUNK } from "./diffViewShared";
 
+// The controls are 32px tall, to be easy to tap, inside a bar of 26px: the
+// negative margin lets them overflow it, so the diff keeps its density.
+function expandButton(padding: string) {
+  return cn("-my-1.5 rounded py-1.5 hover:bg-sky-100 dark:hover:bg-sky-950/45", padding);
+}
+
 // A full-width separator standing in for a collapsed run of unchanged lines, with
 // controls to reveal a chunk from the top, the whole gap, or a chunk from the
 // bottom. Rendered with `flex` so it works inside both the unified <pre><code>
@@ -26,7 +32,7 @@ export function ExpandSeparator({
     >
       <button
         aria-label={`Expand ${EXPAND_CHUNK} lines up`}
-        className="rounded px-1.5 hover:bg-sky-100 dark:hover:bg-sky-950/45"
+        className={expandButton("px-3")}
         onClick={() => onExpand(keyFor(), "up", gap.hiddenTotal)}
         type="button"
       >
@@ -34,7 +40,7 @@ export function ExpandSeparator({
       </button>
       <button
         aria-label="Expand all hidden lines"
-        className="rounded px-2 hover:bg-sky-100 dark:hover:bg-sky-950/45 hover:underline"
+        className={cn(expandButton("px-3"), "hover:underline")}
         onClick={() => onExpand(keyFor(), "all", gap.hiddenTotal)}
         type="button"
       >
@@ -42,7 +48,7 @@ export function ExpandSeparator({
       </button>
       <button
         aria-label={`Expand ${EXPAND_CHUNK} lines down`}
-        className="rounded px-1.5 hover:bg-sky-100 dark:hover:bg-sky-950/45"
+        className={expandButton("px-3")}
         onClick={() => onExpand(keyFor(), "down", gap.hiddenTotal)}
         type="button"
       >

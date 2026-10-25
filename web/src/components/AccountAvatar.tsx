@@ -157,7 +157,11 @@ export function AuthorLabel({
   onNavigate?(): void;
 }) {
   return (
-    <AccountLink account={name} className={cn("inline-flex min-w-0 items-center gap-1.5", className)} onNavigate={onNavigate}>
+    <AccountLink
+      account={name}
+      className={cn("-my-1.5 inline-flex min-w-0 items-center gap-1.5 py-1.5", className)}
+      onNavigate={onNavigate}
+    >
       {isAccountName(name) ? <AccountAvatar account={name} kind="personal" size="xs" /> : null}
       <span className="min-w-0 truncate">{name}</span>
     </AccountLink>
