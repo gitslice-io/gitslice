@@ -7,8 +7,9 @@ import { ThemeToggle } from "../components/ThemeToggle";
 const sourceSlice = { account: "gitslice", slice: "gitslice" };
 const contactEmail = "contact@gitslice.io";
 
+// Padding and an equal negative margin: a 32px target in a line of text.
 const footerLinkClass =
-  "rounded-md text-slate-600 outline-none transition hover:text-zinc-950 focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-400 dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950";
+  "-my-1.5 inline-block rounded-md py-1.5 text-slate-600 outline-none transition hover:text-zinc-950 focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-400 dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950";
 
 type FeatureIconName =
   | "slice"
@@ -438,7 +439,7 @@ export function LandingPage() {
                   </p>
                   {pillar.doc ? (
                     <Link
-                      className="mt-4 inline-block text-sm font-semibold text-sky-700 underline-offset-4 hover:underline dark:text-sky-300"
+                      className="-mb-1.5 mt-2.5 inline-block py-1.5 text-sm font-semibold text-sky-700 underline-offset-4 hover:underline dark:text-sky-300"
                       params={{ section: pillar.doc }}
                       to="/doc/$section"
                     >
