@@ -170,74 +170,6 @@ func (s *SliceStore) withCIDaemonName(slice *corev1.Slice) *corev1.Slice {
 	return slice
 }
 
-func (s *SliceStore) SetSliceSecret(ctx context.Context, sliceID, name, value string) error {
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	sliceID = strings.TrimSpace(sliceID)
-	if sliceID == "" || !storage.ValidSliceSecretName(name) {
-		return storage.ErrInvalid
-	}
-	if s.b.slices[sliceID] == nil {
-		return storage.ErrNotFound
-	}
-	if s.b.sliceSecrets[sliceID] == nil {
-		s.b.sliceSecrets[sliceID] = map[string]string{}
-	}
-	s.b.sliceSecrets[sliceID][name] = value
-	return nil
-}
-
-func (s *SliceStore) DeleteSliceSecret(ctx context.Context, sliceID, name string) error {
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	sliceID = strings.TrimSpace(sliceID)
-	if sliceID == "" || !storage.ValidSliceSecretName(name) {
-		return storage.ErrInvalid
-	}
-	if s.b.slices[sliceID] == nil {
-		return storage.ErrNotFound
-	}
-	delete(s.b.sliceSecrets[sliceID], name)
-	return nil
-}
-
-func (s *SliceStore) ListSliceSecretNames(ctx context.Context, sliceID string) ([]string, error) {
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	sliceID = strings.TrimSpace(sliceID)
-	if sliceID == "" {
-		return nil, storage.ErrInvalid
-	}
-	if s.b.slices[sliceID] == nil {
-		return nil, storage.ErrNotFound
-	}
-	secrets := s.b.sliceSecrets[sliceID]
-	names := make([]string, 0, len(secrets))
-	for name := range secrets {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names, nil
-}
-
-func (s *SliceStore) GetSliceSecrets(ctx context.Context, sliceID string) (map[string]string, error) {
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	sliceID = strings.TrimSpace(sliceID)
-	if sliceID == "" {
-		return nil, storage.ErrInvalid
-	}
-	if s.b.slices[sliceID] == nil {
-		return nil, storage.ErrNotFound
-	}
-	secrets := s.b.sliceSecrets[sliceID]
-	out := make(map[string]string, len(secrets))
-	for name, value := range secrets {
-		out[name] = value
-	}
-	return out, nil
-}
-
 func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
@@ -253,7 +185,7 @@ func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 	}
 	delete(s.b.slices, sliceID)
 	delete(s.b.sliceDefinitionVersions, sliceID)
-	delete(s.b.sliceSecrets, sliceID)
+	s.b.unscopeSecretsLocked(sliceID)
 	return nil
 }
 

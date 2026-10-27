@@ -6,3 +6,4 @@ export * from "./types/changeset";
 export * from "./types/check";
 export * from "./types/agent";
 export * from "./types/webhook";
+export * from "./types/secret";

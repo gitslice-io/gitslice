@@ -230,6 +230,40 @@ Delivery
   URLs must be https and reach a public address.
 `,
 	},
+	{
+		Name:    "secrets",
+		Summary: "Pass secret values to the CI checks of some slices",
+		Body: `Secrets
+
+A secret is a value Gitslice keeps encrypted and passes to CI checks as an
+environment variable named after it. It belongs to an account and applies to
+some of the account's slices, or to all of them. The account's owners and
+admins manage secrets with gs secret or on the account's Secrets page in the
+web app. No command or page shows a value again once it is set.
+
+  printf %s "$TOKEN" | gs secret create DEPLOY_TOKEN --slice api --slice worker
+  printf %s "$TOKEN" | gs secret create NPM_TOKEN --all-slices
+  gs secret ls [--account acme]
+  gs secret update <secret-id> --add-slice web
+  printf %s "$NEW" | gs secret update <secret-id> --value
+  gs secret rm <secret-id>
+
+In a terminal, leave out the pipe and type the value; it is not echoed.
+
+Scope
+  A slice gets at most one secret of each name. One name can hold different
+  values for different slices, and a secret that lists a slice overrides an
+  all-slices secret of the same name there.
+
+  gs slice secret set/rm/ls work on one slice. set changes a secret that only
+  that slice has, or creates one; rm takes the slice out of a shared secret's
+  scope.
+
+Who can read a secret
+  Every writer of a slice in its scope can read it from a check, and so can
+  the slice's CI daemon. Widen a scope with care.
+`,
+	},
 }
 
 func (r Runner) helpCommand(root *cobra.Command) *cobra.Command {

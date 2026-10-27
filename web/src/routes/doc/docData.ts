@@ -278,6 +278,19 @@ export const commandGroups = [
     ]
   },
   {
+    title: "Secrets",
+    commands: [
+      [
+        "gs secret create <NAME> --slice <slice>",
+        "Store a value (read from stdin) for the CI checks of some slices, or --all-slices."
+      ],
+      ["gs secret ls", "List the account's secrets and the slices each reaches; values are never shown."],
+      ["gs secret update <secret-id>", "Replace the value (--value) or change the slices (--add-slice, --remove-slice)."],
+      ["gs secret rm <secret-id>", "Delete a secret from every slice it reaches."],
+      ["gs slice secret ls <slice>", "The names of the secrets that reach one slice."]
+    ]
+  },
+  {
     title: "Webhooks",
     commands: [
       [

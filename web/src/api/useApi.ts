@@ -79,6 +79,14 @@ import type {
   ExposeDaemonRequest,
   UnexposeDaemonRequest,
   CreateWebhookRequest,
+  CreateSecretRequest,
+  ListSecretsRequest,
+  ListSecretsResponse,
+  ListSliceSecretsRequest,
+  ListSliceSecretsResponse,
+  Secret,
+  SecretIdRequest,
+  UpdateSecretRequest,
   ListWebhooksRequest,
   ListWebhooksResponse,
   ListSliceMembersRequest,
@@ -262,6 +270,11 @@ export interface ApiClient {
   ): Promise<DetachStackEntryResponse>;
   restack(request: RestackRequest): Promise<RestackResponse>;
   submitStack(request: SubmitStackRequest): Promise<SubmitStackResponse>;
+  listSecrets(request: ListSecretsRequest): Promise<ListSecretsResponse>;
+  createSecret(request: CreateSecretRequest): Promise<Secret>;
+  updateSecret(request: UpdateSecretRequest): Promise<Secret>;
+  deleteSecret(request: SecretIdRequest): Promise<Empty>;
+  listSliceSecrets(request: ListSliceSecretsRequest): Promise<ListSliceSecretsResponse>;
   createWebhook(request: CreateWebhookRequest): Promise<Webhook>;
   listWebhooks(request: ListWebhooksRequest): Promise<ListWebhooksResponse>;
   listSliceMembers(request: ListSliceMembersRequest): Promise<ListSliceMembersResponse>;

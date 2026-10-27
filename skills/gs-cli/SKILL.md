@@ -371,7 +371,10 @@ everything you have). Files sit at their full path in the workspace
 clone; writers also create, submit and approve changesets (which run the
 slice's checks with its secrets, as an account writer's do); admins also
 manage its members and webhooks. The slice's paths, visibility, policy, CI
-daemon and secrets stay with the account's owners and admins.
+daemon and secrets stay with the account's owners and admins. A secret
+belongs to the account and reaches the slices it is scoped to (`gs secret
+create NAME --slice <slice>... < value`, or `--all-slices`; `gs help
+secrets`).
 
 To share read-only with everyone, make the slice public (`gs slice update
 <account>/<slice> --visibility public`); anyone can then `gs init` or

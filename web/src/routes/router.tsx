@@ -71,6 +71,7 @@ import { parseSliceSearch } from "./stackPageUtils";
 // it renders and hydrates, on the server and in the browser alike.
 const lazyPages = {
   AccountPage: lazyRouteComponent(() => import("./AccountPage"), "AccountPage"),
+  AccountSecretsPage: lazyRouteComponent(() => import("./AccountSecretsPage"), "AccountSecretsPage"),
   BlogListPage: lazyRouteComponent(() => import("./BlogListPage"), "BlogListPage"),
   BlogPostPage: lazyRouteComponent(() => import("./BlogPostPage"), "BlogPostPage"),
   ChangesetDetailPage: lazyRouteComponent(() => import("./ChangesetDetailPage"), "ChangesetDetailPage"),
@@ -407,6 +408,12 @@ const accountRoute = createRoute({
   },
   notFoundComponent: AccountNotFound,
   component: lazyPages.AccountPage
+});
+
+const accountSecretsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "accounts/$account/secrets",
+  component: lazyPages.AccountSecretsPage
 });
 
 const sliceDetailRoute = createRoute({
@@ -807,7 +814,8 @@ const routeTree = rootRoute.addChildren([
     slicesRoute,
     sliceCreateRoute,
     organizationCreateRoute,
-    sliceSettingsRoute
+    sliceSettingsRoute,
+    accountSecretsRoute
   ]),
   publicAppRoute.addChildren([
     docRoute,

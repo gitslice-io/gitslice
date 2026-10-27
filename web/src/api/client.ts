@@ -10,6 +10,7 @@ import {
   ChangesetStackService
 } from "../gen/proto/core/v1/changeset_pb";
 import { RepositoryService } from "../gen/proto/core/v1/repository_pb";
+import { SecretService } from "../gen/proto/core/v1/secret_pb";
 import { SliceService } from "../gen/proto/core/v1/slice_pb";
 import { WebhookService } from "../gen/proto/core/v1/webhook_pb";
 import type { ApiClient } from "./useApi";
@@ -76,6 +77,7 @@ export function createApiClient({
   const agent = createClient(AgentService, transport);
   const check = createClient(CheckService, transport);
   const webhook = createClient(WebhookService, transport);
+  const secret = createClient(SecretService, transport);
 
   const unary = async <TResponse>(call: () => Promise<unknown>) => {
     try {
@@ -289,6 +291,18 @@ export function createApiClient({
       unary<Api.RestackResponse>(() => stack.restack(toProtoRequest(request))),
     submitStack: (request) =>
       unary<Api.SubmitStackResponse>(() => stack.submitStack(toProtoRequest(request))),
+    listSecrets: (request) =>
+      unary<Api.ListSecretsResponse>(() => secret.listSecrets(toProtoRequest(request))),
+    createSecret: (request) =>
+      unary<Api.Secret>(() => secret.createSecret(toProtoRequest(request))),
+    updateSecret: (request) =>
+      unary<Api.Secret>(() => secret.updateSecret(toProtoRequest(request))),
+    deleteSecret: (request) =>
+      unary<Api.Empty>(() => secret.deleteSecret(toProtoRequest(request))),
+    listSliceSecrets: (request) =>
+      unary<Api.ListSliceSecretsResponse>(() =>
+        slice.listSliceSecrets(toProtoRequest(request))
+      ),
     createWebhook: (request) =>
       unary<Api.Webhook>(() => webhook.createWebhook(toProtoRequest(request))),
     listWebhooks: (request) =>

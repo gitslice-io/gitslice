@@ -178,6 +178,54 @@ func TestConnectHTTPHandlerServesAPI(t *testing.T) {
 	}
 }
 
+func TestConnectServesSecrets(t *testing.T) {
+	mem := memory.New()
+	mem.AddAccount("user_alice", "acme")
+	handlers := service.New(service.Stores{
+		Auth:       mem.Auth,
+		Blobs:      mem.Blobs,
+		Changesets: mem.Changesets,
+		Repository: mem.Repository,
+		Slices:     mem.Slices,
+		Agents:     mem.Agents,
+		Checks:     mem.Checks,
+	}, mem.Objects, nil)
+	resolve := func(ctx context.Context, token string) (string, error) {
+		if token == "token_123" {
+			return "user_alice", nil
+		}
+		return "", storage.ErrUnauthenticated
+	}
+	httpServer := httptest.NewServer(NewHTTPHandler(NewConnectHandler(resolve, handlers), nil, "http://web.test"))
+	t.Cleanup(httpServer.Close)
+
+	client := corev1connect.NewSecretServiceClient(httpServer.Client(), httpServer.URL)
+	create := connect.NewRequest(&corev1.CreateSecretRequest{
+		Account: "acme",
+		Name:    "CI_TOKEN",
+		Value:   "s3cret",
+		Scope:   &corev1.SecretScope{Slices: []*corev1.SliceRef{{Account: "acme", Slice: "home"}}},
+	})
+	create.Header().Set("Authorization", "Bearer token_123")
+	created, err := client.CreateSecret(context.Background(), create)
+	if err != nil {
+		t.Fatalf("Connect CreateSecret: %v", err)
+	}
+	list := connect.NewRequest(&corev1.ListSecretsRequest{Account: "acme"})
+	list.Header().Set("Authorization", "Bearer token_123")
+	listed, err := client.ListSecrets(context.Background(), list)
+	if err != nil {
+		t.Fatalf("Connect ListSecrets: %v", err)
+	}
+	if len(listed.Msg.GetSecrets()) != 1 || listed.Msg.Secrets[0].GetId() != created.Msg.GetId() {
+		t.Fatalf("listed = %+v", listed.Msg.GetSecrets())
+	}
+	anonymous := connect.NewRequest(&corev1.ListSecretsRequest{Account: "acme"})
+	if _, err := client.ListSecrets(context.Background(), anonymous); connect.CodeOf(err) != connect.CodeUnauthenticated {
+		t.Fatalf("anonymous ListSecrets: %v", err)
+	}
+}
+
 func TestConnectServesWebhooks(t *testing.T) {
 	mem := memory.New()
 	mem.AddAccount("user_alice", "acme")

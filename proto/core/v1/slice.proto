@@ -14,8 +14,16 @@ service SliceService {
   rpc ListSliceDefinitionVersions(ListSliceDefinitionVersionsRequest) returns (ListSliceDefinitionVersionsResponse);
   rpc UpdateSliceDefinition(UpdateSliceDefinitionRequest) returns (SliceDefinition);
   rpc SetSliceCIDaemon(SetSliceCIDaemonRequest) returns (Slice);
+  // SetSliceSecret sets the value of the secret NAME that reaches only this
+  // slice, creating it if there is none (design/33_secrets.md). It fails with
+  // FailedPrecondition when NAME comes from a secret shared with other slices:
+  // change that one with SecretService instead.
   rpc SetSliceSecret(SetSliceSecretRequest) returns (Empty);
+  // DeleteSliceSecret deletes the secret NAME that reaches only this slice,
+  // or takes this slice out of a shared secret's scope. A secret for all of
+  // the account's slices cannot be removed here.
   rpc DeleteSliceSecret(DeleteSliceSecretRequest) returns (Empty);
+  // ListSliceSecrets lists the names of the secrets that reach the slice.
   rpc ListSliceSecrets(ListSliceSecretsRequest) returns (ListSliceSecretsResponse);
   // DeleteSlice removes a slice. One that has changesets is removed too when
   // none of them is open and every path it includes is still covered by
@@ -199,6 +207,19 @@ message ListSliceSecretsRequest {
 
 message ListSliceSecretsResponse {
   repeated string names = 1;
+  // Where each one comes from; filled only for the account's owners and
+  // admins.
+  repeated SliceSecret secrets = 2;
+}
+
+// SliceSecret is a secret that reaches one slice.
+message SliceSecret {
+  string name = 1;
+  string secret_id = 2;
+  // It applies to every slice of the account.
+  bool all_slices = 3;
+  // The other slices it is scoped to, when not all_slices.
+  repeated SliceRef shared_with = 4;
 }
 
 message DeleteSliceRequest {

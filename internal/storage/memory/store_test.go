@@ -114,21 +114,21 @@ func TestSliceSecretsCRUDAndNameValidation(t *testing.T) {
 
 	invalidNames := []string{"", "token", "1TOKEN", "TOKEN-NAME", "TOKEN NAME", "TOKEN.name", "TOKEN/value"}
 	for _, name := range invalidNames {
-		if err := stores.Slices.SetSliceSecret(ctx, slice.Id, name, "value"); !errors.Is(err, storage.ErrInvalid) {
+		if err := stores.Slices.SetSliceSecret(ctx, slice.Id, name, "value", "user_acme"); !errors.Is(err, storage.ErrInvalid) {
 			t.Fatalf("SetSliceSecret(%q) error = %v, want ErrInvalid", name, err)
 		}
-		if err := stores.Slices.DeleteSliceSecret(ctx, slice.Id, name); !errors.Is(err, storage.ErrInvalid) {
+		if err := stores.Slices.DeleteSliceSecret(ctx, slice.Id, name, "user_acme"); !errors.Is(err, storage.ErrInvalid) {
 			t.Fatalf("DeleteSliceSecret(%q) error = %v, want ErrInvalid", name, err)
 		}
 	}
 
-	if err := stores.Slices.SetSliceSecret(ctx, slice.Id, "CI_TOKEN", "v1"); err != nil {
+	if err := stores.Slices.SetSliceSecret(ctx, slice.Id, "CI_TOKEN", "v1", "user_acme"); err != nil {
 		t.Fatalf("SetSliceSecret CI_TOKEN: %v", err)
 	}
-	if err := stores.Slices.SetSliceSecret(ctx, slice.Id, "_LEADING_UNDERSCORE", "underscore"); err != nil {
+	if err := stores.Slices.SetSliceSecret(ctx, slice.Id, "_LEADING_UNDERSCORE", "underscore", "user_acme"); err != nil {
 		t.Fatalf("SetSliceSecret _LEADING_UNDERSCORE: %v", err)
 	}
-	if err := stores.Slices.SetSliceSecret(ctx, slice.Id, "CI_TOKEN", "v2"); err != nil {
+	if err := stores.Slices.SetSliceSecret(ctx, slice.Id, "CI_TOKEN", "v2", "user_acme"); err != nil {
 		t.Fatalf("SetSliceSecret CI_TOKEN upsert: %v", err)
 	}
 
@@ -156,7 +156,7 @@ func TestSliceSecretsCRUDAndNameValidation(t *testing.T) {
 		t.Fatalf("CI_TOKEN after returned map mutation = %q, want v2", got)
 	}
 
-	if err := stores.Slices.DeleteSliceSecret(ctx, slice.Id, "CI_TOKEN"); err != nil {
+	if err := stores.Slices.DeleteSliceSecret(ctx, slice.Id, "CI_TOKEN", "user_acme"); err != nil {
 		t.Fatalf("DeleteSliceSecret CI_TOKEN: %v", err)
 	}
 	names, err = stores.Slices.ListSliceSecretNames(ctx, slice.Id)

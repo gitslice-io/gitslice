@@ -466,6 +466,7 @@ func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, cfgs ...
 	corev1.RegisterAgentServiceServer(grpcServer, handlers.Agent)
 	corev1.RegisterCheckServiceServer(grpcServer, handlers.Check)
 	corev1.RegisterWebhookServiceServer(grpcServer, handlers.Webhook)
+	corev1.RegisterSecretServiceServer(grpcServer, handlers.Secret)
 	corev1.RegisterFeedbackServiceServer(grpcServer, handlers.Feedback)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthv1.HealthCheckResponse_SERVING)

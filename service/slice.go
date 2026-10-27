@@ -265,7 +265,7 @@ func (s *SliceService) SetSliceSecret(ctx context.Context, req *corev1.SetSliceS
 	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, current); err != nil {
 		return nil, err
 	}
-	if err := s.Slices.SetSliceSecret(ctx, current.Id, req.Name, req.Value); err != nil {
+	if err := s.Slices.SetSliceSecret(ctx, current.Id, req.Name, req.Value, subjectID); err != nil {
 		return nil, grpcError(err)
 	}
 	return &corev1.Empty{}, nil
@@ -287,7 +287,7 @@ func (s *SliceService) DeleteSliceSecret(ctx context.Context, req *corev1.Delete
 	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, current); err != nil {
 		return nil, err
 	}
-	if err := s.Slices.DeleteSliceSecret(ctx, current.Id, req.Name); err != nil {
+	if err := s.Slices.DeleteSliceSecret(ctx, current.Id, req.Name, subjectID); err != nil {
 		return nil, grpcError(err)
 	}
 	return &corev1.Empty{}, nil
@@ -309,11 +309,26 @@ func (s *SliceService) ListSliceSecrets(ctx context.Context, req *corev1.ListSli
 	if err := authorize(ctx, s.Auth, subjectID, current, authz.ActionWrite); err != nil {
 		return nil, err
 	}
-	names, err := s.Slices.ListSliceSecretNames(ctx, current.Id)
+	secrets, err := s.Slices.ListSliceSecrets(ctx, current.Id)
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	return &corev1.ListSliceSecretsResponse{Names: names}, nil
+	out := &corev1.ListSliceSecretsResponse{Names: make([]string, 0, len(secrets))}
+	for _, secret := range secrets {
+		out.Names = append(out.Names, secret.Name)
+	}
+	// Where each comes from (secret ids, the other slices) is for the
+	// account's owners and admins, who manage them.
+	admin, err := canAuthorizeAccount(ctx, s.Auth, subjectID, current.GetRef().GetAccount(), authz.ActionAdmin)
+	if err != nil {
+		return nil, err
+	}
+	if admin {
+		for _, secret := range secrets {
+			out.Secrets = append(out.Secrets, sliceSecretProto(current.GetRef().GetAccount(), secret))
+		}
+	}
+	return out, nil
 }
 
 func (s *SliceService) DeleteSlice(ctx context.Context, req *corev1.DeleteSliceRequest) (*corev1.DeleteSliceResponse, error) {

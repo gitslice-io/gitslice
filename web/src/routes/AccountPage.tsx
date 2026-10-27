@@ -120,6 +120,15 @@ export function AccountPage() {
             ) : null}
             {canAdmin(membership) ? (
               <Link
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
+                params={{ account }}
+                to="/accounts/$account/secrets"
+              >
+                Secrets
+              </Link>
+            ) : null}
+            {canAdmin(membership) ? (
+              <Link
                 className="rounded-md bg-zinc-950 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
                 search={{ account } as never}
                 to="/slices/new"

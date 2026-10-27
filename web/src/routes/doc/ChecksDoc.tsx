@@ -297,6 +297,32 @@ checks:
       </section>
 
       <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
+        <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">Pass secrets to checks</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          A secret is a value Gitslice keeps encrypted and gives to a check as an
+          environment variable named after it. It belongs to an account and
+          reaches the slices it is scoped to, or all of the account&apos;s slices.
+          The account&apos;s owners and admins manage secrets with 
+          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">gs secret</code> 
+          or on the account&apos;s Secrets page. A value is never shown again once
+          it is set.
+        </p>
+        <CommandBlock>{[
+          "printf %s \"$TOKEN\" | gs secret create DEPLOY_TOKEN --slice api --slice worker",
+          "printf %s \"$TOKEN\" | gs secret create NPM_TOKEN --all-slices",
+          "gs secret ls",
+          "gs secret update <secret-id> --add-slice web",
+          "gs secret rm <secret-id>"
+        ].join("\n")}</CommandBlock>
+        <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+          A slice gets at most one secret of each name: a secret that lists the
+          slice overrides an all-slices one there. Every writer of a slice can
+          read its secrets from a check, and so can its CI daemon, so widen a
+          scope with care.
+        </p>
+      </section>
+
+      <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
         <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">Add checks</h2>
         <ol className="mt-4 space-y-5">
           {[

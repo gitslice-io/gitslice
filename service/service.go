@@ -27,6 +27,7 @@ type Handlers struct {
 	Agent      *AgentService
 	Check      *CheckService
 	Webhook    *WebhookService
+	Secret     *SecretService
 	Feedback   *FeedbackService
 }
 
@@ -137,6 +138,7 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 			hub:        hub,
 		},
 		Webhook: newWebhookService(stores),
+		Secret:  &SecretService{Auth: stores.Auth, Slices: stores.Slices},
 		// The server sets who reads feedback (Account, OperatorSubjects).
 		Feedback: &FeedbackService{Auth: stores.Auth, Feedback: stores.Feedback},
 	}

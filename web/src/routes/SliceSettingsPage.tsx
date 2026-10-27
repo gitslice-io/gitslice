@@ -23,6 +23,7 @@ import {
   sliceDisplayName
 } from "../components/slices/SlicePageParts";
 import { SliceWebhooksPanel } from "../components/slices/SliceWebhooksPanel";
+import { SliceSecretsPanel } from "../components/slices/SliceSecretsPanel";
 import { SliceMembersPanel } from "../components/slices/SliceMembersPanel";
 import { SliceDescriptionPanel } from "../components/slices/SliceDescriptionPanel";
 import { SliceMergeOnSubmitPanel } from "../components/slices/SliceMergeOnSubmitPanel";
@@ -354,6 +355,12 @@ export function SliceSettingsPage() {
       {showWebhooks && webhookSlice ? (
         <div className="mt-8">
           <SliceMembersPanel slice={webhookSlice} />
+        </div>
+      ) : null}
+
+      {showWebhooks && webhookSlice ? (
+        <div className="mt-8">
+          <SliceSecretsPanel hasCIDaemon={Boolean(slice.ciDaemonId)} slice={webhookSlice} />
         </div>
       ) : null}
 

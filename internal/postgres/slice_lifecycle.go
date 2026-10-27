@@ -191,6 +191,7 @@ func (s *SliceStore) Retire(ctx context.Context, sliceID string) error {
 	for _, stmt := range []string{
 		`delete from slice_included_paths where slice_id = $1`,
 		`delete from slice_secrets where slice_id = $1`,
+		`delete from secret_slices where slice_id = $1`,
 		`update slices set deleted_at = now(), updated_at = now() where id = $1`,
 	} {
 		if _, err := tx.ExecContext(ctx, stmt, sliceID); err != nil {

@@ -374,9 +374,31 @@ type SliceStore interface {
 	// ListByCIDaemon lists the slices (not retired) that use one of the
 	// daemons as their CI daemon.
 	ListByCIDaemon(ctx context.Context, daemonIDs []string) ([]*corev1.Slice, error)
-	SetSliceSecret(ctx context.Context, sliceID, name, value string) error
-	DeleteSliceSecret(ctx context.Context, sliceID, name string) error
+	// Secrets belong to an account and apply to some of its slices, or all of
+	// them (design/33_secrets.md). No slice has two secrets of one name in its
+	// scope: a secret that lists the slice overrides an all-slices one, and
+	// writes that would list a slice twice fail with ErrConflict.
+	CreateSecret(ctx context.Context, account, name, value string, scope SecretScope, actorID string) (*Secret, error)
+	// UpdateSecret replaces the value when value is non-nil and the scope when
+	// scope is non-nil.
+	UpdateSecret(ctx context.Context, secretID string, value *string, scope *SecretScope, actorID string) (*Secret, error)
+	DeleteSecret(ctx context.Context, secretID string) error
+	GetSecret(ctx context.Context, secretID string) (*Secret, error)
+	// ListSecrets lists an account's secrets by name.
+	ListSecrets(ctx context.Context, account string) ([]Secret, error)
+	// ListSliceSecrets lists the secrets that reach the slice, by name.
+	ListSliceSecrets(ctx context.Context, sliceID string) ([]SliceSecret, error)
+	// SetSliceSecret sets the value of the secret named name that is scoped
+	// only to this slice, creating one if none reaches it. A shared secret
+	// of that name is not changed: ErrConflict.
+	SetSliceSecret(ctx context.Context, sliceID, name, value, actorID string) error
+	// DeleteSliceSecret deletes the secret named name scoped only to this
+	// slice, or takes the slice out of a shared one's scope. ErrConflict for
+	// an all-slices secret; nothing happens when none reaches the slice.
+	DeleteSliceSecret(ctx context.Context, sliceID, name, actorID string) error
 	ListSliceSecretNames(ctx context.Context, sliceID string) ([]string, error)
+	// GetSliceSecrets returns the decrypted values of the secrets that reach
+	// the slice, by name, for its CI checks.
 	GetSliceSecrets(ctx context.Context, sliceID string) (map[string]string, error)
 	// Delete removes a slice that authored no changesets, or returns
 	// ErrConflict.

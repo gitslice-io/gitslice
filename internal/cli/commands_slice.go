@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/spf13/cobra"
 )
 
@@ -133,20 +135,26 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	}
 	sliceSecretCmd := &cobra.Command{
 		Use:   "secret",
-		Short: "Manage slice CI secrets",
+		Short: "Manage the CI secrets of one slice",
+		Long: "These commands manage the secrets that reach one slice. A secret shared with other slices,\n" +
+			"or with every slice of the account, is managed with gs secret.",
 	}
 	sliceSecretSetCmd := &cobra.Command{
-		Use:   "set <slice|account:slice> <NAME> <value>",
-		Short: "Set a slice CI secret",
-		Args:  exactArgs(3, "gs slice secret set <slice|account:slice> <NAME> <value>"),
+		Use:   "set <slice|account:slice> <NAME> [value]",
+		Short: "Set a CI secret of this slice only, reading the value from stdin",
+		Args:  rangeArgs(2, 3, "gs slice secret set <slice|account:slice> <NAME> < value"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runSliceSecretSet(cmd.Context(), *opts, args[0], args[1], args[2])
+			if len(args) == 3 {
+				fmt.Fprintln(cmd.ErrOrStderr(), "note: a value on the command line is kept in shell history; pipe it in instead: printf %s \"$VALUE\" | gs slice secret set "+args[0]+" "+args[1])
+				return r.runSliceSecretSet(cmd.Context(), *opts, args[0], args[1], &args[2])
+			}
+			return r.runSliceSecretSet(cmd.Context(), *opts, args[0], args[1], nil)
 		},
 	}
 	sliceSecretRemoveCmd := &cobra.Command{
 		Use:     "rm <slice|account:slice> <NAME>",
 		Aliases: []string{"delete", "remove"},
-		Short:   "Remove a slice CI secret",
+		Short:   "Remove a CI secret from this slice",
 		Args:    exactArgs(2, "gs slice secret rm <slice|account:slice> <NAME>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runSliceSecretRemove(cmd.Context(), *opts, args[0], args[1])
@@ -154,7 +162,7 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	}
 	sliceSecretListCmd := &cobra.Command{
 		Use:   "ls <slice|account:slice>",
-		Short: "List slice CI secret names",
+		Short: "List the names of the CI secrets that reach this slice",
 		Args:  exactArgs(1, "gs slice secret ls <slice|account:slice>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runSliceSecretList(cmd.Context(), *opts, args[0])

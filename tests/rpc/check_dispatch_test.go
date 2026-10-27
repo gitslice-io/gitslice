@@ -166,6 +166,26 @@ checks:
 		t.Fatal("ListSliceSecrets returned a secret value")
 	}
 
+	// Account secrets reach the slice too: one scoped to it and another
+	// slice, and one for every slice of the account.
+	secrets := corev1.NewSecretServiceClient(conn)
+	if _, err := secrets.CreateSecret(ctx, &corev1.CreateSecretRequest{
+		Account: "acme",
+		Name:    "SHARED_TOKEN",
+		Value:   "shared-secret",
+		Scope:   &corev1.SecretScope{Slices: []*corev1.SliceRef{sliceRef, {Account: "acme", Slice: "home"}}},
+	}); err != nil {
+		t.Fatalf("CreateSecret scoped: %v", err)
+	}
+	if _, err := secrets.CreateSecret(ctx, &corev1.CreateSecretRequest{
+		Account: "acme",
+		Name:    "ACCOUNT_TOKEN",
+		Value:   "account-secret",
+		Scope:   &corev1.SecretScope{AllSlices: true},
+	}); err != nil {
+		t.Fatalf("CreateSecret all slices: %v", err)
+	}
+
 	changesetID, patchsetID := createDirectPatchsetForSlice(t, ctx, clients, sliceRef, "/acme/payment/ci-secret-dispatch/change.go", "package cisecretdispatch\nconst V = 1\n", "ci secret dispatch")
 	runChecks := recvRunChecks(t, stream, changesetID, patchsetID)
 	if len(runChecks.Checks) != 1 {
@@ -174,6 +194,9 @@ checks:
 	check := runChecks.Checks[0]
 	if check.Env["CI_TOKEN"] != "super-secret" {
 		t.Fatal("RunChecks env did not contain the slice secret")
+	}
+	if check.Env["SHARED_TOKEN"] != "shared-secret" || check.Env["ACCOUNT_TOKEN"] != "account-secret" {
+		t.Fatal("RunChecks env did not contain the account secrets scoped to the slice")
 	}
 	if check.Env["PLAIN_ENV"] != "plain" {
 		t.Fatalf("PLAIN_ENV = %q, want plain", check.Env["PLAIN_ENV"])
@@ -189,8 +212,8 @@ checks:
 	if err != nil {
 		t.Fatalf("ListSliceSecrets after delete: %v", err)
 	}
-	if len(list.Names) != 0 {
-		t.Fatalf("ListSliceSecrets after delete names = %#v, want none", list.Names)
+	if len(list.Names) != 2 || list.Names[0] != "ACCOUNT_TOKEN" || list.Names[1] != "SHARED_TOKEN" {
+		t.Fatalf("ListSliceSecrets after delete names = %#v, want the account secrets", list.Names)
 	}
 }
 

@@ -35,6 +35,7 @@ func NewConnectHandler(resolve subjectResolver, handlers *service.Handlers) http
 	mount(corev1connect.NewAgentServiceHandler(connectAgentAdapter{svc: handlers.Agent}))
 	mount(corev1connect.NewCheckServiceHandler(connectCheckAdapter{svc: handlers.Check}))
 	mount(corev1connect.NewWebhookServiceHandler(connectWebhookAdapter{svc: handlers.Webhook}))
+	mount(corev1connect.NewSecretServiceHandler(connectSecretAdapter{svc: handlers.Secret}))
 	mount(corev1connect.NewFeedbackServiceHandler(connectFeedbackAdapter{svc: handlers.Feedback}))
 	return mux
 }
@@ -748,4 +749,28 @@ func (a connectWebhookAdapter) ListWebhookDeliveries(ctx context.Context, req *c
 
 func (a connectWebhookAdapter) RedeliverWebhookDelivery(ctx context.Context, req *connect.Request[corev1.RedeliverWebhookDeliveryRequest]) (*connect.Response[corev1.WebhookDelivery], error) {
 	return connectResponse(a.svc.RedeliverWebhookDelivery(ctx, req.Msg))
+}
+
+type connectSecretAdapter struct {
+	svc *service.SecretService
+}
+
+func (a connectSecretAdapter) ListSecrets(ctx context.Context, req *connect.Request[corev1.ListSecretsRequest]) (*connect.Response[corev1.ListSecretsResponse], error) {
+	return connectResponse(a.svc.ListSecrets(ctx, req.Msg))
+}
+
+func (a connectSecretAdapter) GetSecret(ctx context.Context, req *connect.Request[corev1.GetSecretRequest]) (*connect.Response[corev1.Secret], error) {
+	return connectResponse(a.svc.GetSecret(ctx, req.Msg))
+}
+
+func (a connectSecretAdapter) CreateSecret(ctx context.Context, req *connect.Request[corev1.CreateSecretRequest]) (*connect.Response[corev1.Secret], error) {
+	return connectResponse(a.svc.CreateSecret(ctx, req.Msg))
+}
+
+func (a connectSecretAdapter) UpdateSecret(ctx context.Context, req *connect.Request[corev1.UpdateSecretRequest]) (*connect.Response[corev1.Secret], error) {
+	return connectResponse(a.svc.UpdateSecret(ctx, req.Msg))
+}
+
+func (a connectSecretAdapter) DeleteSecret(ctx context.Context, req *connect.Request[corev1.DeleteSecretRequest]) (*connect.Response[corev1.Empty], error) {
+	return connectResponse(a.svc.DeleteSecret(ctx, req.Msg))
 }

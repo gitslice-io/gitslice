@@ -41,9 +41,18 @@ func (r Runner) runSliceSetCIDaemon(ctx context.Context, opts commandOptions, sl
 	return writeSliceText(r.Stdout, updated)
 }
 
-func (r Runner) runSliceSecretSet(ctx context.Context, opts commandOptions, sliceRef, name, value string) error {
+func (r Runner) runSliceSecretSet(ctx context.Context, opts commandOptions, sliceRef, name string, valueArg *string) error {
 	if !storage.ValidSliceSecretName(name) {
 		return userError("invalid_secret_name", "secret name must match ^[A-Z_][A-Z0-9_]*$", "Use an environment-variable style name such as CI_TOKEN.")
+	}
+	var value string
+	if valueArg != nil {
+		value = *valueArg
+	} else {
+		var err error
+		if value, err = r.readSecretValue(name); err != nil {
+			return err
+		}
 	}
 	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
@@ -60,7 +69,7 @@ func (r Runner) runSliceSecretSet(ctx context.Context, opts commandOptions, slic
 		Value: value,
 	})
 	if err != nil {
-		return err
+		return secretError(err)
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
@@ -94,7 +103,7 @@ func (r Runner) runSliceSecretRemove(ctx context.Context, opts commandOptions, s
 		Name:  name,
 	})
 	if err != nil {
-		return err
+		return secretError(err)
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
