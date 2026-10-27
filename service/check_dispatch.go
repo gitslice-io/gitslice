@@ -13,6 +13,7 @@ import (
 
 	"gitslice.io/gitslice/internal/checks"
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/secretmask"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -596,6 +597,11 @@ func (s *AgentService) handleCheckRunUpdate(ctx context.Context, daemonID string
 		ack()
 		return
 	}
+	if update.LogChunk != "" || update.Summary != "" {
+		masker := s.runSecretMasker(ctx, run)
+		update.LogChunk = masker.Mask(update.LogChunk)
+		update.Summary = masker.Mask(update.Summary)
+	}
 	if update.LogChunk != "" && update.ClientSeq > 0 {
 		streamName := defaultCheckStream(update.Stream)
 		inserted, err := s.Checks.AppendCheckRunLog(ctx, update.RunId, update.ClientSeq, streamName, update.LogChunk)
@@ -642,6 +648,37 @@ func (s *AgentService) handleCheckRunUpdate(ctx context.Context, daemonID string
 	ack()
 }
 
+// runSecretMasker hides the secrets of the run's slice in what its daemon
+// sends back, whatever the daemon's version: a check that prints a secret
+// must not store it in a log that every reader of the changeset can open.
+// Daemons mask too, with the values they were sent (CheckRunSpec.secret_env),
+// which also covers a secret changed while the check ran.
+func (s *AgentService) runSecretMasker(ctx context.Context, run *corev1.CheckRun) *secretmask.Masker {
+	if s.Changesets == nil || s.Slices == nil || run == nil {
+		return nil
+	}
+	cs, err := s.Changesets.Get(ctx, run.ChangesetId)
+	if err != nil {
+		slog.Warn("failed to load changeset to mask check secrets", "run_id", run.Id, "error", err)
+		return nil
+	}
+	slice, err := s.Slices.Resolve(ctx, cs.AuthoringSlice)
+	if err != nil {
+		slog.Warn("failed to resolve slice to mask check secrets", "run_id", run.Id, "error", err)
+		return nil
+	}
+	secrets, err := s.Slices.GetSliceSecrets(ctx, slice.Id)
+	if err != nil {
+		slog.Warn("failed to load secrets to mask check output", "run_id", run.Id, "slice_id", slice.Id, "error", err)
+		return nil
+	}
+	values := make([]string, 0, len(secrets))
+	for _, value := range secrets {
+		values = append(values, value)
+	}
+	return secretmask.New(values)
+}
+
 func (s *AgentService) persistedCheckRunLog(ctx context.Context, runID string, seq int64) *corev1.CheckRunLog {
 	logs, err := s.Checks.ListCheckRunLogs(ctx, runID, seq-1)
 	if err != nil {
@@ -679,7 +716,20 @@ func checkRunSpecFromPlan(runID string, spec checks.CheckSpec, secrets map[strin
 		TimeoutMs:        spec.Timeout.Milliseconds(),
 		Build:            checkImageBuildToProto(spec.Build),
 		Services:         checkServicesToProto(spec.Services),
+		SecretEnv:        sortedKeys(secrets),
 	}
+}
+
+func sortedKeys(values map[string]string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func checkImageBuildToProto(build *checks.ImageBuild) *corev1.CheckImageBuild {

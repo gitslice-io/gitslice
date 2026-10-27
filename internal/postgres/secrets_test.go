@@ -240,47 +240,6 @@ func TestSliceSecretCallsOnSharedSecrets(t *testing.T) {
 	}
 }
 
-func TestSecretsMigratedFromSliceSecretsOnce(t *testing.T) {
-	ctx, store := newPostgresTestStore(t)
-	if _, err := store.db.ExecContext(ctx, `delete from secret_migrations`); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := store.db.ExecContext(ctx, `
-		insert into slice_secrets(slice_id, name, value) values
-			('slice_acme_payment', 'CI_TOKEN', 'enc:v1:sealed'),
-			('slice_acme_backend', 'CI_TOKEN', 'other')
-	`); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	secrets, err := store.Slices().ListSecrets(ctx, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(secrets) != 2 {
-		t.Fatalf("migrated %d secrets, want 2", len(secrets))
-	}
-	if stored := storedSecretValue(t, ctx, store, "slice_acme_payment", "CI_TOKEN"); stored != "enc:v1:sealed" {
-		t.Fatalf("migrated value = %q, want it copied as stored", stored)
-	}
-	// A deleted secret stays deleted at the next start.
-	if err := store.Slices().DeleteSecret(ctx, secrets[0].ID); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Migrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	after, err := store.Slices().ListSecrets(ctx, "acme")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(after) != 1 {
-		t.Fatalf("after a second migration %d secrets, want 1", len(after))
-	}
-}
-
 func TestSecretScopeLosesRetiredSlice(t *testing.T) {
 	ctx, store := newPostgresTestStore(t)
 	secret, err := store.Slices().CreateSecret(ctx, "acme", "TOKEN", "x", storage.SecretScope{SliceIDs: []string{"slice_acme_payment"}}, "user_alice")

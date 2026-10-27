@@ -1839,7 +1839,10 @@ type CheckRunSpec struct {
 	// materialized tree and reuses it while its inputs are unchanged.
 	Build *CheckImageBuild `protobuf:"bytes,14,opt,name=build,proto3" json:"build,omitempty"`
 	// services run beside the check on a network private to the run.
-	Services      []*CheckServiceContainer `protobuf:"bytes,15,rep,name=services,proto3" json:"services,omitempty"`
+	Services []*CheckServiceContainer `protobuf:"bytes,15,rep,name=services,proto3" json:"services,omitempty"`
+	// secret_env names the env entries that hold secrets: the daemon replaces
+	// their values with *** in the log and summary it sends back.
+	SecretEnv     []string `protobuf:"bytes,16,rep,name=secret_env,json=secretEnv,proto3" json:"secret_env,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1975,6 +1978,13 @@ func (x *CheckRunSpec) GetBuild() *CheckImageBuild {
 func (x *CheckRunSpec) GetServices() []*CheckServiceContainer {
 	if x != nil {
 		return x.Services
+	}
+	return nil
+}
+
+func (x *CheckRunSpec) GetSecretEnv() []string {
+	if x != nil {
+		return x.SecretEnv
 	}
 	return nil
 }
@@ -3191,7 +3201,7 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\bslice_id\x18\x05 \x01(\tR\asliceId\x12\x1f\n" +
 	"\vserver_addr\x18\x06 \x01(\tR\n" +
 	"serverAddr\x126\n" +
-	"\x06checks\x18\a \x03(\v2\x1e.gitslice.core.v1.CheckRunSpecR\x06checks\"\xb9\x04\n" +
+	"\x06checks\x18\a \x03(\v2\x1e.gitslice.core.v1.CheckRunSpecR\x06checks\"\xd8\x04\n" +
 	"\fCheckRunSpec\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
@@ -3210,7 +3220,9 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\x06memory\x18\f \x01(\tR\x06memory\x12\x12\n" +
 	"\x04cpus\x18\r \x01(\tR\x04cpus\x127\n" +
 	"\x05build\x18\x0e \x01(\v2!.gitslice.core.v1.CheckImageBuildR\x05build\x12C\n" +
-	"\bservices\x18\x0f \x03(\v2'.gitslice.core.v1.CheckServiceContainerR\bservices\x1a6\n" +
+	"\bservices\x18\x0f \x03(\v2'.gitslice.core.v1.CheckServiceContainerR\bservices\x12\x1d\n" +
+	"\n" +
+	"secret_env\x18\x10 \x03(\tR\tsecretEnv\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x89\x01\n" +

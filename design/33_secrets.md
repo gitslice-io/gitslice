@@ -1,6 +1,6 @@
 # 33. Secrets
 
-Status: built 2026-10-27.
+Status: built 2026-10-27 (masking and the old table's removal the same day).
 
 ## Goal
 
@@ -108,15 +108,13 @@ unique-index violation from a race those checks missed is still reported as
 `ErrConflict`. The store's code is in `internal/postgres/secrets.go`, and
 `internal/storage/memory/secrets.go` mirrors it.
 
-**Migrating slice secrets.** Migrations run at every start
-(`internal/postgres/migrations.go`), so the copy from `slice_secrets` is
-guarded by a row in `secret_migrations`. Without that guard, a secret deleted
-later would come back at the next start. Each slice secret becomes a secret
-scoped to its one slice, with id `sec_<md5(slice_id/name)>` and
-`created_by = 'migration'`. Values are copied as stored: sealed values stay
-sealed, and legacy plaintext stays plaintext until its next write.
-`slice_secrets` is no longer read but is kept, so that a rollback still finds
-its data. A later migration should drop it.
+**The old table.** Production had no slice secrets (0 rows, checked
+2026-10-27) before secrets moved, so nothing was copied. Migration
+`0046_drop_slice_secrets.sql` drops `slice_secrets`, and `0020_slice_secrets.sql`
+is gone. (Migrations run at every start, so 0020 would have recreated the
+table each time.) An earlier draft of 0045 copied slice secrets once, guarded
+by a `secret_migrations` marker table. 0046 drops that table too, for the
+development databases that ran the draft.
 
 **Slice lifecycle (design/29).** Deleting a slice cascades its
 `secret_slices` rows. Retiring one deletes them explicitly. A secret whose
@@ -256,6 +254,29 @@ It sits between the members and webhooks panels:
 Docs: a "Pass secrets to checks" section in the Checks doc, a Secrets group in
 the CLI reference, and a line in the gs-cli skill.
 
+## Masking secrets in check output
+
+A check that prints a secret must not store it in a log that every reader of
+the changeset can open. Both ends replace secret values with `***` in what a
+check sends back: its log and its summary (`internal/secretmask`).
+
+- **The daemon** masks with the values it was sent. `CheckRunSpec.secret_env`
+  names the env entries that hold secrets, so the daemon can tell them from
+  the check's own env (`internal/cli/agent_checks.go`). This also covers a
+  secret changed while the check ran.
+- **The server** masks every log chunk and summary it receives with the
+  current secrets of the run's slice (`runSecretMasker` in
+  `service/check_dispatch.go`). So daemons from before this change store no
+  secrets either. A daemon sends a check's whole log in one update, so no value
+  is ever split across two chunks.
+- **What is masked.** Each value of at least 4 characters (`secretmask.MinLength`)
+  is masked. Shorter ones would blank out ordinary text and hide little. A value
+  of several lines is also masked line by line, as a log prints a key file.
+- **What is not masked.** Logs stored before this change are not rewritten.
+  Masking is no barrier to a writer who sets out to leak a secret, for example
+  by encoding it or sending it over the network: as before, writers of a slice
+  are trusted with its secrets.
+
 ## Testing
 
 - **Postgres store** (`internal/postgres/secrets_test.go`):
@@ -266,7 +287,6 @@ the CLI reference, and a line in the gs-cli skill.
   - rescoping;
   - rejecting another account's slice;
   - the compatibility behaviour of the slice calls;
-  - the one-time migration (it survives a second `Migrate` after a delete);
   - a deleted slice leaving an empty scope.
 - **Service** (`service/secret_test.go`):
   - authorization: an account writer is refused and an outsider gets
@@ -277,6 +297,9 @@ the CLI reference, and a line in the gs-cli skill.
 - **Connect** (`server/server_test.go`): `SecretService` is mounted.
 - **RPC** (`tests/rpc/check_dispatch_test.go`): a secret scoped to two slices
   and an all-slices secret both reach the check env.
+- **Masking** (`internal/secretmask`, `internal/cli/agent_checks_mask_test.go`,
+  and the dispatch RPC test): specs name the secret env, and a daemon that does
+  not mask still has its log and summary masked by the server.
 - **CLI** (`tests/cli/secrets_test.go`): `gs secret` create, update, ls and
   rm, together with the slice commands.
 - **Web** (`components/secrets/Secrets.test.tsx`): listing, creating with a
@@ -285,18 +308,14 @@ the CLI reference, and a line in the gs-cli skill.
 
 ## Rollout
 
-1. Server deploy: migration 0045, `SecretService`, and the compatibility RPCs.
-   Existing slice secrets keep working.
+1. Server deploy: migrations 0045 and 0046, `SecretService`, the
+   compatibility RPCs, and server-side masking.
 2. Web deploy: the account page and the slice panel.
-3. The `gs secret` commands ship in the next CLI release.
-4. Later: a migration drops `slice_secrets`.
+3. The `gs secret` commands and daemon-side masking ship in the next CLI
+   release.
 
 ## Follow-ups
 
-- **Masking values in check logs.** Today a check that prints a secret puts it
-  in its log. Masking matters more once one secret reaches many slices. The
-  next step: the daemon replaces known values with `***` before uploading
-  logs.
 - Secrets for agent runtimes (design/16), not just checks.
 - An audit log of secret changes. For now `updated_by` and `updated_at` are
   the only record.

@@ -338,9 +338,6 @@ func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 	if _, err := tx.ExecContext(ctx, `delete from slice_included_paths where slice_id = $1`, sliceID); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `delete from slice_secrets where slice_id = $1`, sliceID); err != nil {
-		return err
-	}
 	if _, err := tx.ExecContext(ctx, `delete from secret_slices where slice_id = $1`, sliceID); err != nil {
 		return err
 	}

@@ -298,6 +298,9 @@ message CheckRunSpec {
   CheckImageBuild build = 14;
   // services run beside the check on a network private to the run.
   repeated CheckServiceContainer services = 15;
+  // secret_env names the env entries that hold secrets: the daemon replaces
+  // their values with *** in the log and summary it sends back.
+  repeated string secret_env = 16;
 }
 
 message CheckImageBuild {

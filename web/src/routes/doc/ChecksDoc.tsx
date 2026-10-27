@@ -316,9 +316,11 @@ checks:
         ].join("\n")}</CommandBlock>
         <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           A slice gets at most one secret of each name: a secret that lists the
-          slice overrides an all-slices one there. Every writer of a slice can
-          read its secrets from a check, and so can its CI daemon, so widen a
-          scope with care.
+          slice overrides an all-slices one there. Values of 4 or more
+          characters are shown as *** in check logs and summaries. Masking does
+          not stop a check that sets out to leak a secret: every writer of a
+          slice can read its secrets from a check, and so can its CI daemon, so
+          widen a scope with care.
         </p>
       </section>
 

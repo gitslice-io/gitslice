@@ -261,7 +261,9 @@ Scope
 
 Who can read a secret
   Every writer of a slice in its scope can read it from a check, and so can
-  the slice's CI daemon. Widen a scope with care.
+  the slice's CI daemon. Widen a scope with care. Values of 4 or more
+  characters are shown as *** in check logs and summaries, but that does not
+  stop a check that sets out to leak one.
 `,
 	},
 }

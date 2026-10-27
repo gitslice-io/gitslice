@@ -201,6 +201,44 @@ checks:
 	if check.Env["PLAIN_ENV"] != "plain" {
 		t.Fatalf("PLAIN_ENV = %q, want plain", check.Env["PLAIN_ENV"])
 	}
+	if got := strings.Join(check.SecretEnv, ","); got != "ACCOUNT_TOKEN,CI_TOKEN,SHARED_TOKEN" {
+		t.Fatalf("SecretEnv = %q, want the secret names only", got)
+	}
+
+	// A daemon that does not mask (an older one) still stores no secret: the
+	// server masks the log and summary it receives.
+	if err := stream.Send(&corev1.DaemonMessage{Payload: &corev1.DaemonMessage_CheckUpdate{CheckUpdate: &corev1.CheckRunUpdate{
+		RunId:     check.RunId,
+		Status:    "failed",
+		ExitCode:  1,
+		LogChunk:  "token super-secret and shared-secret\n",
+		Stream:    "stdout",
+		ClientSeq: 1,
+		Final:     true,
+		Summary:   "failed: account-secret",
+	}}}); err != nil {
+		t.Fatalf("send CheckRunUpdate: %v", err)
+	}
+	recvCheckRunAck(t, stream, check.RunId, 1)
+	checkClient := corev1.NewCheckServiceClient(conn)
+	run, err := checkClient.GetCheckRun(ctx, &corev1.GetCheckRunRequest{RunId: check.RunId})
+	if err != nil {
+		t.Fatalf("GetCheckRun: %v", err)
+	}
+	if run.Summary != "failed: ***" {
+		t.Fatalf("stored summary = %q, want the secret masked", run.Summary)
+	}
+	logs, err := checkClient.StreamCheckRun(ctx, &corev1.StreamCheckRunRequest{RunId: check.RunId})
+	if err != nil {
+		t.Fatalf("StreamCheckRun: %v", err)
+	}
+	logChunk, err := logs.Recv()
+	if err != nil {
+		t.Fatalf("StreamCheckRun Recv: %v", err)
+	}
+	if logChunk.Chunk != "token *** and ***\n" {
+		t.Fatalf("stored log = %q, want the secrets masked", logChunk.Chunk)
+	}
 
 	if _, err := slices.DeleteSliceSecret(ctx, &corev1.DeleteSliceSecretRequest{
 		Slice: sliceRef,

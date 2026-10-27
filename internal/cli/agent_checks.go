@@ -11,6 +11,7 @@ import (
 
 	"gitslice.io/gitslice/internal/checkexec"
 	"gitslice.io/gitslice/internal/checks"
+	"gitslice.io/gitslice/internal/secretmask"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -73,6 +74,15 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 	defer d.clearCheckRun(spec.GetRunId(), cancel)
 	defer cancel()
 
+	// What goes back to the server hides the slice's secrets: a check that
+	// prints one must not put it in its log. The server masks too, for older
+	// daemons.
+	masker := checkSecretMasker(spec)
+	emitLog := func(seq *int64, log string) { d.emitCheckRunLog(spec.GetRunId(), seq, masker.Mask(log)) }
+	emitTerminal := func(seq *int64, status string, exitCode int32, summary string) {
+		d.emitCheckRunTerminal(spec.GetRunId(), seq, status, exitCode, masker.Mask(summary))
+	}
+
 	seq := int64(0)
 	if d.checkSlots != nil {
 		// The run stays queued until a slot frees up.
@@ -80,7 +90,7 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 		case d.checkSlots <- struct{}{}:
 			defer func() { <-d.checkSlots }()
 		case <-runCtx.Done():
-			d.emitCheckRunTerminal(spec.GetRunId(), &seq, "canceled", -1, "canceled")
+			emitTerminal(&seq, "canceled", -1, "canceled")
 			return
 		}
 	}
@@ -88,8 +98,8 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 
 	tempDir, err := os.MkdirTemp("", "gitslice-check-*")
 	if err != nil {
-		d.emitCheckRunLog(spec.GetRunId(), &seq, err.Error())
-		d.emitCheckRunTerminal(spec.GetRunId(), &seq, "errored", -1, oneLineSummary(err.Error()))
+		emitLog(&seq, err.Error())
+		emitTerminal(&seq, "errored", -1, oneLineSummary(err.Error()))
 		return
 	}
 	defer func() {
@@ -100,11 +110,11 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 
 	if err := d.materializeCheckTree(authContext(runCtx, d.cfg), repo, req.GetResultTreeId(), spec.GetMaterializePaths(), tempDir); err != nil {
 		if errors.Is(err, context.Canceled) && baseCtx.Err() == nil {
-			d.emitCheckRunTerminal(spec.GetRunId(), &seq, "canceled", -1, "canceled")
+			emitTerminal(&seq, "canceled", -1, "canceled")
 			return
 		}
-		d.emitCheckRunLog(spec.GetRunId(), &seq, err.Error())
-		d.emitCheckRunTerminal(spec.GetRunId(), &seq, "errored", -1, oneLineSummary(err.Error()))
+		emitLog(&seq, err.Error())
+		emitTerminal(&seq, "errored", -1, oneLineSummary(err.Error()))
 		return
 	}
 
@@ -125,9 +135,9 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 		result.Summary = "canceled"
 	}
 	if result.Log != "" {
-		d.emitCheckRunLog(spec.GetRunId(), &seq, result.Log)
+		emitLog(&seq, result.Log)
 	}
-	d.emitCheckRunTerminal(spec.GetRunId(), &seq, result.Status, result.ExitCode, oneLineSummary(result.Summary))
+	emitTerminal(&seq, result.Status, result.ExitCode, oneLineSummary(result.Summary))
 }
 
 func (d *agentDaemon) emitSetupFailureForRunChecks(req *corev1.RunChecks, err error) {
@@ -295,4 +305,15 @@ func detectContainerRuntimes() []string {
 		return nil
 	}
 	return []string{rt.Name}
+}
+
+// checkSecretMasker masks the values of the spec's secret env entries.
+func checkSecretMasker(spec *corev1.CheckRunSpec) *secretmask.Masker {
+	var values []string
+	for _, name := range spec.GetSecretEnv() {
+		if value, ok := spec.GetEnv()[name]; ok {
+			values = append(values, value)
+		}
+	}
+	return secretmask.New(values)
 }
