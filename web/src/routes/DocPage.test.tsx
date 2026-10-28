@@ -27,6 +27,22 @@ describe("DocPage", () => {
     expect(screen.getByText(/1 minute, 5 minutes, 30 minutes/)).toBeInTheDocument();
   });
 
+  it("documents secrets: scope, masking, access and local env files", () => {
+    params.current = { section: "secrets" };
+    render(<DocPage />);
+    expect(screen.getByRole("heading", { level: 1, name: "Secrets" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "Account owners and admins" })).toBeInTheDocument();
+    expect(screen.getByText(/gs secret env env.prod.template/)).toBeInTheDocument();
+    expect(screen.getByText(/gitslice-secret:CLOUDFLARE_API_TOKEN/)).toBeInTheDocument();
+  });
+
+  it("links the checks doc to the secrets doc", () => {
+    params.current = { section: "checks" };
+    render(<DocPage />);
+    expect(screen.getByRole("heading", { level: 2, name: "Pass secrets to checks" })).toBeInTheDocument();
+    expect(screen.getAllByText("Secrets").length).toBeGreaterThan(0);
+  });
+
   it("lists the webhook commands in the CLI reference", () => {
     params.current = { section: "cli" };
     render(<DocPage />);

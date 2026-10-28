@@ -299,30 +299,19 @@ checks:
       <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
         <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">Pass secrets to checks</h2>
         <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-          A secret is a value Gitslice keeps encrypted and gives to a check as an
-          environment variable named after it. It belongs to an account and
-          reaches the slices it is scoped to, or all of the account&apos;s slices.
-          The account&apos;s owners and admins manage secrets with 
-          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">gs secret</code> 
-          or on the account&apos;s Secrets page. No page shows a value; only the
-          account&apos;s owners and admins can read one back, into a local env
-          file with <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">gs secret env</code>.
+          A check that needs a token or key reads it from an environment variable
+          that Gitslice fills from a secret. The account&apos;s owners and admins
+          store it once, for the slices that need it, and log output shows it as
+          ***.
         </p>
-        <CommandBlock>{[
-          "printf %s \"$TOKEN\" | gs secret create DEPLOY_TOKEN --slice api --slice worker",
-          "printf %s \"$TOKEN\" | gs secret create NPM_TOKEN --all-slices",
-          "gs secret ls",
-          "gs secret update <secret-id> --add-slice web",
-          "gs secret rm <secret-id>"
-        ].join("\n")}</CommandBlock>
-        <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-          A slice gets at most one secret of each name: a secret that lists the
-          slice overrides an all-slices one there. Values of 4 or more
-          characters are shown as *** in check logs and summaries. Masking does
-          not stop a check that sets out to leak a secret: every writer of a
-          slice can read its secrets from a check, and so can its CI daemon, so
-          widen a scope with care.
-        </p>
+        <CommandBlock>{"printf %s \"$TOKEN\" | gs secret create DEPLOY_TOKEN --slice api --slice worker"}</CommandBlock>
+        <div className="mt-4">
+          <NextDocCard
+            description="Scopes, who can read a secret, masking, and filling a local env file."
+            section="secrets"
+            title="Secrets"
+          />
+        </div>
       </section>
 
       <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">

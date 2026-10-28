@@ -205,6 +205,30 @@ Remove its user service with `gs agent uninstall my-ci`. CI-only daemons only
 run checks. When the selected CI daemon is offline, its runs stay
 queued; the Checks panel and `gs submit` say that checks are waiting for it.
 
+## Secrets
+
+A check that needs a token or key reads it from an environment variable filled
+from a secret. A secret belongs to an account and reaches some of its slices,
+or all of them; the checks the slice's CI daemon runs get it, and their logs
+show values of 4 or more characters as ***. Only the account's owners and
+admins manage secrets. Pipe values in, so they stay out of shell history:
+
+    printf %s "$TOKEN" | gs secret create DEPLOY_TOKEN --slice api --slice worker
+    printf %s "$TOKEN" | gs secret create NPM_TOKEN --all-slices
+    gs secret ls
+    gs slice secret ls <account>/<slice>     # names that reach one slice
+
+A slice gets one value per name: a secret that lists the slice overrides an
+all-slices one. Every writer of a slice can read its secrets from a check, so
+scope them with care. Owners and admins can fill a local env file whose values
+are written `NAME=gitslice-secret:SECRET_NAME`:
+
+    gs secret env env.prod.template --slice <account>/<slice> -o .env.prod
+
+The file is mode 600; no one else can read values. If you are not an owner or
+admin, ask one, or work from an example env file without production
+credentials.
+
 ## Large slices: lazy workspaces
 
 `gs init` downloads every file of the slice. For a big slice, on Linux or macOS

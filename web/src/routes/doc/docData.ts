@@ -4,6 +4,7 @@ export type DocSection =
   | "agents"
   | "lazy"
   | "checks"
+  | "secrets"
   | "webhooks"
   | "git-users"
   | "cli";
@@ -41,6 +42,11 @@ export const docSections: Array<{
     id: "checks",
     title: "CI Checks",
     description: "Define build/test checks that run on every patchset and gate submit."
+  },
+  {
+    id: "secrets",
+    title: "Secrets",
+    description: "Give checks tokens and keys without committing them, and fill a local env file."
   },
   {
     id: "webhooks",
@@ -361,6 +367,7 @@ export function normalizeSection(value: string | undefined): DocSection {
     value === "agents" ||
     value === "lazy" ||
     value === "checks" ||
+    value === "secrets" ||
     value === "webhooks" ||
     value === "git-users" ||
     value === "cli"
