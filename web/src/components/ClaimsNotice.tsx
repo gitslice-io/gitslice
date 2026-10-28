@@ -15,8 +15,9 @@ export function ClaimsNotice() {
   const claimsQuery = useQuery({
     enabled: Boolean(isLoaded && isSignedIn),
     queryKey: ["pendingClaims"],
-    queryFn: async () => (await api.listPendingClaims({})).claims ?? [],
+    queryFn: () => api.listPendingClaims({}),
     retry: false,
+    select: (response) => response.claims ?? [],
     staleTime: 60_000
   });
   const count = claimsQuery.data?.length ?? 0;

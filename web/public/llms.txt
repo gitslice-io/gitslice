@@ -39,7 +39,12 @@
    exact same command again. It resumes the same registration instead of
    failing because the username is now taken.
 
-   On success it prints the claim link and steps to send your human owner.
+   On success it prints the claim link and steps to send your human owner, and
+   `--json` returns them as `claim_instructions`. Pass them on to your human
+   word for word. The claim works only when their account has the exact email
+   you registered with, `<owner-email>`, as a verified email. If they signed up
+   under another address, they must add and verify that one in their profile
+   first (Manage account). A claim never appears for a different email.
 
 3. Check that you are signed in:
 
@@ -124,11 +129,14 @@ For a team that owns many slices together, create an organization
 
 ## For the human owner
 
-Open https://gitslice.io/claims and sign in with the email the agent
-registered (it must be verified). Click Accept to become a co-owner; the agent
-keeps its access. Its slices then appear on your home page next to yours.
+Open https://gitslice.io/claims and sign in with an account whose verified email
+is exactly the one the agent registered with. If your account uses another
+email, add and verify that one in your profile first (Manage account). Click
+Accept to become a co-owner; the agent keeps its access. Its slices then
+appear on your home page next to yours.
 From a terminal: `gs auth login`, then `gs claims list` and
-`gs claims accept <agent-subject-id>`.
+`gs claims accept <agent-subject-id>`. If the list is empty, `gs claims list`
+(and the claims page) says which verified emails it looked for.
 
 ## MCP: no checkout needed
 

@@ -179,23 +179,34 @@ func (r Runner) runAuthRegisterAgent(ctx context.Context, opts commandOptions, i
 	claimURL, _ := webRouteURL(in.webURL, "claims")
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
-			"server_addr": serverAddr,
-			"subject_id":  resp.SubjectId,
-			"account":     resp.Account,
-			"owner_email": email,
-			"claim_url":   claimURL,
-			"resumed":     resuming,
+			"server_addr":        serverAddr,
+			"subject_id":         resp.SubjectId,
+			"account":            resp.Account,
+			"owner_email":        email,
+			"claim_url":          claimURL,
+			"claim_instructions": agentClaimInstructions(email, claimURL, resp.SubjectId),
+			"resumed":            resuming,
 		})
 	}
 	if opts.Quiet {
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "registered agent %s with account %s; API key saved to %s\n", resp.SubjectId, resp.Account, r.userConfigPath())
-	fmt.Fprintf(r.Stdout, "\nTo give %s co-ownership, send them these steps:\n", email)
-	fmt.Fprintf(r.Stdout, "  1. Open %s and sign in with %s (it must be a verified email).\n", claimURL, email)
-	fmt.Fprintf(r.Stdout, "  2. Click Accept next to this agent, or run: gs claims accept %s\n", resp.SubjectId)
+	fmt.Fprintf(r.Stdout, "\nTell your owner (%s) how to claim this agent:\n%s\n", email, agentClaimInstructions(email, claimURL, resp.SubjectId))
 	fmt.Fprintf(r.Stdout, "\nStart working in your home slice:\n  gs init %s:home\n", resp.Account)
 	return nil
+}
+
+// agentClaimInstructions is what the agent passes on to its human owner. The
+// email must match the one given at registration exactly, and it must be a
+// verified email of the account the human signs in with. A person who signed
+// up under another address is the usual reason a claim never shows up.
+func agentClaimInstructions(email, claimURL, agentSubjectID string) string {
+	return fmt.Sprintf("  1. Sign up or sign in at %s with an account whose verified email is exactly %s.\n"+
+		"     (Already have an account under another email? Add and verify %s in your profile first;\n"+
+		"     agents registered to an email can be claimed only by an account that has it verified.)\n"+
+		"  2. Click Accept next to this agent, or run: gs claims accept %s\n"+
+		"  Not showing up? gs claims list prints the emails it looked for.", claimURL, email, email, agentSubjectID)
 }
 
 func (r Runner) registerAgentOnce(ctx context.Context, serverAddr string, req *corev1.RegisterAgentRequest) (*corev1.RegisterAgentResponse, error) {

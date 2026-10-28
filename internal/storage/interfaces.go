@@ -24,6 +24,9 @@ type AuthStore interface {
 	// source ("clerk", "service") vouches for on subjectID. Emails are normalized;
 	// malformed ones are dropped.
 	SetVerifiedEmails(ctx context.Context, subjectID, source string, emails []string) error
+	// VerifiedEmails lists the verified email addresses recorded for subjectID,
+	// from every source, sorted.
+	VerifiedEmails(ctx context.Context, subjectID string) ([]string, error)
 	// ListPendingClaims returns unclaimed agent registrations whose owner email is
 	// one of subjectID's verified emails, oldest first.
 	ListPendingClaims(ctx context.Context, subjectID string) ([]PendingClaim, error)

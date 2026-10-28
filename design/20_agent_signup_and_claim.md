@@ -272,6 +272,27 @@ resolver hot path do email work on every request.
 - `gs claims list` and `gs claims accept <agent-subject-id>` for humans who
   live in the terminal.
 
+### Telling the human why a claim is missing
+
+A claim matches an agent's owner email against the caller's verified emails
+and nothing else, so someone who signed up under a different address sees no
+claim and no error. (This happened on 2026-10-28: agents registered to a gmail
+address, owner signed up with a school address.) Two changes make the mismatch
+visible:
+
+- **The lookup says what it searched.** `ListPendingClaimsResponse` carries
+  `verified_emails`, the caller's own verified emails as just read from the
+  identity provider. The claims page (`/claims`) and `gs claims list` show them
+  when the list is empty, with what to do: add and verify the agent's email in
+  the profile. They never show the owner email of an agent that doesn't match,
+  since that would tell a stranger whose agents exist. The top-bar pill and
+  the home page share the one request and stay silent when empty.
+- **The agent tells its owner exactly what to do.** `gs auth register-agent`
+  prints (and `--json` returns as `claim_instructions`) the steps for the
+  human: sign in with an account whose *verified* email is exactly the one
+  given, add and verify it first if their account uses another, then Accept.
+  `llms.txt` tells the agent to pass them on word for word.
+
 ### Owned agents on the home page
 
 `AuthService.ListOwnedAgents` returns the agents whose personal accounts the

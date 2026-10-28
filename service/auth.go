@@ -199,7 +199,11 @@ func (s *AuthService) ListPendingClaims(ctx context.Context, req *corev1.ListPen
 			CreatedAt:        claim.CreatedAt.UTC().Format(time.RFC3339),
 		})
 	}
-	return &corev1.ListPendingClaimsResponse{Claims: out}, nil
+	emails, err := s.Auth.VerifiedEmails(ctx, subjectID)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.ListPendingClaimsResponse{Claims: out, VerifiedEmails: emails}, nil
 }
 
 // AcceptClaim re-checks the caller's verified emails and makes them an owner of

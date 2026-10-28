@@ -53,6 +53,11 @@ func TestClaimFlowVerifiesEmailWithClerk(t *testing.T) {
 	if len(list.Claims) != 1 || list.Claims[0].AgentSubjectId != agent.SubjectId || list.Claims[0].Account != "release-bot" || list.Claims[0].CreatedAt == "" {
 		t.Fatalf("ListPendingClaims = %+v", list.Claims)
 	}
+	// The response names the verified emails it matched, so a client can say
+	// so when a claim someone expects is missing.
+	if len(list.VerifiedEmails) != 1 || list.VerifiedEmails[0] != "owner@example.com" {
+		t.Fatalf("VerifiedEmails = %v; want [owner@example.com]", list.VerifiedEmails)
+	}
 	if _, err := handlers.Auth.AcceptClaim(humanCtx, &corev1.AcceptClaimRequest{}); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("empty agent id code = %v; want InvalidArgument", status.Code(err))
 	}
@@ -105,5 +110,51 @@ func TestClaimRPCsRequireSubject(t *testing.T) {
 	}
 	if _, err := handlers.Auth.AcceptClaim(context.Background(), &corev1.AcceptClaimRequest{AgentSubjectId: "agent_x"}); status.Code(err) != codes.Unauthenticated {
 		t.Fatalf("code = %v; want Unauthenticated", status.Code(err))
+	}
+}
+
+// A person whose verified email is not the one the agent was registered with
+// sees no claim, but is told which emails were searched.
+func TestPendingClaimsReportEmailsSearchedWhenNothingMatches(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	handlers.Auth.AgentSignupEnabled = true
+	ctx := context.Background()
+	if _, err := handlers.Auth.RegisterAgent(ctx, &corev1.RegisterAgentRequest{Username: "shop-bot", OwnerEmail: "me@gmail.example"}); err != nil {
+		t.Fatal(err)
+	}
+	human, err := mem.Auth.EnsureExternalSubject(ctx, storage.ProviderClerk, "user_clerk_2", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	humanCtx := authctx.WithSubjectID(ctx, human)
+
+	handlers.Auth.ClerkUsers = fakeClerkUsers{emails: map[string][]string{"user_clerk_2": {"Me@School.example", "me@work.example"}}}
+	list, err := handlers.Auth.ListPendingClaims(humanCtx, &corev1.ListPendingClaimsRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Claims) != 0 {
+		t.Fatalf("claims = %+v; want none for a different email", list.Claims)
+	}
+	if got := list.VerifiedEmails; len(got) != 2 || got[0] != "me@school.example" || got[1] != "me@work.example" {
+		t.Fatalf("VerifiedEmails = %v; want the normalized, sorted emails searched", got)
+	}
+
+	// Adding the address makes the claim appear.
+	handlers.Auth.ClerkUsers = fakeClerkUsers{emails: map[string][]string{"user_clerk_2": {"me@school.example", "me@gmail.example"}}}
+	list, err = handlers.Auth.ListPendingClaims(humanCtx, &corev1.ListPendingClaimsRequest{})
+	if err != nil || len(list.Claims) != 1 {
+		t.Fatalf("after adding the email: %+v, %v", list, err)
+	}
+
+	// Someone with no verified email gets an empty list for both.
+	lone, err := mem.Auth.EnsureExternalSubject(ctx, storage.ProviderClerk, "user_clerk_3", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handlers.Auth.ClerkUsers = fakeClerkUsers{emails: map[string][]string{}}
+	list, err = handlers.Auth.ListPendingClaims(authctx.WithSubjectID(ctx, lone), &corev1.ListPendingClaimsRequest{})
+	if err != nil || len(list.Claims) != 0 || len(list.VerifiedEmails) != 0 {
+		t.Fatalf("no verified email: %+v, %v", list, err)
 	}
 }

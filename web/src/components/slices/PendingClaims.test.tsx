@@ -27,6 +27,15 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({ children }: { children: ReactNode }) => <a href="#">{children}</a>
 }));
 
+function renderClaimsWithEmpty() {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <PendingClaims showEmpty />
+    </QueryClientProvider>
+  );
+}
+
 function renderClaims() {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } }
@@ -86,5 +95,23 @@ describe("PendingClaims", () => {
     fireEvent.click(screen.getByRole("button", { name: "Accept" }));
     await waitFor(() => expect(acceptClaim).toHaveBeenCalledWith({ agentSubjectId: "agent_1" }));
     expect(await screen.findByRole("status")).toHaveTextContent("You now co-own release-bot.");
+  });
+
+  it("says which verified emails an empty list was matched against", async () => {
+    const listPendingClaims = vi.fn().mockResolvedValue({ claims: [], verifiedEmails: ["me@umich.edu", "me@work.example"] });
+    apiMock.current = { listPendingClaims };
+    renderClaimsWithEmpty();
+    const searched = await screen.findByTestId("searched-emails");
+    expect(searched).toHaveTextContent("Looked for agents registered to:");
+    expect(searched).toHaveTextContent("me@umich.edu");
+    expect(searched).toHaveTextContent("me@work.example");
+    expect(searched).toHaveTextContent("another address");
+    expect(listPendingClaims).toHaveBeenCalledTimes(1);
+  });
+
+  it("says so when the account has no verified email", async () => {
+    apiMock.current = { listPendingClaims: vi.fn().mockResolvedValue({ claims: [], verifiedEmails: [] }) };
+    renderClaimsWithEmpty();
+    expect(await screen.findByTestId("searched-emails")).toHaveTextContent("has no verified email");
   });
 });

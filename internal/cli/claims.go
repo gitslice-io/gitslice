@@ -43,7 +43,7 @@ func (r Runner) runClaimsList(ctx context.Context, opts commandOptions) error {
 	}
 	if len(out) == 0 {
 		if !opts.Quiet {
-			fmt.Fprintln(r.Stdout, "no agent accounts are waiting to be claimed")
+			fmt.Fprintln(r.Stdout, noClaimsMessage(resp.VerifiedEmails))
 		}
 		return nil
 	}
@@ -51,6 +51,19 @@ func (r Runner) runClaimsList(ctx context.Context, opts commandOptions) error {
 		fmt.Fprintf(r.Stdout, "%s\t%s\t%s\t%s\n", claim.AgentSubjectID, claim.Account, claim.AgentDisplayName, claim.CreatedAt)
 	}
 	return nil
+}
+
+// noClaimsMessage explains an empty claims list. A claim matches only an
+// agent's owner email against the caller's verified emails, so saying which
+// emails were searched is what lets someone see a mismatch.
+func noClaimsMessage(verifiedEmails []string) string {
+	if len(verifiedEmails) == 0 {
+		return "no agent accounts are waiting to be claimed: your account has no verified email.\n" +
+			"hint: add and verify the email the agent was registered with in your profile, then run gs claims list again."
+	}
+	return "no agent accounts are waiting to be claimed for your verified email(s): " + strings.Join(verifiedEmails, ", ") + "\n" +
+		"hint: an agent can be claimed only by an account with the email it was registered with as a verified email.\n" +
+		"      If it was registered with another address, add and verify that address in your profile, then run gs claims list again."
 }
 
 func (r Runner) runClaimsAccept(ctx context.Context, opts commandOptions, agentSubjectID string) error {

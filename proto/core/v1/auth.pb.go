@@ -939,10 +939,15 @@ func (*ListPendingClaimsRequest) Descriptor() ([]byte, []int) {
 }
 
 type ListPendingClaimsResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Claims        []*PendingClaim        `protobuf:"bytes,1,rep,name=claims,proto3" json:"claims,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	Claims []*PendingClaim        `protobuf:"bytes,1,rep,name=claims,proto3" json:"claims,omitempty"`
+	// The caller's own verified emails, which the claims above were matched
+	// against (freshly read from the identity provider). An agent registered
+	// with any other address cannot be claimed by this account, so clients show
+	// these when the list is empty.
+	VerifiedEmails []string `protobuf:"bytes,2,rep,name=verified_emails,json=verifiedEmails,proto3" json:"verified_emails,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ListPendingClaimsResponse) Reset() {
@@ -978,6 +983,13 @@ func (*ListPendingClaimsResponse) Descriptor() ([]byte, []int) {
 func (x *ListPendingClaimsResponse) GetClaims() []*PendingClaim {
 	if x != nil {
 		return x.Claims
+	}
+	return nil
+}
+
+func (x *ListPendingClaimsResponse) GetVerifiedEmails() []string {
+	if x != nil {
+		return x.VerifiedEmails
 	}
 	return nil
 }
@@ -3004,9 +3016,10 @@ const file_proto_core_v1_auth_proto_rawDesc = "" +
 	"ownerEmail\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\x05 \x01(\tR\tcreatedAt\"\x1a\n" +
-	"\x18ListPendingClaimsRequest\"S\n" +
+	"\x18ListPendingClaimsRequest\"|\n" +
 	"\x19ListPendingClaimsResponse\x126\n" +
-	"\x06claims\x18\x01 \x03(\v2\x1e.gitslice.core.v1.PendingClaimR\x06claims\">\n" +
+	"\x06claims\x18\x01 \x03(\v2\x1e.gitslice.core.v1.PendingClaimR\x06claims\x12'\n" +
+	"\x0fverified_emails\x18\x02 \x03(\tR\x0everifiedEmails\">\n" +
 	"\x12AcceptClaimRequest\x12(\n" +
 	"\x10agent_subject_id\x18\x01 \x01(\tR\x0eagentSubjectId\"/\n" +
 	"\x13AcceptClaimResponse\x12\x18\n" +

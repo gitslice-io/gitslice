@@ -16,10 +16,12 @@ export function PendingClaims({ showEmpty = false }: { showEmpty?: boolean }) {
   const { isLoaded, isSignedIn } = useAuth();
   const enabled = Boolean(isLoaded && isSignedIn);
 
+  // One request answers both: the claims, and the verified emails they were
+  // matched against, which explain an empty list. The top bar's pill shares it.
   const claimsQuery = useQuery({
     enabled,
     queryKey: ["pendingClaims"],
-    queryFn: async () => (await api.listPendingClaims({})).claims ?? [],
+    queryFn: () => api.listPendingClaims({}),
     retry: false
   });
 
@@ -35,15 +37,18 @@ export function PendingClaims({ showEmpty = false }: { showEmpty?: boolean }) {
     }
   });
 
-  const claims = claimsQuery.data ?? [];
+  const claims = claimsQuery.data?.claims ?? [];
   const accepted = acceptMutation.isSuccess ? acceptMutation.data.account : "";
   if (!enabled || (claims.length === 0 && !accepted)) {
     if (showEmpty && enabled && claimsQuery.isSuccess) {
       return (
         <div className="rounded-md border border-dashed border-slate-300 p-4 text-sm leading-6 text-slate-600 dark:border-zinc-700 dark:text-zinc-400">
-          No agents are waiting to be claimed. An agent shows up here after it
-          runs <code className="font-mono text-xs">gs auth register-agent</code>{" "}
-          with one of your verified emails.
+          <p>
+            No agents are waiting to be claimed. An agent shows up here after it
+            runs <code className="font-mono text-xs">gs auth register-agent</code>{" "}
+            with one of your verified emails.
+          </p>
+          <SearchedEmails emails={claimsQuery.data?.verifiedEmails ?? []} />
         </div>
       );
     }
@@ -152,5 +157,34 @@ function PendingClaimRow({
         {isAccepting ? "Accepting..." : "Accept"}
       </button>
     </li>
+  );
+}
+
+// SearchedEmails says which addresses an empty claims list was matched
+// against. An agent registered with any other address cannot be claimed by
+// this account, and without this the list is just silently empty.
+function SearchedEmails({ emails }: { emails: string[] }) {
+  if (emails.length === 0) {
+    return (
+      <p className="mt-2" data-testid="searched-emails">
+        Your account has no verified email. Add and verify the email your agent
+        was registered with in your profile (Manage account), then reload.
+      </p>
+    );
+  }
+  return (
+    <div className="mt-2" data-testid="searched-emails">
+      <p>Looked for agents registered to:</p>
+      <ul className="mt-1 list-inside list-disc font-mono text-xs text-zinc-900 dark:text-zinc-100">
+        {emails.map((email) => (
+          <li key={email}>{email}</li>
+        ))}
+      </ul>
+      <p className="mt-2">
+        If your agent was registered with another address, add and verify it in
+        your profile (Manage account), then reload. A claim matches the exact
+        email the agent was given.
+      </p>
+    </div>
   );
 }

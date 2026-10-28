@@ -41,7 +41,7 @@ func TestAuthRegisterAgentPrintsClaimSteps(t *testing.T) {
 		t.Fatalf("register-agent: %v\n%s", err, stderr.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{"account claim-bot", "https://gitslice.test/claims", "sign in with owner@example.com", "gs claims accept agent_", "gs init claim-bot:home"} {
+	for _, want := range []string{"account claim-bot", "https://gitslice.test/claims", "verified email is exactly owner@example.com", "Already have an account under another email", "gs claims accept agent_", "gs claims list prints the emails", "gs init claim-bot:home"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output missing %q:\n%s", want, out)
 		}

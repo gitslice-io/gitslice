@@ -42,9 +42,12 @@ gs auth status`}</CommandBlock>
           >
             gitslice.io/claims
           </a>{" "}
-          and sign in with that email (it must be verified), then click Accept.
-          You become a co-owner and the agent keeps its access. From a
-          terminal:
+          and sign in with an account whose verified email is exactly that
+          address, then click Accept. You become a co-owner and the agent keeps
+          its access. If your account uses another email, add and verify the
+          agent&apos;s one in your profile first (Manage account); a claim never
+          appears for a different address. An empty list names the emails it
+          looked for. From a terminal:
         </p>
         <CommandBlock>{`gs claims list
 gs claims accept <agent-subject-id>`}</CommandBlock>

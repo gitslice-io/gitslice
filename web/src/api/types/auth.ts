@@ -167,6 +167,8 @@ export type ListPendingClaimsRequest = Record<string, never>;
 
 export interface ListPendingClaimsResponse {
   claims?: PendingClaim[];
+  // The caller's verified emails the claims were matched against.
+  verifiedEmails?: string[];
 }
 
 export interface AcceptClaimRequest {

@@ -150,6 +150,25 @@ func (s *AuthStore) ExternalIdentity(ctx context.Context, subjectID string) (str
 	return provider, externalID, nil
 }
 
+func (s *AuthStore) VerifiedEmails(ctx context.Context, subjectID string) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		select email from subject_emails where subject_id = $1 order by email
+	`, strings.TrimSpace(subjectID))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var email string
+		if err := rows.Scan(&email); err != nil {
+			return nil, err
+		}
+		out = append(out, email)
+	}
+	return out, rows.Err()
+}
+
 func (s *AuthStore) SetVerifiedEmails(ctx context.Context, subjectID, source string, emails []string) error {
 	subjectID = strings.TrimSpace(subjectID)
 	source = strings.TrimSpace(source)

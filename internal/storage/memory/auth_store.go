@@ -118,6 +118,17 @@ func (s *AuthStore) ExternalIdentity(ctx context.Context, subjectID string) (str
 	return identity.provider, identity.externalID, nil
 }
 
+func (s *AuthStore) VerifiedEmails(ctx context.Context, subjectID string) ([]string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	var out []string
+	for email := range s.b.verifiedEmails[strings.TrimSpace(subjectID)] {
+		out = append(out, email)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
 func (s *AuthStore) SetVerifiedEmails(ctx context.Context, subjectID, source string, emails []string) error {
 	subjectID = strings.TrimSpace(subjectID)
 	source = strings.TrimSpace(source)

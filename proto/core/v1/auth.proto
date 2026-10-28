@@ -188,6 +188,11 @@ message ListPendingClaimsRequest {}
 
 message ListPendingClaimsResponse {
   repeated PendingClaim claims = 1;
+  // The caller's own verified emails, which the claims above were matched
+  // against (freshly read from the identity provider). An agent registered
+  // with any other address cannot be claimed by this account, so clients show
+  // these when the list is empty.
+  repeated string verified_emails = 2;
 }
 
 message AcceptClaimRequest {
