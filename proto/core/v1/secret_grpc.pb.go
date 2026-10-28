@@ -19,11 +19,12 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	SecretService_ListSecrets_FullMethodName  = "/gitslice.core.v1.SecretService/ListSecrets"
-	SecretService_GetSecret_FullMethodName    = "/gitslice.core.v1.SecretService/GetSecret"
-	SecretService_CreateSecret_FullMethodName = "/gitslice.core.v1.SecretService/CreateSecret"
-	SecretService_UpdateSecret_FullMethodName = "/gitslice.core.v1.SecretService/UpdateSecret"
-	SecretService_DeleteSecret_FullMethodName = "/gitslice.core.v1.SecretService/DeleteSecret"
+	SecretService_ListSecrets_FullMethodName        = "/gitslice.core.v1.SecretService/ListSecrets"
+	SecretService_GetSecret_FullMethodName          = "/gitslice.core.v1.SecretService/GetSecret"
+	SecretService_CreateSecret_FullMethodName       = "/gitslice.core.v1.SecretService/CreateSecret"
+	SecretService_UpdateSecret_FullMethodName       = "/gitslice.core.v1.SecretService/UpdateSecret"
+	SecretService_DeleteSecret_FullMethodName       = "/gitslice.core.v1.SecretService/DeleteSecret"
+	SecretService_RevealSliceSecrets_FullMethodName = "/gitslice.core.v1.SecretService/RevealSliceSecrets"
 )
 
 // SecretServiceClient is the client API for SecretService service.
@@ -41,6 +42,12 @@ type SecretServiceClient interface {
 	// stays as it is.
 	UpdateSecret(ctx context.Context, in *UpdateSecretRequest, opts ...grpc.CallOption) (*Secret, error)
 	DeleteSecret(ctx context.Context, in *DeleteSecretRequest, opts ...grpc.CallOption) (*Empty, error)
+	// RevealSliceSecrets returns the values of the named secrets that reach a
+	// slice, so that the account's owners and admins can fill a local env file
+	// (gs secret env). It is refused to everyone else, slice admins and writers
+	// included. Each call is logged with the caller and the names, never the
+	// values.
+	RevealSliceSecrets(ctx context.Context, in *RevealSliceSecretsRequest, opts ...grpc.CallOption) (*RevealSliceSecretsResponse, error)
 }
 
 type secretServiceClient struct {
@@ -96,6 +103,15 @@ func (c *secretServiceClient) DeleteSecret(ctx context.Context, in *DeleteSecret
 	return out, nil
 }
 
+func (c *secretServiceClient) RevealSliceSecrets(ctx context.Context, in *RevealSliceSecretsRequest, opts ...grpc.CallOption) (*RevealSliceSecretsResponse, error) {
+	out := new(RevealSliceSecretsResponse)
+	err := c.cc.Invoke(ctx, SecretService_RevealSliceSecrets_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SecretServiceServer is the server API for SecretService service.
 // All implementations should embed UnimplementedSecretServiceServer
 // for forward compatibility
@@ -111,6 +127,12 @@ type SecretServiceServer interface {
 	// stays as it is.
 	UpdateSecret(context.Context, *UpdateSecretRequest) (*Secret, error)
 	DeleteSecret(context.Context, *DeleteSecretRequest) (*Empty, error)
+	// RevealSliceSecrets returns the values of the named secrets that reach a
+	// slice, so that the account's owners and admins can fill a local env file
+	// (gs secret env). It is refused to everyone else, slice admins and writers
+	// included. Each call is logged with the caller and the names, never the
+	// values.
+	RevealSliceSecrets(context.Context, *RevealSliceSecretsRequest) (*RevealSliceSecretsResponse, error)
 }
 
 // UnimplementedSecretServiceServer should be embedded to have forward compatible implementations.
@@ -131,6 +153,9 @@ func (UnimplementedSecretServiceServer) UpdateSecret(context.Context, *UpdateSec
 }
 func (UnimplementedSecretServiceServer) DeleteSecret(context.Context, *DeleteSecretRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteSecret not implemented")
+}
+func (UnimplementedSecretServiceServer) RevealSliceSecrets(context.Context, *RevealSliceSecretsRequest) (*RevealSliceSecretsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RevealSliceSecrets not implemented")
 }
 
 // UnsafeSecretServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -234,6 +259,24 @@ func _SecretService_DeleteSecret_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SecretService_RevealSliceSecrets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevealSliceSecretsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SecretServiceServer).RevealSliceSecrets(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SecretService_RevealSliceSecrets_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SecretServiceServer).RevealSliceSecrets(ctx, req.(*RevealSliceSecretsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SecretService_ServiceDesc is the grpc.ServiceDesc for SecretService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -260,6 +303,10 @@ var SecretService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteSecret",
 			Handler:    _SecretService_DeleteSecret_Handler,
+		},
+		{
+			MethodName: "RevealSliceSecrets",
+			Handler:    _SecretService_RevealSliceSecrets_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

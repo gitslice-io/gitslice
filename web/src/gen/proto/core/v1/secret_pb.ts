@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/secret.proto.
  */
 export const file_proto_core_v1_secret: GenFile = /*@__PURE__*/
-  fileDesc("Chpwcm90by9jb3JlL3YxL3NlY3JldC5wcm90bxIQZ2l0c2xpY2UuY29yZS52MSKxAQoGU2VjcmV0EgoKAmlkGAEgASgJEg8KB2FjY291bnQYAiABKAkSDAoEbmFtZRgDIAEoCRIsCgVzY29wZRgEIAEoCzIdLmdpdHNsaWNlLmNvcmUudjEuU2VjcmV0U2NvcGUSEgoKY3JlYXRlZF9ieRgFIAEoCRISCgp1cGRhdGVkX2J5GAYgASgJEhIKCmNyZWF0ZWRfYXQYByABKAkSEgoKdXBkYXRlZF9hdBgIIAEoCSJNCgtTZWNyZXRTY29wZRISCgphbGxfc2xpY2VzGAEgASgIEioKBnNsaWNlcxgCIAMoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYiJQoSTGlzdFNlY3JldHNSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkiQAoTTGlzdFNlY3JldHNSZXNwb25zZRIpCgdzZWNyZXRzGAEgAygLMhguZ2l0c2xpY2UuY29yZS52MS5TZWNyZXQiHgoQR2V0U2VjcmV0UmVxdWVzdBIKCgJpZBgBIAEoCSJxChNDcmVhdGVTZWNyZXRSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSDAoEbmFtZRgCIAEoCRINCgV2YWx1ZRgDIAEoCRIsCgVzY29wZRgEIAEoCzIdLmdpdHNsaWNlLmNvcmUudjEuU2VjcmV0U2NvcGUibQoTVXBkYXRlU2VjcmV0UmVxdWVzdBIKCgJpZBgBIAEoCRISCgV2YWx1ZRgCIAEoCUgAiAEBEiwKBXNjb3BlGAMgASgLMh0uZ2l0c2xpY2UuY29yZS52MS5TZWNyZXRTY29wZUIICgZfdmFsdWUiIQoTRGVsZXRlU2VjcmV0UmVxdWVzdBIKCgJpZBgBIAEoCTKoAwoNU2VjcmV0U2VydmljZRJaCgtMaXN0U2VjcmV0cxIkLmdpdHNsaWNlLmNvcmUudjEuTGlzdFNlY3JldHNSZXF1ZXN0GiUuZ2l0c2xpY2UuY29yZS52MS5MaXN0U2VjcmV0c1Jlc3BvbnNlEkkKCUdldFNlY3JldBIiLmdpdHNsaWNlLmNvcmUudjEuR2V0U2VjcmV0UmVxdWVzdBoYLmdpdHNsaWNlLmNvcmUudjEuU2VjcmV0Ek8KDENyZWF0ZVNlY3JldBIlLmdpdHNsaWNlLmNvcmUudjEuQ3JlYXRlU2VjcmV0UmVxdWVzdBoYLmdpdHNsaWNlLmNvcmUudjEuU2VjcmV0Ek8KDFVwZGF0ZVNlY3JldBIlLmdpdHNsaWNlLmNvcmUudjEuVXBkYXRlU2VjcmV0UmVxdWVzdBoYLmdpdHNsaWNlLmNvcmUudjEuU2VjcmV0Ek4KDERlbGV0ZVNlY3JldBIlLmdpdHNsaWNlLmNvcmUudjEuRGVsZXRlU2VjcmV0UmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuRW1wdHlCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw", [file_proto_core_v1_common]);
+  fileDesc("Chpwcm90by9jb3JlL3YxL3NlY3JldC5wcm90bxIQZ2l0c2xpY2UuY29yZS52MSKxAQoGU2VjcmV0EgoKAmlkGAEgASgJEg8KB2FjY291bnQYAiABKAkSDAoEbmFtZRgDIAEoCRIsCgVzY29wZRgEIAEoCzIdLmdpdHNsaWNlLmNvcmUudjEuU2VjcmV0U2NvcGUSEgoKY3JlYXRlZF9ieRgFIAEoCRISCgp1cGRhdGVkX2J5GAYgASgJEhIKCmNyZWF0ZWRfYXQYByABKAkSEgoKdXBkYXRlZF9hdBgIIAEoCSJNCgtTZWNyZXRTY29wZRISCgphbGxfc2xpY2VzGAEgASgIEioKBnNsaWNlcxgCIAMoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYiJQoSTGlzdFNlY3JldHNSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkiQAoTTGlzdFNlY3JldHNSZXNwb25zZRIpCgdzZWNyZXRzGAEgAygLMhguZ2l0c2xpY2UuY29yZS52MS5TZWNyZXQiHgoQR2V0U2VjcmV0UmVxdWVzdBIKCgJpZBgBIAEoCSJxChNDcmVhdGVTZWNyZXRSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSDAoEbmFtZRgCIAEoCRINCgV2YWx1ZRgDIAEoCRIsCgVzY29wZRgEIAEoCzIdLmdpdHNsaWNlLmNvcmUudjEuU2VjcmV0U2NvcGUibQoTVXBkYXRlU2VjcmV0UmVxdWVzdBIKCgJpZBgBIAEoCRISCgV2YWx1ZRgCIAEoCUgAiAEBEiwKBXNjb3BlGAMgASgLMh0uZ2l0c2xpY2UuY29yZS52MS5TZWNyZXRTY29wZUIICgZfdmFsdWUiIQoTRGVsZXRlU2VjcmV0UmVxdWVzdBIKCgJpZBgBIAEoCSJVChlSZXZlYWxTbGljZVNlY3JldHNSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhINCgVuYW1lcxgCIAMoCSKmAQoaUmV2ZWFsU2xpY2VTZWNyZXRzUmVzcG9uc2USSAoGdmFsdWVzGAEgAygLMjguZ2l0c2xpY2UuY29yZS52MS5SZXZlYWxTbGljZVNlY3JldHNSZXNwb25zZS5WYWx1ZXNFbnRyeRIPCgdtaXNzaW5nGAIgAygJGi0KC1ZhbHVlc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEymQQKDVNlY3JldFNlcnZpY2USWgoLTGlzdFNlY3JldHMSJC5naXRzbGljZS5jb3JlLnYxLkxpc3RTZWNyZXRzUmVxdWVzdBolLmdpdHNsaWNlLmNvcmUudjEuTGlzdFNlY3JldHNSZXNwb25zZRJJCglHZXRTZWNyZXQSIi5naXRzbGljZS5jb3JlLnYxLkdldFNlY3JldFJlcXVlc3QaGC5naXRzbGljZS5jb3JlLnYxLlNlY3JldBJPCgxDcmVhdGVTZWNyZXQSJS5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZVNlY3JldFJlcXVlc3QaGC5naXRzbGljZS5jb3JlLnYxLlNlY3JldBJPCgxVcGRhdGVTZWNyZXQSJS5naXRzbGljZS5jb3JlLnYxLlVwZGF0ZVNlY3JldFJlcXVlc3QaGC5naXRzbGljZS5jb3JlLnYxLlNlY3JldBJOCgxEZWxldGVTZWNyZXQSJS5naXRzbGljZS5jb3JlLnYxLkRlbGV0ZVNlY3JldFJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLkVtcHR5Em8KElJldmVhbFNsaWNlU2VjcmV0cxIrLmdpdHNsaWNlLmNvcmUudjEuUmV2ZWFsU2xpY2VTZWNyZXRzUmVxdWVzdBosLmdpdHNsaWNlLmNvcmUudjEuUmV2ZWFsU2xpY2VTZWNyZXRzUmVzcG9uc2VCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw", [file_proto_core_v1_common]);
 
 /**
  * @generated from message gitslice.core.v1.Secret
@@ -240,10 +240,60 @@ export const DeleteSecretRequestSchema: GenMessage<DeleteSecretRequest> = /*@__P
   messageDesc(file_proto_core_v1_secret, 7);
 
 /**
+ * @generated from message gitslice.core.v1.RevealSliceSecretsRequest
+ */
+export type RevealSliceSecretsRequest = Message<"gitslice.core.v1.RevealSliceSecretsRequest"> & {
+  /**
+   * @generated from field: gitslice.core.v1.SliceRef slice = 1;
+   */
+  slice?: SliceRef | undefined;
+
+  /**
+   * The names wanted: at least one, at most 100.
+   *
+   * @generated from field: repeated string names = 2;
+   */
+  names: string[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.RevealSliceSecretsRequest.
+ * Use `create(RevealSliceSecretsRequestSchema)` to create a new message.
+ */
+export const RevealSliceSecretsRequestSchema: GenMessage<RevealSliceSecretsRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_secret, 8);
+
+/**
+ * @generated from message gitslice.core.v1.RevealSliceSecretsResponse
+ */
+export type RevealSliceSecretsResponse = Message<"gitslice.core.v1.RevealSliceSecretsResponse"> & {
+  /**
+   * Name to value, for the names that reach the slice.
+   *
+   * @generated from field: map<string, string> values = 1;
+   */
+  values: { [key: string]: string };
+
+  /**
+   * The names asked for that no secret of the slice has.
+   *
+   * @generated from field: repeated string missing = 2;
+   */
+  missing: string[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.RevealSliceSecretsResponse.
+ * Use `create(RevealSliceSecretsResponseSchema)` to create a new message.
+ */
+export const RevealSliceSecretsResponseSchema: GenMessage<RevealSliceSecretsResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_secret, 9);
+
+/**
  * SecretService manages an account's secrets: values Gitslice keeps encrypted
  * and passes to the CI checks of the slices each one is scoped to, as
  * environment variables (design/33_secrets.md). Only the account's owners and
- * admins manage them, and no call ever returns a value.
+ * admins manage them, and only RevealSliceSecrets returns a value, to them.
  *
  * @generated from service gitslice.core.v1.SecretService
  */
@@ -296,6 +346,20 @@ export const SecretService: GenService<{
     methodKind: "unary";
     input: typeof DeleteSecretRequestSchema;
     output: typeof EmptySchema;
+  },
+  /**
+   * RevealSliceSecrets returns the values of the named secrets that reach a
+   * slice, so that the account's owners and admins can fill a local env file
+   * (gs secret env). It is refused to everyone else, slice admins and writers
+   * included. Each call is logged with the caller and the names, never the
+   * values.
+   *
+   * @generated from rpc gitslice.core.v1.SecretService.RevealSliceSecrets
+   */
+  revealSliceSecrets: {
+    methodKind: "unary";
+    input: typeof RevealSliceSecretsRequestSchema;
+    output: typeof RevealSliceSecretsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_proto_core_v1_secret, 0);

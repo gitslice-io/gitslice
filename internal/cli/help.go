@@ -239,7 +239,8 @@ A secret is a value Gitslice keeps encrypted and passes to CI checks as an
 environment variable named after it. It belongs to an account and applies to
 some of the account's slices, or to all of them. The account's owners and
 admins manage secrets with gs secret or on the account's Secrets page in the
-web app. No command or page shows a value again once it is set.
+web app. No page shows a value; only owners and admins can read one back
+with gs secret env (see Local env files).
 
   printf %s "$TOKEN" | gs secret create DEPLOY_TOKEN --slice api --slice worker
   printf %s "$TOKEN" | gs secret create NPM_TOKEN --all-slices
@@ -249,6 +250,15 @@ web app. No command or page shows a value again once it is set.
   gs secret rm <secret-id>
 
 In a terminal, leave out the pipe and type the value; it is not echoed.
+
+Local env files
+  The account's owners and admins can fill an env template from a slice's
+  secrets. In the template, write NAME=gitslice-secret:SECRET_NAME:
+
+  gs secret env env.prod.template --slice gitslice/gitslice -o .env.prod
+
+  The file is written with mode 600, values are never printed to a terminal,
+  and the server logs who read which names. Nobody else can read a value.
 
 Scope
   A slice gets at most one secret of each name. One name can hold different

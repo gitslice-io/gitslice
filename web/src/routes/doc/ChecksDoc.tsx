@@ -304,8 +304,9 @@ checks:
           reaches the slices it is scoped to, or all of the account&apos;s slices.
           The account&apos;s owners and admins manage secrets with 
           <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">gs secret</code> 
-          or on the account&apos;s Secrets page. A value is never shown again once
-          it is set.
+          or on the account&apos;s Secrets page. No page shows a value; only the
+          account&apos;s owners and admins can read one back, into a local env
+          file with <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">gs secret env</code>.
         </p>
         <CommandBlock>{[
           "printf %s \"$TOKEN\" | gs secret create DEPLOY_TOKEN --slice api --slice worker",

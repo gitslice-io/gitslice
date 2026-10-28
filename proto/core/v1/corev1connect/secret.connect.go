@@ -47,6 +47,9 @@ const (
 	// SecretServiceDeleteSecretProcedure is the fully-qualified name of the SecretService's
 	// DeleteSecret RPC.
 	SecretServiceDeleteSecretProcedure = "/gitslice.core.v1.SecretService/DeleteSecret"
+	// SecretServiceRevealSliceSecretsProcedure is the fully-qualified name of the SecretService's
+	// RevealSliceSecrets RPC.
+	SecretServiceRevealSliceSecretsProcedure = "/gitslice.core.v1.SecretService/RevealSliceSecrets"
 )
 
 // SecretServiceClient is a client for the gitslice.core.v1.SecretService service.
@@ -62,6 +65,12 @@ type SecretServiceClient interface {
 	// stays as it is.
 	UpdateSecret(context.Context, *connect.Request[v1.UpdateSecretRequest]) (*connect.Response[v1.Secret], error)
 	DeleteSecret(context.Context, *connect.Request[v1.DeleteSecretRequest]) (*connect.Response[v1.Empty], error)
+	// RevealSliceSecrets returns the values of the named secrets that reach a
+	// slice, so that the account's owners and admins can fill a local env file
+	// (gs secret env). It is refused to everyone else, slice admins and writers
+	// included. Each call is logged with the caller and the names, never the
+	// values.
+	RevealSliceSecrets(context.Context, *connect.Request[v1.RevealSliceSecretsRequest]) (*connect.Response[v1.RevealSliceSecretsResponse], error)
 }
 
 // NewSecretServiceClient constructs a client for the gitslice.core.v1.SecretService service. By
@@ -105,16 +114,23 @@ func NewSecretServiceClient(httpClient connect.HTTPClient, baseURL string, opts 
 			connect.WithSchema(secretServiceMethods.ByName("DeleteSecret")),
 			connect.WithClientOptions(opts...),
 		),
+		revealSliceSecrets: connect.NewClient[v1.RevealSliceSecretsRequest, v1.RevealSliceSecretsResponse](
+			httpClient,
+			baseURL+SecretServiceRevealSliceSecretsProcedure,
+			connect.WithSchema(secretServiceMethods.ByName("RevealSliceSecrets")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // secretServiceClient implements SecretServiceClient.
 type secretServiceClient struct {
-	listSecrets  *connect.Client[v1.ListSecretsRequest, v1.ListSecretsResponse]
-	getSecret    *connect.Client[v1.GetSecretRequest, v1.Secret]
-	createSecret *connect.Client[v1.CreateSecretRequest, v1.Secret]
-	updateSecret *connect.Client[v1.UpdateSecretRequest, v1.Secret]
-	deleteSecret *connect.Client[v1.DeleteSecretRequest, v1.Empty]
+	listSecrets        *connect.Client[v1.ListSecretsRequest, v1.ListSecretsResponse]
+	getSecret          *connect.Client[v1.GetSecretRequest, v1.Secret]
+	createSecret       *connect.Client[v1.CreateSecretRequest, v1.Secret]
+	updateSecret       *connect.Client[v1.UpdateSecretRequest, v1.Secret]
+	deleteSecret       *connect.Client[v1.DeleteSecretRequest, v1.Empty]
+	revealSliceSecrets *connect.Client[v1.RevealSliceSecretsRequest, v1.RevealSliceSecretsResponse]
 }
 
 // ListSecrets calls gitslice.core.v1.SecretService.ListSecrets.
@@ -142,6 +158,11 @@ func (c *secretServiceClient) DeleteSecret(ctx context.Context, req *connect.Req
 	return c.deleteSecret.CallUnary(ctx, req)
 }
 
+// RevealSliceSecrets calls gitslice.core.v1.SecretService.RevealSliceSecrets.
+func (c *secretServiceClient) RevealSliceSecrets(ctx context.Context, req *connect.Request[v1.RevealSliceSecretsRequest]) (*connect.Response[v1.RevealSliceSecretsResponse], error) {
+	return c.revealSliceSecrets.CallUnary(ctx, req)
+}
+
 // SecretServiceHandler is an implementation of the gitslice.core.v1.SecretService service.
 type SecretServiceHandler interface {
 	// ListSecrets lists an account's secrets with their scopes, by name.
@@ -155,6 +176,12 @@ type SecretServiceHandler interface {
 	// stays as it is.
 	UpdateSecret(context.Context, *connect.Request[v1.UpdateSecretRequest]) (*connect.Response[v1.Secret], error)
 	DeleteSecret(context.Context, *connect.Request[v1.DeleteSecretRequest]) (*connect.Response[v1.Empty], error)
+	// RevealSliceSecrets returns the values of the named secrets that reach a
+	// slice, so that the account's owners and admins can fill a local env file
+	// (gs secret env). It is refused to everyone else, slice admins and writers
+	// included. Each call is logged with the caller and the names, never the
+	// values.
+	RevealSliceSecrets(context.Context, *connect.Request[v1.RevealSliceSecretsRequest]) (*connect.Response[v1.RevealSliceSecretsResponse], error)
 }
 
 // NewSecretServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -194,6 +221,12 @@ func NewSecretServiceHandler(svc SecretServiceHandler, opts ...connect.HandlerOp
 		connect.WithSchema(secretServiceMethods.ByName("DeleteSecret")),
 		connect.WithHandlerOptions(opts...),
 	)
+	secretServiceRevealSliceSecretsHandler := connect.NewUnaryHandler(
+		SecretServiceRevealSliceSecretsProcedure,
+		svc.RevealSliceSecrets,
+		connect.WithSchema(secretServiceMethods.ByName("RevealSliceSecrets")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.SecretService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case SecretServiceListSecretsProcedure:
@@ -206,6 +239,8 @@ func NewSecretServiceHandler(svc SecretServiceHandler, opts ...connect.HandlerOp
 			secretServiceUpdateSecretHandler.ServeHTTP(w, r)
 		case SecretServiceDeleteSecretProcedure:
 			secretServiceDeleteSecretHandler.ServeHTTP(w, r)
+		case SecretServiceRevealSliceSecretsProcedure:
+			secretServiceRevealSliceSecretsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -233,4 +268,8 @@ func (UnimplementedSecretServiceHandler) UpdateSecret(context.Context, *connect.
 
 func (UnimplementedSecretServiceHandler) DeleteSecret(context.Context, *connect.Request[v1.DeleteSecretRequest]) (*connect.Response[v1.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SecretService.DeleteSecret is not implemented"))
+}
+
+func (UnimplementedSecretServiceHandler) RevealSliceSecrets(context.Context, *connect.Request[v1.RevealSliceSecretsRequest]) (*connect.Response[v1.RevealSliceSecretsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SecretService.RevealSliceSecrets is not implemented"))
 }

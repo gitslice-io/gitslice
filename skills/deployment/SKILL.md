@@ -28,6 +28,14 @@ Never print secret values. `.env.staging`, `.env.prod`, `.env.local`, and `deplo
 awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/ {print $1}' .env.staging | sort
 ```
 
+`.env.prod` is generated from the committed `env.prod.template`: its secret
+values are Gitslice secrets of `gitslice/gitslice`, which the `gitslice`
+account's owners and admins fill in with
+`gs secret env env.prod.template --slice gitslice/gitslice -o .env.prod`
+(mode 600; each read is logged on the server). Rotating a key means
+`gs secret update <id> --value` and regenerating the file. Anyone else asks an
+owner, or deploys through the pipeline.
+
 Record material deploys and surprising deployment findings in `design/10_execution_log.md`: request, actions, decisions, verification commands, and results. Do not record secrets.
 
 ## Source Of Truth

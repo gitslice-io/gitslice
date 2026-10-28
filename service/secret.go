@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	"gitslice.io/gitslice/internal/authz"
@@ -127,6 +128,63 @@ func (s *SecretService) DeleteSecret(ctx context.Context, req *corev1.DeleteSecr
 		return nil, grpcError(err)
 	}
 	return &corev1.Empty{}, nil
+}
+
+// maxRevealedSecrets bounds one RevealSliceSecrets call.
+const maxRevealedSecrets = 100
+
+// RevealSliceSecrets returns secret values to the owners and admins of the
+// slice's account, the people who can already set them, so they can fill a
+// local env file. Writers and slice admins only ever see values inside a
+// check. Every call is logged with who asked and for which names.
+func (s *SecretService) RevealSliceSecrets(ctx context.Context, req *corev1.RevealSliceSecretsRequest) (*corev1.RevealSliceSecretsResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ref, err := normalizeServiceSliceRef(req.GetSlice())
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	seen := map[string]bool{}
+	for _, name := range req.GetNames() {
+		name = strings.TrimSpace(name)
+		if !storage.ValidSliceSecretName(name) {
+			return nil, status.Errorf(codes.InvalidArgument, "secret name %q must match ^[A-Z_][A-Z0-9_]*$", name)
+		}
+		if !seen[name] {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "name at least one secret")
+	}
+	if len(names) > maxRevealedSecrets {
+		return nil, status.Errorf(codes.InvalidArgument, "at most %d secrets at a time", maxRevealedSecrets)
+	}
+	slice, err := s.Slices.Resolve(ctx, ref)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, slice); err != nil {
+		return nil, err
+	}
+	values, err := s.Slices.GetSliceSecrets(ctx, slice.Id)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	out := &corev1.RevealSliceSecretsResponse{Values: map[string]string{}}
+	for _, name := range names {
+		if value, ok := values[name]; ok {
+			out.Values[name] = value
+		} else {
+			out.Missing = append(out.Missing, name)
+		}
+	}
+	slog.InfoContext(ctx, "secrets revealed", "subject_id", subjectID, "slice", slice.GetRef().GetAccount()+"/"+slice.GetRef().GetSlice(), "names", strings.Join(names, ","), "missing", strings.Join(out.Missing, ","))
+	return out, nil
 }
 
 // adminSecret loads a secret of an account the caller administers. To anyone

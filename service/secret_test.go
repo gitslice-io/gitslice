@@ -137,3 +137,41 @@ func TestListSliceSecretsShowsSourcesToAdmins(t *testing.T) {
 		t.Fatalf("ListSliceSecrets for a writer = %v, want names only", forWriter)
 	}
 }
+
+func TestRevealSliceSecretsOnlyForAccountAdmins(t *testing.T) {
+	mem, h := newSliceMemberHandlers(t)
+	mem.AddAccountRole("user_carol", "acme", "writer")
+	alice, bob, carol := subjectCtx("user_alice"), subjectCtx("user_bob"), subjectCtx("user_carol")
+	if _, err := h.Slice.SetSliceMember(alice, &corev1.SetSliceMemberRequest{Slice: paymentRef, Username: "bob", Role: "admin"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "DEPLOY_TOKEN", Value: "s3cret", Scope: &corev1.SecretScope{Slices: []*corev1.SliceRef{paymentRef}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "NPM_TOKEN", Value: "npm-value", Scope: &corev1.SecretScope{AllSlices: true}}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := h.Secret.RevealSliceSecrets(alice, &corev1.RevealSliceSecretsRequest{Slice: paymentRef, Names: []string{"DEPLOY_TOKEN", "NPM_TOKEN", "NOPE", "DEPLOY_TOKEN"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.GetValues()) != 2 || got.Values["DEPLOY_TOKEN"] != "s3cret" || got.Values["NPM_TOKEN"] != "npm-value" {
+		t.Fatalf("values = %v", got.GetValues())
+	}
+	if len(got.GetMissing()) != 1 || got.Missing[0] != "NOPE" {
+		t.Fatalf("missing = %v, want [NOPE]", got.GetMissing())
+	}
+
+	// A slice admin and an account writer both receive the secrets inside a
+	// check, but cannot read them out.
+	_, err = h.Secret.RevealSliceSecrets(bob, &corev1.RevealSliceSecretsRequest{Slice: paymentRef, Names: []string{"DEPLOY_TOKEN"}})
+	wantCode(t, err, codes.PermissionDenied, "a slice admin revealing a secret")
+	_, err = h.Secret.RevealSliceSecrets(carol, &corev1.RevealSliceSecretsRequest{Slice: paymentRef, Names: []string{"DEPLOY_TOKEN"}})
+	wantCode(t, err, codes.PermissionDenied, "an account writer revealing a secret")
+
+	_, err = h.Secret.RevealSliceSecrets(alice, &corev1.RevealSliceSecretsRequest{Slice: paymentRef})
+	wantCode(t, err, codes.InvalidArgument, "no names")
+	_, err = h.Secret.RevealSliceSecrets(alice, &corev1.RevealSliceSecretsRequest{Slice: paymentRef, Names: []string{"bad-name"}})
+	wantCode(t, err, codes.InvalidArgument, "a bad name")
+}

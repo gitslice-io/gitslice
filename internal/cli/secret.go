@@ -37,7 +37,8 @@ func (r Runner) secretCommand(opts *commandOptions) *cobra.Command {
 		Long: "A secret is a value Gitslice keeps encrypted and passes to the CI checks of the slices it is scoped to,\n" +
 			"as an environment variable named after it. A secret belongs to an account and applies to some of its\n" +
 			"slices (--slice) or to all of them (--all-slices). Values are read from stdin, or typed hidden in a\n" +
-			"terminal, and are never shown again. Only the account's owners and admins manage its secrets.",
+			"terminal. Only the account's owners and admins manage its secrets, and only they can read values back,\n" +
+			"into a local env file (gs secret env).",
 		RunE: requireSubcommand("secret"),
 	}
 
@@ -109,7 +110,25 @@ func (r Runner) secretCommand(opts *commandOptions) *cobra.Command {
 		},
 	}
 
-	secretCmd.AddCommand(listCmd, createCmd, updateCmd, deleteCmd)
+	var envSlice, envOutput string
+	var envForce bool
+	envCmd := &cobra.Command{
+		Use:   "env <template>",
+		Short: "Fill an env file's gitslice-secret: placeholders with secret values (account owners and admins)",
+		Long: "Reads an env template, such as env.prod.template, and writes it with every NAME=gitslice-secret:SECRET_NAME\n" +
+			"value replaced by that secret's value for the slice (--slice, default: the workspace's). Only the owners\n" +
+			"and admins of the slice's account may read values; each read is logged. The output is written with mode 600,\n" +
+			"and gs refuses to print values to a terminal.",
+		Args: exactArgs(1, "gs secret env <template> [--slice <slice>] -o <file> [--force]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runSecretEnv(cmd.Context(), *opts, args[0], envSlice, envOutput, envForce)
+		},
+	}
+	envCmd.Flags().StringVar(&envSlice, "slice", "", "the slice whose secrets fill the template (default: the workspace slice)")
+	envCmd.Flags().StringVarP(&envOutput, "output", "o", "", "file to write (mode 600); - or empty for stdout, when it is not a terminal")
+	envCmd.Flags().BoolVar(&envForce, "force", false, "replace the output file if it exists")
+
+	secretCmd.AddCommand(listCmd, createCmd, updateCmd, deleteCmd, envCmd)
 	return secretCmd
 }
 

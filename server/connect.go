@@ -774,3 +774,7 @@ func (a connectSecretAdapter) UpdateSecret(ctx context.Context, req *connect.Req
 func (a connectSecretAdapter) DeleteSecret(ctx context.Context, req *connect.Request[corev1.DeleteSecretRequest]) (*connect.Response[corev1.Empty], error) {
 	return connectResponse(a.svc.DeleteSecret(ctx, req.Msg))
 }
+
+func (a connectSecretAdapter) RevealSliceSecrets(ctx context.Context, req *connect.Request[corev1.RevealSliceSecretsRequest]) (*connect.Response[corev1.RevealSliceSecretsResponse], error) {
+	return connectResponse(a.svc.RevealSliceSecrets(ctx, req.Msg))
+}

@@ -2,6 +2,8 @@ package cli_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -74,5 +76,51 @@ func TestSecretsScopedToSlices(t *testing.T) {
 	runCLI(t, home, payment, "secret", "rm", created.ID)
 	if out := runCLI(t, home, payment, "slice", "secret", "ls", "acme/payment"); strings.TrimSpace(out) != "OWN_TOKEN" {
 		t.Fatalf("slice secret ls at the end = %q", out)
+	}
+}
+
+// TestSecretEnvFillsATemplate fills an env template from the slice's secrets
+// into a file only its owner can read.
+func TestSecretEnvFillsATemplate(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	payment := t.TempDir()
+	loginTestCLI(t, ts, home, payment)
+	runCLI(t, home, payment, "workspace", "init", "acme/payment")
+	runCLIStreamsWithInput(t, home, payment, "it's s3cret\n", "secret", "create", "DEPLOY_TOKEN", "--account", "acme", "--slice", "payment")
+
+	dir := t.TempDir()
+	template := filepath.Join(dir, "env.prod.template")
+	if err := os.WriteFile(template, []byte("API=https://api.example.com\nDEPLOY_TOKEN=gitslice-secret:DEPLOY_TOKEN\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out := filepath.Join(dir, ".env.prod")
+	runCLI(t, home, payment, "secret", "env", template, "-o", out)
+	got, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "API=https://api.example.com\nDEPLOY_TOKEN='it'\\''s s3cret'\n"; string(got) != want {
+		t.Fatalf("filled env = %q, want %q", got, want)
+	}
+	if info, err := os.Stat(out); err != nil || info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode = %v (%v), want 0600", info.Mode().Perm(), err)
+	}
+
+	_, stderr := runCLIFails(t, home, payment, "secret", "env", template, "-o", out)
+	if !strings.Contains(stderr, "--force") {
+		t.Fatalf("second run without --force: %s", stderr)
+	}
+	runCLI(t, home, payment, "secret", "env", template, "-o", out, "--force")
+
+	if err := os.WriteFile(template, []byte("X=gitslice-secret:NOT_THERE\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, stderr = runCLIFails(t, home, payment, "secret", "env", template, "-o", filepath.Join(dir, "other"))
+	if !strings.Contains(stderr, "NOT_THERE") {
+		t.Fatalf("missing secret: %s", stderr)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "other")); !os.IsNotExist(err) {
+		t.Fatal("a template with a missing secret wrote a file")
 	}
 }

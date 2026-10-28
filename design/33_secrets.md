@@ -43,7 +43,7 @@ secret
   id            sec_…
   account       the account that owns it
   name          ^[A-Z_][A-Z0-9_]*$, the environment variable name; never changes
-  value         sealed with secretbox (enc:v1); never returned by any API
+  value         sealed with secretbox (enc:v1); returned only by RevealSliceSecrets, to account admins
   scope         all_slices, or a set of slices of the account
   created_by / updated_by / created_at / updated_at
 ```
@@ -64,8 +64,10 @@ secret
 - **Effective secrets of a slice** = the secrets that list the slice, plus the
   account's `all_slices` secrets whose names those do not already cover. This
   is what `GetSliceSecrets` returns.
-- **Values are write-only.** No RPC and no page returns a value. To change a
-  value you replace it.
+- **Values reach checks, and admins only on request.** No page shows a value.
+  The only call that returns one is `RevealSliceSecrets`, and only to the
+  owners and admins of the account, the people who can already replace it (see
+  "Local env files"). To change a value you replace it.
 - **Limits.** A value can be up to 48 KiB, and an account can have up to 200
   secrets (`storage.MaxSecretValueBytes`, `storage.MaxSecretsPerAccount`).
   Names follow `storage.ValidSliceSecretName`.
@@ -83,6 +85,7 @@ slice at their own CI daemon, could receive the value.
 | `ListSecrets`, `GetSecret` (scope and ids) | Account owners and admins; to anyone else a secret id is `NotFound` |
 | `ListSliceSecrets` names | Writers of the slice, as before |
 | `ListSliceSecrets` sources (`secrets`) | Account owners and admins |
+| `RevealSliceSecrets` (values) | Account owners and admins; refused to slice admins and writers |
 
 Exposure is what users need to understand. A secret reaches every CI daemon
 that runs checks for any slice in its scope, and every writer of those slices
@@ -254,6 +257,39 @@ It sits between the members and webhooks panels:
 Docs: a "Pass secrets to checks" section in the Checks doc, a Secrets group in
 the CLI reference, and a line in the gs-cli skill.
 
+## Local env files
+
+Deploying the web app needs production credentials in a local `.env.prod`
+(`web/scripts/deploy.sh` sources it). The committed `env.prod.template`
+lists every variable that file needs. Public values are written out, and each
+secret is a placeholder, `NAME=gitslice-secret:SECRET_NAME`. The account's
+owners and admins generate the file:
+
+```bash
+gs secret env env.prod.template --slice gitslice/gitslice -o .env.prod
+```
+
+- **The call.** `SecretService.RevealSliceSecrets(slice, names)` returns the
+  values of the named secrets that reach the slice, plus the names that none
+  do. It takes 1 to 100 names, and the caller must be an owner or admin of the
+  slice's account (`authorizeSliceOwner`).
+- **Who is refused.** Slice admins and writers, who receive the values inside
+  checks, cannot read them out. That keeps an outside writer from collecting
+  credentials with one command and no changeset to show for it.
+- **Audit.** Each call logs `secrets revealed` with the subject, the slice and
+  the names, never the values.
+- **The CLI.**
+  - It refuses to print values to a terminal and writes the output file with
+    mode 600, replacing it in one step.
+  - It won't overwrite an existing file without `--force`.
+  - If any secret is missing it writes nothing.
+  - Values that are not shell-safe are single-quoted, since the file is
+    sourced by bash.
+- **Rotation.** `gs secret update <id> --value`, then regenerate the file.
+
+Moving the deploy into a CI job, so that nobody needs production credentials
+locally, remains the longer-term answer.
+
 ## Masking secrets in check output
 
 A check that prints a secret must not store it in a log that every reader of
@@ -302,6 +338,10 @@ check sends back: its log and its summary (`internal/secretmask`).
   not mask still has its log and summary masked by the server.
 - **CLI** (`tests/cli/secrets_test.go`): `gs secret` create, update, ls and
   rm, together with the slice commands.
+- **Reveal** (`service/secret_test.go`, `internal/cli/secret_env_test.go`,
+  `tests/cli/secrets_test.go`): values only for account admins, refused to a
+  slice admin and an account writer; template parsing and quoting; the
+  mode-600 file, `--force`, and nothing written when a secret is missing.
 - **Web** (`components/secrets/Secrets.test.tsx`): listing, creating with a
   scope, editing that keeps the value and shows a refusal, deleting, and the
   slice panel's sources and preset scope.
