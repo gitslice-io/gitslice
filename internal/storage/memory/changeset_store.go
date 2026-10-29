@@ -591,3 +591,15 @@ func changesetHasPatchsetID(cs *corev1.Changeset, patchsetID string) bool {
 	}
 	return false
 }
+
+// ApprovalSubjects lists who approved a patchset.
+func (s *ChangesetStore) ApprovalSubjects(ctx context.Context, changesetID, patchsetID string) ([]string, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	var out []string
+	for subjectID := range s.b.approvals[patchsetRequirementKey(changesetID, patchsetID)] {
+		out = append(out, subjectID)
+	}
+	sort.Strings(out)
+	return out, nil
+}

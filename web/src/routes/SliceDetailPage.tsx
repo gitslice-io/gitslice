@@ -56,6 +56,7 @@ import {
 import { CheckoutMenu } from "./slice-detail/CheckoutMenu";
 import { FileFinder } from "./slice-detail/FileFinder";
 import { HistoryDrawer } from "./slice-detail/HistoryDrawer";
+import { TriggersDrawer } from "./slice-detail/TriggersDrawer";
 import { SliceFolderNavigator } from "./slice-detail/SliceFolderNavigator";
 import {
   CopyMoveProvider,
@@ -74,6 +75,8 @@ interface SliceParams {
 interface SliceSearch {
   path?: unknown;
   history?: unknown;
+  // The Triggers view of the folder, in the URL as history is.
+  triggers?: unknown;
   // Blame is on for the file, and the change selected in it (a short commit
   // id): in the address, so back from a changeset opened from the blame
   // finds the page as it was left.
@@ -104,6 +107,7 @@ export function SliceDetailPage() {
   // rather than local state so the browser/mobile back gesture closes it instead
   // of navigating away from the slice page entirely.
   const historyOpen = Boolean(search.history);
+  const triggersOpen = Boolean(search.triggers);
   const blameOn = Boolean(search.blame);
   const blameAt = typeof search.blameAt === "string" ? search.blameAt : "";
   // The file tree is open unless the folder shows a README, which has the page
@@ -341,6 +345,26 @@ export function SliceDetailPage() {
     });
   }
 
+  function openTriggers() {
+    if (!sliceRouteParams) {
+      return;
+    }
+    void navigate({
+      params: sliceRouteParams as never,
+      search: {
+        ...(selectedPath ? { path: selectedPath } : {}),
+        triggers: "1",
+      } as never,
+      to: "/slices/$account/$slice",
+    });
+  }
+
+  function closeTriggers() {
+    if (triggersOpen) {
+      router.history.back();
+    }
+  }
+
   function closeHistory() {
     if (historyOpen) {
       // Mirror the back gesture: pop the entry openHistory pushed.
@@ -547,6 +571,16 @@ export function SliceDetailPage() {
                   Settings
                 </Link>
               ) : null}
+              {isSignedIn && sliceRouteParams ? (
+                <button
+                  className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
+                  onClick={openTriggers}
+                  title="What a change in this folder sets off"
+                  type="button"
+                >
+                  Triggers
+                </button>
+              ) : null}
               {commitId ? (
                 <button
                   className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
@@ -665,6 +699,12 @@ export function SliceDetailPage() {
               slice={sliceRef}
             />
           ) : null}
+          <TriggersDrawer
+            api={api}
+            folder={triggersFolder(selectedPath, isFile, includedPaths)}
+            onClose={closeTriggers}
+            open={triggersOpen}
+          />
           <HistoryDrawer
             api={api}
             commitId={commitId}
@@ -742,4 +782,15 @@ function CreatingChangesetOverlay() {
       </div>
     </div>
   );
+}
+
+// triggersFolder is the folder whose triggers the Triggers view shows: the
+// selected folder, a selected file's folder, or the slice's first folder.
+export function triggersFolder(selectedPath: string, isFile: boolean, includedPaths: string[]) {
+  let folder = selectedPath || includedPaths[0] || "";
+  if (selectedPath && isFile) {
+    folder = selectedPath.slice(0, selectedPath.lastIndexOf("/")) || folder;
+  }
+  folder = "/" + folder.replace(/^\/+|\/+$/g, "");
+  return folder === "/" ? "" : folder;
 }

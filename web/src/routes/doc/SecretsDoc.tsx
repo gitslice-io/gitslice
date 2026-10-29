@@ -8,11 +8,11 @@ const strongClass = "font-semibold text-zinc-950 dark:text-zinc-50";
 const accessRows: Array<[string, string]> = [
   [
     "Account owners and admins",
-    "Create, change, rescope and delete secrets. Read values back into a local env file with gs secret env."
+    "Create, change, move and delete secrets. Read values back into a local env file with gs secret env."
   ],
   [
     "Slice writers and slice admins",
-    "See the names that reach the slice (gs slice secret ls). Their changesets' checks receive the values; they cannot read them out."
+    "See the names that apply in the slice (gs slice secret ls). Their changesets' checks receive the values; they cannot read them out."
   ],
   ["Readers and everyone else", "Nothing: not the names, not the values."]
 ];
@@ -30,21 +30,23 @@ export function SecretsDoc() {
         <h2 className={headingClass}>How secrets work</h2>
         <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           <li>
-            <span className={strongClass}>An account owns it.</span> A secret belongs to an account (yours, or an
-            organization&apos;s) and applies to some of that account&apos;s slices, or to all of them, including slices
-            created later.
+            <span className={strongClass}>A secret applies to folders.</span> It belongs to an account (yours, or an
+            organization&apos;s) and applies to the folders you choose and everything below them, such as{" "}
+            <code className={inlineCode}>/acme/services/billing</code>. <code className={inlineCode}>/acme</code> is
+            the whole account.
           </li>
           <li>
             <span className={strongClass}>Checks read it as an environment variable</span> named after the secret, such
-            as <code className={inlineCode}>DEPLOY_TOKEN</code>. The checks that the slice&apos;s CI daemon runs get
-            every secret that reaches the slice. A secret replaces a check&apos;s own <code className={inlineCode}>env</code>{" "}
-            entry of the same name. A slice without a CI daemon passes its secrets to nothing.
+            as <code className={inlineCode}>DEPLOY_TOKEN</code>. A check gets the secrets that apply at the folder of
+            the <code className={inlineCode}>.gitslice/checks.yaml</code> that defines it, whichever slice&apos;s change
+            runs it. A secret replaces a check&apos;s own <code className={inlineCode}>env</code> entry of the same
+            name. Checks run on the slice&apos;s CI daemon, so a slice without one passes secrets to nothing.
           </li>
           <li>
-            <span className={strongClass}>One value per name per slice.</span> One name can hold different values for
-            different slices, for example a staging token for <code className={inlineCode}>web</code> and a production
-            token for <code className={inlineCode}>api</code>. A secret that lists a slice overrides an all-slices secret
-            of the same name there.
+            <span className={strongClass}>The closest folder wins.</span> A folder has at most one secret of each name.
+            Where several apply, the one on the closest folder wins: a <code className={inlineCode}>DEPLOY_TOKEN</code>{" "}
+            on <code className={inlineCode}>/acme/web</code> overrides one on <code className={inlineCode}>/acme</code>{" "}
+            for checks under <code className={inlineCode}>/acme/web</code>.
           </li>
           <li>
             <span className={strongClass}>Values stay hidden.</span> They are stored encrypted, no page shows them, and a
@@ -61,36 +63,40 @@ export function SecretsDoc() {
           the Secrets panel in a slice&apos;s <span className={strongClass}>Settings</span>. From the CLI, pipe the value
           in so it stays out of your shell history (in a terminal, leave out the pipe and type it; it is not echoed):
         </p>
-        <CommandBlock>{`# for some slices of your active account (--account to pick another)
-printf %s "$TOKEN" | gs secret create DEPLOY_TOKEN --slice api --slice worker
+        <CommandBlock>{`# for some folders of your active account (--account to pick another)
+printf %s "$TOKEN" | gs secret create DEPLOY_TOKEN --path /acme/api --path /acme/worker
 
-# for every slice of the account, including later ones
-printf %s "$NPM_TOKEN" | gs secret create NPM_TOKEN --all-slices
+# for the whole account
+printf %s "$NPM_TOKEN" | gs secret create NPM_TOKEN --path /acme
 
-gs secret ls                                       # names, scopes, who changed them last
-gs secret update <secret-id> --add-slice web       # or --remove-slice, --slice ..., --all-slices
+# for the folders a slice includes
+printf %s "$TOKEN" | gs secret create WEB_TOKEN --slice web
+
+gs secret ls                                       # names, folders, who changed them last
+gs secret update <secret-id> --add-path /acme/web  # or --remove-path, --path ..., --slice ...
 printf %s "$NEW" | gs secret update <secret-id> --value
 gs secret rm <secret-id>`}</CommandBlock>
         <p className={textClass}>
           Names are environment variable names: capital letters, digits and <code className={inlineCode}>_</code>, not
-          starting with a digit. A value can be up to 48 KiB, so a key file fits, and an account can have up to 200
-          secrets.
+          starting with a digit. A value can be up to 48 KiB, so a key file fits. A secret can apply to up to 50
+          folders, and an account can have up to 200 secrets.
         </p>
       </section>
 
       <section className={sectionClass}>
         <h2 className={headingClass}>One slice at a time</h2>
         <p className={textClass}>
-          <code className={inlineCode}>gs slice secret</code> works on a single slice. It changes only secrets that
-          belong to that slice alone, so it never changes a value that other slices share:
+          <code className={inlineCode}>gs slice secret</code> works on the folders a slice includes. It changes only
+          secrets on those folders alone, so it never changes a value that other folders get:
         </p>
-        <CommandBlock>{`gs slice secret ls acme/api                      # the names that reach the slice
+        <CommandBlock>{`gs slice secret ls acme/api                      # the names that apply in the slice
 printf %s "$TOKEN" | gs slice secret set acme/api CI_TOKEN
-gs slice secret rm acme/api CI_TOKEN             # takes the slice out of a shared secret`}</CommandBlock>
+gs slice secret rm acme/api CI_TOKEN             # takes the slice's folders out of a secret`}</CommandBlock>
         <p className={textClass}>
-          <code className={inlineCode}>set</code> refuses a name that a secret shared with other slices already gives
-          this slice; change that one with <code className={inlineCode}>gs secret update</code>. <code className={inlineCode}>rm</code>{" "}
-          refuses an all-slices secret, because removing it would affect every slice.
+          <code className={inlineCode}>set</code> refuses a name whose secret also applies to other folders; change
+          that one with <code className={inlineCode}>gs secret update</code>. <code className={inlineCode}>rm</code>{" "}
+          refuses a secret on a folder above the slice, such as the account root, because removing it would affect
+          other folders too.
         </p>
       </section>
 
@@ -115,11 +121,12 @@ gs slice secret rm acme/api CI_TOKEN             # takes the slice out of a shar
           </table>
         </div>
         <p className={textClass}>
-          <span className={strongClass}>Scope with care.</span> A check runs whatever its changeset says, so anyone who
-          can write to a slice can read its secrets from a check, and the slice&apos;s CI daemon receives them too.
-          Masking with <code className={inlineCode}>***</code> catches accidental prints, such as a token echoed in a
-          debug line, but it does not stop a check that sets out to leak a value, for example by encoding it. Give a
-          secret only to the slices whose writers you would trust with it.
+          <span className={strongClass}>Choose folders with care.</span> A check runs whatever its changeset says, so
+          anyone who can add a check in a secret&apos;s folders can read it from that check: the writers of every slice
+          that includes one of those folders, a folder above it, or a folder inside it. Those slices&apos; CI daemons
+          receive it too. Masking with <code className={inlineCode}>***</code> catches accidental prints, such as a
+          token echoed in a debug line, but it does not stop a check that sets out to leak a value, for example by
+          encoding it. Put a secret only on folders whose writers you would trust with it.
         </p>
       </section>
 
@@ -133,8 +140,12 @@ gs slice secret rm acme/api CI_TOKEN             # takes the slice out of a shar
 PUBLIC_API_BASE_URL=https://api.example.com
 CLOUDFLARE_API_TOKEN=gitslice-secret:CLOUDFLARE_API_TOKEN
 R2_SECRET_ACCESS_KEY=gitslice-secret:R2_SECRET_ACCESS_KEY`}</CommandBlock>
-        <p className={textClass}>Then the account&apos;s owners and admins fill it in:</p>
-        <CommandBlock>{`gs secret env env.prod.template --slice acme/api -o .env.prod`}</CommandBlock>
+        <p className={textClass}>
+          Then the account&apos;s owners and admins fill it in. In a workspace, the secrets that apply at the
+          template&apos;s folder fill it; elsewhere, name the folder:
+        </p>
+        <CommandBlock>{`gs secret env acme/api/env.prod.template -o .env.prod    # in a workspace
+gs secret env env.prod.template --path /acme/api -o .env.prod`}</CommandBlock>
         <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           <li>
             The file is written readable by you only (mode 600). <code className={inlineCode}>gs</code> refuses to
@@ -142,11 +153,11 @@ R2_SECRET_ACCESS_KEY=gitslice-secret:R2_SECRET_ACCESS_KEY`}</CommandBlock>
             <code className={inlineCode}>--force</code>.
           </li>
           <li>
-            If a placeholder names a secret the slice doesn&apos;t have, nothing is written. Values a shell would
+            If a placeholder names a secret that does not apply at the folder, nothing is written. Values a shell would
             misread are quoted, so the file can be sourced.
           </li>
           <li>
-            Only owners and admins of the slice&apos;s account can read values this way, and each read is logged with
+            Only owners and admins of the account can read values this way, and each read is logged with
             who asked and which names. Everyone else uses an example env file without production credentials.
           </li>
           <li>

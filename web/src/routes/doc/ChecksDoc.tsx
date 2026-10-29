@@ -152,6 +152,16 @@ checks:
           </li>
           <li>
             <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
+              started_by: trigger
+            </code>{" "}
+            — the check no longer starts with every patchset; a trigger whose action is{" "}
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
+              check
+            </code>{" "}
+            starts it, so a triggers.yaml decides when CI runs (see Triggers).
+          </li>
+          <li>
+            <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
               setup
             </code>{" "}
             — commands run once to prepare the container image (install
@@ -301,13 +311,13 @@ checks:
         <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           A check that needs a token or key reads it from an environment variable
           that Gitslice fills from a secret. The account&apos;s owners and admins
-          store it once, for the slices that need it, and log output shows it as
-          ***.
+          store it once, on the folders whose checks need it, and log output
+          shows it as ***.
         </p>
-        <CommandBlock>{"printf %s \"$TOKEN\" | gs secret create DEPLOY_TOKEN --slice api --slice worker"}</CommandBlock>
+        <CommandBlock>{"printf %s \"$TOKEN\" | gs secret create DEPLOY_TOKEN --path /acme/api --path /acme/worker"}</CommandBlock>
         <div className="mt-4">
           <NextDocCard
-            description="Scopes, who can read a secret, masking, and filling a local env file."
+            description="Folders, who can read a secret, masking, and filling a local env file."
             section="secrets"
             title="Secrets"
           />

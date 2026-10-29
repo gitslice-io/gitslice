@@ -1,0 +1,296 @@
+syntax = "proto3";
+
+package gitslice.core.v1;
+
+import "proto/core/v1/changeset.proto";
+import "proto/core/v1/check.proto";
+import "proto/core/v1/common.proto";
+
+option go_package = "gitslice.io/gitslice/proto/core/v1;corev1";
+
+// TriggerService shows the triggers that apply to folders and their runs,
+// and starts runs by hand (design/34_triggers.md). Reading needs read access
+// to the folder's account; running and canceling need write access.
+service TriggerService {
+  // ListTriggers lists the triggers that apply at a folder: those defined in
+  // it and in the folders above it, at the head of a ref.
+  rpc ListTriggers(ListTriggersRequest) returns (ListTriggersResponse);
+  rpc ListTriggerRuns(ListTriggerRunsRequest) returns (ListTriggerRunsResponse);
+  rpc GetTriggerRun(GetTriggerRunRequest) returns (TriggerRun);
+  rpc ListTriggerRunLogs(ListTriggerRunLogsRequest) returns (ListTriggerRunLogsResponse);
+  // RunTrigger starts a trigger that listens for "manual", at the head of a
+  // ref, optionally about a changeset.
+  rpc RunTrigger(RunTriggerRequest) returns (TriggerRun);
+  // RerunTriggerRun runs a finished run's trigger again for the same event.
+  rpc RerunTriggerRun(RerunTriggerRunRequest) returns (TriggerRun);
+  rpc CancelTriggerRun(CancelTriggerRunRequest) returns (TriggerRun);
+}
+
+// TriggerRunService is what a running trigger calls. It is not called with a
+// user's credentials: StartRun and StartCallback take the dispatcher's key,
+// and every other call the run's token, which is good for that run only and
+// only until it ends.
+service TriggerRunService {
+  // StartRun claims a queued run for the dispatcher and returns what it
+  // needs to run it. FailedPrecondition when the run is not queued (another
+  // dispatcher has it, or it was canceled).
+  rpc StartRun(StartTriggerRunRequest) returns (StartTriggerRunResponse);
+  // StartCallback returns what the dispatcher needs to call onCallback for a
+  // waiting run.
+  rpc StartCallback(StartTriggerRunRequest) returns (StartTriggerRunResponse);
+  // FinishRun ends a call of the script: the run finishes, or waits for
+  // callbacks.
+  rpc FinishRun(FinishTriggerRunRequest) returns (TriggerRun);
+  rpc AppendRunLog(AppendTriggerRunLogRequest) returns (Empty);
+  rpc GetRunState(TriggerRunTokenRequest) returns (TriggerRunState);
+  rpc SetRunState(SetTriggerRunStateRequest) returns (Empty);
+  rpc CreateCheck(CreateTriggerCheckRequest) returns (CheckRun);
+  rpc UpdateCheck(UpdateTriggerCheckRequest) returns (CheckRun);
+  rpc ReadFile(TriggerReadFileRequest) returns (TriggerReadFileResponse);
+  rpc ListDirectory(TriggerListDirectoryRequest) returns (TriggerListDirectoryResponse);
+  rpc GetChangeset(TriggerRunTokenRequest) returns (Changeset);
+}
+
+// TriggerDefinition is a trigger as its triggers.yaml defines it.
+message TriggerDefinition {
+  // "<folder>/<name>", the folder relative to the account root.
+  string id = 1;
+  string name = 2;
+  // The canonical folder that holds its .gitslice.
+  string folder = 3;
+  repeated string on = 4;
+  repeated string paths = 5;
+  repeated string changes = 6;
+  repeated string refs = 7;
+  repeated string secrets = 8;
+  repeated string network = 9;
+  // Ids of the checks it may report.
+  repeated string checks = 10;
+  string concurrency = 11;
+  int64 timeout_ms = 12;
+  int32 retry = 13;
+  // "http" or "worker".
+  string action = 14;
+  // The URL as written (secrets stay as ${{ secrets.NAME }}), or the script.
+  string http_url = 15;
+  string worker = 16;
+}
+
+message TriggerFileProblem {
+  string folder = 1;
+  string file = 2;
+  string message = 3;
+}
+
+message TriggerRun {
+  string id = 1;
+  string account = 2;
+  string trigger_id = 3;
+  string folder = 4;
+  string action = 5;
+  string event_id = 6;
+  string event_kind = 7;
+  string changeset_id = 8;
+  string patchset_id = 9;
+  string commit_id = 10;
+  string target_ref = 11;
+  string definition_commit_id = 12;
+  // queued, running, waiting, succeeded, failed, errored, canceled or
+  // timed_out.
+  string status = 13;
+  int32 attempt = 14;
+  int32 max_attempts = 15;
+  string error = 16;
+  // For http actions: the last response's status code.
+  int32 response_status = 17;
+  // RFC 3339.
+  string created_at = 18;
+  string started_at = 19;
+  string finished_at = 20;
+  string deadline = 21;
+}
+
+message ListTriggersRequest {
+  // A canonical folder, such as /acme/services/billing.
+  string path = 1;
+  // Default refs/global/main.
+  string ref = 2;
+}
+
+message ListTriggersResponse {
+  repeated TriggerDefinition triggers = 1;
+  repeated TriggerFileProblem problems = 2;
+  // The commit the definitions were read from.
+  string commit_id = 3;
+}
+
+message ListTriggerRunsRequest {
+  string account = 1;
+  string trigger_id = 2;
+  string changeset_id = 3;
+  // Default 50, at most 200.
+  int32 limit = 4;
+}
+
+message ListTriggerRunsResponse {
+  repeated TriggerRun runs = 1;
+}
+
+message GetTriggerRunRequest {
+  string run_id = 1;
+}
+
+message ListTriggerRunLogsRequest {
+  string run_id = 1;
+  int64 after_seq = 2;
+}
+
+message TriggerRunLog {
+  int64 seq = 1;
+  string stream = 2;
+  string chunk = 3;
+  string created_at = 4;
+}
+
+message ListTriggerRunLogsResponse {
+  repeated TriggerRunLog logs = 1;
+}
+
+message RunTriggerRequest {
+  string account = 1;
+  string trigger_id = 2;
+  // Default refs/global/main.
+  string ref = 3;
+  // A changeset the run is about; its checks may then be reported.
+  string changeset_id = 4;
+  // Passed to the script as event.inputs.
+  map<string, string> inputs = 5;
+}
+
+message RerunTriggerRunRequest {
+  string run_id = 1;
+}
+
+message CancelTriggerRunRequest {
+  string run_id = 1;
+}
+
+message StartTriggerRunRequest {
+  string run_id = 1;
+  // The dispatcher's key (GITSLICE_TRIGGER_DISPATCH_SECRET).
+  string dispatcher_key = 2;
+  // StartCallback only: the signature from the callback URL.
+  string callback_signature = 3;
+}
+
+message StartTriggerRunResponse {
+  TriggerRun run = 1;
+  // The event envelope, as JSON.
+  string event_json = 2;
+  // The script's modules by path relative to its .gitslice folder, and the
+  // entry module.
+  map<string, string> modules = 3;
+  string main_module = 4;
+  // A hash of the modules and network, for the isolate id.
+  string code_hash = 5;
+  // Values of the secrets the trigger lists, and which of them it may read
+  // in the clear.
+  map<string, string> secrets = 6;
+  repeated string reveal = 7;
+  repeated string network = 8;
+  // The token for every other call of this run.
+  string run_token = 9;
+  // Where outside systems call back: <base>/cb/<run id>/<signature>.
+  string callback_url = 10;
+  string state_json = 11;
+  int64 deadline_unix_ms = 12;
+}
+
+message TriggerRunTokenRequest {
+  string run_token = 1;
+}
+
+message FinishTriggerRunRequest {
+  string run_token = 1;
+  // succeeded, failed or errored.
+  string outcome = 2;
+  string error = 3;
+  // Keep the run waiting for callbacks (gs.waitForCallback). A run also
+  // waits while a check it created is queued or running, unless finish is
+  // set (gs.finish).
+  bool wait = 4;
+  bool finish = 5;
+  // This call was onCallback, not onEvent.
+  bool callback = 6;
+}
+
+message TriggerRunLogLine {
+  string stream = 1;
+  string text = 2;
+}
+
+message AppendTriggerRunLogRequest {
+  string run_token = 1;
+  repeated TriggerRunLogLine lines = 2;
+}
+
+message TriggerRunState {
+  string state_json = 1;
+}
+
+message SetTriggerRunStateRequest {
+  string run_token = 1;
+  // At most 64 KiB.
+  string state_json = 2;
+}
+
+message CreateTriggerCheckRequest {
+  string run_token = 1;
+  // A check name the trigger lists in checks.
+  string name = 2;
+  string status = 3;
+  string summary = 4;
+  string details_url = 5;
+  repeated CheckAnnotation annotations = 6;
+}
+
+message UpdateTriggerCheckRequest {
+  string run_token = 1;
+  string check_run_id = 2;
+  // Unset fields stay as they are.
+  string status = 3;
+  optional string summary = 4;
+  optional string details_url = 5;
+  repeated CheckAnnotation annotations = 6;
+}
+
+message TriggerReadFileRequest {
+  string run_token = 1;
+  // Canonical, or relative to the trigger's folder.
+  string path = 2;
+  // "event" (default: the patchset's tree or the landed commit) or "base".
+  string at = 3;
+}
+
+message TriggerReadFileResponse {
+  bool found = 1;
+  bytes content = 2;
+}
+
+message TriggerListDirectoryRequest {
+  string run_token = 1;
+  string path = 2;
+  string at = 3;
+}
+
+message TriggerDirectoryEntry {
+  string name = 1;
+  string path = 2;
+  // file or directory.
+  string kind = 3;
+}
+
+message TriggerListDirectoryResponse {
+  bool found = 1;
+  repeated TriggerDirectoryEntry entries = 2;
+}

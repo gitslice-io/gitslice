@@ -98,7 +98,11 @@ checks:
 	waitForSubmittedChangeset(t, ctx, clients.changeset, changesetID)
 }
 
-func TestRPCSliceSecretsInjectIntoFullTreeRunnerDispatch(t *testing.T) {
+// TestRPCSecretsReachChecksByFolder: a check gets the secrets that apply at
+// the folder of the checks.yaml that defines it (design/33_secrets.md), with
+// the longest path winning, and the server masks those values in what the
+// daemon sends back.
+func TestRPCSecretsReachChecksByFolder(t *testing.T) {
 	ts := startRPCServer(t)
 	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)
@@ -118,6 +122,12 @@ checks:
       CI_TOKEN: declared
       PLAIN_ENV: plain
 `)
+	submitDirectFile(t, ctx, clients, "/acme/payment/ci-secret-dispatch/.gitslice/checks.yaml", `
+version: 1
+checks:
+  nested:
+    run: "echo nested"
+`, "nested checks")
 
 	daemonCtx, cancelDaemon := context.WithTimeout(ctx, 20*time.Second)
 	defer cancelDaemon()
@@ -148,6 +158,7 @@ checks:
 	}); err != nil {
 		t.Fatalf("SetSliceCIDaemon: %v", err)
 	}
+	// The slice call puts CI_TOKEN on the slice's folder.
 	if _, err := slices.SetSliceSecret(ctx, &corev1.SetSliceSecretRequest{
 		Slice: sliceRef,
 		Name:  "CI_TOKEN",
@@ -166,49 +177,53 @@ checks:
 		t.Fatal("ListSliceSecrets returned a secret value")
 	}
 
-	// Account secrets reach the slice too: one scoped to it and another
-	// slice, and one for every slice of the account.
 	secrets := corev1.NewSecretServiceClient(conn)
-	if _, err := secrets.CreateSecret(ctx, &corev1.CreateSecretRequest{
-		Account: "acme",
-		Name:    "SHARED_TOKEN",
-		Value:   "shared-secret",
-		Scope:   &corev1.SecretScope{Slices: []*corev1.SliceRef{sliceRef, {Account: "acme", Slice: "home"}}},
-	}); err != nil {
-		t.Fatalf("CreateSecret scoped: %v", err)
-	}
-	if _, err := secrets.CreateSecret(ctx, &corev1.CreateSecretRequest{
-		Account: "acme",
-		Name:    "ACCOUNT_TOKEN",
-		Value:   "account-secret",
-		Scope:   &corev1.SecretScope{AllSlices: true},
-	}); err != nil {
-		t.Fatalf("CreateSecret all slices: %v", err)
+	for _, req := range []*corev1.CreateSecretRequest{
+		{Account: "acme", Name: "SHARED_TOKEN", Value: "shared-secret", Scope: &corev1.SecretScope{Paths: []string{"/acme/payment/ci-secret-dispatch", "/acme/web"}}},
+		// all_slices still means the account root.
+		{Account: "acme", Name: "ACCOUNT_TOKEN", Value: "account-secret", Scope: &corev1.SecretScope{AllSlices: true}},
+		{Account: "acme", Name: "DEPLOY_TOKEN", Value: "deploy-root", Scope: &corev1.SecretScope{Paths: []string{"/acme"}}},
+		{Account: "acme", Name: "DEPLOY_TOKEN", Value: "deploy-nested", Scope: &corev1.SecretScope{Paths: []string{"/acme/payment"}}},
+	} {
+		if _, err := secrets.CreateSecret(ctx, req); err != nil {
+			t.Fatalf("CreateSecret %s: %v", req.Name, err)
+		}
 	}
 
 	changesetID, patchsetID := createDirectPatchsetForSlice(t, ctx, clients, sliceRef, "/acme/payment/ci-secret-dispatch/change.go", "package cisecretdispatch\nconst V = 1\n", "ci secret dispatch")
 	runChecks := recvRunChecks(t, stream, changesetID, patchsetID)
-	if len(runChecks.Checks) != 1 {
-		t.Fatalf("RunChecks checks = %d, want 1", len(runChecks.Checks))
+	byName := map[string]*corev1.CheckRunSpec{}
+	for _, check := range runChecks.Checks {
+		byName[check.Name] = check
 	}
-	check := runChecks.Checks[0]
-	if check.Env["CI_TOKEN"] != "super-secret" {
-		t.Fatal("RunChecks env did not contain the slice secret")
+	root, nested := byName["secret-required"], byName["payment/ci-secret-dispatch/nested"]
+	if root == nil || nested == nil || len(byName) != 2 {
+		t.Fatalf("RunChecks checks = %v, want the root and the nested check", byName)
 	}
-	if check.Env["SHARED_TOKEN"] != "shared-secret" || check.Env["ACCOUNT_TOKEN"] != "account-secret" {
-		t.Fatal("RunChecks env did not contain the account secrets scoped to the slice")
+	// The root check is defined at /acme: only account-root secrets, and its
+	// own CI_TOKEN stays as declared.
+	if root.Env["CI_TOKEN"] != "declared" || root.Env["PLAIN_ENV"] != "plain" || root.Env["ACCOUNT_TOKEN"] != "account-secret" || root.Env["DEPLOY_TOKEN"] != "deploy-root" {
+		t.Fatalf("root check env has the wrong values")
 	}
-	if check.Env["PLAIN_ENV"] != "plain" {
-		t.Fatalf("PLAIN_ENV = %q, want plain", check.Env["PLAIN_ENV"])
+	if _, ok := root.Env["SHARED_TOKEN"]; ok {
+		t.Fatal("root check got a secret of a folder below it")
 	}
-	if got := strings.Join(check.SecretEnv, ","); got != "ACCOUNT_TOKEN,CI_TOKEN,SHARED_TOKEN" {
-		t.Fatalf("SecretEnv = %q, want the secret names only", got)
+	if got := strings.Join(root.SecretEnv, ","); got != "ACCOUNT_TOKEN,DEPLOY_TOKEN" {
+		t.Fatalf("root SecretEnv = %q", got)
+	}
+	// The nested check gets its folder's secrets, the closest DEPLOY_TOKEN
+	// winning.
+	if nested.Env["CI_TOKEN"] != "super-secret" || nested.Env["SHARED_TOKEN"] != "shared-secret" || nested.Env["ACCOUNT_TOKEN"] != "account-secret" || nested.Env["DEPLOY_TOKEN"] != "deploy-nested" {
+		t.Fatal("nested check env has the wrong values")
+	}
+	if got := strings.Join(nested.SecretEnv, ","); got != "ACCOUNT_TOKEN,CI_TOKEN,DEPLOY_TOKEN,SHARED_TOKEN" {
+		t.Fatalf("nested SecretEnv = %q, want the secret names only", got)
 	}
 
 	// A daemon that does not mask (an older one) still stores no secret: the
-	// server masks the log and summary it receives.
+	// server masks the log and summary with the check's own secrets.
 	if err := stream.Send(&corev1.DaemonMessage{Payload: &corev1.DaemonMessage_CheckUpdate{CheckUpdate: &corev1.CheckRunUpdate{
-		RunId:     check.RunId,
+		RunId:     nested.RunId,
 		Status:    "failed",
 		ExitCode:  1,
 		LogChunk:  "token super-secret and shared-secret\n",
@@ -219,16 +234,16 @@ checks:
 	}}}); err != nil {
 		t.Fatalf("send CheckRunUpdate: %v", err)
 	}
-	recvCheckRunAck(t, stream, check.RunId, 1)
+	recvCheckRunAck(t, stream, nested.RunId, 1)
 	checkClient := corev1.NewCheckServiceClient(conn)
-	run, err := checkClient.GetCheckRun(ctx, &corev1.GetCheckRunRequest{RunId: check.RunId})
+	run, err := checkClient.GetCheckRun(ctx, &corev1.GetCheckRunRequest{RunId: nested.RunId})
 	if err != nil {
 		t.Fatalf("GetCheckRun: %v", err)
 	}
 	if run.Summary != "failed: ***" {
 		t.Fatalf("stored summary = %q, want the secret masked", run.Summary)
 	}
-	logs, err := checkClient.StreamCheckRun(ctx, &corev1.StreamCheckRunRequest{RunId: check.RunId})
+	logs, err := checkClient.StreamCheckRun(ctx, &corev1.StreamCheckRunRequest{RunId: nested.RunId})
 	if err != nil {
 		t.Fatalf("StreamCheckRun: %v", err)
 	}
@@ -250,8 +265,8 @@ checks:
 	if err != nil {
 		t.Fatalf("ListSliceSecrets after delete: %v", err)
 	}
-	if len(list.Names) != 2 || list.Names[0] != "ACCOUNT_TOKEN" || list.Names[1] != "SHARED_TOKEN" {
-		t.Fatalf("ListSliceSecrets after delete names = %#v, want the account secrets", list.Names)
+	if got := strings.Join(list.Names, ","); got != "ACCOUNT_TOKEN,DEPLOY_TOKEN,DEPLOY_TOKEN,SHARED_TOKEN" {
+		t.Fatalf("ListSliceSecrets after delete names = %q", got)
 	}
 }
 

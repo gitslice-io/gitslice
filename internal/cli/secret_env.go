@@ -82,7 +82,7 @@ func shellQuoteEnvValue(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
-func (r Runner) runSecretEnv(ctx context.Context, opts commandOptions, templatePath, slice, output string, force bool) error {
+func (r Runner) runSecretEnv(ctx context.Context, opts commandOptions, templatePath, folder, slice, output string, force bool) error {
 	content, err := os.ReadFile(templatePath)
 	if err != nil {
 		return userError("template_unreadable", err.Error(), "")
@@ -103,24 +103,42 @@ func (r Runner) runSecretEnv(ctx context.Context, opts commandOptions, templateP
 			return userError("output_exists", output+" already exists", "Pass --force to replace it.")
 		}
 	}
+	if slice == "" {
+		if folder, err = secretEnvFolder(templatePath, folder); err != nil {
+			return err
+		}
+	}
 	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	ref, err := r.tagSliceRef(callCtx, cfg, conn, slice)
-	if err != nil {
-		return err
+	client := corev1.NewSecretServiceClient(conn)
+	var values map[string]string
+	var missing []string
+	where, hint := folder, "Create it with gs secret create NAME --path "+folder+" < value, or fix the template."
+	if slice != "" {
+		ref, err := r.tagSliceRef(callCtx, cfg, conn, slice)
+		if err != nil {
+			return err
+		}
+		resp, err := client.RevealSliceSecrets(callCtx, &corev1.RevealSliceSecretsRequest{Slice: ref, Names: names})
+		if err != nil {
+			return secretError(err)
+		}
+		values, missing = resp.Values, resp.Missing
+		where, hint = ref.Account+"/"+ref.Slice, "Create it with gs secret create NAME --slice "+ref.Slice+" < value, or fix the template."
+	} else {
+		resp, err := client.RevealSecrets(callCtx, &corev1.RevealSecretsRequest{Path: folder, Names: names})
+		if err != nil {
+			return secretError(err)
+		}
+		values, missing = resp.Values, resp.Missing
 	}
-	resp, err := corev1.NewSecretServiceClient(conn).RevealSliceSecrets(callCtx, &corev1.RevealSliceSecretsRequest{Slice: ref, Names: names})
-	if err != nil {
-		return secretError(err)
+	if len(missing) > 0 {
+		return userError("secret_missing", fmt.Sprintf("no secret at %s is named %s", where, strings.Join(missing, ", ")), hint)
 	}
-	if len(resp.Missing) > 0 {
-		return userError("secret_missing", fmt.Sprintf("no secret of %s/%s is named %s", ref.Account, ref.Slice, strings.Join(resp.Missing, ", ")),
-			"Create it with gs secret create NAME --slice "+ref.Slice+" < value, or fix the template.")
-	}
-	rendered := renderEnvTemplate(lines, resp.Values)
+	rendered := renderEnvTemplate(lines, values)
 	if toStdout {
 		_, err := fmt.Fprint(r.Stdout, rendered)
 		return err
@@ -129,9 +147,32 @@ func (r Runner) runSecretEnv(ctx context.Context, opts commandOptions, templateP
 		return err
 	}
 	if !opts.Quiet {
-		fmt.Fprintf(r.stderr(), "wrote %s (mode 600) with %d secret(s) of %s/%s\n", output, len(names), ref.Account, ref.Slice)
+		fmt.Fprintf(r.stderr(), "wrote %s (mode 600) with %d secret(s) at %s\n", output, len(names), where)
 	}
 	return nil
+}
+
+// secretEnvFolder is the folder whose secrets fill a template: --path, or
+// the template's own folder in the workspace, which mirrors the account's
+// paths (gitslice/gitslice/env.prod.template is in /gitslice/gitslice).
+func secretEnvFolder(templatePath, folder string) (string, error) {
+	if strings.TrimSpace(folder) != "" {
+		return secretPathFlag(folder)
+	}
+	abs, err := filepath.Abs(templatePath)
+	if err != nil {
+		return "", err
+	}
+	dir := filepath.Dir(abs)
+	root, err := workspaceRootFrom(dir)
+	if err != nil {
+		return "", userError("path_required", "cannot tell which folder "+templatePath+" belongs to: it is not in a gitslice workspace", "Pass --path /<account>/<folder>, or --slice.")
+	}
+	rel, err := filepath.Rel(root, dir)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return "", userError("path_required", "cannot tell which folder "+templatePath+" belongs to", "Pass --path /<account>/<folder>, or --slice.")
+	}
+	return secretPathFlag("/" + filepath.ToSlash(rel))
 }
 
 // writePrivateFile writes data readable by its owner only, replacing path

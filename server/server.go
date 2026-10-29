@@ -26,6 +26,7 @@ import (
 	"gitslice.io/gitslice/internal/rpclimits"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/treestore"
+	"gitslice.io/gitslice/internal/triggers"
 	"gitslice.io/gitslice/internal/webhooks"
 	"gitslice.io/gitslice/proto/core/v1"
 	"gitslice.io/gitslice/service"
@@ -132,6 +133,21 @@ func Run(ctx context.Context, cfg Config) error {
 			return err
 		}
 	}
+	// Trigger checks are written through the wrapped check store below, so
+	// the events they cause are recorded too.
+	triggerChecks := &lateCheckStore{}
+	triggerEngine := triggers.NewEngine(triggers.Stores{
+		Triggers:   db.Triggers(),
+		Changesets: db.Changesets(),
+		Slices:     db.Slices(),
+		Repository: db.Repository(),
+		Checks:     triggerChecks,
+	}, triggers.Options{
+		Tree:                service.TreeFiles{Repository: db.Repository(), Objects: objectStore},
+		DispatchURL:         cfg.TriggerDispatchURL,
+		DispatchSecret:      cfg.TriggerDispatchSecret,
+		AllowPrivateTargets: cfg.WebhookAllowPrivateTargets,
+	})
 	dispatcher := webhooks.NewDispatcher(webhooks.Stores{
 		Webhooks:   db.Webhooks(),
 		Slices:     db.Slices(),
@@ -142,6 +158,7 @@ func Run(ctx context.Context, cfg Config) error {
 		Secrets:             secrets,
 		WebBaseURL:          cfg.webBaseURL(),
 		AllowPrivateTargets: cfg.WebhookAllowPrivateTargets,
+		Triggers:            triggerEngine,
 	})
 	go dispatcher.Run(ctx)
 	pubNudge := newPublishNudger()
@@ -177,8 +194,11 @@ func Run(ctx context.Context, cfg Config) error {
 		Webhooks:   db.Webhooks(),
 		Feedback:   db.Feedback(),
 		Blames:     db.Blames(),
+		Triggers:   db.Triggers(),
 	}
+	triggerChecks.CheckStore = stores.Checks
 	handlers := service.New(stores, objectStore, tracker)
+	handlers.SetTriggerEngine(triggerEngine)
 	handlers.Feedback.Account = cfg.FeedbackAccount
 	handlers.Feedback.OperatorSubjects = cfg.OperatorSubjects
 	handlers.Webhook.Dispatcher = dispatcher
@@ -468,6 +488,8 @@ func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, cfgs ...
 	corev1.RegisterWebhookServiceServer(grpcServer, handlers.Webhook)
 	corev1.RegisterSecretServiceServer(grpcServer, handlers.Secret)
 	corev1.RegisterFeedbackServiceServer(grpcServer, handlers.Feedback)
+	corev1.RegisterTriggerServiceServer(grpcServer, handlers.Trigger)
+	corev1.RegisterTriggerRunServiceServer(grpcServer, handlers.TriggerRun)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthv1.HealthCheckResponse_SERVING)
 	healthv1.RegisterHealthServer(grpcServer, healthServer)
@@ -516,6 +538,9 @@ func isPublicMethod(method string) bool {
 	return method == "/gitslice.core.v1.AuthService/StartCliLogin" ||
 		method == "/gitslice.core.v1.AuthService/PollCliLogin" ||
 		method == agentSignupMethod ||
+		// A trigger run authenticates with its run token, in the request
+		// (design/34_triggers.md).
+		strings.HasPrefix(method, "/gitslice.core.v1.TriggerRunService/") ||
 		strings.HasPrefix(method, "/grpc.health.v1.Health/")
 }
 
@@ -578,4 +603,11 @@ func grpcAuthError(err error) error {
 		return status.Error(codes.Unauthenticated, err.Error())
 	}
 	return status.Error(codes.Internal, fmt.Sprintf("auth lookup failed: %v", err))
+}
+
+// lateCheckStore is a check store set after it is handed out: the trigger
+// engine needs the check store wrapped by the webhook dispatcher, which needs
+// the engine.
+type lateCheckStore struct {
+	storage.CheckStore
 }

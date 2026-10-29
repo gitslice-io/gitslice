@@ -44,8 +44,14 @@ type CheckRun struct {
 	// waits for.
 	DaemonOnline     bool   `protobuf:"varint,16,opt,name=daemon_online,json=daemonOnline,proto3" json:"daemon_online,omitempty"`
 	DaemonLastSeenAt string `protobuf:"bytes,17,opt,name=daemon_last_seen_at,json=daemonLastSeenAt,proto3" json:"daemon_last_seen_at,omitempty"`
-	unknownFields    protoimpl.UnknownFields
-	sizeCache        protoimpl.SizeCache
+	// Set when a trigger reports the check (design/34_triggers.md): the run
+	// that reports it, a link to more detail, and findings on lines of files.
+	// provenance is then "trigger".
+	TriggerRunId  string             `protobuf:"bytes,18,opt,name=trigger_run_id,json=triggerRunId,proto3" json:"trigger_run_id,omitempty"`
+	DetailsUrl    string             `protobuf:"bytes,19,opt,name=details_url,json=detailsUrl,proto3" json:"details_url,omitempty"`
+	Annotations   []*CheckAnnotation `protobuf:"bytes,20,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CheckRun) Reset() {
@@ -197,6 +203,106 @@ func (x *CheckRun) GetDaemonLastSeenAt() string {
 	return ""
 }
 
+func (x *CheckRun) GetTriggerRunId() string {
+	if x != nil {
+		return x.TriggerRunId
+	}
+	return ""
+}
+
+func (x *CheckRun) GetDetailsUrl() string {
+	if x != nil {
+		return x.DetailsUrl
+	}
+	return ""
+}
+
+func (x *CheckRun) GetAnnotations() []*CheckAnnotation {
+	if x != nil {
+		return x.Annotations
+	}
+	return nil
+}
+
+// CheckAnnotation points a check's finding at lines of a file.
+type CheckAnnotation struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Canonical path, such as /acme/web/src/app.ts.
+	Path      string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	StartLine int32  `protobuf:"varint,2,opt,name=start_line,json=startLine,proto3" json:"start_line,omitempty"`
+	EndLine   int32  `protobuf:"varint,3,opt,name=end_line,json=endLine,proto3" json:"end_line,omitempty"`
+	// notice, warning or failure.
+	Level         string `protobuf:"bytes,4,opt,name=level,proto3" json:"level,omitempty"`
+	Message       string `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CheckAnnotation) Reset() {
+	*x = CheckAnnotation{}
+	mi := &file_proto_core_v1_check_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CheckAnnotation) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CheckAnnotation) ProtoMessage() {}
+
+func (x *CheckAnnotation) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_check_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CheckAnnotation.ProtoReflect.Descriptor instead.
+func (*CheckAnnotation) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_check_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *CheckAnnotation) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *CheckAnnotation) GetStartLine() int32 {
+	if x != nil {
+		return x.StartLine
+	}
+	return 0
+}
+
+func (x *CheckAnnotation) GetEndLine() int32 {
+	if x != nil {
+		return x.EndLine
+	}
+	return 0
+}
+
+func (x *CheckAnnotation) GetLevel() string {
+	if x != nil {
+		return x.Level
+	}
+	return ""
+}
+
+func (x *CheckAnnotation) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
 type CheckRunLog struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	RunId         string                 `protobuf:"bytes,1,opt,name=run_id,json=runId,proto3" json:"run_id,omitempty"`
@@ -210,7 +316,7 @@ type CheckRunLog struct {
 
 func (x *CheckRunLog) Reset() {
 	*x = CheckRunLog{}
-	mi := &file_proto_core_v1_check_proto_msgTypes[1]
+	mi := &file_proto_core_v1_check_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -222,7 +328,7 @@ func (x *CheckRunLog) String() string {
 func (*CheckRunLog) ProtoMessage() {}
 
 func (x *CheckRunLog) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_check_proto_msgTypes[1]
+	mi := &file_proto_core_v1_check_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -235,7 +341,7 @@ func (x *CheckRunLog) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CheckRunLog.ProtoReflect.Descriptor instead.
 func (*CheckRunLog) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_check_proto_rawDescGZIP(), []int{1}
+	return file_proto_core_v1_check_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CheckRunLog) GetRunId() string {
@@ -283,7 +389,7 @@ type ListCheckRunsRequest struct {
 
 func (x *ListCheckRunsRequest) Reset() {
 	*x = ListCheckRunsRequest{}
-	mi := &file_proto_core_v1_check_proto_msgTypes[2]
+	mi := &file_proto_core_v1_check_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -295,7 +401,7 @@ func (x *ListCheckRunsRequest) String() string {
 func (*ListCheckRunsRequest) ProtoMessage() {}
 
 func (x *ListCheckRunsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_check_proto_msgTypes[2]
+	mi := &file_proto_core_v1_check_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -308,7 +414,7 @@ func (x *ListCheckRunsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCheckRunsRequest.ProtoReflect.Descriptor instead.
 func (*ListCheckRunsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_check_proto_rawDescGZIP(), []int{2}
+	return file_proto_core_v1_check_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ListCheckRunsRequest) GetChangesetId() string {
@@ -334,7 +440,7 @@ type ListCheckRunsResponse struct {
 
 func (x *ListCheckRunsResponse) Reset() {
 	*x = ListCheckRunsResponse{}
-	mi := &file_proto_core_v1_check_proto_msgTypes[3]
+	mi := &file_proto_core_v1_check_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -346,7 +452,7 @@ func (x *ListCheckRunsResponse) String() string {
 func (*ListCheckRunsResponse) ProtoMessage() {}
 
 func (x *ListCheckRunsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_check_proto_msgTypes[3]
+	mi := &file_proto_core_v1_check_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -359,7 +465,7 @@ func (x *ListCheckRunsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListCheckRunsResponse.ProtoReflect.Descriptor instead.
 func (*ListCheckRunsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_check_proto_rawDescGZIP(), []int{3}
+	return file_proto_core_v1_check_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *ListCheckRunsResponse) GetRuns() []*CheckRun {
@@ -378,7 +484,7 @@ type GetCheckRunRequest struct {
 
 func (x *GetCheckRunRequest) Reset() {
 	*x = GetCheckRunRequest{}
-	mi := &file_proto_core_v1_check_proto_msgTypes[4]
+	mi := &file_proto_core_v1_check_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -390,7 +496,7 @@ func (x *GetCheckRunRequest) String() string {
 func (*GetCheckRunRequest) ProtoMessage() {}
 
 func (x *GetCheckRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_check_proto_msgTypes[4]
+	mi := &file_proto_core_v1_check_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -403,7 +509,7 @@ func (x *GetCheckRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetCheckRunRequest.ProtoReflect.Descriptor instead.
 func (*GetCheckRunRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_check_proto_rawDescGZIP(), []int{4}
+	return file_proto_core_v1_check_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *GetCheckRunRequest) GetRunId() string {
@@ -422,7 +528,7 @@ type RerunCheckRequest struct {
 
 func (x *RerunCheckRequest) Reset() {
 	*x = RerunCheckRequest{}
-	mi := &file_proto_core_v1_check_proto_msgTypes[5]
+	mi := &file_proto_core_v1_check_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -434,7 +540,7 @@ func (x *RerunCheckRequest) String() string {
 func (*RerunCheckRequest) ProtoMessage() {}
 
 func (x *RerunCheckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_check_proto_msgTypes[5]
+	mi := &file_proto_core_v1_check_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -447,7 +553,7 @@ func (x *RerunCheckRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RerunCheckRequest.ProtoReflect.Descriptor instead.
 func (*RerunCheckRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_check_proto_rawDescGZIP(), []int{5}
+	return file_proto_core_v1_check_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *RerunCheckRequest) GetRunId() string {
@@ -467,7 +573,7 @@ type StreamCheckRunRequest struct {
 
 func (x *StreamCheckRunRequest) Reset() {
 	*x = StreamCheckRunRequest{}
-	mi := &file_proto_core_v1_check_proto_msgTypes[6]
+	mi := &file_proto_core_v1_check_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -479,7 +585,7 @@ func (x *StreamCheckRunRequest) String() string {
 func (*StreamCheckRunRequest) ProtoMessage() {}
 
 func (x *StreamCheckRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_check_proto_msgTypes[6]
+	mi := &file_proto_core_v1_check_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -492,7 +598,7 @@ func (x *StreamCheckRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StreamCheckRunRequest.ProtoReflect.Descriptor instead.
 func (*StreamCheckRunRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_check_proto_rawDescGZIP(), []int{6}
+	return file_proto_core_v1_check_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *StreamCheckRunRequest) GetRunId() string {
@@ -513,7 +619,7 @@ var File_proto_core_v1_check_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_check_proto_rawDesc = "" +
 	"\n" +
-	"\x19proto/core/v1/check.proto\x12\x10gitslice.core.v1\"\x98\x04\n" +
+	"\x19proto/core/v1/check.proto\x12\x10gitslice.core.v1\"\xa4\x05\n" +
 	"\bCheckRun\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fchangeset_id\x18\x02 \x01(\tR\vchangesetId\x12\x1f\n" +
@@ -541,7 +647,18 @@ const file_proto_core_v1_check_proto_rawDesc = "" +
 	"\vdaemon_name\x18\x0f \x01(\tR\n" +
 	"daemonName\x12#\n" +
 	"\rdaemon_online\x18\x10 \x01(\bR\fdaemonOnline\x12-\n" +
-	"\x13daemon_last_seen_at\x18\x11 \x01(\tR\x10daemonLastSeenAt\"\x83\x01\n" +
+	"\x13daemon_last_seen_at\x18\x11 \x01(\tR\x10daemonLastSeenAt\x12$\n" +
+	"\x0etrigger_run_id\x18\x12 \x01(\tR\ftriggerRunId\x12\x1f\n" +
+	"\vdetails_url\x18\x13 \x01(\tR\n" +
+	"detailsUrl\x12C\n" +
+	"\vannotations\x18\x14 \x03(\v2!.gitslice.core.v1.CheckAnnotationR\vannotations\"\x8f\x01\n" +
+	"\x0fCheckAnnotation\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1d\n" +
+	"\n" +
+	"start_line\x18\x02 \x01(\x05R\tstartLine\x12\x19\n" +
+	"\bend_line\x18\x03 \x01(\x05R\aendLine\x12\x14\n" +
+	"\x05level\x18\x04 \x01(\tR\x05level\x12\x18\n" +
+	"\amessage\x18\x05 \x01(\tR\amessage\"\x83\x01\n" +
 	"\vCheckRunLog\x12\x15\n" +
 	"\x06run_id\x18\x01 \x01(\tR\x05runId\x12\x10\n" +
 	"\x03seq\x18\x02 \x01(\x03R\x03seq\x12\x16\n" +
@@ -581,31 +698,33 @@ func file_proto_core_v1_check_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_check_proto_rawDescData
 }
 
-var file_proto_core_v1_check_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_proto_core_v1_check_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_proto_core_v1_check_proto_goTypes = []any{
 	(*CheckRun)(nil),              // 0: gitslice.core.v1.CheckRun
-	(*CheckRunLog)(nil),           // 1: gitslice.core.v1.CheckRunLog
-	(*ListCheckRunsRequest)(nil),  // 2: gitslice.core.v1.ListCheckRunsRequest
-	(*ListCheckRunsResponse)(nil), // 3: gitslice.core.v1.ListCheckRunsResponse
-	(*GetCheckRunRequest)(nil),    // 4: gitslice.core.v1.GetCheckRunRequest
-	(*RerunCheckRequest)(nil),     // 5: gitslice.core.v1.RerunCheckRequest
-	(*StreamCheckRunRequest)(nil), // 6: gitslice.core.v1.StreamCheckRunRequest
+	(*CheckAnnotation)(nil),       // 1: gitslice.core.v1.CheckAnnotation
+	(*CheckRunLog)(nil),           // 2: gitslice.core.v1.CheckRunLog
+	(*ListCheckRunsRequest)(nil),  // 3: gitslice.core.v1.ListCheckRunsRequest
+	(*ListCheckRunsResponse)(nil), // 4: gitslice.core.v1.ListCheckRunsResponse
+	(*GetCheckRunRequest)(nil),    // 5: gitslice.core.v1.GetCheckRunRequest
+	(*RerunCheckRequest)(nil),     // 6: gitslice.core.v1.RerunCheckRequest
+	(*StreamCheckRunRequest)(nil), // 7: gitslice.core.v1.StreamCheckRunRequest
 }
 var file_proto_core_v1_check_proto_depIdxs = []int32{
-	0, // 0: gitslice.core.v1.ListCheckRunsResponse.runs:type_name -> gitslice.core.v1.CheckRun
-	2, // 1: gitslice.core.v1.CheckService.ListCheckRuns:input_type -> gitslice.core.v1.ListCheckRunsRequest
-	4, // 2: gitslice.core.v1.CheckService.GetCheckRun:input_type -> gitslice.core.v1.GetCheckRunRequest
-	5, // 3: gitslice.core.v1.CheckService.RerunCheck:input_type -> gitslice.core.v1.RerunCheckRequest
-	6, // 4: gitslice.core.v1.CheckService.StreamCheckRun:input_type -> gitslice.core.v1.StreamCheckRunRequest
-	3, // 5: gitslice.core.v1.CheckService.ListCheckRuns:output_type -> gitslice.core.v1.ListCheckRunsResponse
-	0, // 6: gitslice.core.v1.CheckService.GetCheckRun:output_type -> gitslice.core.v1.CheckRun
-	0, // 7: gitslice.core.v1.CheckService.RerunCheck:output_type -> gitslice.core.v1.CheckRun
-	1, // 8: gitslice.core.v1.CheckService.StreamCheckRun:output_type -> gitslice.core.v1.CheckRunLog
-	5, // [5:9] is the sub-list for method output_type
-	1, // [1:5] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	1, // 0: gitslice.core.v1.CheckRun.annotations:type_name -> gitslice.core.v1.CheckAnnotation
+	0, // 1: gitslice.core.v1.ListCheckRunsResponse.runs:type_name -> gitslice.core.v1.CheckRun
+	3, // 2: gitslice.core.v1.CheckService.ListCheckRuns:input_type -> gitslice.core.v1.ListCheckRunsRequest
+	5, // 3: gitslice.core.v1.CheckService.GetCheckRun:input_type -> gitslice.core.v1.GetCheckRunRequest
+	6, // 4: gitslice.core.v1.CheckService.RerunCheck:input_type -> gitslice.core.v1.RerunCheckRequest
+	7, // 5: gitslice.core.v1.CheckService.StreamCheckRun:input_type -> gitslice.core.v1.StreamCheckRunRequest
+	4, // 6: gitslice.core.v1.CheckService.ListCheckRuns:output_type -> gitslice.core.v1.ListCheckRunsResponse
+	0, // 7: gitslice.core.v1.CheckService.GetCheckRun:output_type -> gitslice.core.v1.CheckRun
+	0, // 8: gitslice.core.v1.CheckService.RerunCheck:output_type -> gitslice.core.v1.CheckRun
+	2, // 9: gitslice.core.v1.CheckService.StreamCheckRun:output_type -> gitslice.core.v1.CheckRunLog
+	6, // [6:10] is the sub-list for method output_type
+	2, // [2:6] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_check_proto_init() }
@@ -619,7 +738,7 @@ func file_proto_core_v1_check_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_check_proto_rawDesc), len(file_proto_core_v1_check_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

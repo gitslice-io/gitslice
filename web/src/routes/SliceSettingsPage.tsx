@@ -360,7 +360,11 @@ export function SliceSettingsPage() {
 
       {showWebhooks && webhookSlice ? (
         <div className="mt-8">
-          <SliceSecretsPanel hasCIDaemon={Boolean(slice.ciDaemonId)} slice={webhookSlice} />
+          <SliceSecretsPanel
+            hasCIDaemon={Boolean(slice.ciDaemonId)}
+            includedPaths={slice.definition?.includedPaths ?? []}
+            slice={webhookSlice}
+          />
         </div>
       ) : null}
 

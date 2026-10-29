@@ -31,6 +31,7 @@ type testRPCServer struct {
 	objectRoot  string
 	servicePriv string
 	servicePub  string
+	configure   func(*server.Config)
 
 	mu               sync.Mutex
 	defaultReady     bool
@@ -40,6 +41,12 @@ type testRPCServer struct {
 }
 
 func startRPCServer(t *testing.T) *testRPCServer {
+	t.Helper()
+	return startRPCServerWith(t, nil)
+}
+
+// startRPCServerWith starts a test server whose config configure may change.
+func startRPCServerWith(t *testing.T, configure func(*server.Config)) *testRPCServer {
 	t.Helper()
 	databaseURL := os.Getenv("GITSLICE_TEST_DATABASE_URL")
 	if databaseURL == "" {
@@ -62,6 +69,7 @@ func startRPCServer(t *testing.T) *testRPCServer {
 		servicePriv:  servicePriv,
 		servicePub:   servicePub,
 		memberTokens: map[string]string{},
+		configure:    configure,
 	}
 	ts.start(t)
 	t.Cleanup(func() {
@@ -93,19 +101,23 @@ func (ts *testRPCServer) launch(t *testing.T) error {
 	t.Helper()
 	ts.ctx, ts.cancel = context.WithCancel(context.Background())
 	ts.errCh = make(chan error, 1)
+	cfg := server.Config{
+		DisableBlameWarmer: true,
+		GRPCAddr:           ts.addr,
+		DatabaseURL:        databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
+		ObjectStoreRoot:    ts.objectRoot,
+		ServiceToken: servicetoken.Config{
+			PublicKeyPEM: ts.servicePub,
+			Issuer:       servicetoken.DefaultIssuer,
+		},
+		RunMigrations:      true,
+		AgentSignupEnabled: true,
+	}
+	if ts.configure != nil {
+		ts.configure(&cfg)
+	}
 	go func() {
-		ts.errCh <- server.Run(ts.ctx, server.Config{
-			DisableBlameWarmer: true,
-			GRPCAddr:           ts.addr,
-			DatabaseURL:        databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
-			ObjectStoreRoot:    ts.objectRoot,
-			ServiceToken: servicetoken.Config{
-				PublicKeyPEM: ts.servicePub,
-				Issuer:       servicetoken.DefaultIssuer,
-			},
-			RunMigrations:      true,
-			AgentSignupEnabled: true,
-		})
+		ts.errCh <- server.Run(ts.ctx, cfg)
 	}()
 	return waitForHealth(ts.addr, ts.errCh)
 }

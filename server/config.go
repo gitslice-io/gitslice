@@ -76,6 +76,13 @@ type Config struct {
 	// loopback addresses (GITSLICE_WEBHOOK_ALLOW_PRIVATE_TARGETS=1). Only for
 	// tests and local development.
 	WebhookAllowPrivateTargets bool
+	// TriggerDispatchURL is the Cloudflare trigger dispatcher's origin
+	// (GITSLICE_TRIGGER_DISPATCH_URL), and TriggerDispatchSecret the key the
+	// server and the dispatcher share (GITSLICE_TRIGGER_DISPATCH_SECRET).
+	// Without both, http triggers run but worker triggers error
+	// (design/34_triggers.md).
+	TriggerDispatchURL    string
+	TriggerDispatchSecret string
 }
 
 func ConfigFromEnv() Config {
@@ -132,6 +139,10 @@ func ConfigFromEnv() Config {
 		// Webhooks (design/24_webhooks.md).
 		WebBaseURL:                 os.Getenv("GITSLICE_WEB_BASE_URL"),
 		WebhookAllowPrivateTargets: os.Getenv("GITSLICE_WEBHOOK_ALLOW_PRIVATE_TARGETS") == "1",
+
+		// Triggers (design/34_triggers.md).
+		TriggerDispatchURL:    os.Getenv("GITSLICE_TRIGGER_DISPATCH_URL"),
+		TriggerDispatchSecret: os.Getenv("GITSLICE_TRIGGER_DISPATCH_SECRET"),
 	}
 }
 

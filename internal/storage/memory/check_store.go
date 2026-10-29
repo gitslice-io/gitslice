@@ -48,18 +48,22 @@ func (s *CheckStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInpu
 	if provenance != "ci" {
 		provenance = "self"
 	}
+	if strings.TrimSpace(in.TriggerRunID) != "" && strings.TrimSpace(in.DaemonID) == "" {
+		provenance = "trigger"
+	}
 	now := nowRFC()
 	run := &corev1.CheckRun{
-		Id:          id,
-		ChangesetId: changesetID,
-		PatchsetId:  patchsetID,
-		CheckName:   checkName,
-		DaemonId:    strings.TrimSpace(in.DaemonID),
-		Provenance:  provenance,
-		Attempt:     attempt,
-		Status:      status,
-		Summary:     "",
-		CreatedAt:   now,
+		Id:           id,
+		ChangesetId:  changesetID,
+		PatchsetId:   patchsetID,
+		CheckName:    checkName,
+		DaemonId:     strings.TrimSpace(in.DaemonID),
+		Provenance:   provenance,
+		Attempt:      attempt,
+		Status:       status,
+		Summary:      "",
+		CreatedAt:    now,
+		TriggerRunId: strings.TrimSpace(in.TriggerRunID),
 	}
 	if status == "running" || isTerminalMemoryCheckRunStatus(status) {
 		run.StartedAt = now
@@ -326,4 +330,21 @@ func memoryCheckRunDurationMS(startedAt, finishedAt string) int64 {
 		return 0
 	}
 	return finish.Sub(start).Milliseconds()
+}
+
+func (s *CheckStore) SetCheckRunDetails(ctx context.Context, runID string, details storage.CheckRunDetails) (*corev1.CheckRun, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	run := s.b.checkRuns[strings.TrimSpace(runID)]
+	if run == nil {
+		return nil, storage.ErrNotFound
+	}
+	data, err := storage.MarshalCheckAnnotations(details.Annotations)
+	if err != nil {
+		return nil, err
+	}
+	run.DetailsUrl = details.DetailsURL
+	run.Summary = details.Summary
+	run.Annotations = storage.CheckAnnotationsProto(data)
+	return cloneCheckRun(run), nil
 }

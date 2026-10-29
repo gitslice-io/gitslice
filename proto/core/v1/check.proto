@@ -33,6 +33,23 @@ message CheckRun {
   // waits for.
   bool daemon_online = 16;
   string daemon_last_seen_at = 17;
+  // Set when a trigger reports the check (design/34_triggers.md): the run
+  // that reports it, a link to more detail, and findings on lines of files.
+  // provenance is then "trigger".
+  string trigger_run_id = 18;
+  string details_url = 19;
+  repeated CheckAnnotation annotations = 20;
+}
+
+// CheckAnnotation points a check's finding at lines of a file.
+message CheckAnnotation {
+  // Canonical path, such as /acme/web/src/app.ts.
+  string path = 1;
+  int32 start_line = 2;
+  int32 end_line = 3;
+  // notice, warning or failure.
+  string level = 4;
+  string message = 5;
 }
 
 message CheckRunLog {

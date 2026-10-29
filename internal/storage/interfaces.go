@@ -234,6 +234,8 @@ type ChangesetStore interface {
 	PatchsetsByConversation(ctx context.Context, conversationID string) ([]*corev1.Patchset, error)
 	AddPatchset(ctx context.Context, changesetID, expectedCurrentPatchsetID string, patchset *corev1.Patchset) (*corev1.Patchset, error)
 	Approve(ctx context.Context, changesetID, subjectID string) (*corev1.ApproveChangesetResponse, error)
+	// ApprovalSubjects lists who approved a patchset.
+	ApprovalSubjects(ctx context.Context, changesetID, patchsetID string) ([]string, error)
 	ReportCheckResult(ctx context.Context, changesetID, subjectID, checkName, status string) (*corev1.ReportCheckResultResponse, error)
 	Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error)
 	PublishPending(ctx context.Context, limit int) (int, error)
@@ -377,32 +379,36 @@ type SliceStore interface {
 	// ListByCIDaemon lists the slices (not retired) that use one of the
 	// daemons as their CI daemon.
 	ListByCIDaemon(ctx context.Context, daemonIDs []string) ([]*corev1.Slice, error)
-	// Secrets belong to an account and apply to some of its slices, or all of
-	// them (design/33_secrets.md). No slice has two secrets of one name in its
-	// scope: a secret that lists the slice overrides an all-slices one, and
-	// writes that would list a slice twice fail with ErrConflict.
-	CreateSecret(ctx context.Context, account, name, value string, scope SecretScope, actorID string) (*Secret, error)
-	// UpdateSecret replaces the value when value is non-nil and the scope when
-	// scope is non-nil.
-	UpdateSecret(ctx context.Context, secretID string, value *string, scope *SecretScope, actorID string) (*Secret, error)
+	// Secrets belong to an account and apply to folders of it, with
+	// everything below them (design/33_secrets.md). Paths are normalized with
+	// NormalizeSecretPaths. No path has two secrets of one name: writes that
+	// would give it a second fail with ErrConflict. At a folder, the secret
+	// of a name with the longest covering path wins.
+	CreateSecret(ctx context.Context, account, name, value string, paths []string, actorID string) (*Secret, error)
+	// UpdateSecret replaces the value when value is non-nil and the paths
+	// when paths is non-nil.
+	UpdateSecret(ctx context.Context, secretID string, value *string, paths []string, actorID string) (*Secret, error)
 	DeleteSecret(ctx context.Context, secretID string) error
 	GetSecret(ctx context.Context, secretID string) (*Secret, error)
 	// ListSecrets lists an account's secrets by name.
 	ListSecrets(ctx context.Context, account string) ([]Secret, error)
-	// ListSliceSecrets lists the secrets that reach the slice, by name.
+	// SecretValuesAt returns the decrypted values of the secrets that apply
+	// at a canonical folder, by name: for each name, the one whose path is
+	// the longest prefix of folder.
+	SecretValuesAt(ctx context.Context, folder string) (map[string]string, error)
+	// ListSliceSecrets lists the secrets that apply anywhere in the slice
+	// (a path covers or lies inside one of its included paths), by name.
 	ListSliceSecrets(ctx context.Context, sliceID string) ([]SliceSecret, error)
-	// SetSliceSecret sets the value of the secret named name that is scoped
-	// only to this slice, creating one if none reaches it. A shared secret
-	// of that name is not changed: ErrConflict.
+	// SetSliceSecret sets the value of the secret named name whose paths are
+	// all included paths of the slice, creating one on the slice's included
+	// paths if there is none. A secret of that name on one of them that also
+	// applies elsewhere is not changed: ErrConflict.
 	SetSliceSecret(ctx context.Context, sliceID, name, value, actorID string) error
-	// DeleteSliceSecret deletes the secret named name scoped only to this
-	// slice, or takes the slice out of a shared one's scope. ErrConflict for
-	// an all-slices secret; nothing happens when none reaches the slice.
+	// DeleteSliceSecret deletes the secret named name whose paths are all
+	// included paths of the slice, or removes the slice's paths from one that
+	// has others. ErrConflict when the name only comes from a folder above
+	// the slice; nothing happens when none applies.
 	DeleteSliceSecret(ctx context.Context, sliceID, name, actorID string) error
-	ListSliceSecretNames(ctx context.Context, sliceID string) ([]string, error)
-	// GetSliceSecrets returns the decrypted values of the secrets that reach
-	// the slice, by name, for its CI checks.
-	GetSliceSecrets(ctx context.Context, sliceID string) (map[string]string, error)
 	// Delete removes a slice that authored no changesets, or returns
 	// ErrConflict.
 	Delete(ctx context.Context, sliceID string) error
@@ -525,6 +531,8 @@ type CheckRunInput struct {
 	DaemonID    string
 	Provenance  string
 	Status      string
+	// TriggerRunID is set when a trigger reports the check.
+	TriggerRunID string
 }
 
 // CheckStore persists check runs and replayable check logs. Terminal passed,
@@ -542,6 +550,9 @@ type CheckStore interface {
 	UpdateCheckRunStatus(ctx context.Context, runID, status string, exitCode int32, summary string) (*corev1.CheckRun, error)
 	AppendCheckRunLog(ctx context.Context, runID string, seq int64, stream, chunk string) (inserted bool, err error)
 	ListCheckRunLogs(ctx context.Context, runID string, afterSeq int64) ([]*corev1.CheckRunLog, error)
+	// SetCheckRunDetails sets a run's link, summary and annotations
+	// (design/34_triggers.md).
+	SetCheckRunDetails(ctx context.Context, runID string, details CheckRunDetails) (*corev1.CheckRun, error)
 }
 
 // AgentStore persists agent daemons, conversations, and conversation events for

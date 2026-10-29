@@ -1312,15 +1312,17 @@ func (x *ListSliceSecretsResponse) GetSecrets() []*SliceSecret {
 	return nil
 }
 
-// SliceSecret is a secret that reaches one slice.
+// SliceSecret is a secret that applies somewhere in a slice.
 type SliceSecret struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Name     string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	SecretId string                 `protobuf:"bytes,2,opt,name=secret_id,json=secretId,proto3" json:"secret_id,omitempty"`
-	// It applies to every slice of the account.
+	// Deprecated: no longer filled.
 	AllSlices bool `protobuf:"varint,3,opt,name=all_slices,json=allSlices,proto3" json:"all_slices,omitempty"`
-	// The other slices it is scoped to, when not all_slices.
-	SharedWith    []*SliceRef `protobuf:"bytes,4,rep,name=shared_with,json=sharedWith,proto3" json:"shared_with,omitempty"`
+	// Deprecated: no longer filled.
+	SharedWith []*SliceRef `protobuf:"bytes,4,rep,name=shared_with,json=sharedWith,proto3" json:"shared_with,omitempty"`
+	// The folders it applies to (design/33_secrets.md).
+	Paths         []string `protobuf:"bytes,5,rep,name=paths,proto3" json:"paths,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1379,6 +1381,13 @@ func (x *SliceSecret) GetAllSlices() bool {
 func (x *SliceSecret) GetSharedWith() []*SliceRef {
 	if x != nil {
 		return x.SharedWith
+	}
+	return nil
+}
+
+func (x *SliceSecret) GetPaths() []string {
+	if x != nil {
+		return x.Paths
 	}
 	return nil
 }
@@ -2241,14 +2250,15 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\"i\n" +
 	"\x18ListSliceSecretsResponse\x12\x14\n" +
 	"\x05names\x18\x01 \x03(\tR\x05names\x127\n" +
-	"\asecrets\x18\x02 \x03(\v2\x1d.gitslice.core.v1.SliceSecretR\asecrets\"\x9a\x01\n" +
+	"\asecrets\x18\x02 \x03(\v2\x1d.gitslice.core.v1.SliceSecretR\asecrets\"\xb0\x01\n" +
 	"\vSliceSecret\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
 	"\tsecret_id\x18\x02 \x01(\tR\bsecretId\x12\x1d\n" +
 	"\n" +
 	"all_slices\x18\x03 \x01(\bR\tallSlices\x12;\n" +
 	"\vshared_with\x18\x04 \x03(\v2\x1a.gitslice.core.v1.SliceRefR\n" +
-	"sharedWith\"/\n" +
+	"sharedWith\x12\x14\n" +
+	"\x05paths\x18\x05 \x03(\tR\x05paths\"/\n" +
 	"\x12DeleteSliceRequest\x12\x19\n" +
 	"\bslice_id\x18\x01 \x01(\tR\asliceId\"S\n" +
 	"\x13DeleteSliceResponse\x12\x19\n" +

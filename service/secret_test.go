@@ -8,7 +8,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func TestSecretsScopedToSlices(t *testing.T) {
+func TestSecretsScopedToFolders(t *testing.T) {
 	mem, h := newSliceMemberHandlers(t)
 	mem.AddAccountRole("user_bob", "acme", "writer")
 	mem.AddPersonalAccount("user_dave", "dave")
@@ -20,27 +20,24 @@ func TestSecretsScopedToSlices(t *testing.T) {
 		Account: "acme",
 		Name:    "DEPLOY_TOKEN",
 		Value:   "s3cret",
-		// A ref without an account means the secret's own.
-		Scope: &corev1.SecretScope{Slices: []*corev1.SliceRef{paymentRef, {Slice: "docs"}}},
+		// Paths, plus the deprecated slice refs, which stand for their
+		// included paths (a ref without an account means the secret's own).
+		Scope: &corev1.SecretScope{Paths: []string{"/acme/services/billing/"}, Slices: []*corev1.SliceRef{paymentRef, {Slice: "docs"}}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := &corev1.SecretScope{Slices: []*corev1.SliceRef{docsRef, paymentRef}}
+	want := &corev1.SecretScope{Paths: []string{"/acme/docs", "/acme/payment", "/acme/services/billing"}}
 	if !proto.Equal(created.GetScope(), want) || created.GetCreatedBy() != "alice" || created.GetAccount() != "acme" {
 		t.Fatalf("CreateSecret = %v", created)
 	}
-	for _, ref := range []*corev1.SliceRef{paymentRef, docsRef} {
-		slice, err := mem.Slices.Resolve(alice, ref)
-		if err != nil {
-			t.Fatal(err)
-		}
-		values, err := mem.Slices.GetSliceSecrets(alice, slice.Id)
+	for _, folder := range []string{"/acme/payment", "/acme/docs/guide", "/acme/services/billing/api"} {
+		values, err := mem.Slices.SecretValuesAt(alice, folder)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if values["DEPLOY_TOKEN"] != "s3cret" {
-			t.Fatalf("%s/%s secrets = %v", ref.Account, ref.Slice, values)
+			t.Fatalf("secrets at %s = %v", folder, values)
 		}
 	}
 
@@ -48,24 +45,30 @@ func TestSecretsScopedToSlices(t *testing.T) {
 	// secret does not exist.
 	_, err = h.Secret.ListSecrets(bob, &corev1.ListSecretsRequest{Account: "acme"})
 	wantCode(t, err, codes.PermissionDenied, "an account writer listing secrets")
-	_, err = h.Secret.CreateSecret(bob, &corev1.CreateSecretRequest{Account: "acme", Name: "X", Scope: &corev1.SecretScope{AllSlices: true}})
+	_, err = h.Secret.CreateSecret(bob, &corev1.CreateSecretRequest{Account: "acme", Name: "X", Scope: &corev1.SecretScope{Paths: []string{"/acme"}}})
 	wantCode(t, err, codes.PermissionDenied, "an account writer creating a secret")
 	_, err = h.Secret.GetSecret(bob, &corev1.GetSecretRequest{Id: created.Id})
 	wantCode(t, err, codes.NotFound, "an account writer reading a secret")
 	_, err = h.Secret.DeleteSecret(carol, &corev1.DeleteSecretRequest{Id: created.Id})
 	wantCode(t, err, codes.NotFound, "an outsider deleting a secret")
 
-	// Scopes stay in the account and never give a slice a name twice.
-	_, err = h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "TOKEN", Scope: &corev1.SecretScope{Slices: []*corev1.SliceRef{{Account: "other", Slice: "tools"}}}})
-	wantCode(t, err, codes.InvalidArgument, "another account's slice")
-	_, err = h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "TOKEN", Scope: &corev1.SecretScope{Slices: []*corev1.SliceRef{{Slice: "nope"}}}})
-	wantCode(t, err, codes.InvalidArgument, "a slice that does not exist")
+	// Folders stay in the account and never get a name twice.
+	for label, scope := range map[string]*corev1.SecretScope{
+		"another account's slice":  {Slices: []*corev1.SliceRef{{Account: "other", Slice: "tools"}}},
+		"a slice that is missing":  {Slices: []*corev1.SliceRef{{Slice: "nope"}}},
+		"another account's folder": {Paths: []string{"/other/tools"}},
+		"a relative folder":        {Paths: []string{"services"}},
+		"an empty scope":           {},
+	} {
+		_, err = h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "TOKEN", Scope: scope})
+		wantCode(t, err, codes.InvalidArgument, label)
+	}
 	_, err = h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "TOKEN"})
 	wantCode(t, err, codes.InvalidArgument, "no scope")
-	_, err = h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "bad-name", Scope: &corev1.SecretScope{AllSlices: true}})
+	_, err = h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "bad-name", Scope: &corev1.SecretScope{Paths: []string{"/acme"}}})
 	wantCode(t, err, codes.InvalidArgument, "a bad name")
 	_, err = h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "DEPLOY_TOKEN", Scope: &corev1.SecretScope{Slices: []*corev1.SliceRef{paymentRef}}})
-	wantCode(t, err, codes.FailedPrecondition, "a second DEPLOY_TOKEN on payment")
+	wantCode(t, err, codes.FailedPrecondition, "a second DEPLOY_TOKEN on /acme/payment")
 
 	// An update leaves alone what it does not set.
 	value := "rotated"
@@ -76,16 +79,16 @@ func TestSecretsScopedToSlices(t *testing.T) {
 	if !proto.Equal(updated.GetScope(), want) {
 		t.Fatalf("scope after a value update = %v, want %v", updated.GetScope(), want)
 	}
+	// all_slices stands for the account root.
 	updated, err = h.Secret.UpdateSecret(alice, &corev1.UpdateSecretRequest{Id: created.Id, Scope: &corev1.SecretScope{AllSlices: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !updated.GetScope().GetAllSlices() || len(updated.GetScope().GetSlices()) != 0 {
-		t.Fatalf("scope = %v, want all slices", updated.GetScope())
+	if !proto.Equal(updated.GetScope(), &corev1.SecretScope{Paths: []string{"/acme"}}) {
+		t.Fatalf("scope = %v, want [/acme]", updated.GetScope())
 	}
-	secretSlice, _ := mem.Slices.Resolve(alice, secretRef)
-	if values, _ := mem.Slices.GetSliceSecrets(alice, secretSlice.Id); values["DEPLOY_TOKEN"] != "rotated" {
-		t.Fatalf("acme/secret secrets = %v, want the rotated all-slices value", values)
+	if values, _ := mem.Slices.SecretValuesAt(alice, "/acme/secret"); values["DEPLOY_TOKEN"] != "rotated" {
+		t.Fatalf("secrets at /acme/secret = %v, want the rotated account-root value", values)
 	}
 
 	listed, err := h.Secret.ListSecrets(alice, &corev1.ListSecretsRequest{Account: "acme"})
@@ -107,14 +110,18 @@ func TestListSliceSecretsShowsSourcesToAdmins(t *testing.T) {
 	mem.AddAccountRole("user_bob", "acme", "writer")
 	alice, bob := subjectCtx("user_alice"), subjectCtx("user_bob")
 
-	shared, err := h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "SHARED", Value: "x", Scope: &corev1.SecretScope{Slices: []*corev1.SliceRef{paymentRef, docsRef}}})
+	shared, err := h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "SHARED", Value: "x", Scope: &corev1.SecretScope{Paths: []string{"/acme/payment", "/acme/docs"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "ROOT", Value: "r", Scope: &corev1.SecretScope{Paths: []string{"/acme"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.Slice.SetSliceSecret(alice, &corev1.SetSliceSecretRequest{Slice: paymentRef, Name: "OWN", Value: "y"}); err != nil {
 		t.Fatal(err)
 	}
-	// The slice call does not change a value other slices share.
+	// The slice call does not change a value other folders share.
 	_, err = h.Slice.SetSliceSecret(alice, &corev1.SetSliceSecretRequest{Slice: paymentRef, Name: "SHARED", Value: "z"})
 	wantCode(t, err, codes.FailedPrecondition, "setting a shared secret through one slice")
 
@@ -123,55 +130,72 @@ func TestListSliceSecretsShowsSourcesToAdmins(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantSecrets := []*corev1.SliceSecret{
-		{Name: "OWN", SecretId: forAdmin.GetSecrets()[0].GetSecretId()},
-		{Name: "SHARED", SecretId: shared.Id, SharedWith: []*corev1.SliceRef{docsRef}},
+		{Name: "OWN", SecretId: forAdmin.GetSecrets()[0].GetSecretId(), Paths: []string{"/acme/payment"}},
+		{Name: "ROOT", SecretId: root.Id, Paths: []string{"/acme"}},
+		{Name: "SHARED", SecretId: shared.Id, Paths: []string{"/acme/docs", "/acme/payment"}},
 	}
-	if len(forAdmin.GetSecrets()) != 2 || !proto.Equal(forAdmin.Secrets[0], wantSecrets[0]) || !proto.Equal(forAdmin.Secrets[1], wantSecrets[1]) {
+	if len(forAdmin.GetSecrets()) != len(wantSecrets) {
 		t.Fatalf("ListSliceSecrets for an admin = %v", forAdmin)
+	}
+	for i := range wantSecrets {
+		if !proto.Equal(forAdmin.Secrets[i], wantSecrets[i]) {
+			t.Fatalf("ListSliceSecrets for an admin [%d] = %v, want %v", i, forAdmin.Secrets[i], wantSecrets[i])
+		}
 	}
 	forWriter, err := h.Slice.ListSliceSecrets(bob, &corev1.ListSliceSecretsRequest{Slice: paymentRef})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(forWriter.GetNames()) != 2 || len(forWriter.GetSecrets()) != 0 {
+	if len(forWriter.GetNames()) != 3 || len(forWriter.GetSecrets()) != 0 {
 		t.Fatalf("ListSliceSecrets for a writer = %v, want names only", forWriter)
 	}
 }
 
-func TestRevealSliceSecretsOnlyForAccountAdmins(t *testing.T) {
+func TestRevealSecretsOnlyForAccountAdmins(t *testing.T) {
 	mem, h := newSliceMemberHandlers(t)
 	mem.AddAccountRole("user_carol", "acme", "writer")
 	alice, bob, carol := subjectCtx("user_alice"), subjectCtx("user_bob"), subjectCtx("user_carol")
 	if _, err := h.Slice.SetSliceMember(alice, &corev1.SetSliceMemberRequest{Slice: paymentRef, Username: "bob", Role: "admin"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "DEPLOY_TOKEN", Value: "s3cret", Scope: &corev1.SecretScope{Slices: []*corev1.SliceRef{paymentRef}}}); err != nil {
+	if _, err := h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "DEPLOY_TOKEN", Value: "s3cret", Scope: &corev1.SecretScope{Paths: []string{"/acme/payment"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "NPM_TOKEN", Value: "npm-value", Scope: &corev1.SecretScope{AllSlices: true}}); err != nil {
+	if _, err := h.Secret.CreateSecret(alice, &corev1.CreateSecretRequest{Account: "acme", Name: "NPM_TOKEN", Value: "npm-value", Scope: &corev1.SecretScope{Paths: []string{"/acme"}}}); err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := h.Secret.RevealSliceSecrets(alice, &corev1.RevealSliceSecretsRequest{Slice: paymentRef, Names: []string{"DEPLOY_TOKEN", "NPM_TOKEN", "NOPE", "DEPLOY_TOKEN"}})
+	byPath, err := h.Secret.RevealSecrets(alice, &corev1.RevealSecretsRequest{Path: "/acme/payment/web", Names: []string{"DEPLOY_TOKEN", "NPM_TOKEN", "NOPE", "DEPLOY_TOKEN"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.GetValues()) != 2 || got.Values["DEPLOY_TOKEN"] != "s3cret" || got.Values["NPM_TOKEN"] != "npm-value" {
-		t.Fatalf("values = %v", got.GetValues())
+	if len(byPath.GetValues()) != 2 || byPath.Values["DEPLOY_TOKEN"] != "s3cret" || byPath.Values["NPM_TOKEN"] != "npm-value" {
+		t.Fatalf("values = %v", byPath.GetValues())
 	}
-	if len(got.GetMissing()) != 1 || got.Missing[0] != "NOPE" {
-		t.Fatalf("missing = %v, want [NOPE]", got.GetMissing())
+	if len(byPath.GetMissing()) != 1 || byPath.Missing[0] != "NOPE" {
+		t.Fatalf("missing = %v, want [NOPE]", byPath.GetMissing())
+	}
+	bySlice, err := h.Secret.RevealSliceSecrets(alice, &corev1.RevealSliceSecretsRequest{Slice: paymentRef, Names: []string{"DEPLOY_TOKEN", "NPM_TOKEN"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bySlice.Values["DEPLOY_TOKEN"] != "s3cret" || bySlice.Values["NPM_TOKEN"] != "npm-value" {
+		t.Fatalf("slice values = %v", bySlice.GetValues())
 	}
 
 	// A slice admin and an account writer both receive the secrets inside a
 	// check, but cannot read them out.
 	_, err = h.Secret.RevealSliceSecrets(bob, &corev1.RevealSliceSecretsRequest{Slice: paymentRef, Names: []string{"DEPLOY_TOKEN"}})
-	wantCode(t, err, codes.PermissionDenied, "a slice admin revealing a secret")
-	_, err = h.Secret.RevealSliceSecrets(carol, &corev1.RevealSliceSecretsRequest{Slice: paymentRef, Names: []string{"DEPLOY_TOKEN"}})
+	wantCode(t, err, codes.PermissionDenied, "a slice admin revealing a slice's secret")
+	_, err = h.Secret.RevealSecrets(bob, &corev1.RevealSecretsRequest{Path: "/acme/payment", Names: []string{"DEPLOY_TOKEN"}})
+	wantCode(t, err, codes.PermissionDenied, "a slice admin revealing a folder's secret")
+	_, err = h.Secret.RevealSecrets(carol, &corev1.RevealSecretsRequest{Path: "/acme/payment", Names: []string{"DEPLOY_TOKEN"}})
 	wantCode(t, err, codes.PermissionDenied, "an account writer revealing a secret")
 
-	_, err = h.Secret.RevealSliceSecrets(alice, &corev1.RevealSliceSecretsRequest{Slice: paymentRef})
+	_, err = h.Secret.RevealSecrets(alice, &corev1.RevealSecretsRequest{Path: "/acme/payment"})
 	wantCode(t, err, codes.InvalidArgument, "no names")
-	_, err = h.Secret.RevealSliceSecrets(alice, &corev1.RevealSliceSecretsRequest{Slice: paymentRef, Names: []string{"bad-name"}})
+	_, err = h.Secret.RevealSecrets(alice, &corev1.RevealSecretsRequest{Path: "/acme/payment", Names: []string{"bad-name"}})
 	wantCode(t, err, codes.InvalidArgument, "a bad name")
+	_, err = h.Secret.RevealSecrets(alice, &corev1.RevealSecretsRequest{Path: "", Names: []string{"DEPLOY_TOKEN"}})
+	wantCode(t, err, codes.InvalidArgument, "no path")
 }

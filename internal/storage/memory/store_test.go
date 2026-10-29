@@ -132,25 +132,22 @@ func TestSliceSecretsCRUDAndNameValidation(t *testing.T) {
 		t.Fatalf("SetSliceSecret CI_TOKEN upsert: %v", err)
 	}
 
-	names, err := stores.Slices.ListSliceSecretNames(ctx, slice.Id)
-	if err != nil {
-		t.Fatalf("ListSliceSecretNames: %v", err)
-	}
+	names := sliceSecretNames(t, stores, slice.Id)
 	if want := []string{"CI_TOKEN", "_LEADING_UNDERSCORE"}; !reflect.DeepEqual(names, want) {
-		t.Fatalf("ListSliceSecretNames = %#v, want %#v", names, want)
+		t.Fatalf("slice secret names = %#v, want %#v", names, want)
 	}
 
-	secrets, err := stores.Slices.GetSliceSecrets(ctx, slice.Id)
+	secrets, err := stores.Slices.SecretValuesAt(ctx, "/acme/payment")
 	if err != nil {
-		t.Fatalf("GetSliceSecrets: %v", err)
+		t.Fatalf("SecretValuesAt: %v", err)
 	}
 	if got := secrets["CI_TOKEN"]; got != "v2" {
 		t.Fatalf("CI_TOKEN = %q, want v2", got)
 	}
 	secrets["CI_TOKEN"] = "mutated"
-	secrets, err = stores.Slices.GetSliceSecrets(ctx, slice.Id)
+	secrets, err = stores.Slices.SecretValuesAt(ctx, "/acme/payment")
 	if err != nil {
-		t.Fatalf("GetSliceSecrets after mutation: %v", err)
+		t.Fatalf("SecretValuesAt after mutation: %v", err)
 	}
 	if got := secrets["CI_TOKEN"]; got != "v2" {
 		t.Fatalf("CI_TOKEN after returned map mutation = %q, want v2", got)
@@ -159,11 +156,21 @@ func TestSliceSecretsCRUDAndNameValidation(t *testing.T) {
 	if err := stores.Slices.DeleteSliceSecret(ctx, slice.Id, "CI_TOKEN", "user_acme"); err != nil {
 		t.Fatalf("DeleteSliceSecret CI_TOKEN: %v", err)
 	}
-	names, err = stores.Slices.ListSliceSecretNames(ctx, slice.Id)
-	if err != nil {
-		t.Fatalf("ListSliceSecretNames after delete: %v", err)
-	}
+	names = sliceSecretNames(t, stores, slice.Id)
 	if want := []string{"_LEADING_UNDERSCORE"}; !reflect.DeepEqual(names, want) {
-		t.Fatalf("ListSliceSecretNames after delete = %#v, want %#v", names, want)
+		t.Fatalf("slice secret names after delete = %#v, want %#v", names, want)
 	}
+}
+
+func sliceSecretNames(t *testing.T, stores *Stores, sliceID string) []string {
+	t.Helper()
+	secrets, err := stores.Slices.ListSliceSecrets(context.Background(), sliceID)
+	if err != nil {
+		t.Fatalf("ListSliceSecrets: %v", err)
+	}
+	var names []string
+	for _, secret := range secrets {
+		names = append(names, secret.Name)
+	}
+	return names
 }

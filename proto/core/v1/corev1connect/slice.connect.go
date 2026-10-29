@@ -103,16 +103,18 @@ type SliceServiceClient interface {
 	ListSliceDefinitionVersions(context.Context, *connect.Request[v1.ListSliceDefinitionVersionsRequest]) (*connect.Response[v1.ListSliceDefinitionVersionsResponse], error)
 	UpdateSliceDefinition(context.Context, *connect.Request[v1.UpdateSliceDefinitionRequest]) (*connect.Response[v1.SliceDefinition], error)
 	SetSliceCIDaemon(context.Context, *connect.Request[v1.SetSliceCIDaemonRequest]) (*connect.Response[v1.Slice], error)
-	// SetSliceSecret sets the value of the secret NAME that reaches only this
-	// slice, creating it if there is none (design/33_secrets.md). It fails with
-	// FailedPrecondition when NAME comes from a secret shared with other slices:
-	// change that one with SecretService instead.
+	// SetSliceSecret sets the value of the secret NAME on this slice's
+	// included paths, creating one there if there is none
+	// (design/33_secrets.md). It fails with FailedPrecondition when NAME comes
+	// from a secret that also applies to other folders: change that one with
+	// SecretService instead.
 	SetSliceSecret(context.Context, *connect.Request[v1.SetSliceSecretRequest]) (*connect.Response[v1.Empty], error)
-	// DeleteSliceSecret deletes the secret NAME that reaches only this slice,
-	// or takes this slice out of a shared secret's scope. A secret for all of
-	// the account's slices cannot be removed here.
+	// DeleteSliceSecret deletes the secret NAME on this slice's included paths,
+	// or takes those paths out of a secret that has others. A secret on a
+	// folder above the slice, such as the account root, cannot be removed here.
 	DeleteSliceSecret(context.Context, *connect.Request[v1.DeleteSliceSecretRequest]) (*connect.Response[v1.Empty], error)
-	// ListSliceSecrets lists the names of the secrets that reach the slice.
+	// ListSliceSecrets lists the names of the secrets that apply anywhere in
+	// the slice.
 	ListSliceSecrets(context.Context, *connect.Request[v1.ListSliceSecretsRequest]) (*connect.Response[v1.ListSliceSecretsResponse], error)
 	// DeleteSlice removes a slice. One that has changesets is removed too when
 	// none of them is open and every path it includes is still covered by
@@ -432,16 +434,18 @@ type SliceServiceHandler interface {
 	ListSliceDefinitionVersions(context.Context, *connect.Request[v1.ListSliceDefinitionVersionsRequest]) (*connect.Response[v1.ListSliceDefinitionVersionsResponse], error)
 	UpdateSliceDefinition(context.Context, *connect.Request[v1.UpdateSliceDefinitionRequest]) (*connect.Response[v1.SliceDefinition], error)
 	SetSliceCIDaemon(context.Context, *connect.Request[v1.SetSliceCIDaemonRequest]) (*connect.Response[v1.Slice], error)
-	// SetSliceSecret sets the value of the secret NAME that reaches only this
-	// slice, creating it if there is none (design/33_secrets.md). It fails with
-	// FailedPrecondition when NAME comes from a secret shared with other slices:
-	// change that one with SecretService instead.
+	// SetSliceSecret sets the value of the secret NAME on this slice's
+	// included paths, creating one there if there is none
+	// (design/33_secrets.md). It fails with FailedPrecondition when NAME comes
+	// from a secret that also applies to other folders: change that one with
+	// SecretService instead.
 	SetSliceSecret(context.Context, *connect.Request[v1.SetSliceSecretRequest]) (*connect.Response[v1.Empty], error)
-	// DeleteSliceSecret deletes the secret NAME that reaches only this slice,
-	// or takes this slice out of a shared secret's scope. A secret for all of
-	// the account's slices cannot be removed here.
+	// DeleteSliceSecret deletes the secret NAME on this slice's included paths,
+	// or takes those paths out of a secret that has others. A secret on a
+	// folder above the slice, such as the account root, cannot be removed here.
 	DeleteSliceSecret(context.Context, *connect.Request[v1.DeleteSliceSecretRequest]) (*connect.Response[v1.Empty], error)
-	// ListSliceSecrets lists the names of the secrets that reach the slice.
+	// ListSliceSecrets lists the names of the secrets that apply anywhere in
+	// the slice.
 	ListSliceSecrets(context.Context, *connect.Request[v1.ListSliceSecretsRequest]) (*connect.Response[v1.ListSliceSecretsResponse], error)
 	// DeleteSlice removes a slice. One that has changesets is removed too when
 	// none of them is open and every path it includes is still covered by

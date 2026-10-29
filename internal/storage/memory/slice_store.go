@@ -185,7 +185,6 @@ func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 	}
 	delete(s.b.slices, sliceID)
 	delete(s.b.sliceDefinitionVersions, sliceID)
-	s.b.unscopeSecretsLocked(sliceID)
 	return nil
 }
 

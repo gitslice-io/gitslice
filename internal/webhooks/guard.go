@@ -100,6 +100,12 @@ func ValidateURL(raw string, allowPrivate bool) (string, error) {
 // newClient returns the HTTP client deliveries use: no proxy from the
 // environment, no redirects, a 10 second limit, and (unless allowPrivate) a
 // dialer that refuses non-public addresses.
+// NewClient returns an HTTP client that only dials public addresses unless
+// allowPrivate, and follows no redirects, as webhook deliveries do.
+func NewClient(allowPrivate bool) *http.Client {
+	return newClient(allowPrivate)
+}
+
 func newClient(allowPrivate bool) *http.Client {
 	dialer := &net.Dialer{Timeout: 5 * time.Second}
 	if !allowPrivate {

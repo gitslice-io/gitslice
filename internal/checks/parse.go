@@ -52,7 +52,16 @@ type Defaults struct {
 	Network bool
 	Memory  string
 	CPUs    string
+	// StartedBy is StartedByPatchset or StartedByTrigger.
+	StartedBy string
 }
+
+// Who starts a check (design/34_triggers.md): every new patchset, or only a
+// trigger whose action names it.
+const (
+	StartedByPatchset = "patchset"
+	StartedByTrigger  = "trigger"
+)
 
 type Check struct {
 	Description string
@@ -70,6 +79,7 @@ type Check struct {
 	Memory      string
 	CPUs        string
 	Timeout     time.Duration // optional, overrides Defaults.Timeout
+	StartedBy   string        // StartedByPatchset (default) or StartedByTrigger
 }
 
 type rawFile struct {
@@ -95,15 +105,16 @@ type rawService struct {
 }
 
 type rawDefaults struct {
-	Image   string            `yaml:"image"`
-	Build   *rawBuild         `yaml:"build"`
-	Setup   []string          `yaml:"setup"`
-	Cache   []string          `yaml:"cache"`
-	Timeout string            `yaml:"timeout"`
-	Env     map[string]string `yaml:"env"`
-	Network bool              `yaml:"network"`
-	Memory  string            `yaml:"memory"`
-	CPUs    string            `yaml:"cpus"`
+	Image     string            `yaml:"image"`
+	Build     *rawBuild         `yaml:"build"`
+	Setup     []string          `yaml:"setup"`
+	Cache     []string          `yaml:"cache"`
+	Timeout   string            `yaml:"timeout"`
+	Env       map[string]string `yaml:"env"`
+	Network   bool              `yaml:"network"`
+	Memory    string            `yaml:"memory"`
+	CPUs      string            `yaml:"cpus"`
+	StartedBy string            `yaml:"started_by"`
 }
 
 type rawCheck struct {
@@ -122,6 +133,7 @@ type rawCheck struct {
 	Memory      string            `yaml:"memory"`
 	CPUs        string            `yaml:"cpus"`
 	Timeout     string            `yaml:"timeout"`
+	StartedBy   string            `yaml:"started_by"`
 }
 
 type parseError struct {
@@ -212,16 +224,21 @@ func parseDefaults(raw rawDefaults) (Defaults, error) {
 	if err != nil {
 		return Defaults{}, err
 	}
+	startedBy, err := parseStartedBy("defaults", raw.StartedBy, StartedByPatchset)
+	if err != nil {
+		return Defaults{}, err
+	}
 	return Defaults{
-		Image:   raw.Image,
-		Build:   build,
-		Setup:   copyStringSlice(raw.Setup),
-		Cache:   normalizeCacheValues(raw.Cache),
-		Timeout: timeout,
-		Env:     copyEnv(raw.Env),
-		Network: raw.Network,
-		Memory:  raw.Memory,
-		CPUs:    raw.CPUs,
+		StartedBy: startedBy,
+		Image:     raw.Image,
+		Build:     build,
+		Setup:     copyStringSlice(raw.Setup),
+		Cache:     normalizeCacheValues(raw.Cache),
+		Timeout:   timeout,
+		Env:       copyEnv(raw.Env),
+		Network:   raw.Network,
+		Memory:    raw.Memory,
+		CPUs:      raw.CPUs,
 	}, nil
 }
 
@@ -307,6 +324,11 @@ func parseCheck(name string, raw rawCheck, defaults Defaults, services map[strin
 		cpus = raw.CPUs
 	}
 
+	startedBy, err := parseStartedBy(fmt.Sprintf("check %q", name), raw.StartedBy, defaults.StartedBy)
+	if err != nil {
+		return Check{}, err
+	}
+
 	env := copyEnv(defaults.Env)
 	for key, value := range raw.Env {
 		if env == nil {
@@ -331,7 +353,21 @@ func parseCheck(name string, raw rawCheck, defaults Defaults, services map[strin
 		Memory:      memory,
 		CPUs:        cpus,
 		Timeout:     timeout,
+		StartedBy:   startedBy,
 	}, nil
+}
+
+func parseStartedBy(owner, value, fallback string) (string, error) {
+	switch value {
+	case "":
+		if fallback == "" {
+			return StartedByPatchset, nil
+		}
+		return fallback, nil
+	case StartedByPatchset, StartedByTrigger:
+		return value, nil
+	}
+	return "", fmt.Errorf("%s started_by %q (use patchset or trigger)", owner, value)
 }
 
 func parseBuild(owner string, raw *rawBuild) (*Build, error) {

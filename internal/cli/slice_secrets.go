@@ -135,8 +135,22 @@ func (r Runner) runSliceSecretList(ctx context.Context, opts commandOptions, sli
 	if err != nil {
 		return err
 	}
+	// With --json, account admins also learn the folders each one comes from.
+	type sliceSecretOutput struct {
+		Name     string   `json:"name"`
+		SecretID string   `json:"secret_id"`
+		Paths    []string `json:"paths"`
+	}
+	sources := make([]sliceSecretOutput, 0, len(res.Secrets))
+	for _, secret := range res.Secrets {
+		sources = append(sources, sliceSecretOutput{Name: secret.Name, SecretID: secret.SecretId, Paths: append([]string{}, secret.Paths...)})
+	}
 	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{"names": res.Names})
+		out := map[string]any{"names": res.Names}
+		if len(sources) > 0 {
+			out["secrets"] = sources
+		}
+		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {
 		return nil

@@ -38,6 +38,7 @@ import {
   ChangesetSkeleton,
   ChecksPanel,
   ConversationDrawer,
+  TriggerRunsPanel,
   HeaderCard,
   PageMessage,
   PatchsetComparePanel
@@ -646,6 +647,10 @@ export function ChangesetDetailPage() {
 
         <div className={cn(!detailsOpen && "max-lg:hidden")}>
           <ChecksPanel
+            changesetId={canonicalChangesetId}
+            patchsetId={selectedToPatchset}
+          />
+          <TriggerRunsPanel
             changesetId={canonicalChangesetId}
             patchsetId={selectedToPatchset}
           />

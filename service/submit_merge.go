@@ -125,7 +125,7 @@ func (s *ChangesetService) mergeAndSubmit(ctx context.Context, cs *corev1.Change
 		if err != nil {
 			return nil, grpcError(err), true
 		}
-		extra, err := s.skippedRequiredCheckStatuses(ctx, refreshed)
+		extra, err := s.submitExtras(ctx, refreshed)
 		if err != nil {
 			return nil, grpcError(err), true
 		}

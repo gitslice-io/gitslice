@@ -5,6 +5,7 @@ export type DocSection =
   | "lazy"
   | "checks"
   | "secrets"
+  | "triggers"
   | "webhooks"
   | "git-users"
   | "cli";
@@ -47,6 +48,11 @@ export const docSections: Array<{
     id: "secrets",
     title: "Secrets",
     description: "Give checks tokens and keys without committing them, and fill a local env file."
+  },
+  {
+    id: "triggers",
+    title: "Triggers",
+    description: "Run an HTTP call or a script when files in a folder change, and report checks that gate submit."
   },
   {
     id: "webhooks",
@@ -284,17 +290,27 @@ export const commandGroups = [
     ]
   },
   {
+    title: "Triggers",
+    commands: [
+      ["gs trigger ls [folder]", "The triggers that apply at a folder: its own and those above it."],
+      ["gs trigger runs --changeset <id>", "Trigger runs of a changeset (or --trigger, --account), newest first."],
+      ["gs trigger logs <run-id>", "A run's log."],
+      ["gs trigger run <trigger-id>", "Run a trigger that listens for manual (--input key=value)."],
+      ["gs trigger rerun <run-id>", "Run a finished run's trigger again for the same event; cancel stops an open one."]
+    ]
+  },
+  {
     title: "Secrets",
     commands: [
       [
-        "gs secret create <NAME> --slice <slice>",
-        "Store a value (read from stdin) for the CI checks of some slices, or --all-slices."
+        "gs secret create <NAME> --path <folder>",
+        "Store a value (read from stdin) for the CI checks defined in some folders; --slice for a slice's folders."
       ],
-      ["gs secret ls", "List the account's secrets and the slices each reaches; values are never shown."],
-      ["gs secret update <secret-id>", "Replace the value (--value) or change the slices (--add-slice, --remove-slice)."],
-      ["gs secret rm <secret-id>", "Delete a secret from every slice it reaches."],
-      ["gs secret env <template> -o <file>", "Fill an env template's gitslice-secret: placeholders (account owners and admins)."],
-      ["gs slice secret ls <slice>", "The names of the secrets that reach one slice."]
+      ["gs secret ls", "List the account's secrets and the folders each applies to; values are never shown."],
+      ["gs secret update <secret-id>", "Replace the value (--value) or change the folders (--add-path, --remove-path)."],
+      ["gs secret rm <secret-id>", "Delete a secret from every folder it applies to."],
+      ["gs secret env <template> -o <file>", "Fill an env template's gitslice-secret: placeholders from its folder's secrets (account owners and admins)."],
+      ["gs slice secret ls <slice>", "The names of the secrets that apply in one slice."]
     ]
   },
   {
@@ -368,6 +384,7 @@ export function normalizeSection(value: string | undefined): DocSection {
     value === "lazy" ||
     value === "checks" ||
     value === "secrets" ||
+    value === "triggers" ||
     value === "webhooks" ||
     value === "git-users" ||
     value === "cli"

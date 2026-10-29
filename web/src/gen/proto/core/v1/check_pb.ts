@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/check.proto.
  */
 export const file_proto_core_v1_check: GenFile = /*@__PURE__*/
-  fileDesc("Chlwcm90by9jb3JlL3YxL2NoZWNrLnByb3RvEhBnaXRzbGljZS5jb3JlLnYxItwCCghDaGVja1J1bhIKCgJpZBgBIAEoCRIUCgxjaGFuZ2VzZXRfaWQYAiABKAkSEwoLcGF0Y2hzZXRfaWQYAyABKAkSEgoKY2hlY2tfbmFtZRgEIAEoCRIRCglkYWVtb25faWQYBSABKAkSEgoKcHJvdmVuYW5jZRgGIAEoCRIPCgdhdHRlbXB0GAcgASgFEg4KBnN0YXR1cxgIIAEoCRIRCglleGl0X2NvZGUYCSABKAUSDwoHc3VtbWFyeRgKIAEoCRISCgpzdGFydGVkX2F0GAsgASgJEhMKC2ZpbmlzaGVkX2F0GAwgASgJEhMKC2R1cmF0aW9uX21zGA0gASgDEhIKCmNyZWF0ZWRfYXQYDiABKAkSEwoLZGFlbW9uX25hbWUYDyABKAkSFQoNZGFlbW9uX29ubGluZRgQIAEoCBIbChNkYWVtb25fbGFzdF9zZWVuX2F0GBEgASgJIl0KC0NoZWNrUnVuTG9nEg4KBnJ1bl9pZBgBIAEoCRILCgNzZXEYAiABKAMSDgoGc3RyZWFtGAMgASgJEg0KBWNodW5rGAQgASgJEhIKCmNyZWF0ZWRfYXQYBSABKAkiQQoUTGlzdENoZWNrUnVuc1JlcXVlc3QSFAoMY2hhbmdlc2V0X2lkGAEgASgJEhMKC3BhdGNoc2V0X2lkGAIgASgJIkEKFUxpc3RDaGVja1J1bnNSZXNwb25zZRIoCgRydW5zGAEgAygLMhouZ2l0c2xpY2UuY29yZS52MS5DaGVja1J1biIkChJHZXRDaGVja1J1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJIiMKEVJlcnVuQ2hlY2tSZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSI6ChVTdHJlYW1DaGVja1J1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJEhEKCWFmdGVyX3NlcRgCIAEoAzLsAgoMQ2hlY2tTZXJ2aWNlEmAKDUxpc3RDaGVja1J1bnMSJi5naXRzbGljZS5jb3JlLnYxLkxpc3RDaGVja1J1bnNSZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5MaXN0Q2hlY2tSdW5zUmVzcG9uc2USTwoLR2V0Q2hlY2tSdW4SJC5naXRzbGljZS5jb3JlLnYxLkdldENoZWNrUnVuUmVxdWVzdBoaLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tSdW4STQoKUmVydW5DaGVjaxIjLmdpdHNsaWNlLmNvcmUudjEuUmVydW5DaGVja1JlcXVlc3QaGi5naXRzbGljZS5jb3JlLnYxLkNoZWNrUnVuEloKDlN0cmVhbUNoZWNrUnVuEicuZ2l0c2xpY2UuY29yZS52MS5TdHJlYW1DaGVja1J1blJlcXVlc3QaHS5naXRzbGljZS5jb3JlLnYxLkNoZWNrUnVuTG9nMAFCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw");
+  fileDesc("Chlwcm90by9jb3JlL3YxL2NoZWNrLnByb3RvEhBnaXRzbGljZS5jb3JlLnYxIsEDCghDaGVja1J1bhIKCgJpZBgBIAEoCRIUCgxjaGFuZ2VzZXRfaWQYAiABKAkSEwoLcGF0Y2hzZXRfaWQYAyABKAkSEgoKY2hlY2tfbmFtZRgEIAEoCRIRCglkYWVtb25faWQYBSABKAkSEgoKcHJvdmVuYW5jZRgGIAEoCRIPCgdhdHRlbXB0GAcgASgFEg4KBnN0YXR1cxgIIAEoCRIRCglleGl0X2NvZGUYCSABKAUSDwoHc3VtbWFyeRgKIAEoCRISCgpzdGFydGVkX2F0GAsgASgJEhMKC2ZpbmlzaGVkX2F0GAwgASgJEhMKC2R1cmF0aW9uX21zGA0gASgDEhIKCmNyZWF0ZWRfYXQYDiABKAkSEwoLZGFlbW9uX25hbWUYDyABKAkSFQoNZGFlbW9uX29ubGluZRgQIAEoCBIbChNkYWVtb25fbGFzdF9zZWVuX2F0GBEgASgJEhYKDnRyaWdnZXJfcnVuX2lkGBIgASgJEhMKC2RldGFpbHNfdXJsGBMgASgJEjYKC2Fubm90YXRpb25zGBQgAygLMiEuZ2l0c2xpY2UuY29yZS52MS5DaGVja0Fubm90YXRpb24iZQoPQ2hlY2tBbm5vdGF0aW9uEgwKBHBhdGgYASABKAkSEgoKc3RhcnRfbGluZRgCIAEoBRIQCghlbmRfbGluZRgDIAEoBRINCgVsZXZlbBgEIAEoCRIPCgdtZXNzYWdlGAUgASgJIl0KC0NoZWNrUnVuTG9nEg4KBnJ1bl9pZBgBIAEoCRILCgNzZXEYAiABKAMSDgoGc3RyZWFtGAMgASgJEg0KBWNodW5rGAQgASgJEhIKCmNyZWF0ZWRfYXQYBSABKAkiQQoUTGlzdENoZWNrUnVuc1JlcXVlc3QSFAoMY2hhbmdlc2V0X2lkGAEgASgJEhMKC3BhdGNoc2V0X2lkGAIgASgJIkEKFUxpc3RDaGVja1J1bnNSZXNwb25zZRIoCgRydW5zGAEgAygLMhouZ2l0c2xpY2UuY29yZS52MS5DaGVja1J1biIkChJHZXRDaGVja1J1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJIiMKEVJlcnVuQ2hlY2tSZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSI6ChVTdHJlYW1DaGVja1J1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJEhEKCWFmdGVyX3NlcRgCIAEoAzLsAgoMQ2hlY2tTZXJ2aWNlEmAKDUxpc3RDaGVja1J1bnMSJi5naXRzbGljZS5jb3JlLnYxLkxpc3RDaGVja1J1bnNSZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5MaXN0Q2hlY2tSdW5zUmVzcG9uc2USTwoLR2V0Q2hlY2tSdW4SJC5naXRzbGljZS5jb3JlLnYxLkdldENoZWNrUnVuUmVxdWVzdBoaLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tSdW4STQoKUmVydW5DaGVjaxIjLmdpdHNsaWNlLmNvcmUudjEuUmVydW5DaGVja1JlcXVlc3QaGi5naXRzbGljZS5jb3JlLnYxLkNoZWNrUnVuEloKDlN0cmVhbUNoZWNrUnVuEicuZ2l0c2xpY2UuY29yZS52MS5TdHJlYW1DaGVja1J1blJlcXVlc3QaHS5naXRzbGljZS5jb3JlLnYxLkNoZWNrUnVuTG9nMAFCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw");
 
 /**
  * @generated from message gitslice.core.v1.CheckRun
@@ -106,6 +106,25 @@ export type CheckRun = Message<"gitslice.core.v1.CheckRun"> & {
    * @generated from field: string daemon_last_seen_at = 17;
    */
   daemonLastSeenAt: string;
+
+  /**
+   * Set when a trigger reports the check (design/34_triggers.md): the run
+   * that reports it, a link to more detail, and findings on lines of files.
+   * provenance is then "trigger".
+   *
+   * @generated from field: string trigger_run_id = 18;
+   */
+  triggerRunId: string;
+
+  /**
+   * @generated from field: string details_url = 19;
+   */
+  detailsUrl: string;
+
+  /**
+   * @generated from field: repeated gitslice.core.v1.CheckAnnotation annotations = 20;
+   */
+  annotations: CheckAnnotation[];
 };
 
 /**
@@ -114,6 +133,49 @@ export type CheckRun = Message<"gitslice.core.v1.CheckRun"> & {
  */
 export const CheckRunSchema: GenMessage<CheckRun> = /*@__PURE__*/
   messageDesc(file_proto_core_v1_check, 0);
+
+/**
+ * CheckAnnotation points a check's finding at lines of a file.
+ *
+ * @generated from message gitslice.core.v1.CheckAnnotation
+ */
+export type CheckAnnotation = Message<"gitslice.core.v1.CheckAnnotation"> & {
+  /**
+   * Canonical path, such as /acme/web/src/app.ts.
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * @generated from field: int32 start_line = 2;
+   */
+  startLine: number;
+
+  /**
+   * @generated from field: int32 end_line = 3;
+   */
+  endLine: number;
+
+  /**
+   * notice, warning or failure.
+   *
+   * @generated from field: string level = 4;
+   */
+  level: string;
+
+  /**
+   * @generated from field: string message = 5;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.CheckAnnotation.
+ * Use `create(CheckAnnotationSchema)` to create a new message.
+ */
+export const CheckAnnotationSchema: GenMessage<CheckAnnotation> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_check, 1);
 
 /**
  * @generated from message gitslice.core.v1.CheckRunLog
@@ -150,7 +212,7 @@ export type CheckRunLog = Message<"gitslice.core.v1.CheckRunLog"> & {
  * Use `create(CheckRunLogSchema)` to create a new message.
  */
 export const CheckRunLogSchema: GenMessage<CheckRunLog> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_check, 1);
+  messageDesc(file_proto_core_v1_check, 2);
 
 /**
  * @generated from message gitslice.core.v1.ListCheckRunsRequest
@@ -172,7 +234,7 @@ export type ListCheckRunsRequest = Message<"gitslice.core.v1.ListCheckRunsReques
  * Use `create(ListCheckRunsRequestSchema)` to create a new message.
  */
 export const ListCheckRunsRequestSchema: GenMessage<ListCheckRunsRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_check, 2);
+  messageDesc(file_proto_core_v1_check, 3);
 
 /**
  * @generated from message gitslice.core.v1.ListCheckRunsResponse
@@ -189,7 +251,7 @@ export type ListCheckRunsResponse = Message<"gitslice.core.v1.ListCheckRunsRespo
  * Use `create(ListCheckRunsResponseSchema)` to create a new message.
  */
 export const ListCheckRunsResponseSchema: GenMessage<ListCheckRunsResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_check, 3);
+  messageDesc(file_proto_core_v1_check, 4);
 
 /**
  * @generated from message gitslice.core.v1.GetCheckRunRequest
@@ -206,7 +268,7 @@ export type GetCheckRunRequest = Message<"gitslice.core.v1.GetCheckRunRequest"> 
  * Use `create(GetCheckRunRequestSchema)` to create a new message.
  */
 export const GetCheckRunRequestSchema: GenMessage<GetCheckRunRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_check, 4);
+  messageDesc(file_proto_core_v1_check, 5);
 
 /**
  * @generated from message gitslice.core.v1.RerunCheckRequest
@@ -223,7 +285,7 @@ export type RerunCheckRequest = Message<"gitslice.core.v1.RerunCheckRequest"> & 
  * Use `create(RerunCheckRequestSchema)` to create a new message.
  */
 export const RerunCheckRequestSchema: GenMessage<RerunCheckRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_check, 5);
+  messageDesc(file_proto_core_v1_check, 6);
 
 /**
  * @generated from message gitslice.core.v1.StreamCheckRunRequest
@@ -245,7 +307,7 @@ export type StreamCheckRunRequest = Message<"gitslice.core.v1.StreamCheckRunRequ
  * Use `create(StreamCheckRunRequestSchema)` to create a new message.
  */
 export const StreamCheckRunRequestSchema: GenMessage<StreamCheckRunRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_check, 6);
+  messageDesc(file_proto_core_v1_check, 7);
 
 /**
  * @generated from service gitslice.core.v1.CheckService

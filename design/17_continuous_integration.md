@@ -195,6 +195,7 @@ checks:
 | `timeout` | no | Per-check wall-clock cap (Go duration); server clamps to a max. |
 | `env` | no | Extra env vars for the command. |
 | `network` | no | Default `false` (deny). `true` allows network (e.g. dependency fetch). |
+| `started_by` | no | `patchset` (default): the check starts with every new patchset. `trigger`: only a trigger's `check` action starts it (design/34). Also allowed under `defaults`. |
 
 ### Identity (what makes the cascade collision-free)
 

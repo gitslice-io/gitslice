@@ -161,8 +161,8 @@ func (s *SliceStore) ChangesetCounts(ctx context.Context, sliceID string) (total
 
 // Retire removes a slice that has changesets, which Delete refuses to do. The
 // row stays so the changesets and the name stay valid, but the slice no
-// longer resolves or lists, covers no paths and has no secrets. It fails if
-// any changeset is still open.
+// longer resolves or lists and covers no paths. Secrets apply to folders, not
+// slices, so they stay. It fails if any changeset is still open.
 func (s *SliceStore) Retire(ctx context.Context, sliceID string) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -190,7 +190,6 @@ func (s *SliceStore) Retire(ctx context.Context, sliceID string) error {
 	}
 	for _, stmt := range []string{
 		`delete from slice_included_paths where slice_id = $1`,
-		`delete from secret_slices where slice_id = $1`,
 		`update slices set deleted_at = now(), updated_at = now() where id = $1`,
 	} {
 		if _, err := tx.ExecContext(ctx, stmt, sliceID); err != nil {

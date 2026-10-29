@@ -152,6 +152,7 @@ func (r Runner) rootCommand() *cobra.Command {
 		r.blameCommand(opts),
 		r.webhookCommand(opts),
 		r.secretCommand(opts),
+		r.triggerCommand(opts),
 	)
 	for _, commands := range [][]*cobra.Command{
 		r.workspaceCommands(opts),

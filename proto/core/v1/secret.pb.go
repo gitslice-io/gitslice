@@ -125,16 +125,22 @@ func (x *Secret) GetUpdatedAt() string {
 	return ""
 }
 
-// SecretScope is where a secret applies: every slice of its account, or the
-// slices listed. It reaches every CI daemon that runs checks for those slices,
-// and every writer of those slices can read it from a check, so widen it with
-// care.
+// SecretScope is where a secret applies: the folders in paths and everything
+// below them. It reaches the CI daemon of every slice whose changes run a
+// check defined there, and every writer who can add a check there (writers of
+// slices that include those folders, a folder above or one inside) can read
+// it, so widen it with care.
 type SecretScope struct {
-	state     protoimpl.MessageState `protogen:"open.v1"`
-	AllSlices bool                   `protobuf:"varint,1,opt,name=all_slices,json=allSlices,proto3" json:"all_slices,omitempty"`
-	// Slices of the secret's account; ignored when all_slices. A secret whose
-	// slices were all deleted has none and reaches nothing.
-	Slices        []*SliceRef `protobuf:"bytes,2,rep,name=slices,proto3" json:"slices,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Deprecated, accepted on writes only: the account root, /<account>.
+	AllSlices bool `protobuf:"varint,1,opt,name=all_slices,json=allSlices,proto3" json:"all_slices,omitempty"`
+	// Deprecated, accepted on writes only: each slice's included paths. A ref
+	// with no account means the secret's own.
+	Slices []*SliceRef `protobuf:"bytes,2,rep,name=slices,proto3" json:"slices,omitempty"`
+	// Canonical folders inside /<account>, such as /acme or
+	// /acme/services/billing; 1 to 50. On writes, merged with what all_slices
+	// and slices stand for. Replies carry only this field.
+	Paths         []string `protobuf:"bytes,3,rep,name=paths,proto3" json:"paths,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -179,6 +185,13 @@ func (x *SecretScope) GetAllSlices() bool {
 func (x *SecretScope) GetSlices() []*SliceRef {
 	if x != nil {
 		return x.Slices
+	}
+	return nil
+}
+
+func (x *SecretScope) GetPaths() []string {
+	if x != nil {
+		return x.Paths
 	}
 	return nil
 }
@@ -321,7 +334,7 @@ type CreateSecretRequest struct {
 	Name    string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	// At most 48 KiB.
 	Value string `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
-	// Required: all_slices, or at least one slice.
+	// Required: at least one folder.
 	Scope         *SecretScope `protobuf:"bytes,4,opt,name=scope,proto3" json:"scope,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -491,6 +504,115 @@ func (x *DeleteSecretRequest) GetId() string {
 	return ""
 }
 
+type RevealSecretsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A canonical folder, such as /acme/web; its account's owners and admins
+	// may ask.
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// The names wanted: at least one, at most 100.
+	Names         []string `protobuf:"bytes,2,rep,name=names,proto3" json:"names,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevealSecretsRequest) Reset() {
+	*x = RevealSecretsRequest{}
+	mi := &file_proto_core_v1_secret_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevealSecretsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevealSecretsRequest) ProtoMessage() {}
+
+func (x *RevealSecretsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_secret_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevealSecretsRequest.ProtoReflect.Descriptor instead.
+func (*RevealSecretsRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_secret_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *RevealSecretsRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *RevealSecretsRequest) GetNames() []string {
+	if x != nil {
+		return x.Names
+	}
+	return nil
+}
+
+type RevealSecretsResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Name to value, for the names that apply at the folder.
+	Values map[string]string `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// The names asked for that no secret at the folder has.
+	Missing       []string `protobuf:"bytes,2,rep,name=missing,proto3" json:"missing,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RevealSecretsResponse) Reset() {
+	*x = RevealSecretsResponse{}
+	mi := &file_proto_core_v1_secret_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RevealSecretsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RevealSecretsResponse) ProtoMessage() {}
+
+func (x *RevealSecretsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_secret_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RevealSecretsResponse.ProtoReflect.Descriptor instead.
+func (*RevealSecretsResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_secret_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *RevealSecretsResponse) GetValues() map[string]string {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
+func (x *RevealSecretsResponse) GetMissing() []string {
+	if x != nil {
+		return x.Missing
+	}
+	return nil
+}
+
 type RevealSliceSecretsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Slice *SliceRef              `protobuf:"bytes,1,opt,name=slice,proto3" json:"slice,omitempty"`
@@ -502,7 +624,7 @@ type RevealSliceSecretsRequest struct {
 
 func (x *RevealSliceSecretsRequest) Reset() {
 	*x = RevealSliceSecretsRequest{}
-	mi := &file_proto_core_v1_secret_proto_msgTypes[8]
+	mi := &file_proto_core_v1_secret_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -514,7 +636,7 @@ func (x *RevealSliceSecretsRequest) String() string {
 func (*RevealSliceSecretsRequest) ProtoMessage() {}
 
 func (x *RevealSliceSecretsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_secret_proto_msgTypes[8]
+	mi := &file_proto_core_v1_secret_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -527,7 +649,7 @@ func (x *RevealSliceSecretsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevealSliceSecretsRequest.ProtoReflect.Descriptor instead.
 func (*RevealSliceSecretsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_secret_proto_rawDescGZIP(), []int{8}
+	return file_proto_core_v1_secret_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *RevealSliceSecretsRequest) GetSlice() *SliceRef {
@@ -556,7 +678,7 @@ type RevealSliceSecretsResponse struct {
 
 func (x *RevealSliceSecretsResponse) Reset() {
 	*x = RevealSliceSecretsResponse{}
-	mi := &file_proto_core_v1_secret_proto_msgTypes[9]
+	mi := &file_proto_core_v1_secret_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -568,7 +690,7 @@ func (x *RevealSliceSecretsResponse) String() string {
 func (*RevealSliceSecretsResponse) ProtoMessage() {}
 
 func (x *RevealSliceSecretsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_secret_proto_msgTypes[9]
+	mi := &file_proto_core_v1_secret_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -581,7 +703,7 @@ func (x *RevealSliceSecretsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RevealSliceSecretsResponse.ProtoReflect.Descriptor instead.
 func (*RevealSliceSecretsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_secret_proto_rawDescGZIP(), []int{9}
+	return file_proto_core_v1_secret_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *RevealSliceSecretsResponse) GetValues() map[string]string {
@@ -615,11 +737,12 @@ const file_proto_core_v1_secret_proto_rawDesc = "" +
 	"\n" +
 	"created_at\x18\a \x01(\tR\tcreatedAt\x12\x1d\n" +
 	"\n" +
-	"updated_at\x18\b \x01(\tR\tupdatedAt\"`\n" +
+	"updated_at\x18\b \x01(\tR\tupdatedAt\"v\n" +
 	"\vSecretScope\x12\x1d\n" +
 	"\n" +
 	"all_slices\x18\x01 \x01(\bR\tallSlices\x122\n" +
-	"\x06slices\x18\x02 \x03(\v2\x1a.gitslice.core.v1.SliceRefR\x06slices\".\n" +
+	"\x06slices\x18\x02 \x03(\v2\x1a.gitslice.core.v1.SliceRefR\x06slices\x12\x14\n" +
+	"\x05paths\x18\x03 \x03(\tR\x05paths\".\n" +
 	"\x12ListSecretsRequest\x12\x18\n" +
 	"\aaccount\x18\x01 \x01(\tR\aaccount\"I\n" +
 	"\x13ListSecretsResponse\x122\n" +
@@ -637,7 +760,16 @@ const file_proto_core_v1_secret_proto_rawDesc = "" +
 	"\x05scope\x18\x03 \x01(\v2\x1d.gitslice.core.v1.SecretScopeR\x05scopeB\b\n" +
 	"\x06_value\"%\n" +
 	"\x13DeleteSecretRequest\x12\x0e\n" +
-	"\x02id\x18\x01 \x01(\tR\x02id\"c\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\"@\n" +
+	"\x14RevealSecretsRequest\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x14\n" +
+	"\x05names\x18\x02 \x03(\tR\x05names\"\xb9\x01\n" +
+	"\x15RevealSecretsResponse\x12K\n" +
+	"\x06values\x18\x01 \x03(\v23.gitslice.core.v1.RevealSecretsResponse.ValuesEntryR\x06values\x12\x18\n" +
+	"\amissing\x18\x02 \x03(\tR\amissing\x1a9\n" +
+	"\vValuesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"c\n" +
 	"\x19RevealSliceSecretsRequest\x120\n" +
 	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x12\x14\n" +
 	"\x05names\x18\x02 \x03(\tR\x05names\"\xc3\x01\n" +
@@ -646,13 +778,14 @@ const file_proto_core_v1_secret_proto_rawDesc = "" +
 	"\amissing\x18\x02 \x03(\tR\amissing\x1a9\n" +
 	"\vValuesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x012\x99\x04\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x012\xfb\x04\n" +
 	"\rSecretService\x12Z\n" +
 	"\vListSecrets\x12$.gitslice.core.v1.ListSecretsRequest\x1a%.gitslice.core.v1.ListSecretsResponse\x12I\n" +
 	"\tGetSecret\x12\".gitslice.core.v1.GetSecretRequest\x1a\x18.gitslice.core.v1.Secret\x12O\n" +
 	"\fCreateSecret\x12%.gitslice.core.v1.CreateSecretRequest\x1a\x18.gitslice.core.v1.Secret\x12O\n" +
 	"\fUpdateSecret\x12%.gitslice.core.v1.UpdateSecretRequest\x1a\x18.gitslice.core.v1.Secret\x12N\n" +
-	"\fDeleteSecret\x12%.gitslice.core.v1.DeleteSecretRequest\x1a\x17.gitslice.core.v1.Empty\x12o\n" +
+	"\fDeleteSecret\x12%.gitslice.core.v1.DeleteSecretRequest\x1a\x17.gitslice.core.v1.Empty\x12`\n" +
+	"\rRevealSecrets\x12&.gitslice.core.v1.RevealSecretsRequest\x1a'.gitslice.core.v1.RevealSecretsResponse\x12o\n" +
 	"\x12RevealSliceSecrets\x12+.gitslice.core.v1.RevealSliceSecretsRequest\x1a,.gitslice.core.v1.RevealSliceSecretsResponseB+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
@@ -667,7 +800,7 @@ func file_proto_core_v1_secret_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_secret_proto_rawDescData
 }
 
-var file_proto_core_v1_secret_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
+var file_proto_core_v1_secret_proto_msgTypes = make([]protoimpl.MessageInfo, 14)
 var file_proto_core_v1_secret_proto_goTypes = []any{
 	(*Secret)(nil),                     // 0: gitslice.core.v1.Secret
 	(*SecretScope)(nil),                // 1: gitslice.core.v1.SecretScope
@@ -677,37 +810,43 @@ var file_proto_core_v1_secret_proto_goTypes = []any{
 	(*CreateSecretRequest)(nil),        // 5: gitslice.core.v1.CreateSecretRequest
 	(*UpdateSecretRequest)(nil),        // 6: gitslice.core.v1.UpdateSecretRequest
 	(*DeleteSecretRequest)(nil),        // 7: gitslice.core.v1.DeleteSecretRequest
-	(*RevealSliceSecretsRequest)(nil),  // 8: gitslice.core.v1.RevealSliceSecretsRequest
-	(*RevealSliceSecretsResponse)(nil), // 9: gitslice.core.v1.RevealSliceSecretsResponse
-	nil,                                // 10: gitslice.core.v1.RevealSliceSecretsResponse.ValuesEntry
-	(*SliceRef)(nil),                   // 11: gitslice.core.v1.SliceRef
-	(*Empty)(nil),                      // 12: gitslice.core.v1.Empty
+	(*RevealSecretsRequest)(nil),       // 8: gitslice.core.v1.RevealSecretsRequest
+	(*RevealSecretsResponse)(nil),      // 9: gitslice.core.v1.RevealSecretsResponse
+	(*RevealSliceSecretsRequest)(nil),  // 10: gitslice.core.v1.RevealSliceSecretsRequest
+	(*RevealSliceSecretsResponse)(nil), // 11: gitslice.core.v1.RevealSliceSecretsResponse
+	nil,                                // 12: gitslice.core.v1.RevealSecretsResponse.ValuesEntry
+	nil,                                // 13: gitslice.core.v1.RevealSliceSecretsResponse.ValuesEntry
+	(*SliceRef)(nil),                   // 14: gitslice.core.v1.SliceRef
+	(*Empty)(nil),                      // 15: gitslice.core.v1.Empty
 }
 var file_proto_core_v1_secret_proto_depIdxs = []int32{
 	1,  // 0: gitslice.core.v1.Secret.scope:type_name -> gitslice.core.v1.SecretScope
-	11, // 1: gitslice.core.v1.SecretScope.slices:type_name -> gitslice.core.v1.SliceRef
+	14, // 1: gitslice.core.v1.SecretScope.slices:type_name -> gitslice.core.v1.SliceRef
 	0,  // 2: gitslice.core.v1.ListSecretsResponse.secrets:type_name -> gitslice.core.v1.Secret
 	1,  // 3: gitslice.core.v1.CreateSecretRequest.scope:type_name -> gitslice.core.v1.SecretScope
 	1,  // 4: gitslice.core.v1.UpdateSecretRequest.scope:type_name -> gitslice.core.v1.SecretScope
-	11, // 5: gitslice.core.v1.RevealSliceSecretsRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	10, // 6: gitslice.core.v1.RevealSliceSecretsResponse.values:type_name -> gitslice.core.v1.RevealSliceSecretsResponse.ValuesEntry
-	2,  // 7: gitslice.core.v1.SecretService.ListSecrets:input_type -> gitslice.core.v1.ListSecretsRequest
-	4,  // 8: gitslice.core.v1.SecretService.GetSecret:input_type -> gitslice.core.v1.GetSecretRequest
-	5,  // 9: gitslice.core.v1.SecretService.CreateSecret:input_type -> gitslice.core.v1.CreateSecretRequest
-	6,  // 10: gitslice.core.v1.SecretService.UpdateSecret:input_type -> gitslice.core.v1.UpdateSecretRequest
-	7,  // 11: gitslice.core.v1.SecretService.DeleteSecret:input_type -> gitslice.core.v1.DeleteSecretRequest
-	8,  // 12: gitslice.core.v1.SecretService.RevealSliceSecrets:input_type -> gitslice.core.v1.RevealSliceSecretsRequest
-	3,  // 13: gitslice.core.v1.SecretService.ListSecrets:output_type -> gitslice.core.v1.ListSecretsResponse
-	0,  // 14: gitslice.core.v1.SecretService.GetSecret:output_type -> gitslice.core.v1.Secret
-	0,  // 15: gitslice.core.v1.SecretService.CreateSecret:output_type -> gitslice.core.v1.Secret
-	0,  // 16: gitslice.core.v1.SecretService.UpdateSecret:output_type -> gitslice.core.v1.Secret
-	12, // 17: gitslice.core.v1.SecretService.DeleteSecret:output_type -> gitslice.core.v1.Empty
-	9,  // 18: gitslice.core.v1.SecretService.RevealSliceSecrets:output_type -> gitslice.core.v1.RevealSliceSecretsResponse
-	13, // [13:19] is the sub-list for method output_type
-	7,  // [7:13] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	12, // 5: gitslice.core.v1.RevealSecretsResponse.values:type_name -> gitslice.core.v1.RevealSecretsResponse.ValuesEntry
+	14, // 6: gitslice.core.v1.RevealSliceSecretsRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	13, // 7: gitslice.core.v1.RevealSliceSecretsResponse.values:type_name -> gitslice.core.v1.RevealSliceSecretsResponse.ValuesEntry
+	2,  // 8: gitslice.core.v1.SecretService.ListSecrets:input_type -> gitslice.core.v1.ListSecretsRequest
+	4,  // 9: gitslice.core.v1.SecretService.GetSecret:input_type -> gitslice.core.v1.GetSecretRequest
+	5,  // 10: gitslice.core.v1.SecretService.CreateSecret:input_type -> gitslice.core.v1.CreateSecretRequest
+	6,  // 11: gitslice.core.v1.SecretService.UpdateSecret:input_type -> gitslice.core.v1.UpdateSecretRequest
+	7,  // 12: gitslice.core.v1.SecretService.DeleteSecret:input_type -> gitslice.core.v1.DeleteSecretRequest
+	8,  // 13: gitslice.core.v1.SecretService.RevealSecrets:input_type -> gitslice.core.v1.RevealSecretsRequest
+	10, // 14: gitslice.core.v1.SecretService.RevealSliceSecrets:input_type -> gitslice.core.v1.RevealSliceSecretsRequest
+	3,  // 15: gitslice.core.v1.SecretService.ListSecrets:output_type -> gitslice.core.v1.ListSecretsResponse
+	0,  // 16: gitslice.core.v1.SecretService.GetSecret:output_type -> gitslice.core.v1.Secret
+	0,  // 17: gitslice.core.v1.SecretService.CreateSecret:output_type -> gitslice.core.v1.Secret
+	0,  // 18: gitslice.core.v1.SecretService.UpdateSecret:output_type -> gitslice.core.v1.Secret
+	15, // 19: gitslice.core.v1.SecretService.DeleteSecret:output_type -> gitslice.core.v1.Empty
+	9,  // 20: gitslice.core.v1.SecretService.RevealSecrets:output_type -> gitslice.core.v1.RevealSecretsResponse
+	11, // 21: gitslice.core.v1.SecretService.RevealSliceSecrets:output_type -> gitslice.core.v1.RevealSliceSecretsResponse
+	15, // [15:22] is the sub-list for method output_type
+	8,  // [8:15] is the sub-list for method input_type
+	8,  // [8:8] is the sub-list for extension type_name
+	8,  // [8:8] is the sub-list for extension extendee
+	0,  // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_secret_proto_init() }
@@ -723,7 +862,7 @@ func file_proto_core_v1_secret_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_secret_proto_rawDesc), len(file_proto_core_v1_secret_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   11,
+			NumMessages:   14,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

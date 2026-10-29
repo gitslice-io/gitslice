@@ -325,7 +325,7 @@ func (s *SliceService) ListSliceSecrets(ctx context.Context, req *corev1.ListSli
 	}
 	if admin {
 		for _, secret := range secrets {
-			out.Secrets = append(out.Secrets, sliceSecretProto(current.GetRef().GetAccount(), secret))
+			out.Secrets = append(out.Secrets, sliceSecretProto(secret))
 		}
 	}
 	return out, nil

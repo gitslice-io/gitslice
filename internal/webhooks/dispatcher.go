@@ -76,6 +76,21 @@ type Options struct {
 	AllowPrivateTargets bool
 	// Client replaces the delivery HTTP client (tests).
 	Client *http.Client
+	// Triggers, when set, turns events into trigger runs too.
+	Triggers Triggers
+}
+
+// Triggers turns recorded events into trigger runs and runs them
+// (design/34_triggers.md). The dispatcher calls it from the same drains that
+// deliver webhooks.
+type Triggers interface {
+	// MayHaveTriggers says whether events are worth resolving at once.
+	MayHaveTriggers(ctx context.Context) bool
+	// FanOut creates the event's trigger runs. envelope is the event's
+	// delivery body, without a hook. It must be safe to repeat.
+	FanOut(ctx context.Context, event storage.WebhookEvent, envelope []byte)
+	// Drain sends and starts due runs and settles expired ones.
+	Drain(ctx context.Context)
 }
 
 // Dispatcher fans recorded events out to webhooks and delivers them.
@@ -122,9 +137,13 @@ func (d *Dispatcher) Emit(ctx context.Context, event storage.WebhookEvent) {
 }
 
 // Flush delivers recorded events now, waiting up to two seconds, unless no
-// webhook is active (then the background loop marks them handled).
+// webhook is active and no trigger is likely (then the background loop
+// handles them, nudged at once when triggers are enabled).
 func (d *Dispatcher) Flush(ctx context.Context) {
 	if !d.mayHaveHooks(ctx) {
+		if d.opts.Triggers != nil {
+			d.Nudge()
+		}
 		return
 	}
 	select {
@@ -168,6 +187,9 @@ func (d *Dispatcher) WebhooksChanged() {
 }
 
 func (d *Dispatcher) mayHaveHooks(ctx context.Context) bool {
+	if d.opts.Triggers != nil && d.opts.Triggers.MayHaveTriggers(ctx) {
+		return true
+	}
 	d.mu.Lock()
 	if time.Since(d.hooksCached) < hookCacheTTL {
 		has := d.hasHooks
@@ -232,7 +254,18 @@ func (d *Dispatcher) DrainOnce(ctx context.Context) error {
 		}
 		slices := map[string]*corev1.Slice{}
 		for _, event := range events {
-			deliveries := d.fanOut(ctx, event, hooks, slices)
+			var ec *eventContext
+			if len(hooks) > 0 || d.opts.Triggers != nil {
+				if ec, err = d.loadContext(ctx, event); err != nil {
+					slog.Warn("webhook event context", "event", event.ID, "kind", event.Kind, "error", err)
+				}
+			}
+			deliveries := d.fanOut(ctx, event, ec, hooks, slices)
+			if ec != nil && d.opts.Triggers != nil {
+				if envelope, err := json.Marshal(d.payload(event, ec, nil)); err == nil {
+					d.opts.Triggers.FanOut(ctx, event, envelope)
+				}
+			}
 			if err := d.stores.Webhooks.FanOutWebhookEvent(ctx, event.ID, deliveries); err != nil {
 				slog.Warn("fan out webhook event", "event", event.ID, "error", err)
 			}
@@ -267,6 +300,9 @@ func (d *Dispatcher) DrainOnce(ctx context.Context) error {
 			break
 		}
 	}
+	if d.opts.Triggers != nil {
+		d.opts.Triggers.Drain(ctx)
+	}
 	return nil
 }
 
@@ -287,13 +323,8 @@ type eventContext struct {
 	names     map[string]string
 }
 
-func (d *Dispatcher) fanOut(ctx context.Context, event storage.WebhookEvent, hooks []storage.Webhook, slices map[string]*corev1.Slice) []storage.WebhookDelivery {
-	if len(hooks) == 0 {
-		return nil
-	}
-	ec, err := d.loadContext(ctx, event)
-	if err != nil {
-		slog.Warn("webhook event context", "event", event.ID, "kind", event.Kind, "error", err)
+func (d *Dispatcher) fanOut(ctx context.Context, event storage.WebhookEvent, ec *eventContext, hooks []storage.Webhook, slices map[string]*corev1.Slice) []storage.WebhookDelivery {
+	if len(hooks) == 0 || ec == nil {
 		return nil
 	}
 	now := time.Now()
@@ -667,6 +698,11 @@ func (d *Dispatcher) send(ctx context.Context, delivery storage.WebhookDelivery)
 		result.err = fmt.Sprintf("the endpoint answered %s", resp.Status)
 	}
 	return result
+}
+
+// DescribeSendError says why a send failed, and whether retrying cannot help.
+func DescribeSendError(err error) (string, bool) {
+	return describeSendError(err), isBlocked(err)
 }
 
 func describeSendError(err error) string {

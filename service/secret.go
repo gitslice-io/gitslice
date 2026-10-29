@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"gitslice.io/gitslice/internal/authz"
+	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -13,9 +14,9 @@ import (
 )
 
 // SecretService manages an account's secrets (design/33_secrets.md). Only the
-// account's owners and admins see or change them: a secret reaches the CI
-// daemons of the slices in its scope, and whoever chooses the scope chooses
-// who can read it.
+// account's owners and admins see or change them: a secret reaches the checks
+// defined in its folders, and whoever chooses the folders chooses who can
+// read it.
 type SecretService struct {
 	Auth   storage.AuthStore
 	Slices storage.SliceStore
@@ -78,13 +79,13 @@ func (s *SecretService) CreateSecret(ctx context.Context, req *corev1.CreateSecr
 		return nil, status.Error(codes.InvalidArgument, "secret name must match ^[A-Z_][A-Z0-9_]*$, like CI_TOKEN")
 	}
 	if req.GetScope() == nil {
-		return nil, status.Error(codes.InvalidArgument, "scope is required: all slices, or at least one slice")
+		return nil, status.Error(codes.InvalidArgument, "scope is required: at least one folder, such as /"+account)
 	}
-	scope, err := s.resolveScope(ctx, account, req.GetScope())
+	secretPaths, err := s.resolveScope(ctx, account, req.GetScope())
 	if err != nil {
 		return nil, err
 	}
-	secret, err := s.Slices.CreateSecret(ctx, account, name, req.GetValue(), scope, subjectID)
+	secret, err := s.Slices.CreateSecret(ctx, account, name, req.GetValue(), secretPaths, subjectID)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -100,15 +101,13 @@ func (s *SecretService) UpdateSecret(ctx context.Context, req *corev1.UpdateSecr
 	if err != nil {
 		return nil, err
 	}
-	var scope *storage.SecretScope
+	var secretPaths []string
 	if req.GetScope() != nil {
-		resolved, err := s.resolveScope(ctx, secret.Account, req.GetScope())
-		if err != nil {
+		if secretPaths, err = s.resolveScope(ctx, secret.Account, req.GetScope()); err != nil {
 			return nil, err
 		}
-		scope = &resolved
 	}
-	updated, err := s.Slices.UpdateSecret(ctx, secret.ID, req.Value, scope, subjectID)
+	updated, err := s.Slices.UpdateSecret(ctx, secret.ID, req.Value, secretPaths, subjectID)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -130,13 +129,50 @@ func (s *SecretService) DeleteSecret(ctx context.Context, req *corev1.DeleteSecr
 	return &corev1.Empty{}, nil
 }
 
-// maxRevealedSecrets bounds one RevealSliceSecrets call.
+// maxRevealedSecrets bounds one reveal call.
 const maxRevealedSecrets = 100
 
-// RevealSliceSecrets returns secret values to the owners and admins of the
-// slice's account, the people who can already set them, so they can fill a
-// local env file. Writers and slice admins only ever see values inside a
-// check. Every call is logged with who asked and for which names.
+// RevealSecrets returns the values of the secrets that apply at a folder to
+// the owners and admins of its account, the people who can already set them,
+// so they can fill a local env file. Writers and slice admins only ever see
+// values inside a check. Every call is logged with who asked, the folder and
+// the names.
+func (s *SecretService) RevealSecrets(ctx context.Context, req *corev1.RevealSecretsRequest) (*corev1.RevealSecretsResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	names, err := revealNames(req.GetNames())
+	if err != nil {
+		return nil, err
+	}
+	folder, err := paths.CanonicalPrefix(strings.TrimSpace(req.GetPath()))
+	if err != nil {
+		return nil, status.Errorf(codes.InvalidArgument, "path: %v", err)
+	}
+	account := strings.Split(strings.Trim(folder, "/"), "/")[0]
+	if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionAdmin); err != nil {
+		return nil, err
+	}
+	values, err := s.Slices.SecretValuesAt(ctx, folder)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	out := &corev1.RevealSecretsResponse{Values: map[string]string{}}
+	for _, name := range names {
+		if value, ok := values[name]; ok {
+			out.Values[name] = value
+		} else {
+			out.Missing = append(out.Missing, name)
+		}
+	}
+	slog.InfoContext(ctx, "secrets revealed", "subject_id", subjectID, "path", folder, "names", strings.Join(names, ","), "missing", strings.Join(out.Missing, ","))
+	return out, nil
+}
+
+// RevealSliceSecrets is RevealSecrets at the slice's included paths, for
+// CLIs from before secrets moved to folders. A name whose value differs
+// between the slice's paths is refused, since there is no single answer.
 func (s *SecretService) RevealSliceSecrets(ctx context.Context, req *corev1.RevealSliceSecretsRequest) (*corev1.RevealSliceSecretsResponse, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
@@ -146,9 +182,48 @@ func (s *SecretService) RevealSliceSecrets(ctx context.Context, req *corev1.Reve
 	if err != nil {
 		return nil, err
 	}
+	names, err := revealNames(req.GetNames())
+	if err != nil {
+		return nil, err
+	}
+	slice, err := s.Slices.Resolve(ctx, ref)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, slice); err != nil {
+		return nil, err
+	}
+	values := map[string]string{}
+	from := map[string]string{}
+	for _, folder := range slice.GetDefinition().GetIncludedPaths() {
+		at, err := s.Slices.SecretValuesAt(ctx, folder)
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		for name, value := range at {
+			if prev, ok := values[name]; ok && prev != value {
+				return nil, status.Errorf(codes.FailedPrecondition, "secret %s has different values at %s and %s; ask for one folder with gs secret env --path", name, from[name], folder)
+			}
+			values[name], from[name] = value, folder
+		}
+	}
+	out := &corev1.RevealSliceSecretsResponse{Values: map[string]string{}}
+	for _, name := range names {
+		if value, ok := values[name]; ok {
+			out.Values[name] = value
+		} else {
+			out.Missing = append(out.Missing, name)
+		}
+	}
+	slog.InfoContext(ctx, "secrets revealed", "subject_id", subjectID, "slice", slice.GetRef().GetAccount()+"/"+slice.GetRef().GetSlice(), "names", strings.Join(names, ","), "missing", strings.Join(out.Missing, ","))
+	return out, nil
+}
+
+// revealNames checks and dedupes the names a reveal call asks for.
+func revealNames(in []string) ([]string, error) {
 	var names []string
 	seen := map[string]bool{}
-	for _, name := range req.GetNames() {
+	for _, name := range in {
 		name = strings.TrimSpace(name)
 		if !storage.ValidSliceSecretName(name) {
 			return nil, status.Errorf(codes.InvalidArgument, "secret name %q must match ^[A-Z_][A-Z0-9_]*$", name)
@@ -164,27 +239,7 @@ func (s *SecretService) RevealSliceSecrets(ctx context.Context, req *corev1.Reve
 	if len(names) > maxRevealedSecrets {
 		return nil, status.Errorf(codes.InvalidArgument, "at most %d secrets at a time", maxRevealedSecrets)
 	}
-	slice, err := s.Slices.Resolve(ctx, ref)
-	if err != nil {
-		return nil, grpcError(err)
-	}
-	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, slice); err != nil {
-		return nil, err
-	}
-	values, err := s.Slices.GetSliceSecrets(ctx, slice.Id)
-	if err != nil {
-		return nil, grpcError(err)
-	}
-	out := &corev1.RevealSliceSecretsResponse{Values: map[string]string{}}
-	for _, name := range names {
-		if value, ok := values[name]; ok {
-			out.Values[name] = value
-		} else {
-			out.Missing = append(out.Missing, name)
-		}
-	}
-	slog.InfoContext(ctx, "secrets revealed", "subject_id", subjectID, "slice", slice.GetRef().GetAccount()+"/"+slice.GetRef().GetSlice(), "names", strings.Join(names, ","), "missing", strings.Join(out.Missing, ","))
-	return out, nil
+	return names, nil
 }
 
 // adminSecret loads a secret of an account the caller administers. To anyone
@@ -208,16 +263,26 @@ func (s *SecretService) adminSecret(ctx context.Context, subjectID, secretID str
 	return secret, nil
 }
 
-// resolveScope turns slice refs into the ids of slices of the account. A ref
-// with no account means the secret's own.
-func (s *SecretService) resolveScope(ctx context.Context, account string, scope *corev1.SecretScope) (storage.SecretScope, error) {
+// resolveScope turns a scope into the secret's folders: paths as given
+// (absolute only), the account root for all_slices, and each listed slice's included paths. The
+// store checks that they are canonical and inside the account.
+func (s *SecretService) resolveScope(ctx context.Context, account string, scope *corev1.SecretScope) ([]string, error) {
+	var out []string
+	for _, p := range scope.GetPaths() {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		// "gitslice/web" could mean /gitslice/web or a folder of the account,
+		// so only absolute paths are taken.
+		if !strings.HasPrefix(p, "/") {
+			return nil, status.Errorf(codes.InvalidArgument, "secret path %q must be absolute, such as /%s/%s", p, account, strings.TrimPrefix(p, account+"/"))
+		}
+		out = append(out, p)
+	}
 	if scope.GetAllSlices() {
-		return storage.SecretScope{AllSlices: true}, nil
+		out = append(out, "/"+account)
 	}
-	if len(scope.GetSlices()) == 0 {
-		return storage.SecretScope{}, status.Error(codes.InvalidArgument, "choose all slices, or at least one slice")
-	}
-	out := storage.SecretScope{}
 	for _, ref := range scope.GetSlices() {
 		ref = &corev1.SliceRef{Account: ref.GetAccount(), Slice: ref.GetSlice()}
 		if strings.TrimSpace(ref.Account) == "" {
@@ -225,21 +290,28 @@ func (s *SecretService) resolveScope(ctx context.Context, account string, scope 
 		}
 		ref, err := normalizeServiceSliceRef(ref)
 		if err != nil {
-			return storage.SecretScope{}, err
+			return nil, err
 		}
 		if ref.Account != account {
-			return storage.SecretScope{}, status.Errorf(codes.InvalidArgument, "slice %s/%s is not in account %s: a secret applies only to its own account's slices", ref.Account, ref.Slice, account)
+			return nil, status.Errorf(codes.InvalidArgument, "slice %s/%s is not in account %s: a secret applies only to its own account's folders", ref.Account, ref.Slice, account)
 		}
 		slice, err := s.Slices.Resolve(ctx, ref)
 		if err != nil {
 			if status.Code(grpcError(err)) == codes.NotFound {
-				return storage.SecretScope{}, status.Errorf(codes.InvalidArgument, "there is no slice %s/%s", ref.Account, ref.Slice)
+				return nil, status.Errorf(codes.InvalidArgument, "there is no slice %s/%s", ref.Account, ref.Slice)
 			}
-			return storage.SecretScope{}, grpcError(err)
+			return nil, grpcError(err)
 		}
-		out.SliceIDs = append(out.SliceIDs, slice.Id)
+		out = append(out, slice.GetDefinition().GetIncludedPaths()...)
 	}
-	return out, nil
+	if len(out) == 0 {
+		return nil, status.Errorf(codes.InvalidArgument, "choose at least one folder, such as /%s", account)
+	}
+	normalized, err := storage.NormalizeSecretPaths(account, out)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return normalized, nil
 }
 
 func (s *SecretService) usernames(ctx context.Context, subjects []string) map[string]string {
@@ -258,17 +330,11 @@ func (s *SecretService) secretProto(ctx context.Context, secret storage.Secret) 
 }
 
 func secretProto(secret storage.Secret, names map[string]string) *corev1.Secret {
-	scope := &corev1.SecretScope{AllSlices: secret.AllSlices}
-	if !secret.AllSlices {
-		for _, slice := range secret.Slices {
-			scope.Slices = append(scope.Slices, &corev1.SliceRef{Account: secret.Account, Slice: slice.Name})
-		}
-	}
 	return &corev1.Secret{
 		Id:        secret.ID,
 		Account:   secret.Account,
 		Name:      secret.Name,
-		Scope:     scope,
+		Scope:     &corev1.SecretScope{Paths: append([]string(nil), secret.Paths...)},
 		CreatedBy: names[secret.CreatedBy],
 		UpdatedBy: names[secret.UpdatedBy],
 		CreatedAt: webhookTime(secret.CreatedAt),
@@ -276,10 +342,6 @@ func secretProto(secret storage.Secret, names map[string]string) *corev1.Secret 
 	}
 }
 
-func sliceSecretProto(account string, secret storage.SliceSecret) *corev1.SliceSecret {
-	out := &corev1.SliceSecret{Name: secret.Name, SecretId: secret.SecretID, AllSlices: secret.AllSlices}
-	for _, slice := range secret.SharedWith {
-		out.SharedWith = append(out.SharedWith, &corev1.SliceRef{Account: account, Slice: slice.Name})
-	}
-	return out
+func sliceSecretProto(secret storage.SliceSecret) *corev1.SliceSecret {
+	return &corev1.SliceSecret{Name: secret.Name, SecretId: secret.SecretID, Paths: append([]string(nil), secret.Paths...)}
 }

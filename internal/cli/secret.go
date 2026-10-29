@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"golang.org/x/term"
@@ -20,8 +21,7 @@ type secretOutput struct {
 	ID        string   `json:"id"`
 	Account   string   `json:"account"`
 	Name      string   `json:"name"`
-	AllSlices bool     `json:"all_slices"`
-	Slices    []string `json:"slices"`
+	Paths     []string `json:"paths"`
 	CreatedBy string   `json:"created_by,omitempty"`
 	UpdatedBy string   `json:"updated_by,omitempty"`
 	CreatedAt string   `json:"created_at,omitempty"`
@@ -29,16 +29,17 @@ type secretOutput struct {
 }
 
 // secretCommand manages an account's secrets: values passed to the CI checks
-// of the slices each is scoped to (design/33_secrets.md).
+// defined in the folders each is scoped to (design/33_secrets.md).
 func (r Runner) secretCommand(opts *commandOptions) *cobra.Command {
 	secretCmd := &cobra.Command{
 		Use:   "secret",
-		Short: "Manage the secrets an account passes to its slices' CI checks",
-		Long: "A secret is a value Gitslice keeps encrypted and passes to the CI checks of the slices it is scoped to,\n" +
-			"as an environment variable named after it. A secret belongs to an account and applies to some of its\n" +
-			"slices (--slice) or to all of them (--all-slices). Values are read from stdin, or typed hidden in a\n" +
-			"terminal. Only the account's owners and admins manage its secrets, and only they can read values back,\n" +
-			"into a local env file (gs secret env).",
+		Short: "Manage the secrets an account passes to CI checks, by folder",
+		Long: "A secret is a value Gitslice keeps encrypted and passes, as an environment variable named after it, to the\n" +
+			"CI checks defined in the folders it applies to and everything below them (--path /acme/services, or\n" +
+			"--path /acme for the whole account; --slice is short for a slice's folders). Where two secrets of one name\n" +
+			"apply, the one on the closer folder wins. Values are read from stdin, or typed hidden in a terminal. Only\n" +
+			"the account's owners and admins manage its secrets, and only they can read values back, into a local env\n" +
+			"file (gs secret env). See gs help secrets.",
 		RunE: requireSubcommand("secret"),
 	}
 
@@ -46,7 +47,7 @@ func (r Runner) secretCommand(opts *commandOptions) *cobra.Command {
 	listCmd := &cobra.Command{
 		Use:     "ls",
 		Aliases: []string{"list"},
-		Short:   "List an account's secrets and the slices they reach",
+		Short:   "List an account's secrets and the folders they apply to",
 		Args:    noArgs("gs secret ls [--account <account>]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runSecretList(cmd.Context(), *opts, listAccount)
@@ -55,50 +56,42 @@ func (r Runner) secretCommand(opts *commandOptions) *cobra.Command {
 	listCmd.Flags().StringVar(&listAccount, "account", "", "the account (default: your active account)")
 
 	var createAccount string
-	var createSlices []string
-	var createAllSlices bool
+	var create secretScopeFlags
 	createCmd := &cobra.Command{
-		Use:   "create <NAME> (--slice <slice>... | --all-slices)",
+		Use:   "create <NAME> (--path <folder>... | --slice <slice>...)",
 		Short: "Create a secret, reading its value from stdin",
-		Args:  exactArgs(1, "gs secret create <NAME> [--account <account>] (--slice <slice>... | --all-slices) < value"),
+		Args:  exactArgs(1, "gs secret create <NAME> [--account <account>] (--path <folder>... | --slice <slice>...) < value"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if createAllSlices == (len(createSlices) > 0) {
-				return userError("scope_required", "choose --slice (one or more) or --all-slices", "A secret reaches the CI checks of the slices it is scoped to.")
+			if !create.set() {
+				return userError("scope_required", "choose the folders it applies to with --path (or --slice for a slice's folders)", "A secret reaches the CI checks defined in its folders and below them; --path /<account> applies it to the whole account.")
 			}
-			return r.runSecretCreate(cmd.Context(), *opts, createAccount, args[0], createSlices, createAllSlices)
+			return r.runSecretCreate(cmd.Context(), *opts, createAccount, args[0], create)
 		},
 	}
 	createCmd.Flags().StringVar(&createAccount, "account", "", "the account that owns it (default: your active account)")
-	createCmd.Flags().StringArrayVar(&createSlices, "slice", nil, "a slice of the account it applies to (repeatable)")
-	createCmd.Flags().BoolVar(&createAllSlices, "all-slices", false, "apply it to every slice of the account, including later ones")
+	create.register(createCmd, "a folder it applies to, with everything below it, such as /acme/services (repeatable)", "the folders of a slice of the account (repeatable)")
 
-	var updateValue, updateAllSlices bool
-	var updateSlices, updateAdd, updateRemove []string
+	var updateValue bool
+	var update secretScopeFlags
+	var updateAdd, updateRemove []string
 	updateCmd := &cobra.Command{
 		Use:   "update <secret-id>",
-		Short: "Replace a secret's value or change the slices it reaches",
-		Args:  exactArgs(1, "gs secret update <secret-id> [--value] [--slice <slice>... | --add-slice <slice>... | --remove-slice <slice>... | --all-slices]"),
+		Short: "Replace a secret's value or change the folders it applies to",
+		Args:  exactArgs(1, "gs secret update <secret-id> [--value] [--path <folder>... | --slice <slice>... | --add-path <folder>... | --remove-path <folder>...]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			scopes := 0
-			for _, set := range []bool{len(updateSlices) > 0, len(updateAdd) > 0 || len(updateRemove) > 0, updateAllSlices} {
-				if set {
-					scopes++
-				}
+			if update.set() && (len(updateAdd) > 0 || len(updateRemove) > 0) {
+				return userError("invalid_argument", "use --path/--slice, or --add-path/--remove-path, not both", "")
 			}
-			if scopes > 1 {
-				return userError("invalid_argument", "use one of --slice, --add-slice/--remove-slice or --all-slices", "")
+			if !update.set() && len(updateAdd) == 0 && len(updateRemove) == 0 && !updateValue {
+				return userError("invalid_argument", "nothing to change", "Pass --value to replace the value (read from stdin), or change the folders with --path, --slice, --add-path or --remove-path.")
 			}
-			if scopes == 0 && !updateValue {
-				return userError("invalid_argument", "nothing to change", "Pass --value to replace the value (read from stdin), or change the scope with --slice, --add-slice, --remove-slice or --all-slices.")
-			}
-			return r.runSecretUpdate(cmd.Context(), *opts, args[0], updateValue, updateSlices, updateAdd, updateRemove, updateAllSlices)
+			return r.runSecretUpdate(cmd.Context(), *opts, args[0], updateValue, update, updateAdd, updateRemove)
 		},
 	}
 	updateCmd.Flags().BoolVar(&updateValue, "value", false, "replace the value, read from stdin")
-	updateCmd.Flags().StringArrayVar(&updateSlices, "slice", nil, "scope it to exactly these slices (repeatable)")
-	updateCmd.Flags().StringArrayVar(&updateAdd, "add-slice", nil, "add a slice to its scope (repeatable)")
-	updateCmd.Flags().StringArrayVar(&updateRemove, "remove-slice", nil, "take a slice out of its scope (repeatable)")
-	updateCmd.Flags().BoolVar(&updateAllSlices, "all-slices", false, "apply it to every slice of the account")
+	update.register(updateCmd, "apply it to exactly these folders (repeatable)", "apply it to exactly these slices' folders (repeatable)")
+	updateCmd.Flags().StringArrayVar(&updateAdd, "add-path", nil, "add a folder (repeatable)")
+	updateCmd.Flags().StringArrayVar(&updateRemove, "remove-path", nil, "remove a folder (repeatable)")
 
 	deleteCmd := &cobra.Command{
 		Use:     "rm <secret-id>",
@@ -110,21 +103,25 @@ func (r Runner) secretCommand(opts *commandOptions) *cobra.Command {
 		},
 	}
 
-	var envSlice, envOutput string
+	var envSlice, envPath, envOutput string
 	var envForce bool
 	envCmd := &cobra.Command{
 		Use:   "env <template>",
 		Short: "Fill an env file's gitslice-secret: placeholders with secret values (account owners and admins)",
 		Long: "Reads an env template, such as env.prod.template, and writes it with every NAME=gitslice-secret:SECRET_NAME\n" +
-			"value replaced by that secret's value for the slice (--slice, default: the workspace's). Only the owners\n" +
-			"and admins of the slice's account may read values; each read is logged. The output is written with mode 600,\n" +
-			"and gs refuses to print values to a terminal.",
-		Args: exactArgs(1, "gs secret env <template> [--slice <slice>] -o <file> [--force]"),
+			"value replaced by the value of the secret that applies at the template's folder in the workspace (or at\n" +
+			"--path; --slice uses a slice's folders). Only the owners and admins of the account may read values; each\n" +
+			"read is logged. The output is written with mode 600, and gs refuses to print values to a terminal.",
+		Args: exactArgs(1, "gs secret env <template> [--path <folder> | --slice <slice>] -o <file> [--force]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runSecretEnv(cmd.Context(), *opts, args[0], envSlice, envOutput, envForce)
+			if envSlice != "" && envPath != "" {
+				return userError("invalid_argument", "use --path or --slice, not both", "")
+			}
+			return r.runSecretEnv(cmd.Context(), *opts, args[0], envPath, envSlice, envOutput, envForce)
 		},
 	}
-	envCmd.Flags().StringVar(&envSlice, "slice", "", "the slice whose secrets fill the template (default: the workspace slice)")
+	envCmd.Flags().StringVar(&envPath, "path", "", "the folder whose secrets fill the template, such as /acme/web (default: the template's folder in the workspace)")
+	envCmd.Flags().StringVar(&envSlice, "slice", "", "fill it with the secrets at a slice's folders instead")
 	envCmd.Flags().StringVarP(&envOutput, "output", "o", "", "file to write (mode 600); - or empty for stdout, when it is not a terminal")
 	envCmd.Flags().BoolVar(&envForce, "force", false, "replace the output file if it exists")
 
@@ -176,7 +173,7 @@ func (r Runner) runSecretList(ctx context.Context, opts commandOptions, account 
 	return nil
 }
 
-func (r Runner) runSecretCreate(ctx context.Context, opts commandOptions, account, name string, slices []string, allSlices bool) error {
+func (r Runner) runSecretCreate(ctx context.Context, opts commandOptions, account, name string, flags secretScopeFlags) error {
 	name = strings.TrimSpace(name)
 	if !storage.ValidSliceSecretName(name) {
 		return userError("invalid_secret_name", "secret name must match ^[A-Z_][A-Z0-9_]*$", "Use an environment-variable style name such as CI_TOKEN.")
@@ -189,13 +186,9 @@ func (r Runner) runSecretCreate(ctx context.Context, opts commandOptions, accoun
 	if account, err = r.secretAccount(callCtx, cfg, conn, account); err != nil {
 		return err
 	}
-	scope := &corev1.SecretScope{AllSlices: allSlices}
-	for _, slice := range slices {
-		ref, err := secretSliceRef(account, slice)
-		if err != nil {
-			return err
-		}
-		scope.Slices = append(scope.Slices, ref)
+	scope, err := flags.scope(account)
+	if err != nil {
+		return err
 	}
 	value, err := r.readSecretValue(name)
 	if err != nil {
@@ -220,7 +213,7 @@ func (r Runner) runSecretCreate(ctx context.Context, opts commandOptions, accoun
 	return nil
 }
 
-func (r Runner) runSecretUpdate(ctx context.Context, opts commandOptions, id string, replaceValue bool, slices, add, remove []string, allSlices bool) error {
+func (r Runner) runSecretUpdate(ctx context.Context, opts commandOptions, id string, replaceValue bool, flags secretScopeFlags, add, remove []string) error {
 	_, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
 		return err
@@ -233,55 +226,42 @@ func (r Runner) runSecretUpdate(ctx context.Context, opts commandOptions, id str
 	}
 	req := &corev1.UpdateSecretRequest{Id: current.Id}
 	switch {
-	case allSlices:
-		req.Scope = &corev1.SecretScope{AllSlices: true}
-	case len(slices) > 0:
-		req.Scope = &corev1.SecretScope{}
-		for _, slice := range slices {
-			ref, err := secretSliceRef(current.Account, slice)
-			if err != nil {
-				return err
-			}
-			req.Scope.Slices = append(req.Scope.Slices, ref)
+	case flags.set():
+		if req.Scope, err = flags.scope(current.Account); err != nil {
+			return err
 		}
 	case len(add) > 0 || len(remove) > 0:
-		if current.GetScope().GetAllSlices() {
-			return userError("invalid_argument", current.Name+" applies to every slice of "+current.Account, "Scope it to some slices with --slice instead.")
-		}
-		names := map[string]bool{}
+		kept := map[string]bool{}
 		var order []string
-		for _, ref := range current.GetScope().GetSlices() {
-			names[ref.Slice] = true
-			order = append(order, ref.Slice)
+		for _, p := range current.GetScope().GetPaths() {
+			kept[p] = true
+			order = append(order, p)
 		}
-		for _, slice := range add {
-			ref, err := secretSliceRef(current.Account, slice)
+		for _, raw := range add {
+			p, err := secretPathFlag(raw)
 			if err != nil {
 				return err
 			}
-			if ref.Account != current.Account {
-				return userError("invalid_argument", "slice "+ref.Account+"/"+ref.Slice+" is not in account "+current.Account, "A secret applies only to its own account's slices.")
-			}
-			if !names[ref.Slice] {
-				names[ref.Slice] = true
-				order = append(order, ref.Slice)
+			if !kept[p] {
+				kept[p] = true
+				order = append(order, p)
 			}
 		}
-		for _, slice := range remove {
-			ref, err := secretSliceRef(current.Account, slice)
+		for _, raw := range remove {
+			p, err := secretPathFlag(raw)
 			if err != nil {
 				return err
 			}
-			delete(names, ref.Slice)
+			delete(kept, p)
 		}
 		req.Scope = &corev1.SecretScope{}
-		for _, slice := range order {
-			if names[slice] {
-				req.Scope.Slices = append(req.Scope.Slices, &corev1.SliceRef{Account: current.Account, Slice: slice})
+		for _, p := range order {
+			if kept[p] {
+				req.Scope.Paths = append(req.Scope.Paths, p)
 			}
 		}
-		if len(req.Scope.Slices) == 0 {
-			return userError("invalid_argument", "that would leave "+current.Name+" with no slices", "Delete it with gs secret rm "+current.Id+" instead.")
+		if len(req.Scope.Paths) == 0 {
+			return userError("invalid_argument", "that would leave "+current.Name+" with no folders", "Delete it with gs secret rm "+current.Id+" instead.")
 		}
 	}
 	if replaceValue {
@@ -365,31 +345,78 @@ func secretSliceRef(account, value string) (*corev1.SliceRef, error) {
 }
 
 func secretToOutput(secret *corev1.Secret) secretOutput {
-	out := secretOutput{
+	return secretOutput{
 		ID:        secret.GetId(),
 		Account:   secret.GetAccount(),
 		Name:      secret.GetName(),
-		AllSlices: secret.GetScope().GetAllSlices(),
-		Slices:    []string{},
+		Paths:     append([]string{}, secret.GetScope().GetPaths()...),
 		CreatedBy: secret.GetCreatedBy(),
 		UpdatedBy: secret.GetUpdatedBy(),
 		CreatedAt: secret.GetCreatedAt(),
 		UpdatedAt: secret.GetUpdatedAt(),
 	}
-	for _, ref := range secret.GetScope().GetSlices() {
-		out.Slices = append(out.Slices, ref.GetSlice())
-	}
-	return out
 }
 
 func secretScopeLabel(secret secretOutput) string {
-	switch {
-	case secret.AllSlices:
-		return "all slices"
-	case len(secret.Slices) == 0:
-		return "no slices"
+	if len(secret.Paths) == 0 {
+		return "no folders"
 	}
-	return strings.Join(secret.Slices, ",")
+	return strings.Join(secret.Paths, ",")
+}
+
+// secretScopeFlags are the flags that choose a secret's folders.
+type secretScopeFlags struct {
+	paths     []string
+	slices    []string
+	allSlices bool
+}
+
+func (f *secretScopeFlags) register(cmd *cobra.Command, pathUsage, sliceUsage string) {
+	cmd.Flags().StringArrayVar(&f.paths, "path", nil, pathUsage)
+	cmd.Flags().StringArrayVar(&f.slices, "slice", nil, sliceUsage)
+	// Before secrets moved to folders this meant every slice of the account:
+	// the account root now.
+	cmd.Flags().BoolVar(&f.allSlices, "all-slices", false, "apply it to the whole account (same as --path /<account>)")
+	_ = cmd.Flags().MarkHidden("all-slices")
+}
+
+func (f secretScopeFlags) set() bool {
+	return len(f.paths) > 0 || len(f.slices) > 0 || f.allSlices
+}
+
+// scope sends the folders as given; the server turns slices into their
+// included paths and all_slices into the account root.
+func (f secretScopeFlags) scope(account string) (*corev1.SecretScope, error) {
+	scope := &corev1.SecretScope{AllSlices: f.allSlices}
+	for _, raw := range f.paths {
+		p, err := secretPathFlag(raw)
+		if err != nil {
+			return nil, err
+		}
+		scope.Paths = append(scope.Paths, p)
+	}
+	for _, slice := range f.slices {
+		ref, err := secretSliceRef(account, slice)
+		if err != nil {
+			return nil, err
+		}
+		scope.Slices = append(scope.Slices, ref)
+	}
+	return scope, nil
+}
+
+// secretPathFlag reads a --path value: an absolute folder such as
+// /acme/services, made canonical.
+func secretPathFlag(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if !strings.HasPrefix(raw, "/") {
+		return "", userError("invalid_argument", "--path "+raw+" must be absolute, starting with /<account>", "For example --path /acme/services, or --path /acme for the whole account.")
+	}
+	p, err := paths.CanonicalPrefix(raw)
+	if err != nil {
+		return "", userError("invalid_argument", "--path "+raw+": "+err.Error(), "")
+	}
+	return p, nil
 }
 
 func secretError(err error) error {
@@ -398,7 +425,7 @@ func secretError(err error) error {
 	case codes.InvalidArgument:
 		return userError("invalid_argument", message, "")
 	case codes.FailedPrecondition:
-		return userError("failed_precondition", message, "gs secret ls lists the account's secrets and the slices each reaches.")
+		return userError("failed_precondition", message, "gs secret ls lists the account's secrets and the folders each applies to.")
 	case codes.PermissionDenied:
 		return userError("permission_denied", message, "Secrets are managed by the account's owners and admins.")
 	case codes.NotFound:

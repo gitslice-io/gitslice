@@ -341,6 +341,10 @@ func (s *sweepFakeCheckStore) ListCheckRunLogs(ctx context.Context, runID string
 	return nil, storage.ErrNotFound
 }
 
+func (s *sweepFakeCheckStore) SetCheckRunDetails(ctx context.Context, runID string, details storage.CheckRunDetails) (*corev1.CheckRun, error) {
+	return nil, storage.ErrNotFound
+}
+
 type checkUpdateFakeStore struct {
 	run       *corev1.CheckRun
 	updateErr error
@@ -461,4 +465,8 @@ func waitForCancelCheckMessage(t *testing.T, conn *daemonConn) *corev1.CancelChe
 			t.Fatal("timed out waiting for CancelCheck")
 		}
 	}
+}
+
+func (s *checkUpdateFakeStore) SetCheckRunDetails(ctx context.Context, runID string, details storage.CheckRunDetails) (*corev1.CheckRun, error) {
+	return nil, storage.ErrNotFound
 }

@@ -21,6 +21,19 @@ export interface CheckRun {
   finishedAt?: string;
   durationMs?: Int64String;
   createdAt?: string;
+  // Set when a trigger reports the check (design/34_triggers.md).
+  triggerRunId?: string;
+  detailsUrl?: string;
+  annotations?: CheckAnnotation[];
+}
+
+export interface CheckAnnotation {
+  path?: string;
+  startLine?: number;
+  endLine?: number;
+  // notice, warning or failure.
+  level?: string;
+  message?: string;
 }
 
 export interface CheckRunLog {

@@ -13,6 +13,7 @@ import { useApi, type ApiClient } from "../../api/useApi";
 import { cn } from "../../lib/cn";
 import { formatRelativeTime } from "../../lib/time";
 import { errorMessage } from "./status";
+import { TriggerRunLog } from "./TriggerRunsPanel";
 
 const CHECK_POLL_INTERVAL_MS = 3500;
 const terminalCheckStatuses = new Set([
@@ -48,10 +49,18 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
         ? CHECK_POLL_INTERVAL_MS
         : false
   });
+  // A check a trigger script reports is rerun by running its trigger again;
+  // one a trigger launched on a CI daemon reruns on the daemon.
   const rerunMutation = useMutation({
-    mutationFn: (runId: string) => api.rerunCheck({ runId }),
+    mutationFn: (runId: string) => {
+      const run = (runsQuery.data ?? []).find((r) => r.id === runId);
+      return run?.triggerRunId && run.provenance === "trigger"
+        ? api.rerunTriggerRun({ runId: run.triggerRunId })
+        : api.rerunCheck({ runId });
+    },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: checkRunsQueryKey });
+      await queryClient.invalidateQueries({ queryKey: ["triggerRuns", changesetId] });
     }
   });
 
@@ -194,6 +203,16 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
                 </div>
               </button>
               <div className="flex items-center justify-start gap-2 md:justify-end">
+                {safeDetailsUrl(run.detailsUrl) ? (
+                  <a
+                    className="text-xs font-semibold text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+                    href={safeDetailsUrl(run.detailsUrl)}
+                    rel="noopener noreferrer"
+                    target="_blank"
+                  >
+                    Details
+                  </a>
+                ) : null}
                 <span className="text-xs font-medium text-slate-500 dark:text-zinc-400">
                   {selected ? "Logs open" : "View logs"}
                 </span>
@@ -213,7 +232,9 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
         })}
       </div>
 
-      {selectedRun ? (
+      {selectedRun?.triggerRunId && selectedRun.provenance === "trigger" ? (
+        <TriggerCheckDetails run={selectedRun} />
+      ) : selectedRun ? (
         <CheckRunLogTail api={api} run={selectedRun} />
       ) : null}
     </section>
@@ -417,9 +438,53 @@ function normalizeCheckStatus(status?: string) {
   return (status || "queued").toLowerCase();
 }
 
+// safeDetailsUrl allows only http(s) links out of a check.
+export function safeDetailsUrl(url?: string) {
+  if (!url) return "";
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+// TriggerCheckDetails shows what a trigger reported on a check: its
+// annotations and the log of the trigger run that reported it.
+function TriggerCheckDetails({ run }: { run: CheckRun }) {
+  const annotations = run.annotations ?? [];
+  return (
+    <div className="border-t border-slate-100 dark:border-zinc-800">
+      {annotations.length > 0 ? (
+        <ul aria-label="Annotations" className="divide-y divide-slate-100 dark:divide-zinc-800 px-3 md:px-5">
+          {annotations.map((a, i) => (
+            <li className="flex gap-2 py-2 text-sm" key={`${a.path}:${a.startLine}:${i}`}>
+              <span
+                className={cn(
+                  "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
+                  a.level === "notice" ? "bg-sky-500" : a.level === "warning" ? "bg-amber-500" : "bg-rose-500"
+                )}
+              />
+              <span className="min-w-0">
+                <code className="break-all font-mono text-xs text-slate-600 dark:text-zinc-400">
+                  {a.path}
+                  {a.startLine ? `:${a.startLine}` : ""}
+                  {a.endLine && a.endLine !== a.startLine ? `-${a.endLine}` : ""}
+                </code>
+                <span className="block text-slate-800 dark:text-zinc-200">{a.message}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <TriggerRunLog run={{ id: run.triggerRunId, status: isTerminalCheckStatus(run.status) ? "succeeded" : "running" }} />
+    </div>
+  );
+}
+
 function normalizeProvenance(provenance?: string) {
   const normalized = (provenance || "").toLowerCase();
-  if (normalized === "self" || normalized === "ci") {
+  if (normalized === "self" || normalized === "ci" || normalized === "trigger") {
     return normalized;
   }
   return normalized || "unknown";

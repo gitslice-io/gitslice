@@ -117,11 +117,10 @@ func (d *checkDispatcher) dispatchCIChecks(ctx context.Context, cs *corev1.Chang
 		slog.Warn("failed to resolve check plan for dispatch", "changeset_id", cs.GetId(), "patchset_id", patchset.GetId(), "error", err)
 		return
 	}
-	daemonID := strings.TrimSpace(slice.CiDaemonId)
 	// A daemon runs a slice's checks only while its owner keeps it exposed to
-	// the slice. Otherwise the checks error, without the daemon seeing the
-	// slice's secrets.
-	refusal := d.ciDaemonRefusal(ctx, slice.Id, daemonID)
+	// the slice. Otherwise the checks error (sendChecks), without the daemon
+	// seeing the slice's secrets.
+	daemonID := strings.TrimSpace(slice.CiDaemonId)
 	var runnable []checks.CheckSpec
 	for _, spec := range plan.Runnable {
 		if spec.OutOfSlice {
@@ -135,33 +134,47 @@ func (d *checkDispatcher) dispatchCIChecks(ctx context.Context, cs *corev1.Chang
 	if len(runnable) == 0 {
 		return
 	}
-	var secrets map[string]string
+	if _, err := d.sendChecks(ctx, cs, slice, patchset, runnable, ""); err != nil {
+		slog.Warn("failed to dispatch ci checks", "changeset_id", cs.GetId(), "patchset_id", patchset.GetId(), "slice_id", slice.GetId(), "error", err)
+	}
+}
+
+// sendChecks creates a run for each spec on the slice's CI daemon and sends
+// the runs to it. Without a daemon, or with one that is not exposed to the
+// slice, the runs error. triggerRunID links the runs to the trigger run that
+// asked for them. It returns how many runs it created.
+func (d *checkDispatcher) sendChecks(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, specs []checks.CheckSpec, triggerRunID string) (int, error) {
+	daemonID := strings.TrimSpace(slice.CiDaemonId)
+	refusal := d.ciDaemonRefusal(ctx, slice.Id, daemonID)
+	var secrets map[string]map[string]string
 	if daemonID != "" && refusal == "" {
 		var err error
-		secrets, err = d.sliceSecretsForDispatch(ctx, slice.Id)
+		secrets, err = d.secretsForChecks(ctx, slice.GetRef().GetAccount(), specs)
 		if err != nil {
-			slog.Warn("failed to load slice CI secrets for dispatch", "changeset_id", cs.GetId(), "patchset_id", patchset.GetId(), "slice_id", slice.GetId(), "error", err)
-			return
+			return 0, fmt.Errorf("load CI secrets: %w", err)
 		}
 	}
-	runSpecs := make([]*corev1.CheckRunSpec, 0, len(runnable))
-	for _, spec := range runnable {
+	created := 0
+	runSpecs := make([]*corev1.CheckRunSpec, 0, len(specs))
+	for _, spec := range specs {
 		runDaemon := daemonID
 		if refusal != "" {
 			runDaemon = "" // no daemon ran it
 		}
 		run, err := d.Checks.CreateCheckRun(ctx, storage.CheckRunInput{
-			ChangesetID: cs.Id,
-			PatchsetID:  patchset.Id,
-			CheckName:   spec.Name,
-			DaemonID:    runDaemon,
-			Provenance:  "ci",
-			Status:      "queued",
+			ChangesetID:  cs.Id,
+			PatchsetID:   patchset.Id,
+			CheckName:    spec.Name,
+			DaemonID:     runDaemon,
+			Provenance:   "ci",
+			Status:       "queued",
+			TriggerRunID: triggerRunID,
 		})
 		if err != nil {
 			slog.Warn("failed to create ci check run", "changeset_id", cs.Id, "patchset_id", patchset.Id, "check", spec.Name, "error", err)
 			continue
 		}
+		created++
 		if daemonID == "" {
 			if _, err := d.Checks.UpdateCheckRunStatus(ctx, run.Id, "errored", -1, "slice has no full-tree CI runner configured; set the slice CI daemon to run out-of-slice checks"); err != nil {
 				slog.Warn("failed to mark ci check run errored without runner", "run_id", run.Id, "changeset_id", cs.Id, "patchset_id", patchset.Id, "check", spec.Name, "error", err)
@@ -174,17 +187,14 @@ func (d *checkDispatcher) dispatchCIChecks(ctx context.Context, cs *corev1.Chang
 			}
 			continue
 		}
-		runSpecs = append(runSpecs, checkRunSpecFromPlan(run.Id, spec, secrets))
+		runSpecs = append(runSpecs, checkRunSpecFromPlan(run.Id, spec, secrets[spec.Name]))
 	}
-	if len(runSpecs) == 0 || daemonID == "" {
-		return
-	}
-	if d.hub == nil {
-		return
+	if len(runSpecs) == 0 || daemonID == "" || d.hub == nil {
+		return created, nil
 	}
 	conn, ok := d.hub.daemon(daemonID)
 	if !ok {
-		return
+		return created, nil // a detached daemon picks queued runs up when it polls
 	}
 	conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_RunChecks{RunChecks: &corev1.RunChecks{
 		ChangesetId:  cs.Id,
@@ -195,6 +205,72 @@ func (d *checkDispatcher) dispatchCIChecks(ctx context.Context, cs *corev1.Chang
 		ServerAddr:   d.serverAddr,
 		Checks:       runSpecs,
 	}}})
+	return created, nil
+}
+
+// LaunchTriggerChecks runs checks.yaml checks that a trigger's check action
+// names (design/34_triggers.md) on the changeset's slice CI daemon, for the
+// patchset, linked to the trigger run. A check whose paths do not match the
+// patchset is skipped, and one that already has a run on the patchset is
+// left alone. It returns how many runs it created.
+func (d *checkDispatcher) LaunchTriggerChecks(ctx context.Context, changesetID, patchsetID string, names []string, triggerRunID string) (int, error) {
+	if d == nil || d.Checks == nil {
+		return 0, fmt.Errorf("check dispatcher is not configured")
+	}
+	cs, err := d.Changesets.Get(ctx, changesetID)
+	if err != nil {
+		return 0, err
+	}
+	patchset := patchsetByID(cs, patchsetID)
+	if patchset == nil {
+		return 0, fmt.Errorf("%w: patchset %s", storage.ErrNotFound, patchsetID)
+	}
+	slice, err := d.Slices.Resolve(ctx, cs.AuthoringSlice)
+	if err != nil {
+		return 0, err
+	}
+	plan, err := d.resolveCheckPlan(ctx, slice, patchset)
+	if err != nil {
+		return 0, err
+	}
+	existing, err := d.Checks.ListCheckRuns(ctx, cs.Id, patchset.Id)
+	if err != nil {
+		return 0, err
+	}
+	ran := map[string]bool{}
+	for _, run := range existing {
+		ran[run.GetCheckName()] = true
+	}
+	var specs []checks.CheckSpec
+	var problems []string
+	for _, name := range names {
+		if ran[name] {
+			continue
+		}
+		if spec, ok := plan.Spec(name); ok {
+			specs = append(specs, spec)
+			continue
+		}
+		if reason := erroredCheckReason(plan, name); reason != "" {
+			problems = append(problems, name+": "+reason)
+			continue
+		}
+		skipped := false
+		for _, s := range plan.Skipped {
+			skipped = skipped || s.Name == name
+		}
+		if !skipped {
+			problems = append(problems, name+": not defined in a checks.yaml on the patchset's paths")
+		}
+	}
+	created, err := d.sendChecks(ctx, cs, slice, patchset, specs, triggerRunID)
+	if err != nil {
+		return created, err
+	}
+	if len(problems) > 0 {
+		return created, fmt.Errorf("%s", strings.Join(problems, "; "))
+	}
+	return created, nil
 }
 
 func (s *ChangesetService) dispatchCIChecks(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, bundled []*corev1.BundledCheckRun) {
@@ -295,9 +371,9 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 		}
 		return nil, status.Errorf(codes.FailedPrecondition, "check %q has no runnable CI definition in this revision", checkName)
 	}
-	secrets, err := d.sliceSecretsForDispatch(ctx, slice.Id)
+	secrets, err := d.secretsForChecks(ctx, slice.GetRef().GetAccount(), []checks.CheckSpec{spec})
 	if err != nil {
-		return nil, status.Errorf(codes.FailedPrecondition, "slice CI secrets could not be loaded: %v", err)
+		return nil, status.Errorf(codes.FailedPrecondition, "CI secrets could not be loaded: %v", err)
 	}
 
 	run, err := d.Checks.CreateCheckRun(ctx, storage.CheckRunInput{
@@ -326,7 +402,7 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 		Slice:        slice.Ref,
 		SliceId:      slice.Id,
 		ServerAddr:   d.serverAddr,
-		Checks:       []*corev1.CheckRunSpec{checkRunSpecFromPlan(run.Id, spec, secrets)},
+		Checks:       []*corev1.CheckRunSpec{checkRunSpecFromPlan(run.Id, spec, secrets[spec.Name])},
 	}}}
 	if connected && !conn.trySend(msg) {
 		return nil, status.Error(codes.FailedPrecondition, "slice CI daemon is not online")
@@ -546,13 +622,19 @@ func (d *checkDispatcher) rebuildRunChecksMessage(ctx context.Context, runs []*c
 	if err != nil {
 		return nil, err
 	}
-	secrets, err := d.sliceSecretsForDispatch(ctx, slice.Id)
+	byName := map[string]checks.CheckSpec{}
+	for _, spec := range append(append([]checks.CheckSpec(nil), plan.Runnable...), plan.Triggered...) {
+		byName[spec.Name] = spec
+	}
+	var queued []checks.CheckSpec
+	for _, run := range runs {
+		if spec, ok := byName[run.CheckName]; ok {
+			queued = append(queued, spec)
+		}
+	}
+	secrets, err := d.secretsForChecks(ctx, slice.GetRef().GetAccount(), queued)
 	if err != nil {
 		return nil, err
-	}
-	byName := map[string]checks.CheckSpec{}
-	for _, spec := range plan.Runnable {
-		byName[spec.Name] = spec
 	}
 	specs := make([]*corev1.CheckRunSpec, 0, len(runs))
 	for _, run := range runs {
@@ -560,7 +642,7 @@ func (d *checkDispatcher) rebuildRunChecksMessage(ctx context.Context, runs []*c
 		if !ok {
 			continue
 		}
-		specs = append(specs, checkRunSpecFromPlan(run.Id, spec, secrets))
+		specs = append(specs, checkRunSpecFromPlan(run.Id, spec, secrets[spec.Name]))
 	}
 	if len(specs) == 0 {
 		return nil, nil
@@ -648,9 +730,10 @@ func (s *AgentService) handleCheckRunUpdate(ctx context.Context, daemonID string
 	ack()
 }
 
-// runSecretMasker hides the secrets of the run's slice in what its daemon
-// sends back, whatever the daemon's version: a check that prints a secret
-// must not store it in a log that every reader of the changeset can open.
+// runSecretMasker hides the secrets the run's check was given (those at the
+// folder that defines it) in what its daemon sends back, whatever the
+// daemon's version: a check that prints a secret must not store it in a log
+// that every reader of the changeset can open.
 // Daemons mask too, with the values they were sent (CheckRunSpec.secret_env),
 // which also covers a secret changed while the check ran.
 func (s *AgentService) runSecretMasker(ctx context.Context, run *corev1.CheckRun) *secretmask.Masker {
@@ -662,14 +745,9 @@ func (s *AgentService) runSecretMasker(ctx context.Context, run *corev1.CheckRun
 		slog.Warn("failed to load changeset to mask check secrets", "run_id", run.Id, "error", err)
 		return nil
 	}
-	slice, err := s.Slices.Resolve(ctx, cs.AuthoringSlice)
+	secrets, err := s.Slices.SecretValuesAt(ctx, checkSecretFolder(cs.GetAuthoringSlice().GetAccount(), run.CheckName))
 	if err != nil {
-		slog.Warn("failed to resolve slice to mask check secrets", "run_id", run.Id, "error", err)
-		return nil
-	}
-	secrets, err := s.Slices.GetSliceSecrets(ctx, slice.Id)
-	if err != nil {
-		slog.Warn("failed to load secrets to mask check output", "run_id", run.Id, "slice_id", slice.Id, "error", err)
+		slog.Warn("failed to load secrets to mask check output", "run_id", run.Id, "check", run.CheckName, "error", err)
 		return nil
 	}
 	values := make([]string, 0, len(secrets))
@@ -692,11 +770,36 @@ func (s *AgentService) persistedCheckRunLog(ctx context.Context, runID string, s
 	return nil
 }
 
-func (d *checkDispatcher) sliceSecretsForDispatch(ctx context.Context, sliceID string) (map[string]string, error) {
+// secretsForChecks returns, by check name, the secrets each check gets:
+// those that apply at the folder of the checks.yaml that defines it
+// (design/33_secrets.md). Each folder is read once.
+func (d *checkDispatcher) secretsForChecks(ctx context.Context, account string, specs []checks.CheckSpec) (map[string]map[string]string, error) {
 	if d == nil || d.Slices == nil {
 		return nil, fmt.Errorf("slice store is not configured")
 	}
-	return d.Slices.GetSliceSecrets(ctx, sliceID)
+	byFolder := map[string]map[string]string{}
+	out := make(map[string]map[string]string, len(specs))
+	for _, spec := range specs {
+		folder := checkSecretFolder(account, spec.Name)
+		values, ok := byFolder[folder]
+		if !ok {
+			var err error
+			if values, err = d.Slices.SecretValuesAt(ctx, folder); err != nil {
+				return nil, err
+			}
+			byFolder[folder] = values
+		}
+		out[spec.Name] = values
+	}
+	return out, nil
+}
+
+// checkSecretFolder is the folder whose secrets a check gets: the folder of
+// the checks.yaml that defines it, read from its id ("<dir>/<name>", or
+// "<name>" at the root) as a path in the account.
+func checkSecretFolder(account, checkName string) string {
+	dir := path.Dir("/" + strings.Trim(strings.TrimSpace(checkName), "/"))
+	return checkTreeReader{account: account}.storagePath(dir)
 }
 
 func checkRunSpecFromPlan(runID string, spec checks.CheckSpec, secrets map[string]string) *corev1.CheckRunSpec {
@@ -805,15 +908,7 @@ func patchsetByID(cs *corev1.Changeset, patchsetID string) *corev1.Patchset {
 // runnableCICheck finds a runnable check, in-slice or out-of-slice, that the
 // slice's CI daemon can run for the patchset.
 func runnableCICheck(plan *checks.Plan, checkName string) (checks.CheckSpec, bool) {
-	if plan == nil {
-		return checks.CheckSpec{}, false
-	}
-	for _, spec := range plan.Runnable {
-		if spec.Name == checkName {
-			return spec, true
-		}
-	}
-	return checks.CheckSpec{}, false
+	return plan.Spec(checkName)
 }
 
 func erroredCheckReason(plan *checks.Plan, checkName string) string {

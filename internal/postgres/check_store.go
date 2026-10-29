@@ -100,9 +100,9 @@ func (s *CheckStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInpu
 		durationExpr = "0"
 	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
-		insert into check_runs(id, changeset_id, patchset_id, check_name, daemon_id, provenance, attempt, status, started_at, finished_at, duration_ms)
-		values ($1, $2, $3, $4, nullif($5, ''), $6, $7, $8, %s, %s, %s)
-	`, startedExpr, finishedExpr, durationExpr), runID, changesetID, patchsetID, checkName, daemonID, provenance, attempt, status); err != nil {
+		insert into check_runs(id, changeset_id, patchset_id, check_name, daemon_id, provenance, attempt, status, started_at, finished_at, duration_ms, trigger_run_id)
+		values ($1, $2, $3, $4, nullif($5, ''), $6, $7, $8, %s, %s, %s, nullif($9, ''))
+	`, startedExpr, finishedExpr, durationExpr), runID, changesetID, patchsetID, checkName, daemonID, provenance, attempt, status, strings.TrimSpace(in.TriggerRunID)); err != nil {
 		return nil, err
 	}
 	if attempt > 1 {
@@ -123,7 +123,7 @@ func (s *CheckStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInpu
 func (s *CheckStore) GetCheckRun(ctx context.Context, runID string) (*corev1.CheckRun, error) {
 	row := s.db.QueryRowContext(ctx, `
 		select id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = check_runs.daemon_id), ''), provenance,
-		       attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at
+		       attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at, coalesce(trigger_run_id, ''), details_url, annotations
 		from check_runs
 		where id = $1
 	`, strings.TrimSpace(runID))
@@ -138,7 +138,7 @@ func (s *CheckStore) ListCheckRuns(ctx context.Context, changesetID, patchsetID 
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		select id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = check_runs.daemon_id), ''), provenance,
-		       attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at
+		       attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at, coalesce(trigger_run_id, ''), details_url, annotations
 		from check_runs
 		where superseded_by_run_id is null
 		  and ($1 = '' or changeset_id = $1)
@@ -171,7 +171,7 @@ func (s *CheckStore) ListRunsByDaemonStatus(ctx context.Context, daemonID, statu
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		select id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = check_runs.daemon_id), ''), provenance,
-		       attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at
+		       attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at, coalesce(trigger_run_id, ''), details_url, annotations
 		from check_runs
 		where superseded_by_run_id is null
 		  and daemon_id = $1
@@ -226,7 +226,7 @@ func (s *CheckStore) CancelOpenCheckRunsBeforePatchset(ctx context.Context, chan
 		  and superseded_by_run_id is null
 		  and status in ('queued', 'running')
 		returning id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = check_runs.daemon_id), ''), provenance,
-		          attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at
+		          attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at, coalesce(trigger_run_id, ''), details_url, annotations
 	`, changesetID, currentPatchsetID)
 	if err != nil {
 		return nil, err
@@ -432,7 +432,8 @@ func scanCheckRun(row rowScanner) (*corev1.CheckRun, error) {
 		durationMS            sql.NullInt64
 		createdAt             time.Time
 	)
-	if err := row.Scan(&run.Id, &run.ChangesetId, &run.PatchsetId, &run.CheckName, &run.DaemonId, &run.DaemonName, &run.Provenance, &run.Attempt, &run.Status, &exitCode, &run.Summary, &startedAt, &finishedAt, &durationMS, &createdAt); err != nil {
+	var annotations []byte
+	if err := row.Scan(&run.Id, &run.ChangesetId, &run.PatchsetId, &run.CheckName, &run.DaemonId, &run.DaemonName, &run.Provenance, &run.Attempt, &run.Status, &exitCode, &run.Summary, &startedAt, &finishedAt, &durationMS, &createdAt, &run.TriggerRunId, &run.DetailsUrl, &annotations); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, storage.ErrNotFound
 		}
@@ -451,7 +452,33 @@ func scanCheckRun(row rowScanner) (*corev1.CheckRun, error) {
 		run.DurationMs = durationMS.Int64
 	}
 	run.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
+	if run.TriggerRunId != "" && run.DaemonId == "" {
+		// A trigger reported it itself. Stored as ci, so the provenance
+		// column's check stays as it is. A check a trigger launched on a
+		// daemon stays ci.
+		run.Provenance = "trigger"
+	}
+	run.Annotations = storage.CheckAnnotationsProto(annotations)
 	return &run, nil
+}
+
+func (s *CheckStore) SetCheckRunDetails(ctx context.Context, runID string, details storage.CheckRunDetails) (*corev1.CheckRun, error) {
+	annotations, err := storage.MarshalCheckAnnotations(details.Annotations)
+	if err != nil {
+		return nil, err
+	}
+	res, err := s.db.ExecContext(ctx, `
+		update check_runs
+		set details_url = $2, summary = $3, annotations = $4, updated_at = now()
+		where id = $1
+	`, strings.TrimSpace(runID), details.DetailsURL, details.Summary, annotations)
+	if err != nil {
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, storage.ErrNotFound
+	}
+	return s.GetCheckRun(ctx, runID)
 }
 
 func scanCheckRunLog(row rowScanner) (*corev1.CheckRunLog, error) {
@@ -468,8 +495,8 @@ func scanCheckRunLog(row rowScanner) (*corev1.CheckRunLog, error) {
 
 func normalizeCheckRunProvenance(provenance string) string {
 	provenance = strings.ToLower(strings.TrimSpace(provenance))
-	if provenance == "ci" {
-		return provenance
+	if provenance == "ci" || provenance == "trigger" {
+		return "ci"
 	}
 	return "self"
 }

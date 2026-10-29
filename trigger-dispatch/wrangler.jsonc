@@ -1,0 +1,17 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // Runs trigger scripts as Dynamic Workers (design/34_triggers.md).
+  "name": "gitslice-trigger-dispatch",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat", "enable_ctx_exports"],
+  "routes": [{ "pattern": "triggers.gitslice.io", "custom_domain": true }],
+  // Each trigger script runs in an isolate keyed by its code hash.
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "vars": {
+    "GITSLICE_API": "https://api.gitslice.io"
+  },
+  // DISPATCH_SECRET is a secret (wrangler secret put DISPATCH_SECRET): the
+  // server's GITSLICE_TRIGGER_DISPATCH_SECRET.
+  "observability": { "enabled": true }
+}

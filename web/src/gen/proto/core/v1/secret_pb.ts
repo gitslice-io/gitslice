@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/secret.proto.
  */
 export const file_proto_core_v1_secret: GenFile = /*@__PURE__*/
-  fileDesc("Chpwcm90by9jb3JlL3YxL3NlY3JldC5wcm90bxIQZ2l0c2xpY2UuY29yZS52MSKxAQoGU2VjcmV0EgoKAmlkGAEgASgJEg8KB2FjY291bnQYAiABKAkSDAoEbmFtZRgDIAEoCRIsCgVzY29wZRgEIAEoCzIdLmdpdHNsaWNlLmNvcmUudjEuU2VjcmV0U2NvcGUSEgoKY3JlYXRlZF9ieRgFIAEoCRISCgp1cGRhdGVkX2J5GAYgASgJEhIKCmNyZWF0ZWRfYXQYByABKAkSEgoKdXBkYXRlZF9hdBgIIAEoCSJNCgtTZWNyZXRTY29wZRISCgphbGxfc2xpY2VzGAEgASgIEioKBnNsaWNlcxgCIAMoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYiJQoSTGlzdFNlY3JldHNSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkiQAoTTGlzdFNlY3JldHNSZXNwb25zZRIpCgdzZWNyZXRzGAEgAygLMhguZ2l0c2xpY2UuY29yZS52MS5TZWNyZXQiHgoQR2V0U2VjcmV0UmVxdWVzdBIKCgJpZBgBIAEoCSJxChNDcmVhdGVTZWNyZXRSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSDAoEbmFtZRgCIAEoCRINCgV2YWx1ZRgDIAEoCRIsCgVzY29wZRgEIAEoCzIdLmdpdHNsaWNlLmNvcmUudjEuU2VjcmV0U2NvcGUibQoTVXBkYXRlU2VjcmV0UmVxdWVzdBIKCgJpZBgBIAEoCRISCgV2YWx1ZRgCIAEoCUgAiAEBEiwKBXNjb3BlGAMgASgLMh0uZ2l0c2xpY2UuY29yZS52MS5TZWNyZXRTY29wZUIICgZfdmFsdWUiIQoTRGVsZXRlU2VjcmV0UmVxdWVzdBIKCgJpZBgBIAEoCSJVChlSZXZlYWxTbGljZVNlY3JldHNSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhINCgVuYW1lcxgCIAMoCSKmAQoaUmV2ZWFsU2xpY2VTZWNyZXRzUmVzcG9uc2USSAoGdmFsdWVzGAEgAygLMjguZ2l0c2xpY2UuY29yZS52MS5SZXZlYWxTbGljZVNlY3JldHNSZXNwb25zZS5WYWx1ZXNFbnRyeRIPCgdtaXNzaW5nGAIgAygJGi0KC1ZhbHVlc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEymQQKDVNlY3JldFNlcnZpY2USWgoLTGlzdFNlY3JldHMSJC5naXRzbGljZS5jb3JlLnYxLkxpc3RTZWNyZXRzUmVxdWVzdBolLmdpdHNsaWNlLmNvcmUudjEuTGlzdFNlY3JldHNSZXNwb25zZRJJCglHZXRTZWNyZXQSIi5naXRzbGljZS5jb3JlLnYxLkdldFNlY3JldFJlcXVlc3QaGC5naXRzbGljZS5jb3JlLnYxLlNlY3JldBJPCgxDcmVhdGVTZWNyZXQSJS5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZVNlY3JldFJlcXVlc3QaGC5naXRzbGljZS5jb3JlLnYxLlNlY3JldBJPCgxVcGRhdGVTZWNyZXQSJS5naXRzbGljZS5jb3JlLnYxLlVwZGF0ZVNlY3JldFJlcXVlc3QaGC5naXRzbGljZS5jb3JlLnYxLlNlY3JldBJOCgxEZWxldGVTZWNyZXQSJS5naXRzbGljZS5jb3JlLnYxLkRlbGV0ZVNlY3JldFJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLkVtcHR5Em8KElJldmVhbFNsaWNlU2VjcmV0cxIrLmdpdHNsaWNlLmNvcmUudjEuUmV2ZWFsU2xpY2VTZWNyZXRzUmVxdWVzdBosLmdpdHNsaWNlLmNvcmUudjEuUmV2ZWFsU2xpY2VTZWNyZXRzUmVzcG9uc2VCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw", [file_proto_core_v1_common]);
+  fileDesc("Chpwcm90by9jb3JlL3YxL3NlY3JldC5wcm90bxIQZ2l0c2xpY2UuY29yZS52MSKxAQoGU2VjcmV0EgoKAmlkGAEgASgJEg8KB2FjY291bnQYAiABKAkSDAoEbmFtZRgDIAEoCRIsCgVzY29wZRgEIAEoCzIdLmdpdHNsaWNlLmNvcmUudjEuU2VjcmV0U2NvcGUSEgoKY3JlYXRlZF9ieRgFIAEoCRISCgp1cGRhdGVkX2J5GAYgASgJEhIKCmNyZWF0ZWRfYXQYByABKAkSEgoKdXBkYXRlZF9hdBgIIAEoCSJcCgtTZWNyZXRTY29wZRISCgphbGxfc2xpY2VzGAEgASgIEioKBnNsaWNlcxgCIAMoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSDQoFcGF0aHMYAyADKAkiJQoSTGlzdFNlY3JldHNSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkiQAoTTGlzdFNlY3JldHNSZXNwb25zZRIpCgdzZWNyZXRzGAEgAygLMhguZ2l0c2xpY2UuY29yZS52MS5TZWNyZXQiHgoQR2V0U2VjcmV0UmVxdWVzdBIKCgJpZBgBIAEoCSJxChNDcmVhdGVTZWNyZXRSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSDAoEbmFtZRgCIAEoCRINCgV2YWx1ZRgDIAEoCRIsCgVzY29wZRgEIAEoCzIdLmdpdHNsaWNlLmNvcmUudjEuU2VjcmV0U2NvcGUibQoTVXBkYXRlU2VjcmV0UmVxdWVzdBIKCgJpZBgBIAEoCRISCgV2YWx1ZRgCIAEoCUgAiAEBEiwKBXNjb3BlGAMgASgLMh0uZ2l0c2xpY2UuY29yZS52MS5TZWNyZXRTY29wZUIICgZfdmFsdWUiIQoTRGVsZXRlU2VjcmV0UmVxdWVzdBIKCgJpZBgBIAEoCSIzChRSZXZlYWxTZWNyZXRzUmVxdWVzdBIMCgRwYXRoGAEgASgJEg0KBW5hbWVzGAIgAygJIpwBChVSZXZlYWxTZWNyZXRzUmVzcG9uc2USQwoGdmFsdWVzGAEgAygLMjMuZ2l0c2xpY2UuY29yZS52MS5SZXZlYWxTZWNyZXRzUmVzcG9uc2UuVmFsdWVzRW50cnkSDwoHbWlzc2luZxgCIAMoCRotCgtWYWx1ZXNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIlUKGVJldmVhbFNsaWNlU2VjcmV0c1JlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEg0KBW5hbWVzGAIgAygJIqYBChpSZXZlYWxTbGljZVNlY3JldHNSZXNwb25zZRJICgZ2YWx1ZXMYASADKAsyOC5naXRzbGljZS5jb3JlLnYxLlJldmVhbFNsaWNlU2VjcmV0c1Jlc3BvbnNlLlZhbHVlc0VudHJ5Eg8KB21pc3NpbmcYAiADKAkaLQoLVmFsdWVzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ATL7BAoNU2VjcmV0U2VydmljZRJaCgtMaXN0U2VjcmV0cxIkLmdpdHNsaWNlLmNvcmUudjEuTGlzdFNlY3JldHNSZXF1ZXN0GiUuZ2l0c2xpY2UuY29yZS52MS5MaXN0U2VjcmV0c1Jlc3BvbnNlEkkKCUdldFNlY3JldBIiLmdpdHNsaWNlLmNvcmUudjEuR2V0U2VjcmV0UmVxdWVzdBoYLmdpdHNsaWNlLmNvcmUudjEuU2VjcmV0Ek8KDENyZWF0ZVNlY3JldBIlLmdpdHNsaWNlLmNvcmUudjEuQ3JlYXRlU2VjcmV0UmVxdWVzdBoYLmdpdHNsaWNlLmNvcmUudjEuU2VjcmV0Ek8KDFVwZGF0ZVNlY3JldBIlLmdpdHNsaWNlLmNvcmUudjEuVXBkYXRlU2VjcmV0UmVxdWVzdBoYLmdpdHNsaWNlLmNvcmUudjEuU2VjcmV0Ek4KDERlbGV0ZVNlY3JldBIlLmdpdHNsaWNlLmNvcmUudjEuRGVsZXRlU2VjcmV0UmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuRW1wdHkSYAoNUmV2ZWFsU2VjcmV0cxImLmdpdHNsaWNlLmNvcmUudjEuUmV2ZWFsU2VjcmV0c1JlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLlJldmVhbFNlY3JldHNSZXNwb25zZRJvChJSZXZlYWxTbGljZVNlY3JldHMSKy5naXRzbGljZS5jb3JlLnYxLlJldmVhbFNsaWNlU2VjcmV0c1JlcXVlc3QaLC5naXRzbGljZS5jb3JlLnYxLlJldmVhbFNsaWNlU2VjcmV0c1Jlc3BvbnNlQitaKWdpdHNsaWNlLmlvL2dpdHNsaWNlL3Byb3RvL2NvcmUvdjE7Y29yZXYxYgZwcm90bzM", [file_proto_core_v1_common]);
 
 /**
  * @generated from message gitslice.core.v1.Secret
@@ -75,26 +75,38 @@ export const SecretSchema: GenMessage<Secret> = /*@__PURE__*/
   messageDesc(file_proto_core_v1_secret, 0);
 
 /**
- * SecretScope is where a secret applies: every slice of its account, or the
- * slices listed. It reaches every CI daemon that runs checks for those slices,
- * and every writer of those slices can read it from a check, so widen it with
- * care.
+ * SecretScope is where a secret applies: the folders in paths and everything
+ * below them. It reaches the CI daemon of every slice whose changes run a
+ * check defined there, and every writer who can add a check there (writers of
+ * slices that include those folders, a folder above or one inside) can read
+ * it, so widen it with care.
  *
  * @generated from message gitslice.core.v1.SecretScope
  */
 export type SecretScope = Message<"gitslice.core.v1.SecretScope"> & {
   /**
+   * Deprecated, accepted on writes only: the account root, /<account>.
+   *
    * @generated from field: bool all_slices = 1;
    */
   allSlices: boolean;
 
   /**
-   * Slices of the secret's account; ignored when all_slices. A secret whose
-   * slices were all deleted has none and reaches nothing.
+   * Deprecated, accepted on writes only: each slice's included paths. A ref
+   * with no account means the secret's own.
    *
    * @generated from field: repeated gitslice.core.v1.SliceRef slices = 2;
    */
   slices: SliceRef[];
+
+  /**
+   * Canonical folders inside /<account>, such as /acme or
+   * /acme/services/billing; 1 to 50. On writes, merged with what all_slices
+   * and slices stand for. Replies carry only this field.
+   *
+   * @generated from field: repeated string paths = 3;
+   */
+  paths: string[];
 };
 
 /**
@@ -177,7 +189,7 @@ export type CreateSecretRequest = Message<"gitslice.core.v1.CreateSecretRequest"
   value: string;
 
   /**
-   * Required: all_slices, or at least one slice.
+   * Required: at least one folder.
    *
    * @generated from field: gitslice.core.v1.SecretScope scope = 4;
    */
@@ -240,6 +252,59 @@ export const DeleteSecretRequestSchema: GenMessage<DeleteSecretRequest> = /*@__P
   messageDesc(file_proto_core_v1_secret, 7);
 
 /**
+ * @generated from message gitslice.core.v1.RevealSecretsRequest
+ */
+export type RevealSecretsRequest = Message<"gitslice.core.v1.RevealSecretsRequest"> & {
+  /**
+   * A canonical folder, such as /acme/web; its account's owners and admins
+   * may ask.
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * The names wanted: at least one, at most 100.
+   *
+   * @generated from field: repeated string names = 2;
+   */
+  names: string[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.RevealSecretsRequest.
+ * Use `create(RevealSecretsRequestSchema)` to create a new message.
+ */
+export const RevealSecretsRequestSchema: GenMessage<RevealSecretsRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_secret, 8);
+
+/**
+ * @generated from message gitslice.core.v1.RevealSecretsResponse
+ */
+export type RevealSecretsResponse = Message<"gitslice.core.v1.RevealSecretsResponse"> & {
+  /**
+   * Name to value, for the names that apply at the folder.
+   *
+   * @generated from field: map<string, string> values = 1;
+   */
+  values: { [key: string]: string };
+
+  /**
+   * The names asked for that no secret at the folder has.
+   *
+   * @generated from field: repeated string missing = 2;
+   */
+  missing: string[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.RevealSecretsResponse.
+ * Use `create(RevealSecretsResponseSchema)` to create a new message.
+ */
+export const RevealSecretsResponseSchema: GenMessage<RevealSecretsResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_secret, 9);
+
+/**
  * @generated from message gitslice.core.v1.RevealSliceSecretsRequest
  */
 export type RevealSliceSecretsRequest = Message<"gitslice.core.v1.RevealSliceSecretsRequest"> & {
@@ -261,7 +326,7 @@ export type RevealSliceSecretsRequest = Message<"gitslice.core.v1.RevealSliceSec
  * Use `create(RevealSliceSecretsRequestSchema)` to create a new message.
  */
 export const RevealSliceSecretsRequestSchema: GenMessage<RevealSliceSecretsRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_secret, 8);
+  messageDesc(file_proto_core_v1_secret, 10);
 
 /**
  * @generated from message gitslice.core.v1.RevealSliceSecretsResponse
@@ -287,13 +352,14 @@ export type RevealSliceSecretsResponse = Message<"gitslice.core.v1.RevealSliceSe
  * Use `create(RevealSliceSecretsResponseSchema)` to create a new message.
  */
 export const RevealSliceSecretsResponseSchema: GenMessage<RevealSliceSecretsResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_secret, 9);
+  messageDesc(file_proto_core_v1_secret, 11);
 
 /**
  * SecretService manages an account's secrets: values Gitslice keeps encrypted
- * and passes to the CI checks of the slices each one is scoped to, as
- * environment variables (design/33_secrets.md). Only the account's owners and
- * admins manage them, and only RevealSliceSecrets returns a value, to them.
+ * and passes, as environment variables, to the CI checks defined in the
+ * folders each one is scoped to (design/33_secrets.md). Only the account's
+ * owners and admins manage them, and only the Reveal calls return a value, to
+ * them.
  *
  * @generated from service gitslice.core.v1.SecretService
  */
@@ -318,8 +384,7 @@ export const SecretService: GenService<{
   },
   /**
    * CreateSecret stores a new secret. It fails with FailedPrecondition when a
-   * slice in its scope already has a secret by that name, or, for all_slices,
-   * when the account already has an all_slices secret by that name.
+   * folder in its scope already has a secret by that name.
    *
    * @generated from rpc gitslice.core.v1.SecretService.CreateSecret
    */
@@ -348,11 +413,23 @@ export const SecretService: GenService<{
     output: typeof EmptySchema;
   },
   /**
-   * RevealSliceSecrets returns the values of the named secrets that reach a
-   * slice, so that the account's owners and admins can fill a local env file
-   * (gs secret env). It is refused to everyone else, slice admins and writers
-   * included. Each call is logged with the caller and the names, never the
-   * values.
+   * RevealSecrets returns the values of the named secrets that apply at a
+   * folder, so that the account's owners and admins can fill a local env
+   * file (gs secret env). It is refused to everyone else, slice admins and
+   * writers included. Each call is logged with the caller, the folder and
+   * the names, never the values.
+   *
+   * @generated from rpc gitslice.core.v1.SecretService.RevealSecrets
+   */
+  revealSecrets: {
+    methodKind: "unary";
+    input: typeof RevealSecretsRequestSchema;
+    output: typeof RevealSecretsResponseSchema;
+  },
+  /**
+   * RevealSliceSecrets is RevealSecrets at a slice's included paths, for
+   * older CLIs. A name with different values at the slice's paths fails with
+   * FailedPrecondition.
    *
    * @generated from rpc gitslice.core.v1.SecretService.RevealSliceSecrets
    */

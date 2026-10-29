@@ -9,6 +9,7 @@ import { secretsQueryKey } from "../secrets/AccountSecretsPanel";
 import {
   SecretForm,
   scopeFromDraft,
+  secretPaths,
   secretButtonClass,
   secretDangerButtonClass,
   secretPrimaryButtonClass,
@@ -16,11 +17,19 @@ import {
 } from "../secrets/SecretForm";
 import { SliceLoadingBlock, SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
 
-// The secrets that reach this slice's CI checks, and where each comes from,
-// for the account's owners and admins. A secret only this slice has is
-// changed here; a shared one on the account's Secrets page, since changing it
-// changes other slices too.
-export function SliceSecretsPanel({ hasCIDaemon, slice }: { hasCIDaemon: boolean; slice: SliceRef }) {
+// The secrets that apply somewhere in this slice's folders, and the folders
+// of each, for the account's owners and admins. A secret on the slice's own
+// folders only is changed here; any other on the account's Secrets page,
+// since changing it changes other folders too.
+export function SliceSecretsPanel({
+  hasCIDaemon,
+  includedPaths,
+  slice
+}: {
+  hasCIDaemon: boolean;
+  includedPaths: string[];
+  slice: SliceRef;
+}) {
   const api = useApi();
   const queryClient = useQueryClient();
   const account = slice.account ?? "";
@@ -48,14 +57,14 @@ export function SliceSecretsPanel({ hasCIDaemon, slice }: { hasCIDaemon: boolean
 
   const create = useMutation({
     mutationFn: (draft: SecretDraft) =>
-      api.createSecret({ account, name: draft.name, scope: scopeFromDraft(account, draft), value: draft.value }),
+      api.createSecret({ account, name: draft.name, scope: scopeFromDraft(draft), value: draft.value }),
     onError,
     onMutate: () => setError(""),
     onSuccess: done
   });
   const update = useMutation({
     mutationFn: ({ id, draft }: { id: string; draft: SecretDraft }) =>
-      api.updateSecret({ id, scope: scopeFromDraft(account, draft), value: draft.value === "" ? undefined : draft.value }),
+      api.updateSecret({ id, scope: scopeFromDraft(draft), value: draft.value === "" ? undefined : draft.value }),
     onError,
     onMutate: () => setError(""),
     onSuccess: done
@@ -73,7 +82,8 @@ export function SliceSecretsPanel({ hasCIDaemon, slice }: { hasCIDaemon: boolean
     setError("");
     setEditing(id);
   };
-  const thisSliceOnly: SecretDraft = { allSlices: false, name: "", slices: [sliceName], value: "" };
+  const thisSlice: SecretDraft = { name: "", paths: [...includedPaths].sort(), value: "" };
+  const ownPaths = (paths: string[]) => paths.length > 0 && paths.every((path) => includedPaths.includes(path));
 
   return (
     <SlicePanel>
@@ -81,8 +91,8 @@ export function SliceSecretsPanel({ hasCIDaemon, slice }: { hasCIDaemon: boolean
         <div className="min-w-0 max-w-2xl">
           <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">Secrets</h2>
           <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-            Passed to this slice's CI checks as environment variables. Anyone who can write to the slice can read
-            them from a check.{" "}
+            Secrets on this slice's folders, on a folder above them, or on one inside them. Checks get the ones that
+            apply where the check is defined. Anyone who can write to the slice can read them from a check.{" "}
             <Link
               className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
               params={{ account }}
@@ -107,7 +117,7 @@ export function SliceSecretsPanel({ hasCIDaemon, slice }: { hasCIDaemon: boolean
       {!hasCIDaemon ? (
         <div className="mt-4">
           <SliceNotice title="No CI daemon">
-            This slice has no CI daemon, so no checks receive its secrets until one is set.
+            This slice has no CI daemon, so its changes run no checks that receive secrets until one is set.
           </SliceNotice>
         </div>
       ) : null}
@@ -116,7 +126,7 @@ export function SliceSecretsPanel({ hasCIDaemon, slice }: { hasCIDaemon: boolean
         <SecretForm
           account={account}
           busy={create.isPending}
-          initial={thisSliceOnly}
+          initial={thisSlice}
           onCancel={() => startEditing(null)}
           onSubmit={(draft) => create.mutate(draft)}
           problem={error}
@@ -138,12 +148,13 @@ export function SliceSecretsPanel({ hasCIDaemon, slice }: { hasCIDaemon: boolean
             {getErrorMessage(secretsQuery.error)}
           </SliceNotice>
         ) : secrets.length === 0 ? (
-          <p className="text-sm text-slate-500 dark:text-zinc-400">No secrets reach this slice.</p>
+          <p className="text-sm text-slate-500 dark:text-zinc-400">No secrets apply in this slice.</p>
         ) : (
           <ul className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 dark:divide-zinc-800 dark:border-zinc-800">
             {secrets.map((secret) => {
               const id = secret.secretId ?? "";
-              const own = !secret.allSlices && (secret.sharedWith ?? []).length === 0;
+              const paths = secretPaths(account, { allSlices: secret.allSlices, paths: secret.paths });
+              const own = ownPaths(paths);
               if (editing === id) {
                 return (
                   <li className="px-4 py-3" key={id}>
@@ -151,7 +162,7 @@ export function SliceSecretsPanel({ hasCIDaemon, slice }: { hasCIDaemon: boolean
                       account={account}
                       busy={update.isPending}
                       editing
-                      initial={{ ...thisSliceOnly, name: secret.name ?? "" }}
+                      initial={{ name: secret.name ?? "", paths, value: "" }}
                       onCancel={() => startEditing(null)}
                       onSubmit={(draft) => update.mutate({ draft, id })}
                       problem={error}
@@ -166,7 +177,7 @@ export function SliceSecretsPanel({ hasCIDaemon, slice }: { hasCIDaemon: boolean
                     <code className="block truncate font-mono text-sm font-medium text-zinc-950 dark:text-zinc-50">
                       {secret.name}
                     </code>
-                    <span className="block text-xs text-slate-500 dark:text-zinc-400">{sourceLabel(account, secret)}</span>
+                    <span className="block text-xs text-slate-500 dark:text-zinc-400">{sourceLabel(account, paths, secret)}</span>
                   </div>
                   {own ? (
                     <div className="flex gap-1.5">
@@ -199,8 +210,8 @@ export function SliceSecretsPanel({ hasCIDaemon, slice }: { hasCIDaemon: boolean
         message={
           deleting ? (
             <>
-              This slice's checks will no longer get <code className="font-mono">{deleting.name}</code>. This cannot be
-              undone.
+              Checks in {(deleting.paths ?? []).join(", ") || "this slice"} will no longer get{" "}
+              <code className="font-mono">{deleting.name}</code>. This cannot be undone.
             </>
           ) : null
         }
@@ -214,8 +225,9 @@ export function SliceSecretsPanel({ hasCIDaemon, slice }: { hasCIDaemon: boolean
   );
 }
 
-function sourceLabel(account: string, secret: SliceSecret) {
-  if (secret.allSlices) return `All slices of ${account}`;
+function sourceLabel(account: string, paths: string[], secret: SliceSecret) {
+  if (paths.length > 0) return paths.join(", ");
+  // A server older than folders.
   const others = (secret.sharedWith ?? []).map((ref) => ref.slice).filter(Boolean);
-  return others.length === 0 ? "This slice only" : `Shared with ${others.join(", ")}`;
+  return others.length === 0 ? `This slice of ${account}` : `Shared with ${others.join(", ")}`;
 }

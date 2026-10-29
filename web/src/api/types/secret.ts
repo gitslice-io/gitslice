@@ -1,8 +1,10 @@
 import { type SliceRef } from "./common";
 
-// Where a secret applies: every slice of its account, or the slices listed
-// (design/33_secrets.md).
+// Where a secret applies: the folders in paths and everything below them
+// (design/33_secrets.md). allSlices and slices are the scope before folders:
+// accepted on writes, and read only from servers older than folders.
 export interface SecretScope {
+  paths?: string[];
   allSlices?: boolean;
   slices?: SliceRef[];
 }
@@ -45,10 +47,12 @@ export interface SecretIdRequest {
   id?: string;
 }
 
-// A secret that reaches one slice, and where it comes from.
+// A secret that applies somewhere in a slice, and its folders. allSlices and
+// sharedWith come only from servers older than folders.
 export interface SliceSecret {
   name?: string;
   secretId?: string;
+  paths?: string[];
   allSlices?: boolean;
   sharedWith?: SliceRef[];
 }

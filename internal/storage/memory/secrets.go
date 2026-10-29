@@ -7,22 +7,26 @@ import (
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
 )
 
 // memorySecret is a secret with its value (design/33_secrets.md).
 type memorySecret struct {
 	storage.Secret
-	value    string
-	sliceIDs map[string]bool
+	value string
 }
 
-func (s *SliceStore) CreateSecret(ctx context.Context, account, name, value string, scope storage.SecretScope, actorID string) (*storage.Secret, error) {
+func (s *SliceStore) CreateSecret(ctx context.Context, account, name, value string, secretPaths []string, actorID string) (*storage.Secret, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	account = strings.TrimSpace(account)
 	if !storage.ValidSliceSecretName(name) {
 		return nil, fmt.Errorf("%w: secret name must match ^[A-Z_][A-Z0-9_]*$", storage.ErrInvalid)
+	}
+	normalized, err := storage.NormalizeSecretPaths(account, secretPaths)
+	if err != nil {
+		return nil, err
 	}
 	if len(value) > storage.MaxSecretValueBytes {
 		return nil, fmt.Errorf("%w: a secret value can be at most %d KiB", storage.ErrInvalid, storage.MaxSecretValueBytes>>10)
@@ -30,27 +34,22 @@ func (s *SliceStore) CreateSecret(ctx context.Context, account, name, value stri
 	if err := s.b.requireSecretRoomLocked(account); err != nil {
 		return nil, err
 	}
-	sliceIDs, err := s.b.secretScopeSlicesLocked(account, scope)
-	if err != nil {
-		return nil, err
-	}
 	id := s.b.nextIDLocked("sec")
-	if err := s.b.secretConflictLocked(account, id, name, scope.AllSlices, sliceIDs); err != nil {
+	if err := s.b.secretPathConflictLocked(id, name, normalized); err != nil {
 		return nil, err
 	}
 	now := time.Now().UTC()
 	s.b.secrets[id] = &memorySecret{
 		Secret: storage.Secret{
-			ID: id, Account: account, Name: name, AllSlices: scope.AllSlices,
+			ID: id, Account: account, Name: name, Paths: normalized,
 			CreatedBy: actorID, UpdatedBy: actorID, CreatedAt: now, UpdatedAt: now,
 		},
-		value:    value,
-		sliceIDs: sliceIDs,
+		value: value,
 	}
 	return s.b.secretLocked(id), nil
 }
 
-func (s *SliceStore) UpdateSecret(ctx context.Context, secretID string, value *string, scope *storage.SecretScope, actorID string) (*storage.Secret, error) {
+func (s *SliceStore) UpdateSecret(ctx context.Context, secretID string, value *string, secretPaths []string, actorID string) (*storage.Secret, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	secret := s.b.secrets[strings.TrimSpace(secretID)]
@@ -60,22 +59,21 @@ func (s *SliceStore) UpdateSecret(ctx context.Context, secretID string, value *s
 	if value != nil && len(*value) > storage.MaxSecretValueBytes {
 		return nil, fmt.Errorf("%w: a secret value can be at most %d KiB", storage.ErrInvalid, storage.MaxSecretValueBytes>>10)
 	}
-	var sliceIDs map[string]bool
-	if scope != nil {
+	var normalized []string
+	if secretPaths != nil {
 		var err error
-		if sliceIDs, err = s.b.secretScopeSlicesLocked(secret.Account, *scope); err != nil {
+		if normalized, err = storage.NormalizeSecretPaths(secret.Account, secretPaths); err != nil {
 			return nil, err
 		}
-		if err := s.b.secretConflictLocked(secret.Account, secret.ID, secret.Name, scope.AllSlices, sliceIDs); err != nil {
+		if err := s.b.secretPathConflictLocked(secret.ID, secret.Name, normalized); err != nil {
 			return nil, err
 		}
 	}
 	if value != nil {
 		secret.value = *value
 	}
-	if scope != nil {
-		secret.AllSlices = scope.AllSlices
-		secret.sliceIDs = sliceIDs
+	if normalized != nil {
+		secret.Paths = normalized
 	}
 	secret.UpdatedBy = actorID
 	secret.UpdatedAt = time.Now().UTC()
@@ -106,11 +104,157 @@ func (s *SliceStore) GetSecret(ctx context.Context, secretID string) (*storage.S
 func (s *SliceStore) ListSecrets(ctx context.Context, account string) ([]storage.Secret, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	account = strings.TrimSpace(account)
+	return s.b.listSecretsLocked(strings.TrimSpace(account)), nil
+}
+
+func (s *SliceStore) SecretValuesAt(ctx context.Context, folder string) (map[string]string, error) {
+	cleaned, err := paths.CanonicalPrefix(strings.TrimSpace(folder))
+	if err != nil {
+		return nil, fmt.Errorf("%w: folder %q: %v", storage.ErrInvalid, folder, err)
+	}
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	best := map[string]string{}
+	out := map[string]string{}
+	for _, secret := range s.b.secrets {
+		at, ok := storage.SecretAppliesAt(secret.Paths, cleaned)
+		if !ok {
+			continue
+		}
+		if prev, seen := best[secret.Name]; !seen || len(at) > len(prev) {
+			best[secret.Name] = at
+			out[secret.Name] = secret.value
+		}
+	}
+	return out, nil
+}
+
+func (s *SliceStore) ListSliceSecrets(ctx context.Context, sliceID string) ([]storage.SliceSecret, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	account, prefixes, err := s.b.secretSliceLocked(sliceID)
+	if err != nil {
+		return nil, err
+	}
+	var out []storage.SliceSecret
+	for _, secret := range s.b.listSecretsLocked(account) {
+		if storage.SecretTouches(secret.Paths, prefixes) {
+			out = append(out, storage.SliceSecret{Name: secret.Name, SecretID: secret.ID, Paths: secret.Paths})
+		}
+	}
+	return out, nil
+}
+
+func (s *SliceStore) SetSliceSecret(ctx context.Context, sliceID, name, value, actorID string) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if !storage.ValidSliceSecretName(name) {
+		return storage.ErrInvalid
+	}
+	if len(value) > storage.MaxSecretValueBytes {
+		return fmt.Errorf("%w: a secret value can be at most %d KiB", storage.ErrInvalid, storage.MaxSecretValueBytes>>10)
+	}
+	account, prefixes, err := s.b.secretSliceLocked(sliceID)
+	if err != nil {
+		return err
+	}
+	named := s.b.namedSecretsOnPathsLocked(name, prefixes)
+	edit, err := storage.PlanSetSliceSecret(name, prefixes, named)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	if edit.Create {
+		if err := s.b.requireSecretRoomLocked(account); err != nil {
+			return err
+		}
+		id := s.b.nextIDLocked("sec")
+		s.b.secrets[id] = &memorySecret{
+			Secret: storage.Secret{
+				ID: id, Account: account, Name: name, Paths: append([]string(nil), prefixes...),
+				CreatedBy: actorID, UpdatedBy: actorID, CreatedAt: now, UpdatedAt: now,
+			},
+			value: value,
+		}
+		return nil
+	}
+	for _, id := range edit.Update {
+		secret := s.b.secrets[id]
+		secret.value = value
+		secret.UpdatedBy = actorID
+		secret.UpdatedAt = now
+	}
+	if len(edit.AddPaths) > 0 {
+		first := s.b.secrets[edit.Update[0]]
+		first.Paths = append(first.Paths, edit.AddPaths...)
+		sort.Strings(first.Paths)
+	}
+	return nil
+}
+
+func (s *SliceStore) DeleteSliceSecret(ctx context.Context, sliceID, name, actorID string) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if !storage.ValidSliceSecretName(name) {
+		return storage.ErrInvalid
+	}
+	_, prefixes, err := s.b.secretSliceLocked(sliceID)
+	if err != nil {
+		return err
+	}
+	named := s.b.namedSecretsOnPathsLocked(name, prefixes)
+	if len(named) == 0 {
+		var otherID, otherPath string
+		for _, secret := range s.b.secrets {
+			if secret.Name != name {
+				continue
+			}
+			for _, prefix := range prefixes {
+				if at, ok := storage.SecretAppliesAt(secret.Paths, prefix); ok && len(at) > len(otherPath) {
+					otherID, otherPath = secret.ID, at
+				}
+			}
+		}
+		if otherID != "" {
+			return fmt.Errorf("%w: %s comes from secret %s on %s, a folder above this slice; delete it or change its folders with gs secret", storage.ErrConflict, name, otherID, otherPath)
+		}
+		return nil
+	}
+	for _, found := range named {
+		if storage.PathsWithin(found.Paths, prefixes) {
+			delete(s.b.secrets, found.ID)
+			continue
+		}
+		secret := s.b.secrets[found.ID]
+		var kept []string
+		for _, p := range secret.Paths {
+			if !storage.PathsWithin([]string{p}, prefixes) {
+				kept = append(kept, p)
+			}
+		}
+		secret.Paths = kept
+		secret.UpdatedBy = actorID
+		secret.UpdatedAt = time.Now().UTC()
+	}
+	return nil
+}
+
+// secretLocked returns a copy of the secret, or nil.
+func (b *backend) secretLocked(id string) *storage.Secret {
+	secret := b.secrets[id]
+	if secret == nil {
+		return nil
+	}
+	out := secret.Secret
+	out.Paths = append([]string(nil), secret.Paths...)
+	return &out
+}
+
+func (b *backend) listSecretsLocked(account string) []storage.Secret {
 	var out []storage.Secret
-	for id, secret := range s.b.secrets {
+	for id, secret := range b.secrets {
 		if secret.Account == account {
-			out = append(out, *s.b.secretLocked(id))
+			out = append(out, *b.secretLocked(id))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -119,179 +263,44 @@ func (s *SliceStore) ListSecrets(ctx context.Context, account string) ([]storage
 		}
 		return out[i].CreatedAt.Before(out[j].CreatedAt) || (out[i].CreatedAt.Equal(out[j].CreatedAt) && out[i].ID < out[j].ID)
 	})
-	return out, nil
+	return out
 }
 
-func (s *SliceStore) ListSliceSecrets(ctx context.Context, sliceID string) ([]storage.SliceSecret, error) {
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	reaching, err := s.b.sliceSecretsLocked(sliceID)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]storage.SliceSecret, 0, len(reaching))
-	for _, secret := range reaching {
-		item := storage.SliceSecret{Name: secret.Name, SecretID: secret.ID, AllSlices: secret.AllSlices}
-		for _, slice := range s.b.secretLocked(secret.ID).Slices {
-			if slice.ID != sliceID {
-				item.SharedWith = append(item.SharedWith, slice)
-			}
-		}
-		out = append(out, item)
-	}
-	return out, nil
-}
-
-func (s *SliceStore) ListSliceSecretNames(ctx context.Context, sliceID string) ([]string, error) {
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	reaching, err := s.b.sliceSecretsLocked(sliceID)
-	if err != nil {
-		return nil, err
-	}
-	names := make([]string, 0, len(reaching))
-	for _, secret := range reaching {
-		names = append(names, secret.Name)
-	}
-	return names, nil
-}
-
-func (s *SliceStore) GetSliceSecrets(ctx context.Context, sliceID string) (map[string]string, error) {
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	reaching, err := s.b.sliceSecretsLocked(sliceID)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]string, len(reaching))
-	for _, secret := range reaching {
-		out[secret.Name] = secret.value
-	}
-	return out, nil
-}
-
-func (s *SliceStore) SetSliceSecret(ctx context.Context, sliceID, name, value, actorID string) error {
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	sliceID = strings.TrimSpace(sliceID)
-	if sliceID == "" || !storage.ValidSliceSecretName(name) {
-		return storage.ErrInvalid
-	}
-	if len(value) > storage.MaxSecretValueBytes {
-		return fmt.Errorf("%w: a secret value can be at most %d KiB", storage.ErrInvalid, storage.MaxSecretValueBytes>>10)
-	}
-	slice := s.b.slices[sliceID]
-	if slice == nil || s.b.retiredSlices[sliceID] {
-		return storage.ErrNotFound
-	}
-	now := time.Now().UTC()
-	if secret := s.b.listingSecretLocked(sliceID, name); secret != nil {
-		if len(secret.sliceIDs) > 1 {
-			return fmt.Errorf("%w: %s on this slice comes from secret %s, shared with %d other slice(s); change it there, or take this slice out of its scope first", storage.ErrConflict, name, secret.ID, len(secret.sliceIDs)-1)
-		}
-		secret.value = value
-		secret.UpdatedBy = actorID
-		secret.UpdatedAt = now
-		return nil
-	}
-	account := slice.GetRef().GetAccount()
-	if err := s.b.requireSecretRoomLocked(account); err != nil {
-		return err
-	}
-	id := s.b.nextIDLocked("sec")
-	s.b.secrets[id] = &memorySecret{
-		Secret: storage.Secret{
-			ID: id, Account: account, Name: name,
-			CreatedBy: actorID, UpdatedBy: actorID, CreatedAt: now, UpdatedAt: now,
-		},
-		value:    value,
-		sliceIDs: map[string]bool{sliceID: true},
-	}
-	return nil
-}
-
-func (s *SliceStore) DeleteSliceSecret(ctx context.Context, sliceID, name, actorID string) error {
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	sliceID = strings.TrimSpace(sliceID)
-	if sliceID == "" || !storage.ValidSliceSecretName(name) {
-		return storage.ErrInvalid
-	}
-	slice := s.b.slices[sliceID]
-	if slice == nil || s.b.retiredSlices[sliceID] {
-		return storage.ErrNotFound
-	}
-	if secret := s.b.listingSecretLocked(sliceID, name); secret != nil {
-		if len(secret.sliceIDs) == 1 {
-			delete(s.b.secrets, secret.ID)
-			return nil
-		}
-		delete(secret.sliceIDs, sliceID)
-		secret.UpdatedBy = actorID
-		secret.UpdatedAt = time.Now().UTC()
-		return nil
-	}
-	for _, secret := range s.b.secrets {
-		if secret.AllSlices && secret.Name == name && secret.Account == slice.GetRef().GetAccount() {
-			return fmt.Errorf("%w: %s comes from secret %s, which applies to every slice of the account; delete it or change its scope with gs secret", storage.ErrConflict, name, secret.ID)
-		}
-	}
-	return nil
-}
-
-// secretLocked returns a copy of the secret with its slices, or nil.
-func (b *backend) secretLocked(id string) *storage.Secret {
-	secret := b.secrets[id]
-	if secret == nil {
-		return nil
-	}
-	out := secret.Secret
-	out.Slices = nil
-	for sliceID := range secret.sliceIDs {
-		if slice := b.slices[sliceID]; slice != nil && !b.retiredSlices[sliceID] {
-			out.Slices = append(out.Slices, storage.SecretSlice{ID: sliceID, Name: slice.GetRef().GetSlice()})
-		}
-	}
-	sort.Slice(out.Slices, func(i, j int) bool { return out.Slices[i].Name < out.Slices[j].Name })
-	return &out
-}
-
-// sliceSecretsLocked returns the secrets that reach the slice, by name.
-func (b *backend) sliceSecretsLocked(sliceID string) ([]*memorySecret, error) {
+// secretSliceLocked returns a live slice's account and included paths.
+func (b *backend) secretSliceLocked(sliceID string) (string, []string, error) {
 	sliceID = strings.TrimSpace(sliceID)
 	if sliceID == "" {
-		return nil, storage.ErrInvalid
+		return "", nil, fmt.Errorf("%w: slice_id is required", storage.ErrInvalid)
 	}
 	slice := b.slices[sliceID]
-	if slice == nil {
-		return nil, storage.ErrNotFound
+	if slice == nil || b.retiredSlices[sliceID] {
+		return "", nil, storage.ErrNotFound
 	}
-	byName := map[string]*memorySecret{}
-	for _, secret := range b.secrets {
-		if secret.sliceIDs[sliceID] {
-			byName[secret.Name] = secret
-		}
+	prefixes := append([]string(nil), slice.GetDefinition().GetIncludedPaths()...)
+	if len(prefixes) == 0 {
+		return "", nil, fmt.Errorf("%w: slice %s includes no paths", storage.ErrInvalid, sliceID)
 	}
-	for _, secret := range b.secrets {
-		if secret.AllSlices && secret.Account == slice.GetRef().GetAccount() && byName[secret.Name] == nil {
-			byName[secret.Name] = secret
-		}
-	}
-	out := make([]*memorySecret, 0, len(byName))
-	for _, secret := range byName {
-		out = append(out, secret)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out, nil
+	sort.Strings(prefixes)
+	return slice.GetRef().GetAccount(), prefixes, nil
 }
 
-func (b *backend) listingSecretLocked(sliceID, name string) *memorySecret {
-	for _, secret := range b.secrets {
-		if !secret.AllSlices && secret.Name == name && secret.sliceIDs[sliceID] {
-			return secret
+// namedSecretsOnPathsLocked returns copies of the secrets named name with
+// one of the paths.
+func (b *backend) namedSecretsOnPathsLocked(name string, onPaths []string) []storage.Secret {
+	var out []storage.Secret
+	for id, secret := range b.secrets {
+		if secret.Name != name {
+			continue
+		}
+		for _, p := range secret.Paths {
+			if storage.PathsWithin([]string{p}, onPaths) {
+				out = append(out, *b.secretLocked(id))
+				break
+			}
 		}
 	}
-	return nil
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
 }
 
 func (b *backend) requireSecretRoomLocked(account string) error {
@@ -307,49 +316,18 @@ func (b *backend) requireSecretRoomLocked(account string) error {
 	return nil
 }
 
-func (b *backend) secretScopeSlicesLocked(account string, scope storage.SecretScope) (map[string]bool, error) {
-	if scope.AllSlices {
-		return nil, nil
-	}
-	ids := map[string]bool{}
-	for _, id := range scope.SliceIDs {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			continue
-		}
-		slice := b.slices[id]
-		if slice == nil || b.retiredSlices[id] || slice.GetRef().GetAccount() != account {
-			return nil, fmt.Errorf("%w: slice %s is not a slice of account %s", storage.ErrInvalid, id, account)
-		}
-		ids[id] = true
-	}
-	if len(ids) == 0 {
-		return nil, fmt.Errorf("%w: a secret applies to all slices or to at least one slice", storage.ErrInvalid)
-	}
-	return ids, nil
-}
-
-func (b *backend) secretConflictLocked(account, secretID, name string, allSlices bool, sliceIDs map[string]bool) error {
+// secretPathConflictLocked refuses paths that already have another secret
+// named name.
+func (b *backend) secretPathConflictLocked(secretID, name string, secretPaths []string) error {
 	for _, other := range b.secrets {
-		if other.ID == secretID || other.Account != account || other.Name != name {
+		if other.ID == secretID || other.Name != name {
 			continue
 		}
-		if allSlices && other.AllSlices {
-			return fmt.Errorf("%w: secret %s already gives %s to every slice of the account", storage.ErrConflict, other.ID, name)
-		}
-		for sliceID := range sliceIDs {
-			if other.sliceIDs[sliceID] {
-				return fmt.Errorf("%w: slice %s already has secret %s named %s", storage.ErrConflict, b.slices[sliceID].GetRef().GetSlice(), other.ID, name)
+		for _, p := range secretPaths {
+			if storage.PathsWithin([]string{p}, other.Paths) {
+				return fmt.Errorf("%w: %s already has secret %s named %s", storage.ErrConflict, p, other.ID, name)
 			}
 		}
 	}
 	return nil
-}
-
-// unscopeSecretsLocked takes a deleted or retired slice out of every secret's
-// scope; a secret left with no slices stays.
-func (b *backend) unscopeSecretsLocked(sliceID string) {
-	for _, secret := range b.secrets {
-		delete(secret.sliceIDs, sliceID)
-	}
 }

@@ -70,9 +70,28 @@ type SkippedCheck struct{ Name, Reason string }
 type ErroredCheck struct{ Name, Reason string }
 
 type Plan struct {
+	// Runnable checks start with every new patchset.
 	Runnable []CheckSpec
-	Skipped  []SkippedCheck
-	Errored  []ErroredCheck
+	// Triggered checks match the patchset but start only when a trigger
+	// asks (started_by: trigger, design/34_triggers.md).
+	Triggered []CheckSpec
+	Skipped   []SkippedCheck
+	Errored   []ErroredCheck
+}
+
+// Spec finds a runnable or triggered check by name.
+func (plan *Plan) Spec(name string) (CheckSpec, bool) {
+	if plan == nil {
+		return CheckSpec{}, false
+	}
+	for _, list := range [][]CheckSpec{plan.Runnable, plan.Triggered} {
+		for _, spec := range list {
+			if spec.Name == name {
+				return spec, true
+			}
+		}
+	}
+	return CheckSpec{}, false
 }
 
 type discoveredFile struct {
@@ -203,6 +222,10 @@ func (plan *Plan) addCheck(dir, localName string, check Check, services map[stri
 	spec, err := buildCheckSpec(dir, localName, check, services, includedPaths)
 	if err != nil {
 		plan.Errored = append(plan.Errored, ErroredCheck{Name: name, Reason: err.Error()})
+		return
+	}
+	if check.StartedBy == StartedByTrigger {
+		plan.Triggered = append(plan.Triggered, spec)
 		return
 	}
 	plan.Runnable = append(plan.Runnable, spec)

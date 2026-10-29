@@ -146,7 +146,6 @@ func (s *SliceStore) Retire(ctx context.Context, sliceID string) error {
 		}
 	}
 	s.b.retiredSlices[sliceID] = true
-	s.b.unscopeSecretsLocked(sliceID)
 	return nil
 }
 

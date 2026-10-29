@@ -11,28 +11,34 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 
 	"gitslice.io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/secretbox"
 	"gitslice.io/gitslice/internal/storage"
 )
 
-// Secrets (design/33_secrets.md). Writes lock the account's row, so the checks
-// that keep a slice from having two secrets of one name, and the per-account
-// limit, see every other write; the unique indexes back them up.
+// Secrets (design/33_secrets.md). A secret applies to the folders in
+// secret_paths and everything below them. Writes lock the account's row, so
+// the checks that keep a folder from having two secrets of one name, and the
+// per-account limit, see every other write; the unique index backs them up.
 
-const secretColumns = `secrets.id, accounts.slug, secrets.name, secrets.all_slices, secrets.created_by, secrets.updated_by, secrets.created_at, secrets.updated_at`
+const secretColumns = `secrets.id, accounts.slug, secrets.name, secrets.created_by, secrets.updated_by, secrets.created_at, secrets.updated_at`
 
 func scanSecret(row rowScanner) (*storage.Secret, error) {
 	var secret storage.Secret
-	if err := row.Scan(&secret.ID, &secret.Account, &secret.Name, &secret.AllSlices, &secret.CreatedBy, &secret.UpdatedBy, &secret.CreatedAt, &secret.UpdatedAt); err != nil {
+	if err := row.Scan(&secret.ID, &secret.Account, &secret.Name, &secret.CreatedBy, &secret.UpdatedBy, &secret.CreatedAt, &secret.UpdatedAt); err != nil {
 		return nil, err
 	}
 	return &secret, nil
 }
 
-func (s *SliceStore) CreateSecret(ctx context.Context, account, name, value string, scope storage.SecretScope, actorID string) (*storage.Secret, error) {
+func (s *SliceStore) CreateSecret(ctx context.Context, account, name, value string, secretPaths []string, actorID string) (*storage.Secret, error) {
 	account = strings.TrimSpace(account)
 	if !storage.ValidSliceSecretName(name) {
 		return nil, fmt.Errorf("%w: secret name must match ^[A-Z_][A-Z0-9_]*$", ErrInvalid)
+	}
+	normalized, err := storage.NormalizeSecretPaths(account, secretPaths)
+	if err != nil {
+		return nil, err
 	}
 	stored, err := s.sealSecretValue(value)
 	if err != nil {
@@ -54,20 +60,16 @@ func (s *SliceStore) CreateSecret(ctx context.Context, account, name, value stri
 	if err := requireSecretRoomTx(ctx, tx, accountID); err != nil {
 		return nil, err
 	}
-	sliceIDs, err := secretScopeSlicesTx(ctx, tx, accountID, account, scope)
-	if err != nil {
-		return nil, err
-	}
-	if err := secretConflictTx(ctx, tx, accountID, id, name, scope.AllSlices, sliceIDs); err != nil {
+	if err := secretPathConflictTx(ctx, tx, id, name, normalized); err != nil {
 		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		insert into secrets(id, account_id, name, value, all_slices, created_by, updated_by, created_at, updated_at)
-		values ($1, $2, $3, $4, $5, $6, $6, now(), now())
-	`, id, accountID, name, stored, scope.AllSlices, actorID); err != nil {
+		insert into secrets(id, account_id, name, value, created_by, updated_by, created_at, updated_at)
+		values ($1, $2, $3, $4, $5, $5, now(), now())
+	`, id, accountID, name, stored, actorID); err != nil {
 		return nil, secretWriteError(err)
 	}
-	if err := insertSecretSlicesTx(ctx, tx, id, name, sliceIDs); err != nil {
+	if err := insertSecretPathsTx(ctx, tx, id, name, normalized); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -76,7 +78,7 @@ func (s *SliceStore) CreateSecret(ctx context.Context, account, name, value stri
 	return s.GetSecret(ctx, id)
 }
 
-func (s *SliceStore) UpdateSecret(ctx context.Context, secretID string, value *string, scope *storage.SecretScope, actorID string) (*storage.Secret, error) {
+func (s *SliceStore) UpdateSecret(ctx context.Context, secretID string, value *string, secretPaths []string, actorID string) (*storage.Secret, error) {
 	secretID = strings.TrimSpace(secretID)
 	var stored string
 	if value != nil {
@@ -90,11 +92,10 @@ func (s *SliceStore) UpdateSecret(ctx context.Context, secretID string, value *s
 		return nil, err
 	}
 	defer tx.Rollback()
-	accountID, err := lockSecretAccountTx(ctx, tx, `
+	if _, err := lockSecretAccountTx(ctx, tx, `
 		select accounts.id from accounts join secrets on secrets.account_id = accounts.id
 		where secrets.id = $1 for update of accounts
-	`, secretID)
-	if err != nil {
+	`, secretID); err != nil {
 		return nil, err
 	}
 	var account, name string
@@ -108,21 +109,12 @@ func (s *SliceStore) UpdateSecret(ctx context.Context, secretID string, value *s
 			return nil, err
 		}
 	}
-	if scope != nil {
-		sliceIDs, err := secretScopeSlicesTx(ctx, tx, accountID, account, *scope)
+	if secretPaths != nil {
+		normalized, err := storage.NormalizeSecretPaths(account, secretPaths)
 		if err != nil {
 			return nil, err
 		}
-		if err := secretConflictTx(ctx, tx, accountID, secretID, name, scope.AllSlices, sliceIDs); err != nil {
-			return nil, err
-		}
-		if _, err := tx.ExecContext(ctx, `update secrets set all_slices = $2 where id = $1`, secretID, scope.AllSlices); err != nil {
-			return nil, secretWriteError(err)
-		}
-		if _, err := tx.ExecContext(ctx, `delete from secret_slices where secret_id = $1`, secretID); err != nil {
-			return nil, err
-		}
-		if err := insertSecretSlicesTx(ctx, tx, secretID, name, sliceIDs); err != nil {
+		if err := replaceSecretPathsTx(ctx, tx, secretID, name, normalized); err != nil {
 			return nil, err
 		}
 	}
@@ -195,153 +187,88 @@ func (s *SliceStore) listSecrets(ctx context.Context, where string, args ...any)
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	scoped, err := s.secretSlices(ctx, ids)
+	byID, err := s.secretPaths(ctx, ids)
 	if err != nil {
 		return nil, err
 	}
 	for i := range out {
-		out[i].Slices = scoped[out[i].ID]
+		out[i].Paths = byID[out[i].ID]
 	}
 	return out, nil
 }
 
-// secretSlices returns the slices each secret lists, by slice name.
-func (s *SliceStore) secretSlices(ctx context.Context, secretIDs []string) (map[string][]storage.SecretSlice, error) {
+// secretPaths returns each secret's folders, sorted.
+func (s *SliceStore) secretPaths(ctx context.Context, secretIDs []string) (map[string][]string, error) {
 	if len(secretIDs) == 0 {
 		return nil, nil
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		select secret_slices.secret_id, slices.id, slices.slug
-		from secret_slices join slices on slices.id = secret_slices.slice_id
-		where secret_slices.secret_id = any($1) and slices.deleted_at is null
-		order by slices.slug
+		select secret_id, path from secret_paths where secret_id = any($1) order by path
 	`, secretIDs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := map[string][]storage.SecretSlice{}
+	out := map[string][]string{}
 	for rows.Next() {
-		var secretID string
-		var slice storage.SecretSlice
-		if err := rows.Scan(&secretID, &slice.ID, &slice.Name); err != nil {
+		var secretID, path string
+		if err := rows.Scan(&secretID, &path); err != nil {
 			return nil, err
 		}
-		out[secretID] = append(out[secretID], slice)
+		out[secretID] = append(out[secretID], path)
 	}
 	return out, rows.Err()
 }
 
-// sliceSecretRows are the secrets that reach a slice: those that list it, and
-// the account's all-slices secrets whose names those do not cover.
-const sliceSecretRows = `
-	select secrets.id, secrets.name, secrets.all_slices, secrets.value
-	from secrets join secret_slices on secret_slices.secret_id = secrets.id
-	where secret_slices.slice_id = $1
-	union all
-	select secrets.id, secrets.name, secrets.all_slices, secrets.value
-	from secrets join slices on slices.account_id = secrets.account_id
-	where slices.id = $1 and secrets.all_slices
-	  and not exists (select 1 from secret_slices where secret_slices.slice_id = $1 and secret_slices.name = secrets.name)
-	order by 2`
-
-type sliceSecretRow struct {
-	id, name, value string
-	allSlices       bool
-}
-
-func (s *SliceStore) sliceSecretRows(ctx context.Context, sliceID string) ([]sliceSecretRow, error) {
-	sliceID = strings.TrimSpace(sliceID)
-	if sliceID == "" {
-		return nil, fmt.Errorf("%w: slice_id is required", ErrInvalid)
+func (s *SliceStore) SecretValuesAt(ctx context.Context, folder string) (map[string]string, error) {
+	cleaned, err := paths.CanonicalPrefix(strings.TrimSpace(folder))
+	if err != nil {
+		return nil, fmt.Errorf("%w: folder %q: %v", ErrInvalid, folder, err)
 	}
-	if err := s.requireSliceExists(ctx, sliceID); err != nil {
-		return nil, err
-	}
-	rows, err := s.db.QueryContext(ctx, sliceSecretRows, sliceID)
+	// For each name, the secret whose path is the longest prefix of the folder.
+	rows, err := s.db.QueryContext(ctx, `
+		select distinct on (secret_paths.name) secret_paths.name, secrets.value
+		from secret_paths join secrets on secrets.id = secret_paths.secret_id
+		where secret_paths.path = any($1)
+		order by secret_paths.name, length(secret_paths.path) desc
+	`, storage.SecretFolderAncestors(cleaned))
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []sliceSecretRow
+	out := map[string]string{}
 	for rows.Next() {
-		var row sliceSecretRow
-		if err := rows.Scan(&row.id, &row.name, &row.allSlices, &row.value); err != nil {
+		var name, value string
+		if err := rows.Scan(&name, &value); err != nil {
 			return nil, err
 		}
-		out = append(out, row)
+		if value, err = s.openSecretValue(name, value); err != nil {
+			return nil, err
+		}
+		out[name] = value
 	}
 	return out, rows.Err()
 }
 
 func (s *SliceStore) ListSliceSecrets(ctx context.Context, sliceID string) ([]storage.SliceSecret, error) {
-	rows, err := s.sliceSecretRows(ctx, sliceID)
+	account, prefixes, err := s.secretSliceTx(ctx, s.db, sliceID)
 	if err != nil {
 		return nil, err
 	}
-	var listed []string
-	for _, row := range rows {
-		if !row.allSlices {
-			listed = append(listed, row.id)
+	secrets, err := s.listSecrets(ctx, `where accounts.slug = $1`, account)
+	if err != nil {
+		return nil, err
+	}
+	var out []storage.SliceSecret
+	for _, secret := range secrets {
+		if storage.SecretTouches(secret.Paths, prefixes) {
+			out = append(out, storage.SliceSecret{Name: secret.Name, SecretID: secret.ID, Paths: secret.Paths})
 		}
-	}
-	scoped, err := s.secretSlices(ctx, listed)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]storage.SliceSecret, 0, len(rows))
-	for _, row := range rows {
-		secret := storage.SliceSecret{Name: row.name, SecretID: row.id, AllSlices: row.allSlices}
-		for _, slice := range scoped[row.id] {
-			if slice.ID != sliceID {
-				secret.SharedWith = append(secret.SharedWith, slice)
-			}
-		}
-		out = append(out, secret)
-	}
-	return out, nil
-}
-
-func (s *SliceStore) ListSliceSecretNames(ctx context.Context, sliceID string) ([]string, error) {
-	rows, err := s.sliceSecretRows(ctx, sliceID)
-	if err != nil {
-		return nil, err
-	}
-	names := make([]string, 0, len(rows))
-	for _, row := range rows {
-		names = append(names, row.name)
-	}
-	return names, nil
-}
-
-func (s *SliceStore) GetSliceSecrets(ctx context.Context, sliceID string) (map[string]string, error) {
-	rows, err := s.sliceSecretRows(ctx, sliceID)
-	if err != nil {
-		return nil, err
-	}
-	out := make(map[string]string, len(rows))
-	for _, row := range rows {
-		value := row.value
-		if s.Secrets == nil {
-			if secretbox.IsSealed(value) {
-				return nil, fmt.Errorf("secret %q is encrypted but no secrets key is configured", row.name)
-			}
-		} else {
-			var err error
-			if value, err = s.Secrets.Open(value); err != nil {
-				return nil, fmt.Errorf("open secret %q: %w", row.name, err)
-			}
-		}
-		out[row.name] = value
 	}
 	return out, nil
 }
 
 func (s *SliceStore) SetSliceSecret(ctx context.Context, sliceID, name, value, actorID string) error {
-	sliceID = strings.TrimSpace(sliceID)
-	if sliceID == "" {
-		return fmt.Errorf("%w: slice_id is required", ErrInvalid)
-	}
 	if !storage.ValidSliceSecretName(name) {
 		return fmt.Errorf("%w: secret name must match ^[A-Z_][A-Z0-9_]*$", ErrInvalid)
 	}
@@ -357,24 +284,23 @@ func (s *SliceStore) SetSliceSecret(ctx context.Context, sliceID, name, value, a
 	accountID, err := lockSecretAccountTx(ctx, tx, `
 		select accounts.id from accounts join slices on slices.account_id = accounts.id
 		where slices.id = $1 and slices.deleted_at is null for update of accounts
-	`, sliceID)
+	`, strings.TrimSpace(sliceID))
 	if err != nil {
 		return err
 	}
-	secretID, shared, err := listingSecretTx(ctx, tx, sliceID, name)
+	_, prefixes, err := s.secretSliceTx(ctx, tx, sliceID)
 	if err != nil {
 		return err
 	}
-	switch {
-	case secretID != "" && shared > 0:
-		return fmt.Errorf("%w: %s on this slice comes from secret %s, shared with %d other slice(s); change it there, or take this slice out of its scope first", ErrConflict, name, secretID, shared)
-	case secretID != "":
-		if _, err := tx.ExecContext(ctx, `
-			update secrets set value = $2, updated_by = $3, updated_at = now() where id = $1
-		`, secretID, stored, actorID); err != nil {
-			return err
-		}
-	default:
+	named, err := namedSecretsOnPathsTx(ctx, tx, name, prefixes)
+	if err != nil {
+		return err
+	}
+	edit, err := storage.PlanSetSliceSecret(name, prefixes, named)
+	if err != nil {
+		return err
+	}
+	if edit.Create {
 		if err := requireSecretRoomTx(ctx, tx, accountID); err != nil {
 			return err
 		}
@@ -383,12 +309,25 @@ func (s *SliceStore) SetSliceSecret(ctx context.Context, sliceID, name, value, a
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, `
-			insert into secrets(id, account_id, name, value, all_slices, created_by, updated_by, created_at, updated_at)
-			values ($1, $2, $3, $4, false, $5, $5, now(), now())
+			insert into secrets(id, account_id, name, value, created_by, updated_by, created_at, updated_at)
+			values ($1, $2, $3, $4, $5, $5, now(), now())
 		`, id, accountID, name, stored, actorID); err != nil {
 			return secretWriteError(err)
 		}
-		if err := insertSecretSlicesTx(ctx, tx, id, name, []string{sliceID}); err != nil {
+		if err := insertSecretPathsTx(ctx, tx, id, name, prefixes); err != nil {
+			return err
+		}
+		return secretWriteError(tx.Commit())
+	}
+	for _, id := range edit.Update {
+		if _, err := tx.ExecContext(ctx, `
+			update secrets set value = $2, updated_by = $3, updated_at = now() where id = $1
+		`, id, stored, actorID); err != nil {
+			return err
+		}
+	}
+	if len(edit.AddPaths) > 0 {
+		if err := insertSecretPathsTx(ctx, tx, edit.Update[0], name, edit.AddPaths); err != nil {
 			return err
 		}
 	}
@@ -396,10 +335,6 @@ func (s *SliceStore) SetSliceSecret(ctx context.Context, sliceID, name, value, a
 }
 
 func (s *SliceStore) DeleteSliceSecret(ctx context.Context, sliceID, name, actorID string) error {
-	sliceID = strings.TrimSpace(sliceID)
-	if sliceID == "" {
-		return fmt.Errorf("%w: slice_id is required", ErrInvalid)
-	}
 	if !storage.ValidSliceSecretName(name) {
 		return fmt.Errorf("%w: secret name must match ^[A-Z_][A-Z0-9_]*$", ErrInvalid)
 	}
@@ -408,42 +343,125 @@ func (s *SliceStore) DeleteSliceSecret(ctx context.Context, sliceID, name, actor
 		return err
 	}
 	defer tx.Rollback()
-	accountID, err := lockSecretAccountTx(ctx, tx, `
+	if _, err := lockSecretAccountTx(ctx, tx, `
 		select accounts.id from accounts join slices on slices.account_id = accounts.id
 		where slices.id = $1 and slices.deleted_at is null for update of accounts
-	`, sliceID)
+	`, strings.TrimSpace(sliceID)); err != nil {
+		return err
+	}
+	_, prefixes, err := s.secretSliceTx(ctx, tx, sliceID)
 	if err != nil {
 		return err
 	}
-	secretID, shared, err := listingSecretTx(ctx, tx, sliceID, name)
+	named, err := namedSecretsOnPathsTx(ctx, tx, name, prefixes)
 	if err != nil {
 		return err
 	}
-	switch {
-	case secretID != "" && shared > 0:
-		if _, err := tx.ExecContext(ctx, `delete from secret_slices where secret_id = $1 and slice_id = $2`, secretID, sliceID); err != nil {
-			return err
+	if len(named) == 0 {
+		var ancestors []string
+		for _, prefix := range prefixes {
+			ancestors = append(ancestors, storage.SecretFolderAncestors(prefix)...)
 		}
-		if _, err := tx.ExecContext(ctx, `update secrets set updated_by = $2, updated_at = now() where id = $1`, secretID, actorID); err != nil {
-			return err
-		}
-	case secretID != "":
-		if _, err := tx.ExecContext(ctx, `delete from secrets where id = $1`, secretID); err != nil {
-			return err
-		}
-	default:
-		var allSlicesID string
+		var otherID, otherPath string
 		err := tx.QueryRowContext(ctx, `
-			select id from secrets where account_id = $1 and name = $2 and all_slices
-		`, accountID, name).Scan(&allSlicesID)
+			select secret_id, path from secret_paths where name = $1 and path = any($2) order by length(path) desc limit 1
+		`, name, ancestors).Scan(&otherID, &otherPath)
 		if err == nil {
-			return fmt.Errorf("%w: %s comes from secret %s, which applies to every slice of the account; delete it or change its scope with gs secret", ErrConflict, name, allSlicesID)
+			return fmt.Errorf("%w: %s comes from secret %s on %s, a folder above this slice; delete it or change its folders with gs secret", ErrConflict, name, otherID, otherPath)
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
+		return nil
+	}
+	for _, secret := range named {
+		if storage.PathsWithin(secret.Paths, prefixes) {
+			if _, err := tx.ExecContext(ctx, `delete from secrets where id = $1`, secret.ID); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := tx.ExecContext(ctx, `delete from secret_paths where secret_id = $1 and path = any($2)`, secret.ID, prefixes); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `update secrets set updated_by = $2, updated_at = now() where id = $1`, secret.ID, actorID); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
+}
+
+// secretQueryer is a *sql.DB or a *sql.Tx.
+type secretQueryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// secretSliceTx returns a live slice's account and its included paths.
+func (s *SliceStore) secretSliceTx(ctx context.Context, q secretQueryer, sliceID string) (string, []string, error) {
+	sliceID = strings.TrimSpace(sliceID)
+	if sliceID == "" {
+		return "", nil, fmt.Errorf("%w: slice_id is required", ErrInvalid)
+	}
+	var account string
+	err := q.QueryRowContext(ctx, `
+		select accounts.slug from slices join accounts on accounts.id = slices.account_id
+		where slices.id = $1 and slices.deleted_at is null
+	`, sliceID).Scan(&account)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil, ErrNotFound
+	}
+	if err != nil {
+		return "", nil, err
+	}
+	rows, err := q.QueryContext(ctx, `select prefix from slice_included_paths where slice_id = $1 order by prefix`, sliceID)
+	if err != nil {
+		return "", nil, err
+	}
+	defer rows.Close()
+	var prefixes []string
+	for rows.Next() {
+		var prefix string
+		if err := rows.Scan(&prefix); err != nil {
+			return "", nil, err
+		}
+		prefixes = append(prefixes, prefix)
+	}
+	if err := rows.Err(); err != nil {
+		return "", nil, err
+	}
+	if len(prefixes) == 0 {
+		return "", nil, fmt.Errorf("%w: slice %s includes no paths", ErrInvalid, sliceID)
+	}
+	return account, prefixes, nil
+}
+
+// namedSecretsOnPathsTx returns the secrets named name with one of the
+// paths, each with all its paths.
+func namedSecretsOnPathsTx(ctx context.Context, tx *sql.Tx, name string, onPaths []string) ([]storage.Secret, error) {
+	rows, err := tx.QueryContext(ctx, `
+		select secret_paths.secret_id, secret_paths.path
+		from secret_paths
+		where secret_paths.name = $1
+		  and secret_paths.secret_id in (select secret_id from secret_paths where name = $1 and path = any($2))
+		order by secret_paths.secret_id, secret_paths.path
+	`, name, onPaths)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []storage.Secret
+	for rows.Next() {
+		var id, path string
+		if err := rows.Scan(&id, &path); err != nil {
+			return nil, err
+		}
+		if len(out) == 0 || out[len(out)-1].ID != id {
+			out = append(out, storage.Secret{ID: id, Name: name})
+		}
+		out[len(out)-1].Paths = append(out[len(out)-1].Paths, path)
+	}
+	return out, rows.Err()
 }
 
 func (s *SliceStore) sealSecretValue(value string) (string, error) {
@@ -460,6 +478,20 @@ func (s *SliceStore) sealSecretValue(value string) (string, error) {
 		return "", fmt.Errorf("seal secret: %w", err)
 	}
 	return sealed, nil
+}
+
+func (s *SliceStore) openSecretValue(name, value string) (string, error) {
+	if s.Secrets == nil {
+		if secretbox.IsSealed(value) {
+			return "", fmt.Errorf("secret %q is encrypted but no secrets key is configured", name)
+		}
+		return value, nil
+	}
+	opened, err := s.Secrets.Open(value)
+	if err != nil {
+		return "", fmt.Errorf("open secret %q: %w", name, err)
+	}
+	return opened, nil
 }
 
 // lockSecretAccountTx runs query, which selects one account id with FOR
@@ -484,77 +516,18 @@ func requireSecretRoomTx(ctx context.Context, tx *sql.Tx, accountID string) erro
 	return nil
 }
 
-// secretScopeSlicesTx checks a scope against the account and returns the ids
-// of the slices it lists, sorted and without repeats (none for all slices).
-func secretScopeSlicesTx(ctx context.Context, tx *sql.Tx, accountID, account string, scope storage.SecretScope) ([]string, error) {
-	if scope.AllSlices {
-		return nil, nil
-	}
-	seen := map[string]bool{}
-	var ids []string
-	for _, id := range scope.SliceIDs {
-		id = strings.TrimSpace(id)
-		if id != "" && !seen[id] {
-			seen[id] = true
-			ids = append(ids, id)
-		}
-	}
-	if len(ids) == 0 {
-		return nil, fmt.Errorf("%w: a secret applies to all slices or to at least one slice", ErrInvalid)
-	}
-	sort.Strings(ids)
-	rows, err := tx.QueryContext(ctx, `
-		select id from slices where id = any($1) and account_id = $2 and deleted_at is null
-	`, ids, accountID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	found := map[string]bool{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		found[id] = true
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	for _, id := range ids {
-		if !found[id] {
-			return nil, fmt.Errorf("%w: slice %s is not a slice of account %s", ErrInvalid, id, account)
-		}
-	}
-	return ids, nil
-}
-
-// secretConflictTx refuses a scope that would give a slice a second secret
-// named name, or the account a second all-slices one.
-func secretConflictTx(ctx context.Context, tx *sql.Tx, accountID, secretID, name string, allSlices bool, sliceIDs []string) error {
-	if allSlices {
-		var other string
-		err := tx.QueryRowContext(ctx, `
-			select id from secrets where account_id = $1 and name = $2 and all_slices and id <> $3
-		`, accountID, name, secretID).Scan(&other)
-		if err == nil {
-			return fmt.Errorf("%w: secret %s already gives %s to every slice of the account", ErrConflict, other, name)
-		}
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil
-		}
-		return err
-	}
-	var other, slice string
+// secretPathConflictTx refuses paths that already have another secret named
+// name.
+func secretPathConflictTx(ctx context.Context, tx *sql.Tx, secretID, name string, secretPaths []string) error {
+	var other, path string
 	err := tx.QueryRowContext(ctx, `
-		select secret_slices.secret_id, slices.slug
-		from secret_slices join slices on slices.id = secret_slices.slice_id
-		where secret_slices.slice_id = any($1) and secret_slices.name = $2 and secret_slices.secret_id <> $3
-		order by slices.slug
+		select secret_id, path from secret_paths
+		where path = any($1) and name = $2 and secret_id <> $3
+		order by path
 		limit 1
-	`, sliceIDs, name, secretID).Scan(&other, &slice)
+	`, secretPaths, name, secretID).Scan(&other, &path)
 	if err == nil {
-		return fmt.Errorf("%w: slice %s already has secret %s named %s", ErrConflict, slice, other, name)
+		return fmt.Errorf("%w: %s already has secret %s named %s", ErrConflict, path, other, name)
 	}
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
@@ -562,32 +535,35 @@ func secretConflictTx(ctx context.Context, tx *sql.Tx, accountID, secretID, name
 	return err
 }
 
-func insertSecretSlicesTx(ctx context.Context, tx *sql.Tx, secretID, name string, sliceIDs []string) error {
-	for _, sliceID := range sliceIDs {
+// replaceSecretPathsTx gives a secret exactly these paths. The old scope
+// columns are cleared, so a rolled-back server does not see a stale scope.
+func replaceSecretPathsTx(ctx context.Context, tx *sql.Tx, secretID, name string, secretPaths []string) error {
+	if err := secretPathConflictTx(ctx, tx, secretID, name, secretPaths); err != nil {
+		return err
+	}
+	for _, stmt := range []string{
+		`delete from secret_paths where secret_id = $1`,
+		`delete from secret_slices where secret_id = $1`,
+		`update secrets set all_slices = false where id = $1`,
+	} {
+		if _, err := tx.ExecContext(ctx, stmt, secretID); err != nil {
+			return err
+		}
+	}
+	return insertSecretPathsTx(ctx, tx, secretID, name, secretPaths)
+}
+
+func insertSecretPathsTx(ctx context.Context, tx *sql.Tx, secretID, name string, secretPaths []string) error {
+	sorted := append([]string(nil), secretPaths...)
+	sort.Strings(sorted)
+	for _, path := range sorted {
 		if _, err := tx.ExecContext(ctx, `
-			insert into secret_slices(secret_id, slice_id, name) values ($1, $2, $3)
-		`, secretID, sliceID, name); err != nil {
+			insert into secret_paths(secret_id, path, name) values ($1, $2, $3)
+		`, secretID, path, name); err != nil {
 			return secretWriteError(err)
 		}
 	}
 	return nil
-}
-
-// listingSecretTx finds the secret named name that lists the slice, and how
-// many other slices it lists.
-func listingSecretTx(ctx context.Context, tx *sql.Tx, sliceID, name string) (string, int, error) {
-	var secretID string
-	var others int
-	err := tx.QueryRowContext(ctx, `
-		select secret_slices.secret_id,
-		       (select count(*) from secret_slices o where o.secret_id = secret_slices.secret_id and o.slice_id <> $1)
-		from secret_slices
-		where secret_slices.slice_id = $1 and secret_slices.name = $2
-	`, sliceID, name).Scan(&secretID, &others)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", 0, nil
-	}
-	return secretID, others, err
 }
 
 // secretWriteError reports a unique-index violation, which a concurrent
@@ -595,7 +571,7 @@ func listingSecretTx(ctx context.Context, tx *sql.Tx, sliceID, name string) (str
 func secretWriteError(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-		return fmt.Errorf("%w: another secret of that name already reaches one of these slices", ErrConflict)
+		return fmt.Errorf("%w: another secret of that name already applies to one of these folders", ErrConflict)
 	}
 	return err
 }

@@ -29,8 +29,8 @@ awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/ {print $1}' .env.staging | sort
 ```
 
 `.env.prod` is generated from the committed `env.prod.template`: its secret
-values are Gitslice secrets of `gitslice/gitslice`, which the `gitslice`
-account's owners and admins fill in with
+values are Gitslice secrets on the folder `/gitslice/gitslice`, which the
+`gitslice` account's owners and admins fill in with
 `gs secret env env.prod.template --slice gitslice/gitslice -o .env.prod`
 (mode 600; each read is logged on the server). Rotating a key means
 `gs secret update <id> --value` and regenerating the file. Anyone else asks an

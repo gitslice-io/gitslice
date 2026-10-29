@@ -98,6 +98,15 @@ import type {
   ListSharedSlicesResponse,
   UpdateWebhookRequest,
   Webhook,
+  ListTriggersRequest,
+  ListTriggersResponse,
+  ListTriggerRunsRequest,
+  ListTriggerRunsResponse,
+  ListTriggerRunLogsRequest,
+  ListTriggerRunLogsResponse,
+  TriggerRun,
+  TriggerRunIdRequest,
+  RunTriggerRequest,
   WebhookDelivery,
   WebhookIdRequest,
   ListWebhookDeliveriesRequest,
@@ -270,6 +279,13 @@ export interface ApiClient {
   ): Promise<DetachStackEntryResponse>;
   restack(request: RestackRequest): Promise<RestackResponse>;
   submitStack(request: SubmitStackRequest): Promise<SubmitStackResponse>;
+  listTriggers(request: ListTriggersRequest): Promise<ListTriggersResponse>;
+  listTriggerRuns(request: ListTriggerRunsRequest): Promise<ListTriggerRunsResponse>;
+  getTriggerRun(request: TriggerRunIdRequest): Promise<TriggerRun>;
+  listTriggerRunLogs(request: ListTriggerRunLogsRequest): Promise<ListTriggerRunLogsResponse>;
+  rerunTriggerRun(request: TriggerRunIdRequest): Promise<TriggerRun>;
+  runTrigger(request: RunTriggerRequest): Promise<TriggerRun>;
+  cancelTriggerRun(request: TriggerRunIdRequest): Promise<TriggerRun>;
   listSecrets(request: ListSecretsRequest): Promise<ListSecretsResponse>;
   createSecret(request: CreateSecretRequest): Promise<Secret>;
   updateSecret(request: UpdateSecretRequest): Promise<Secret>;

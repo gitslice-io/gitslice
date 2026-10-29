@@ -24,6 +24,7 @@ const (
 	SecretService_CreateSecret_FullMethodName       = "/gitslice.core.v1.SecretService/CreateSecret"
 	SecretService_UpdateSecret_FullMethodName       = "/gitslice.core.v1.SecretService/UpdateSecret"
 	SecretService_DeleteSecret_FullMethodName       = "/gitslice.core.v1.SecretService/DeleteSecret"
+	SecretService_RevealSecrets_FullMethodName      = "/gitslice.core.v1.SecretService/RevealSecrets"
 	SecretService_RevealSliceSecrets_FullMethodName = "/gitslice.core.v1.SecretService/RevealSliceSecrets"
 )
 
@@ -35,18 +36,21 @@ type SecretServiceClient interface {
 	ListSecrets(ctx context.Context, in *ListSecretsRequest, opts ...grpc.CallOption) (*ListSecretsResponse, error)
 	GetSecret(ctx context.Context, in *GetSecretRequest, opts ...grpc.CallOption) (*Secret, error)
 	// CreateSecret stores a new secret. It fails with FailedPrecondition when a
-	// slice in its scope already has a secret by that name, or, for all_slices,
-	// when the account already has an all_slices secret by that name.
+	// folder in its scope already has a secret by that name.
 	CreateSecret(ctx context.Context, in *CreateSecretRequest, opts ...grpc.CallOption) (*Secret, error)
 	// UpdateSecret replaces the value, the scope, or both; what is left unset
 	// stays as it is.
 	UpdateSecret(ctx context.Context, in *UpdateSecretRequest, opts ...grpc.CallOption) (*Secret, error)
 	DeleteSecret(ctx context.Context, in *DeleteSecretRequest, opts ...grpc.CallOption) (*Empty, error)
-	// RevealSliceSecrets returns the values of the named secrets that reach a
-	// slice, so that the account's owners and admins can fill a local env file
-	// (gs secret env). It is refused to everyone else, slice admins and writers
-	// included. Each call is logged with the caller and the names, never the
-	// values.
+	// RevealSecrets returns the values of the named secrets that apply at a
+	// folder, so that the account's owners and admins can fill a local env
+	// file (gs secret env). It is refused to everyone else, slice admins and
+	// writers included. Each call is logged with the caller, the folder and
+	// the names, never the values.
+	RevealSecrets(ctx context.Context, in *RevealSecretsRequest, opts ...grpc.CallOption) (*RevealSecretsResponse, error)
+	// RevealSliceSecrets is RevealSecrets at a slice's included paths, for
+	// older CLIs. A name with different values at the slice's paths fails with
+	// FailedPrecondition.
 	RevealSliceSecrets(ctx context.Context, in *RevealSliceSecretsRequest, opts ...grpc.CallOption) (*RevealSliceSecretsResponse, error)
 }
 
@@ -103,6 +107,15 @@ func (c *secretServiceClient) DeleteSecret(ctx context.Context, in *DeleteSecret
 	return out, nil
 }
 
+func (c *secretServiceClient) RevealSecrets(ctx context.Context, in *RevealSecretsRequest, opts ...grpc.CallOption) (*RevealSecretsResponse, error) {
+	out := new(RevealSecretsResponse)
+	err := c.cc.Invoke(ctx, SecretService_RevealSecrets_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *secretServiceClient) RevealSliceSecrets(ctx context.Context, in *RevealSliceSecretsRequest, opts ...grpc.CallOption) (*RevealSliceSecretsResponse, error) {
 	out := new(RevealSliceSecretsResponse)
 	err := c.cc.Invoke(ctx, SecretService_RevealSliceSecrets_FullMethodName, in, out, opts...)
@@ -120,18 +133,21 @@ type SecretServiceServer interface {
 	ListSecrets(context.Context, *ListSecretsRequest) (*ListSecretsResponse, error)
 	GetSecret(context.Context, *GetSecretRequest) (*Secret, error)
 	// CreateSecret stores a new secret. It fails with FailedPrecondition when a
-	// slice in its scope already has a secret by that name, or, for all_slices,
-	// when the account already has an all_slices secret by that name.
+	// folder in its scope already has a secret by that name.
 	CreateSecret(context.Context, *CreateSecretRequest) (*Secret, error)
 	// UpdateSecret replaces the value, the scope, or both; what is left unset
 	// stays as it is.
 	UpdateSecret(context.Context, *UpdateSecretRequest) (*Secret, error)
 	DeleteSecret(context.Context, *DeleteSecretRequest) (*Empty, error)
-	// RevealSliceSecrets returns the values of the named secrets that reach a
-	// slice, so that the account's owners and admins can fill a local env file
-	// (gs secret env). It is refused to everyone else, slice admins and writers
-	// included. Each call is logged with the caller and the names, never the
-	// values.
+	// RevealSecrets returns the values of the named secrets that apply at a
+	// folder, so that the account's owners and admins can fill a local env
+	// file (gs secret env). It is refused to everyone else, slice admins and
+	// writers included. Each call is logged with the caller, the folder and
+	// the names, never the values.
+	RevealSecrets(context.Context, *RevealSecretsRequest) (*RevealSecretsResponse, error)
+	// RevealSliceSecrets is RevealSecrets at a slice's included paths, for
+	// older CLIs. A name with different values at the slice's paths fails with
+	// FailedPrecondition.
 	RevealSliceSecrets(context.Context, *RevealSliceSecretsRequest) (*RevealSliceSecretsResponse, error)
 }
 
@@ -153,6 +169,9 @@ func (UnimplementedSecretServiceServer) UpdateSecret(context.Context, *UpdateSec
 }
 func (UnimplementedSecretServiceServer) DeleteSecret(context.Context, *DeleteSecretRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteSecret not implemented")
+}
+func (UnimplementedSecretServiceServer) RevealSecrets(context.Context, *RevealSecretsRequest) (*RevealSecretsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RevealSecrets not implemented")
 }
 func (UnimplementedSecretServiceServer) RevealSliceSecrets(context.Context, *RevealSliceSecretsRequest) (*RevealSliceSecretsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RevealSliceSecrets not implemented")
@@ -259,6 +278,24 @@ func _SecretService_DeleteSecret_Handler(srv interface{}, ctx context.Context, d
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SecretService_RevealSecrets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RevealSecretsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SecretServiceServer).RevealSecrets(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SecretService_RevealSecrets_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SecretServiceServer).RevealSecrets(ctx, req.(*RevealSecretsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SecretService_RevealSliceSecrets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RevealSliceSecretsRequest)
 	if err := dec(in); err != nil {
@@ -303,6 +340,10 @@ var SecretService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "DeleteSecret",
 			Handler:    _SecretService_DeleteSecret_Handler,
+		},
+		{
+			MethodName: "RevealSecrets",
+			Handler:    _SecretService_RevealSecrets_Handler,
 		},
 		{
 			MethodName: "RevealSliceSecrets",

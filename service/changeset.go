@@ -196,7 +196,7 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	if err != nil {
 		return nil, err
 	}
-	extraCheckStatuses, err := s.skippedRequiredCheckStatuses(ctx, cs)
+	extraCheckStatuses, err := s.submitExtras(ctx, cs)
 	if err != nil {
 		return nil, grpcError(err)
 	}

@@ -216,26 +216,54 @@ queued; the Checks panel and `gs submit` say that checks are waiting for it.
 ## Secrets
 
 A check that needs a token or key reads it from an environment variable filled
-from a secret. A secret belongs to an account and reaches some of its slices,
-or all of them; the checks the slice's CI daemon runs get it, and their logs
-show values of 4 or more characters as ***. Only the account's owners and
-admins manage secrets. Pipe values in, so they stay out of shell history:
+from a secret. A secret belongs to an account and applies to folders of it
+(and everything below them); a check gets the secrets at the folder of the
+checks.yaml that defines it, and its logs show values of 4 or more characters
+as ***. Only the account's owners and admins manage secrets. Pipe values in,
+so they stay out of shell history:
 
-    printf %s "$TOKEN" | gs secret create DEPLOY_TOKEN --slice api --slice worker
-    printf %s "$TOKEN" | gs secret create NPM_TOKEN --all-slices
+    printf %s "$TOKEN" | gs secret create DEPLOY_TOKEN --path /acme/api --path /acme/worker
+    printf %s "$TOKEN" | gs secret create NPM_TOKEN --path /acme      # the whole account
+    printf %s "$TOKEN" | gs secret create WEB_TOKEN --slice web       # a slice's folders
     gs secret ls
-    gs slice secret ls <account>/<slice>     # names that reach one slice
+    gs slice secret ls <account>/<slice>     # names that apply in one slice
 
-A slice gets one value per name: a secret that lists the slice overrides an
-all-slices one. Every writer of a slice can read its secrets from a check, so
-scope them with care. Owners and admins can fill a local env file whose values
-are written `NAME=gitslice-secret:SECRET_NAME`:
+A folder has one secret per name; where several apply, the closest folder
+wins. Anyone who can add a check in a secret's folders can read it from that
+check, so choose folders with care. Owners and admins can fill a local env file
+whose values are written `NAME=gitslice-secret:SECRET_NAME`, from the secrets
+at the template's folder in a workspace (or --path /account/folder):
 
-    gs secret env env.prod.template --slice <account>/<slice> -o .env.prod
+    gs secret env <account>/<folder>/env.prod.template -o .env.prod
 
 The file is mode 600; no one else can read values. If you are not an owner or
 admin, ask one, or work from an example env file without production
 credentials.
+
+## Triggers
+
+A trigger runs when files in a folder change. Put `.gitslice/triggers.yaml`
+in any folder; changes there or below fire its triggers (and those of the
+folders above). An http action posts the event as JSON; a worker action runs
+a JavaScript module from the same `.gitslice` folder on Cloudflare, which can
+call an outside CI system and report checks that gate submit:
+
+    version: 1
+    triggers:
+      ci:
+        on: [changeset.created, changeset.updated]
+        paths: ["**/*.go"]
+        checks: [ci]                 # reported as <folder>/ci
+        secrets: [GH_TOKEN]
+        network: [api.github.com]    # the only hosts the script may reach
+        action:
+          worker: triggers/ci.js     # exports onEvent(event, gs), onCallback(request, gs)
+
+Definitions come from the target branch head, so a changed trigger takes
+effect when it lands; changes under `.gitslice/` need an account owner's or
+admin's approval. Inspect runs with `gs trigger ls [folder]`,
+`gs trigger runs --changeset <id>`, `gs trigger logs <run-id>`; run one by
+hand with `gs trigger run <trigger-id>` (it must list `manual` in `on`).
 
 ## Large slices: lazy workspaces
 

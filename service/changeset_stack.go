@@ -434,7 +434,12 @@ func (s *ChangesetStackService) SubmitStack(ctx context.Context, req *corev1.Sub
 			})
 			continue
 		}
-		res, err := s.Changesets.Submit(ctx, entry.ChangesetId, cs.CurrentPatchsetId)
+		var res *corev1.SubmitChangesetResponse
+		changesets := s.changesetService()
+		extra, err := changesets.submitExtras(ctx, cs)
+		if err == nil {
+			res, err = changesets.submitPatchset(ctx, entry.ChangesetId, cs.CurrentPatchsetId, extra)
+		}
 		merged := false
 		var mergedMessage string
 		if isStaleBase(err) && entry.ParentChangesetId == "" {

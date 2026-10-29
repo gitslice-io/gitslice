@@ -372,9 +372,17 @@ clone; writers also create, submit and approve changesets (which run the
 slice's checks with its secrets, as an account writer's do); admins also
 manage its members and webhooks. The slice's paths, visibility, policy, CI
 daemon and secrets stay with the account's owners and admins. A secret
-belongs to the account and reaches the slices it is scoped to (`gs secret
-create NAME --slice <slice>... < value`, or `--all-slices`; `gs help
-secrets`).
+belongs to the account and applies to folders and everything below them; a
+check gets the secrets at the folder of the checks.yaml that defines it (`gs
+secret create NAME --path /<account>/<folder>... < value`, `--path
+/<account>` for the whole account, or `--slice <slice>` for a slice's
+folders; `gs help secrets`).
+
+Triggers (`gs help triggers`) live in `<folder>/.gitslice/triggers.yaml` and
+fire for changes in that folder: an HTTP call, or a script on Cloudflare that
+may report checks. `gs trigger runs --changeset <id>` and `gs trigger logs
+<run-id>` show what ran; changes under `.gitslice/` need an owner's or admin's
+approval.
 
 To share read-only with everyone, make the slice public (`gs slice update
 <account>/<slice> --visibility public`); anyone can then `gs init` or

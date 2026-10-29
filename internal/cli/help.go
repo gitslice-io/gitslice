@@ -231,49 +231,113 @@ Delivery
 `,
 	},
 	{
+		Name:    "triggers",
+		Summary: "Run an HTTP call or a script when files in a folder change",
+		Body: `Triggers
+
+A trigger lives in <folder>/.gitslice/triggers.yaml and fires for changes in
+that folder and below: when a commit lands (push), a changeset is created or
+updated, approved, landed or abandoned, a check finishes, a tag is created,
+or by hand (manual). Its action is an HTTP POST of the event; a JavaScript
+module under the same .gitslice folder that runs on Cloudflare and may report
+checks that gate submit; or check: [names], which runs checks of the folder's
+checks.yaml on the slice's CI daemon (mark them started_by: trigger so they
+do not also start with every patchset).
+
+  version: 1
+  triggers:
+    ci:
+      on: [changeset.created, changeset.updated]
+      paths: ["**/*.go", "!**/*_test.go"]   # folder-relative, "/" for the account root
+      changes: [added, modified, moved]      # default: any change
+      checks: [ci]                           # reports the check <folder>/ci
+      secrets: [CI_TOKEN]                    # secrets at the folder (gs help secrets)
+      network: [api.buildkite.com]           # the only hosts the script may reach
+      timeout: 2h                            # how long it may wait for callbacks
+      action:
+        worker: triggers/ci.js               # inside .gitslice/
+    notify:
+      on: [push]
+      refs: [main]
+      secrets: [HOOK_TOKEN]
+      action:
+        http:
+          url: https://hooks.example.com/x?t=${{ secrets.HOOK_TOKEN }}
+          sign: HOOK_TOKEN                   # X-Gitslice-Signature-256
+
+  gs trigger ls [folder]                 # triggers that apply at a folder
+  gs trigger runs --changeset <id>       # runs of a changeset (or --trigger, --account)
+  gs trigger show <run-id>
+  gs trigger logs <run-id>
+  gs trigger run <trigger-id> [--input k=v]   # triggers that list manual
+  gs trigger rerun <run-id>
+  gs trigger cancel <run-id>
+
+For changeset events the definitions come from the head of the target ref,
+not from the changeset, so a changed trigger takes effect when it lands.
+Changes under any .gitslice folder need an owner's or admin's approval.
+
+A script exports onEvent(event, gs) and, to hear back from outside systems,
+onCallback(request, gs). gs.checks.create/update report checks;
+gs.secret(NAME) is a placeholder the runtime swaps for the value only on
+requests to network hosts; gs.callbackUrl(data) is where outside systems call
+back; gs.state keeps 64 KiB of JSON between calls; console.log goes to the
+run's log. A run that reports a check waits until the check has a result or
+the timeout. See https://gitslice.io/doc/triggers.
+`,
+	},
+	{
 		Name:    "secrets",
-		Summary: "Pass secret values to the CI checks of some slices",
+		Summary: "Pass secret values to the CI checks of some folders",
 		Body: `Secrets
 
 A secret is a value Gitslice keeps encrypted and passes to CI checks as an
 environment variable named after it. It belongs to an account and applies to
-some of the account's slices, or to all of them. The account's owners and
-admins manage secrets with gs secret or on the account's Secrets page in the
-web app. No page shows a value; only owners and admins can read one back
-with gs secret env (see Local env files).
+folders of the account and everything below them. A check gets the secrets
+that apply at the folder of the checks.yaml that defines it, whichever slice's
+change runs it. The account's owners and admins manage secrets with gs secret
+or on the account's Secrets page in the web app. No page shows a value; only
+owners and admins can read one back with gs secret env (see Local env files).
 
-  printf %s "$TOKEN" | gs secret create DEPLOY_TOKEN --slice api --slice worker
-  printf %s "$TOKEN" | gs secret create NPM_TOKEN --all-slices
+  printf %s "$TOKEN" | gs secret create DEPLOY_TOKEN --path /acme/api --path /acme/worker
+  printf %s "$TOKEN" | gs secret create NPM_TOKEN --path /acme
+  printf %s "$TOKEN" | gs secret create WEB_TOKEN --slice web
   gs secret ls [--account acme]
-  gs secret update <secret-id> --add-slice web
+  gs secret update <secret-id> --add-path /acme/web
   printf %s "$NEW" | gs secret update <secret-id> --value
   gs secret rm <secret-id>
 
-In a terminal, leave out the pipe and type the value; it is not echoed.
+--path takes an absolute folder; /acme is the whole account. --slice is short
+for the folders the slice includes. In a terminal, leave out the pipe and type
+the value; it is not echoed.
 
 Local env files
-  The account's owners and admins can fill an env template from a slice's
-  secrets. In the template, write NAME=gitslice-secret:SECRET_NAME:
+  The account's owners and admins can fill an env template from the secrets at
+  its folder. In the template, write NAME=gitslice-secret:SECRET_NAME:
 
-  gs secret env env.prod.template --slice gitslice/gitslice -o .env.prod
+  gs secret env gitslice/gitslice/env.prod.template -o .env.prod
 
-  The file is written with mode 600, values are never printed to a terminal,
-  and the server logs who read which names. Nobody else can read a value.
+  In a workspace the template's folder is found from where it sits; elsewhere
+  pass --path /account/folder. The file is written with mode 600, values are
+  never printed to a terminal, and the server logs who read which names.
+  Nobody else can read a value.
 
-Scope
-  A slice gets at most one secret of each name. One name can hold different
-  values for different slices, and a secret that lists a slice overrides an
-  all-slices secret of the same name there.
+Folders and precedence
+  A folder has at most one secret of each name. Where several secrets of one
+  name apply, the one on the closest folder wins: DEPLOY_TOKEN on /acme/web
+  overrides DEPLOY_TOKEN on /acme for checks under /acme/web.
 
-  gs slice secret set/rm/ls work on one slice. set changes a secret that only
-  that slice has, or creates one; rm takes the slice out of a shared secret's
-  scope.
+  gs slice secret set/rm/ls work on one slice's folders. set changes a secret
+  that only those folders have, or creates one there; rm takes the slice's
+  folders out of a secret that has others.
 
 Who can read a secret
-  Every writer of a slice in its scope can read it from a check, and so can
-  the slice's CI daemon. Widen a scope with care. Values of 4 or more
-  characters are shown as *** in check logs and summaries, but that does not
-  stop a check that sets out to leak one.
+  A secret on a folder reaches the CI daemon of every slice whose changes run
+  a check defined in it, and every writer who can add a check there: writers
+  of slices that include the folder, a folder above it, or one inside it.
+  Choose folders with care. Values of 4 or more characters are shown as *** in
+  check logs and summaries, but that does not stop a check that sets out to
+  leak one.
 `,
 	},
 }

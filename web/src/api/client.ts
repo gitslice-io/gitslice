@@ -12,6 +12,7 @@ import {
 import { RepositoryService } from "../gen/proto/core/v1/repository_pb";
 import { SecretService } from "../gen/proto/core/v1/secret_pb";
 import { SliceService } from "../gen/proto/core/v1/slice_pb";
+import { TriggerService } from "../gen/proto/core/v1/trigger_pb";
 import { WebhookService } from "../gen/proto/core/v1/webhook_pb";
 import type { ApiClient } from "./useApi";
 import type * as Api from "./types";
@@ -78,6 +79,7 @@ export function createApiClient({
   const check = createClient(CheckService, transport);
   const webhook = createClient(WebhookService, transport);
   const secret = createClient(SecretService, transport);
+  const trigger = createClient(TriggerService, transport);
 
   const unary = async <TResponse>(call: () => Promise<unknown>) => {
     try {
@@ -291,6 +293,20 @@ export function createApiClient({
       unary<Api.RestackResponse>(() => stack.restack(toProtoRequest(request))),
     submitStack: (request) =>
       unary<Api.SubmitStackResponse>(() => stack.submitStack(toProtoRequest(request))),
+    listTriggers: (request) =>
+      unary<Api.ListTriggersResponse>(() => trigger.listTriggers(toProtoRequest(request))),
+    listTriggerRuns: (request) =>
+      unary<Api.ListTriggerRunsResponse>(() => trigger.listTriggerRuns(toProtoRequest(request))),
+    getTriggerRun: (request) =>
+      unary<Api.TriggerRun>(() => trigger.getTriggerRun(toProtoRequest(request))),
+    listTriggerRunLogs: (request) =>
+      unary<Api.ListTriggerRunLogsResponse>(() => trigger.listTriggerRunLogs(toProtoRequest(request))),
+    runTrigger: (request) =>
+      unary<Api.TriggerRun>(() => trigger.runTrigger(toProtoRequest(request))),
+    rerunTriggerRun: (request) =>
+      unary<Api.TriggerRun>(() => trigger.rerunTriggerRun(toProtoRequest(request))),
+    cancelTriggerRun: (request) =>
+      unary<Api.TriggerRun>(() => trigger.cancelTriggerRun(toProtoRequest(request))),
     listSecrets: (request) =>
       unary<Api.ListSecretsResponse>(() => secret.listSecrets(toProtoRequest(request))),
     createSecret: (request) =>

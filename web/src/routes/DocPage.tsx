@@ -8,6 +8,7 @@ import { AgentsDoc } from "./doc/AgentsDoc";
 import { ChecksDoc } from "./doc/ChecksDoc";
 import { LazyWorkspacesDoc } from "./doc/LazyWorkspacesDoc";
 import { SecretsDoc } from "./doc/SecretsDoc";
+import { TriggersDoc } from "./doc/TriggersDoc";
 import { WebhooksDoc } from "./doc/WebhooksDoc";
 import { GitUsersDoc } from "./doc/GitUsersDoc";
 import { CliReferenceDoc } from "./doc/CliReferenceDoc";
@@ -37,6 +38,7 @@ export function DocPage() {
         {section === "lazy" ? <LazyWorkspacesDoc /> : null}
         {section === "checks" ? <ChecksDoc /> : null}
         {section === "secrets" ? <SecretsDoc /> : null}
+        {section === "triggers" ? <TriggersDoc /> : null}
         {section === "webhooks" ? <WebhooksDoc /> : null}
         {section === "git-users" ? <GitUsersDoc /> : null}
         {section === "cli" ? <CliReferenceDoc /> : null}

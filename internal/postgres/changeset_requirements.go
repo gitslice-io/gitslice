@@ -250,3 +250,13 @@ func blockSubmitTx(ctx context.Context, tx *sql.Tx, changesetID, reason string) 
 	}
 	return fmt.Errorf("%w: %s", ErrConflict, reason)
 }
+
+// ApprovalSubjects lists who approved a patchset.
+func (s *ChangesetStore) ApprovalSubjects(ctx context.Context, changesetID, patchsetID string) ([]string, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	return approvalSubjectsTx(ctx, tx, changesetID, patchsetID)
+}

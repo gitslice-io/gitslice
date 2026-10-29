@@ -24,6 +24,7 @@ type Stores struct {
 	Agents     *AgentStore
 	Checks     *CheckStore
 	Webhooks   *WebhookStore
+	Triggers   *TriggerStore
 	Feedback   *FeedbackStore
 	Blames     *BlameStore
 
@@ -229,6 +230,7 @@ func New() *Stores {
 		Agents:     &AgentStore{b: b},
 		Checks:     &CheckStore{b: b},
 		Webhooks:   &WebhookStore{b: b},
+		Triggers:   NewTriggerStore(),
 		Feedback:   &FeedbackStore{b: b},
 		Blames:     &BlameStore{b: b},
 		backend:    b,
