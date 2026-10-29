@@ -51,10 +51,22 @@ describe("AccountSwitcher", () => {
     expect(screen.getByText("Agents")).toBeInTheDocument();
     expect(screen.getByRole("menuitemradio", { name: /nic/ })).toHaveAttribute("aria-checked", "true");
 
+    // An organization opens its profile, the one page it has.
     fireEvent.click(screen.getByRole("menuitemradio", { name: /gitslice/ }));
     expect(setActiveAccount).toHaveBeenCalledWith("gitslice");
-    expect(navigate).toHaveBeenCalledWith({ to: "/" });
+    expect(navigate).toHaveBeenCalledWith({ to: "/accounts/$account", params: { account: "gitslice" } });
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it("opens Home for the personal account, and invitations from any context", () => {
+    render(<AccountSwitcher />);
+    fireEvent.click(screen.getByRole("button", { name: /Switch account/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /nic/ }));
+    expect(navigate).toHaveBeenLastCalledWith({ to: "/" });
+
+    fireEvent.click(screen.getByRole("button", { name: /Switch account/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /heibot/ }));
+    expect(navigate).toHaveBeenLastCalledWith({ to: "/accounts/$account", params: { account: "heibot" } });
   });
 
   it("closes on Escape", () => {

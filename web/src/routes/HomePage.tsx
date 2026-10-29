@@ -1,5 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+
+import { accountHomeIsProfile } from "../components/AccountSwitcher";
 
 import type { Conversation } from "../api/types";
 import { PageHeader } from "../components/PageHeader";
@@ -24,6 +26,14 @@ export function HomePage() {
   const contextAccounts = personal
     ? memberships.filter((m) => m.kind === "personal" || m.kind === "agent").map((m) => m.account)
     : [activeAccount];
+  // An organization's or agent's Home is its profile page, so each account has
+  // one page (old links and the Home button land there too).
+  const showProfile = Boolean(activeAccount) && accountHomeIsProfile(activeMembership?.kind ?? "personal");
+  useEffect(() => {
+    if (showProfile) {
+      void navigate({ to: "/accounts/$account", params: { account: activeAccount }, replace: true });
+    }
+  }, [showProfile, activeAccount, navigate]);
 
   function navigateToConversation(conversation: Conversation) {
     const routeParams = toSliceRouteParams(conversation.slice);
@@ -36,6 +46,10 @@ export function HomePage() {
       to: "/slices/$account/$slice/agents/$conversationId",
       params: { ...routeParams, conversationId }
     });
+  }
+
+  if (showProfile) {
+    return null;
   }
 
   return (

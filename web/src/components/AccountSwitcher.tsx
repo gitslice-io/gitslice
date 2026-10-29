@@ -4,6 +4,7 @@ import { createPortal } from "react-dom";
 
 import { kindLabel, type Membership } from "../lib/accounts";
 import { cn } from "../lib/cn";
+import { conversationsEnabled } from "../lib/features";
 import { useSelection } from "../state/selection";
 import { useMyInvitations } from "./slices/PendingInvitations";
 import { AccountAvatar } from "./AccountAvatar";
@@ -91,10 +92,27 @@ export function AccountSwitcher() {
     ["Other", shown.filter((m) => !["personal", "organization", "agent"].includes(m.kind))]
   ];
 
+  // Your personal context opens Home, your dashboard. An organization or
+  // agent opens its profile: its Home would only list the same slices, unless
+  // conversations give it a feed of its own (accountHomeIsProfile).
   function choose(account: string) {
+    const kind = memberships.find((m) => m.account === account)?.kind ?? "personal";
     setActiveAccount(account);
     setOpen(false);
+    if (accountHomeIsProfile(kind)) {
+      void navigate({ to: "/accounts/$account", params: { account } });
+      return;
+    }
     void navigate({ to: "/" });
+  }
+
+  // Invitations are yours, so they show on your personal Home.
+  function openInvitations() {
+    const personal = memberships.find((m) => m.kind === "personal")?.account;
+    if (personal && personal !== activeAccount) {
+      setActiveAccount(personal);
+    }
+    setOpen(false);
   }
 
   return (
@@ -190,7 +208,7 @@ export function AccountSwitcher() {
             {invitations.length > 0 ? (
               <Link
                 className="block px-3 py-2 text-sm font-medium text-sky-700 transition hover:bg-slate-50 dark:text-sky-300 dark:hover:bg-zinc-950"
-                onClick={() => setOpen(false)}
+                onClick={openInvitations}
                 role="menuitem"
                 to="/"
               >
@@ -220,6 +238,13 @@ export function AccountSwitcher() {
       ) : null}
     </div>
   );
+}
+
+// accountHomeIsProfile says whether an account's Home is its profile page:
+// an organization's or agent's Home has nothing the profile lacks unless
+// conversations give it a feed (design: one page per account).
+export function accountHomeIsProfile(kind: string) {
+  return kind !== "personal" && !conversationsEnabled;
 }
 
 const FILTER_FROM = 7;

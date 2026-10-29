@@ -138,6 +138,23 @@ describe("slice route pages (render smoke)", () => {
     expect(api.listConversations).not.toHaveBeenCalled();
   });
 
+  it("sends Home in an organization's context to its profile page", () => {
+    authMock.current = { isLoaded: true, isSignedIn: true };
+    const acme = { account: "acme", kind: "organization", role: "writer" };
+    selectionMock.current = {
+      ...selectionMock.current,
+      accounts: ["nic", "acme"],
+      activeAccount: "acme",
+      activeMembership: acme,
+      memberships: [...selectionMock.current.memberships, acme]
+    };
+    apiMock.current = makeApi();
+    renderRoute(<HomePage />);
+
+    expect(routerMock.navigate).toHaveBeenCalledWith({ to: "/accounts/$account", params: { account: "acme" }, replace: true });
+    expect(screen.queryByRole("heading", { name: "acme · Organization" })).not.toBeInTheDocument();
+  });
+
   it("scopes Home to the active organization and offers invitations", async () => {
     authMock.current = { isLoaded: true, isSignedIn: true };
     const setActiveAccount = vi.fn();
