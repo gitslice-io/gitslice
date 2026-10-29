@@ -8,6 +8,9 @@ version: 1
 
 defaults:
   timeout: "20m"
+  # Started by the ci trigger in .gitslice/triggers.yaml, not by every
+  # patchset (design/34_triggers.md).
+  started_by: trigger
   build:
     dockerfile: ci/Dockerfile
     inputs: [go.mod, go.sum]

@@ -3,6 +3,11 @@
 # has the app's npm dependencies installed (design/31_ci_daemon.md).
 version: 1
 
+defaults:
+  # Started by the ci trigger in web/.gitslice/triggers.yaml, not by every
+  # patchset (design/34_triggers.md).
+  started_by: trigger
+
 checks:
   build:
     description: "Type-check, build and test the web app"
