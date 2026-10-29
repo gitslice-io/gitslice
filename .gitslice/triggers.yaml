@@ -1,0 +1,24 @@
+# Triggers for the Gitslice source (design/34_triggers.md).
+version: 1
+
+triggers:
+  # CI: the checks of .gitslice/checks.yaml run on the slice's CI daemon
+  # (gitslice-ci) for every new patchset. Each check's own paths still decide
+  # whether it runs. The web app's checks have their own trigger in
+  # web/.gitslice/triggers.yaml.
+  ci:
+    on: [changeset.created, changeset.updated, manual]
+    action:
+      check: [gofmt, vet, test, build, e2e]
+
+  # Releases: a new tag starts the Cloud Build release trigger
+  # gs-release-webhook (ops/release, design/24). The URL carries its API key
+  # and secret, so it is a Gitslice secret on /gitslice/gitslice. build.sh
+  # builds only vX.Y.Z tags that are not published yet, so a repeat or a
+  # stray tag builds nothing.
+  release:
+    on: [tag.created]
+    secrets: [RELEASE_WEBHOOK_URL]
+    action:
+      http:
+        url: "${{ secrets.RELEASE_WEBHOOK_URL }}"

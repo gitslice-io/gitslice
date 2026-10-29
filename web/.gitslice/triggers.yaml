@@ -1,0 +1,10 @@
+# Triggers for the web app (design/34_triggers.md).
+version: 1
+
+triggers:
+  # CI: web/.gitslice/checks.yaml's build on the slice's CI daemon, for every
+  # patchset that changes the web app.
+  ci:
+    on: [changeset.created, changeset.updated, manual]
+    action:
+      check: [build]
