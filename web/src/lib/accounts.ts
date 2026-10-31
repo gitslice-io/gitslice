@@ -1,4 +1,5 @@
 import type { AccountMembership } from "../api/types";
+import { conversationsEnabled } from "./features";
 
 // The viewer's place in an account, as the auth status reports it.
 export interface Membership {
@@ -53,3 +54,10 @@ export function kindLabel(kind: string) {
 }
 
 export const ACTIVE_ACCOUNT_KEY = "gitslice.activeAccount";
+
+// accountHomeIsProfile says whether an account's Home is its profile page:
+// an organization's or agent's Home has nothing the profile lacks unless
+// conversations give it a feed (one page per account).
+export function accountHomeIsProfile(kind: string) {
+  return kind !== "personal" && !conversationsEnabled;
+}

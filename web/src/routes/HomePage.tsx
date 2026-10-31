@@ -1,7 +1,7 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
-import { accountHomeIsProfile } from "../components/AccountSwitcher";
+import { accountHomeIsProfile } from "../lib/accounts";
 
 import type { Conversation } from "../api/types";
 import { PageHeader } from "../components/PageHeader";

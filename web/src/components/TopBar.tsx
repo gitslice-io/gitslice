@@ -3,6 +3,7 @@ import { useAuth, UserButton } from "@clerk/tanstack-react-start";
 
 import { cn } from "../lib/cn";
 import { conversationsEnabled } from "../lib/features";
+import { useHomeTarget } from "../state/homeTarget";
 import { useSelection } from "../state/selection";
 import { AccountSwitcher } from "./AccountSwitcher";
 import { ClaimsNotice } from "./ClaimsNotice";
@@ -72,6 +73,7 @@ function NavIcon({ section }: { section: NavSection }) {
 
 export function TopBar() {
   const { account } = useSelection();
+  const home = useHomeTarget();
   const { isLoaded, isSignedIn } = useAuth();
   const pathname = useRouterState({
     select: (state) => state.location.pathname
@@ -99,7 +101,8 @@ export function TopBar() {
         <div className="flex min-w-0 items-center gap-3 sm:gap-5">
           <Link
             className="-my-2 flex shrink-0 items-center gap-2 py-2 text-sm font-semibold tracking-normal text-zinc-950 dark:text-zinc-50"
-            to="/"
+            params={home.params as never}
+            to={home.to as never}
           >
             <BrandMark className="size-6" />
             Gitslice
@@ -119,7 +122,8 @@ export function TopBar() {
                     "bg-zinc-950 text-white hover:bg-zinc-950 hover:text-white dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white dark:hover:text-zinc-950"
                 )}
                 key={item.label}
-                to={item.to}
+                params={(item.to === "/" ? home.params : undefined) as never}
+                to={(item.to === "/" ? home.to : item.to) as never}
               >
                 <NavIcon section={item.section} />
                 {/* Icons alone on a phone, but the page you are on says its

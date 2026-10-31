@@ -1,5 +1,7 @@
 import { Link } from "@tanstack/react-router";
 
+import { useHomeTarget } from "../state/homeTarget";
+
 export interface Crumb {
   label: string;
   // Shown on hover, for a crumb whose label is short.
@@ -10,6 +12,8 @@ export interface Crumb {
 }
 
 export function Breadcrumb({ items }: { items: Crumb[] }): JSX.Element {
+  // "Home" crumbs go to the active account's Home itself.
+  const home = useHomeTarget();
   return (
     <nav aria-label="Breadcrumb" className="min-w-0 text-sm">
       <ol className="flex min-w-0 max-w-full flex-wrap items-center gap-x-1.5 gap-y-1">
@@ -29,10 +33,10 @@ export function Breadcrumb({ items }: { items: Crumb[] }): JSX.Element {
               {item.to && !isLast ? (
                 <Link
                   className="-my-1.5 min-w-0 truncate break-all py-1.5 font-medium text-slate-600 dark:text-zinc-400 transition hover:text-zinc-950 dark:hover:text-zinc-50"
-                  params={item.params as never}
+                  params={(item.to === "/" ? home.params : item.params) as never}
                   search={item.search as never}
                   title={item.title}
-                  to={item.to as never}
+                  to={(item.to === "/" ? home.to : item.to) as never}
                 >
                   {item.label}
                 </Link>

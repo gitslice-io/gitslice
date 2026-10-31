@@ -2,9 +2,8 @@ import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { kindLabel, type Membership } from "../lib/accounts";
+import { accountHomeIsProfile, kindLabel, type Membership } from "../lib/accounts";
 import { cn } from "../lib/cn";
-import { conversationsEnabled } from "../lib/features";
 import { useSelection } from "../state/selection";
 import { useMyInvitations } from "./slices/PendingInvitations";
 import { AccountAvatar } from "./AccountAvatar";
@@ -238,13 +237,6 @@ export function AccountSwitcher() {
       ) : null}
     </div>
   );
-}
-
-// accountHomeIsProfile says whether an account's Home is its profile page:
-// an organization's or agent's Home has nothing the profile lacks unless
-// conversations give it a feed (design: one page per account).
-export function accountHomeIsProfile(kind: string) {
-  return kind !== "personal" && !conversationsEnabled;
 }
 
 const FILTER_FROM = 7;

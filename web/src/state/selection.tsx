@@ -25,7 +25,7 @@ interface SelectionState {
   subjectId: string;
 }
 
-const SelectionContext = createContext<SelectionState | null>(null);
+export const SelectionContext = createContext<SelectionState | null>(null);
 
 export function SelectionProvider({ children }: { children: ReactNode }) {
   const api = useApi();
