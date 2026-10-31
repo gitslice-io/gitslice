@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Secret } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { cn } from "../../lib/cn";
+import { ActionMenu } from "../source/ActionMenu";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { Timestamp } from "../Timestamp";
 import { SliceLoadingBlock, SliceNotice, SlicePanel, getErrorMessage } from "../slices/SlicePageParts";
@@ -76,6 +77,8 @@ export function AccountSecretsPanel({ account }: { account: string }) {
   });
 
   const secrets = secretsQuery.data ?? [];
+  const [filter, setFilter] = useState("");
+  const groups = groupSecrets(account, secrets, filter);
   const busy = create.isPending || update.isPending || remove.isPending;
   const startEditing = (id: string | null) => {
     setError("");
@@ -132,57 +135,97 @@ export function AccountSecretsPanel({ account }: { account: string }) {
         ) : secrets.length === 0 ? (
           <p className="text-sm text-slate-500 dark:text-zinc-400">No secrets yet.</p>
         ) : (
-          <ul className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 dark:divide-zinc-800 dark:border-zinc-800">
-            {secrets.map((secret) => {
-              const id = secret.id ?? "";
-              if (editing === id) {
-                return (
-                  <li className="px-4 py-3" key={id}>
-                    <SecretForm
-                      account={account}
-                      busy={update.isPending}
-                      editing
-                      initial={draftFromSecret(account, secret)}
-                      onCancel={() => startEditing(null)}
-                      onSubmit={(draft) => update.mutate({ draft, id })}
-                      problem={error}
-                      submitLabel="Save secret"
-                    />
-                  </li>
-                );
-              }
-              const unused = secretPaths(account, secret.scope).length === 0 && (secret.scope?.slices ?? []).length === 0;
-              return (
-                <li className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3" key={id}>
-                  <div className="min-w-0 flex-1">
-                    <code className="block truncate font-mono text-sm font-medium text-zinc-950 dark:text-zinc-50">
-                      {secret.name}
-                    </code>
-                    <span
-                      className={cn(
-                        "block text-xs",
-                        unused ? "text-amber-700 dark:text-amber-300" : "text-slate-500 dark:text-zinc-400"
-                      )}
-                    >
-                      {scopeLabel(account, secret.scope)}
-                    </span>
-                  </div>
-                  <span className="text-xs text-slate-500 dark:text-zinc-400">
-                    {secret.updatedBy ? `${secret.updatedBy} · ` : "updated "}
-                    <Timestamp relative value={secret.updatedAt} />
-                  </span>
-                  <div className="flex gap-1.5">
-                    <button className={secretButtonClass} disabled={busy} onClick={() => startEditing(id)} type="button">
-                      Edit
-                    </button>
-                    <button className={secretDangerButtonClass} disabled={busy} onClick={() => setDeleting(secret)} type="button">
-                      Delete
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+          <>
+            {secrets.length > FILTER_FROM ? (
+              <input
+                aria-label="Filter secrets"
+                className="mb-3 h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-zinc-700"
+                onChange={(event) => setFilter(event.target.value)}
+                placeholder="Filter by name or folder"
+                type="search"
+                value={filter}
+              />
+            ) : null}
+            {groups.length === 0 ? (
+              <p className="text-sm text-slate-500 dark:text-zinc-400">No secret matches.</p>
+            ) : (
+              <div className="grid gap-4">
+                {groups.map((group) => (
+                  <section
+                    aria-label={group.label}
+                    className="overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800"
+                    key={group.label}
+                  >
+                    <div className="flex items-baseline justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2 dark:border-zinc-800 dark:bg-zinc-950">
+                      <h3
+                        className={cn(
+                          "min-w-0 break-all font-mono text-xs font-semibold",
+                          group.unused ? "text-amber-700 dark:text-amber-300" : "text-slate-700 dark:text-zinc-300"
+                        )}
+                      >
+                        {group.label}
+                      </h3>
+                      <span className="shrink-0 text-xs text-slate-500 dark:text-zinc-400">
+                        {group.secrets.length === 1 ? "1 secret" : `${group.secrets.length} secrets`}
+                      </span>
+                    </div>
+                    <ul className="divide-y divide-slate-200 dark:divide-zinc-800">
+                      {group.secrets.map((secret) => {
+                        const id = secret.id ?? "";
+                        if (editing === id) {
+                          return (
+                            <li className="px-4 py-3" key={id}>
+                              <SecretForm
+                                account={account}
+                                busy={update.isPending}
+                                editing
+                                initial={draftFromSecret(account, secret)}
+                                onCancel={() => startEditing(null)}
+                                onSubmit={(draft) => update.mutate({ draft, id })}
+                                problem={error}
+                                submitLabel="Save secret"
+                              />
+                            </li>
+                          );
+                        }
+                        return (
+                          <li className="flex items-start gap-3 px-4 py-3" key={id}>
+                            <div className="min-w-0 flex-1">
+                              <code className="block break-all font-mono text-sm font-medium text-zinc-950 dark:text-zinc-50">
+                                {secret.name}
+                              </code>
+                              <span className="mt-0.5 block text-xs text-slate-500 dark:text-zinc-400">
+                                Changed <Timestamp relative value={secret.updatedAt} />
+                                {secret.updatedBy ? ` by ${secret.updatedBy}` : ""}
+                              </span>
+                            </div>
+                            {/* Buttons on wider screens; a menu on phones, so the name keeps the row. */}
+                            <div className="hidden shrink-0 gap-1.5 sm:flex">
+                              <button className={secretButtonClass} disabled={busy} onClick={() => startEditing(id)} type="button">
+                                Edit
+                              </button>
+                              <button className={secretDangerButtonClass} disabled={busy} onClick={() => setDeleting(secret)} type="button">
+                                Delete
+                              </button>
+                            </div>
+                            <div className="shrink-0 sm:hidden">
+                              <ActionMenu
+                                items={[
+                                  { label: "Edit", disabled: busy, onSelect: () => startEditing(id) },
+                                  { label: "Delete", disabled: busy, onSelect: () => setDeleting(secret), tone: "danger" }
+                                ]}
+                                label={`Actions for ${secret.name}`}
+                              />
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
+                ))}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -214,4 +257,36 @@ function DeleteMessage({ account, secret }: { account: string; secret: Secret })
       This cannot be undone.
     </>
   );
+}
+
+// Lists of more secrets than this get a filter.
+const FILTER_FROM = 8;
+
+export interface SecretGroup {
+  label: string;
+  unused: boolean;
+  secrets: Secret[];
+}
+
+// groupSecrets groups secrets by the folders they apply to, folders sorted,
+// names sorted within each, keeping those that match filter (a name or a
+// folder, any case). Secrets with no folder come last.
+export function groupSecrets(account: string, secrets: Secret[], filter = ""): SecretGroup[] {
+  const needle = filter.trim().toLowerCase();
+  const byLabel = new Map<string, SecretGroup>();
+  for (const secret of secrets) {
+    const label = scopeLabel(account, secret.scope);
+    if (needle && !(secret.name ?? "").toLowerCase().includes(needle) && !label.toLowerCase().includes(needle)) {
+      continue;
+    }
+    const unused = secretPaths(account, secret.scope).length === 0 && (secret.scope?.slices ?? []).length === 0;
+    const group = byLabel.get(label) ?? { label, unused, secrets: [] };
+    group.secrets.push(secret);
+    byLabel.set(label, group);
+  }
+  const out = [...byLabel.values()];
+  for (const group of out) {
+    group.secrets.sort((a, b) => (a.name ?? "").localeCompare(b.name ?? ""));
+  }
+  return out.sort((a, b) => Number(a.unused) - Number(b.unused) || a.label.localeCompare(b.label));
 }

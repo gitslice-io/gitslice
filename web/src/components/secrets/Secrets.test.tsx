@@ -56,8 +56,35 @@ describe("AccountSecretsPanel", () => {
     renderWithQuery(<AccountSecretsPanel account="acme" />);
     expect(await screen.findByText("DEPLOY_TOKEN")).toBeInTheDocument();
     expect(screen.getByText("/acme/api, /acme/web")).toBeInTheDocument();
-    expect(screen.getAllByText("/acme")).toHaveLength(2);
+    // Grouped by folder: NPM_TOKEN and OLD_TOKEN share /acme.
+    const acme = screen.getByRole("region", { name: "/acme" });
+    expect(within(acme).getByText("2 secrets")).toBeInTheDocument();
+    expect(within(acme).getByText("NPM_TOKEN")).toBeInTheDocument();
+    expect(within(acme).getByText("OLD_TOKEN")).toBeInTheDocument();
     expect(screen.getByText("No folders")).toBeInTheDocument();
+    expect(screen.getByText(/by alice/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Actions for DEPLOY_TOKEN" })).toBeInTheDocument();
+  });
+
+  it("filters a long list by name or folder", async () => {
+    apiMock.current = {
+      listSecrets: vi.fn().mockResolvedValue({
+        secrets: Array.from({ length: 10 }, (_, i) => ({
+          id: `sec_${i}`,
+          name: `TOKEN_${i}`,
+          scope: { paths: [i < 5 ? "/acme/api" : "/acme/web"] }
+        }))
+      })
+    };
+    renderWithQuery(<AccountSecretsPanel account="acme" />);
+    const filter = await screen.findByLabelText("Filter secrets");
+    fireEvent.change(filter, { target: { value: "token_3" } });
+    expect(screen.getByText("TOKEN_3")).toBeInTheDocument();
+    expect(screen.queryByText("TOKEN_4")).not.toBeInTheDocument();
+    fireEvent.change(filter, { target: { value: "acme/web" } });
+    expect(screen.getAllByRole("listitem")).toHaveLength(5);
+    fireEvent.change(filter, { target: { value: "nothing" } });
+    expect(screen.getByText("No secret matches.")).toBeInTheDocument();
   });
 
   it("creates a secret on typed folders and a slice's folders", async () => {
