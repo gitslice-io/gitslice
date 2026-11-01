@@ -172,7 +172,10 @@ func (s *SliceStore) list(ctx context.Context, account, after string, limit int,
 	rows, err := s.db.QueryContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
 		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
-		       slices.archived_at is not null, slices.description, slices.merge_on_submit
+		       slices.archived_at is not null, slices.description, slices.merge_on_submit,
+		       slices.created_at,
+		       coalesce((select max(c.updated_at) from changesets c
+		                 where c.authoring_slice_id = slices.id and c.status = 'submitted'), slices.created_at)
 		from slices
 		join accounts on accounts.id = slices.account_id
 		where accounts.slug = $1 and slices.slug > $4 and slices.deleted_at is null
@@ -189,13 +192,30 @@ func (s *SliceStore) list(ctx context.Context, account, after string, limit int,
 	defer rows.Close()
 	var out []*corev1.Slice
 	for rows.Next() {
-		slice, err := scanSlice(rows)
+		var createdAt, activeAt time.Time
+		slice, err := scanSlice(timesScanner{row: rows, times: []*time.Time{&createdAt, &activeAt}})
 		if err != nil {
 			return nil, err
 		}
+		slice.CreatedAt = formatTime(createdAt)
+		slice.LastActivityAt = formatTime(activeAt)
 		out = append(out, slice)
 	}
 	return out, rows.Err()
+}
+
+// timesScanner lets scanSlice read a slice row that has timestamps as more
+// columns.
+type timesScanner struct {
+	row   scanner
+	times []*time.Time
+}
+
+func (t timesScanner) Scan(dest ...any) error {
+	for _, at := range t.times {
+		dest = append(dest, at)
+	}
+	return t.row.Scan(dest...)
 }
 
 func (s *SliceStore) ListDefinitionVersions(ctx context.Context, sliceID string, limit int) ([]*corev1.SliceDefinitionVersion, error) {

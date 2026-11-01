@@ -116,6 +116,11 @@ message Slice {
   // latest base by the server when it is submitted (a new patchset, which
   // reruns CI), instead of being refused (design/07 section 7.4).
   bool merge_on_submit = 10;
+  // created_at is when the slice was created. Set in listings only.
+  string created_at = 11;
+  // last_activity_at is when a changeset authored from the slice last landed,
+  // else created_at. Set in listings only, for sorting by recent activity.
+  string last_activity_at = 12;
 }
 
 message SliceDefinition {

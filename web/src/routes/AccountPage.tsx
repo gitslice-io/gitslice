@@ -19,7 +19,9 @@ import {
   formatPathPreview,
   getErrorMessage
 } from "../components/slices/SlicePageParts";
+import { Timestamp } from "../components/Timestamp";
 import { canAdmin, kindLabel, membershipFor, type Membership } from "../lib/accounts";
+import { isHomeSlice, isSliceSort, loadSliceSort, saveSliceSort, sliceSorts, sortSlices, type SliceSort } from "../lib/sliceOrder";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 
@@ -68,7 +70,20 @@ export function AccountPage() {
     }
   }, [profile?.account, profile?.avatarVersion]);
   const pages = slicesQuery.data?.pages ?? [];
-  const slices = pages.flatMap((page: ListSlicesResponse) => page.slices ?? []);
+  const [sort, setSort] = useState<SliceSort>("name");
+  // Read after mount, so the server render and the first client render agree.
+  useEffect(() => setSort(loadSliceSort()), []);
+  const slices = sortSlices(
+    pages.flatMap((page: ListSlicesResponse) => page.slices ?? []),
+    sort
+  );
+  // Pages come in name order, so another order needs them all.
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = slicesQuery;
+  useEffect(() => {
+    if (sort !== "name" && hasNextPage && !isFetchingNextPage) {
+      void fetchNextPage();
+    }
+  }, [sort, hasNextPage, isFetchingNextPage, fetchNextPage]);
   const kind = membership?.kind || profile?.kind || pages[0]?.accountKind || "";
   const notFound = isNotFoundError(slicesQuery.error) || isNotFoundError(profileQuery.error);
   // An organization's owners and admins edit its profile; a person edits their own.
@@ -157,7 +172,28 @@ export function AccountPage() {
             </div>
           ) : null}
 
-          <h2 className="mb-2 mt-8 text-sm font-semibold text-zinc-950 dark:text-zinc-50">Slices</h2>
+          <div className="mb-2 mt-8 flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">Slices</h2>
+            <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
+              Sort
+              <select
+                className="h-8 rounded-md border border-slate-300 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-zinc-700"
+                onChange={(event) => {
+                  if (isSliceSort(event.target.value)) {
+                    setSort(event.target.value);
+                    saveSliceSort(event.target.value);
+                  }
+                }}
+                value={sort}
+              >
+                {sliceSorts.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
             {membership?.kind === "personal"
               ? "Your slices. Others see only the public ones."
@@ -181,12 +217,30 @@ export function AccountPage() {
                 const routeParams = toSliceRouteParams(slice.ref);
                 const name = slice.ref?.slice ?? slice.id ?? "slice";
                 const paths = slice.definition?.includedPaths ?? [];
+                const home = isHomeSlice(slice);
+                // The date the list is sorted by, when it is sorted by one.
+                const when = sort === "active" ? slice.lastActivityAt || slice.createdAt : sort === "newest" ? slice.createdAt : "";
                 const body = (
                   <>
                     <span className="min-w-0">
-                      <span className="block truncate font-medium text-zinc-950 dark:text-zinc-50">{name}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="truncate font-medium text-zinc-950 dark:text-zinc-50">{name}</span>
+                        {home ? (
+                          <span className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-px text-[11px] font-semibold text-slate-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
+                            Home
+                          </span>
+                        ) : null}
+                      </span>
                       {paths.length > 0 ? (
-                        <span className="block truncate text-xs text-slate-500 dark:text-zinc-400">{formatPathPreview(paths)}</span>
+                        <span className="block truncate text-xs text-slate-500 dark:text-zinc-400">
+                          {home ? `${formatPathPreview(paths)} · everything in ${account}` : formatPathPreview(paths)}
+                        </span>
+                      ) : null}
+                      {when ? (
+                        <span className="block text-xs text-slate-500 dark:text-zinc-400">
+                          {sort === "active" ? "Active " : "Created "}
+                          <Timestamp relative value={when} />
+                        </span>
                       ) : null}
                     </span>
                     <VisibilityBadge visibility={slice.definition?.visibility} />
@@ -210,7 +264,7 @@ export function AccountPage() {
               })}
             </ul>
           )}
-          {slicesQuery.hasNextPage ? (
+          {slicesQuery.hasNextPage && sort === "name" ? (
             <div className="mt-4 flex justify-center">
               <button
                 className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"

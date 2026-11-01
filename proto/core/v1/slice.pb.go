@@ -295,8 +295,13 @@ type Slice struct {
 	// latest base by the server when it is submitted (a new patchset, which
 	// reruns CI), instead of being refused (design/07 section 7.4).
 	MergeOnSubmit bool `protobuf:"varint,10,opt,name=merge_on_submit,json=mergeOnSubmit,proto3" json:"merge_on_submit,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// created_at is when the slice was created. Set in listings only.
+	CreatedAt string `protobuf:"bytes,11,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	// last_activity_at is when a changeset authored from the slice last landed,
+	// else created_at. Set in listings only, for sorting by recent activity.
+	LastActivityAt string `protobuf:"bytes,12,opt,name=last_activity_at,json=lastActivityAt,proto3" json:"last_activity_at,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Slice) Reset() {
@@ -397,6 +402,20 @@ func (x *Slice) GetMergeOnSubmit() bool {
 		return x.MergeOnSubmit
 	}
 	return false
+}
+
+func (x *Slice) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *Slice) GetLastActivityAt() string {
+	if x != nil {
+		return x.LastActivityAt
+	}
+	return ""
 }
 
 type SliceDefinition struct {
@@ -2163,7 +2182,7 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\x0fListTagsRequest\x120\n" +
 	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\"=\n" +
 	"\x10ListTagsResponse\x12)\n" +
-	"\x04tags\x18\x01 \x03(\v2\x15.gitslice.core.v1.TagR\x04tags\"\x82\x03\n" +
+	"\x04tags\x18\x01 \x03(\v2\x15.gitslice.core.v1.TagR\x04tags\"\xcb\x03\n" +
 	"\x05Slice\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12,\n" +
 	"\x03ref\x18\x02 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x03ref\x12A\n" +
@@ -2178,7 +2197,10 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\x0eci_daemon_name\x18\b \x01(\tR\fciDaemonName\x12 \n" +
 	"\vdescription\x18\t \x01(\tR\vdescription\x12&\n" +
 	"\x0fmerge_on_submit\x18\n" +
-	" \x01(\bR\rmergeOnSubmit\"\xe5\x01\n" +
+	" \x01(\bR\rmergeOnSubmit\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\v \x01(\tR\tcreatedAt\x12(\n" +
+	"\x10last_activity_at\x18\f \x01(\tR\x0elastActivityAt\"\xe5\x01\n" +
 	"\x0fSliceDefinition\x12\x19\n" +
 	"\bslice_id\x18\x01 \x01(\tR\asliceId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x03R\aversion\x12%\n" +

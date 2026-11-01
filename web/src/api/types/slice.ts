@@ -18,6 +18,11 @@ export interface Slice {
   // A changeset whose base went stale is merged onto the latest base at
   // submit (a new patchset that reruns CI) instead of being refused.
   mergeOnSubmit?: boolean;
+  // When the slice was created; set in listings only.
+  createdAt?: string;
+  // When a changeset authored from the slice last landed, else createdAt;
+  // set in listings only.
+  lastActivityAt?: string;
 }
 
 export interface SliceDefinition {
