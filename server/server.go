@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/analytics"
 	"gitslice.io/gitslice/internal/auth/clerk"
 	"gitslice.io/gitslice/internal/auth/servicetoken"
@@ -246,7 +247,7 @@ func Run(ctx context.Context, cfg Config) error {
 	var gitHandler http.Handler = gitcompat.NewHandler(gitcompat.SubjectResolver(resolveSubject), projector, handlers.Blob, handlers.Changeset)
 	gitHandler = newHTTPRateLimitMiddleware(cfg)(gitHandler)
 	combinedServer := &http.Server{
-		Handler:           NewCombinedGRPCGatewayHandler(grpcServer, NewHTTPHandler(apiHandler, gitHandler, cfg.HTTPAllowedOrigin, cfg)),
+		Handler:           activity.Default.Middleware(NewCombinedGRPCGatewayHandler(grpcServer, NewHTTPHandler(apiHandler, gitHandler, cfg.HTTPAllowedOrigin, cfg))),
 		ReadHeaderTimeout: gatewayReadHeaderTimeout,
 		IdleTimeout:       gatewayIdleTimeout,
 	}
@@ -258,7 +259,7 @@ func Run(ctx context.Context, cfg Config) error {
 			return err
 		}
 		gatewayServer = &http.Server{
-			Handler:           NewHTTPHandler(apiHandler, gitHandler, cfg.HTTPAllowedOrigin, cfg),
+			Handler:           activity.Default.Middleware(NewHTTPHandler(apiHandler, gitHandler, cfg.HTTPAllowedOrigin, cfg)),
 			ReadHeaderTimeout: gatewayReadHeaderTimeout,
 			ReadTimeout:       gatewayReadTimeout,
 			WriteTimeout:      gatewayWriteTimeout,
@@ -273,7 +274,7 @@ func Run(ctx context.Context, cfg Config) error {
 			return err
 		}
 		gitHTTPServer = &http.Server{
-			Handler: gitHandler,
+			Handler: activity.Default.Middleware(gitHandler),
 			// Git clone/fetch/push transfers can be large and slow, so only the
 			// header-read deadline (slowloris protection) and the idle-keepalive
 			// deadline are bounded here; body read/write are left to the request

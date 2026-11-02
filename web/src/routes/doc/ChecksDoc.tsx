@@ -302,7 +302,7 @@ checks:
         <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           A checks-only daemon with nothing to run detaches from the server
           after two minutes and waits on the server&apos;s doorbell, which wakes
-          it the moment a check is queued; it polls every 20 minutes as a safety
+          it the moment a check is queued; it polls once an hour as a safety
           net. An idle daemon costs the server nothing, and it stays online.
           Where the server has no doorbell it polls every 30 seconds instead.{" "}
           <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">--detach-after 0</code>{" "}

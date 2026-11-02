@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/storage"
 )
 
@@ -70,6 +71,10 @@ func (w *Worker) Run(ctx context.Context) {
 			w.delay = w.interval
 			w.runOnce(ctx, timer)
 		case <-timer.C:
+			// An idle server leaves the database alone (internal/activity).
+			if activity.Default.Wait(ctx) != nil {
+				return
+			}
 			w.runOnce(ctx, timer)
 		}
 	}

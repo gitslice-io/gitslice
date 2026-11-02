@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/objectid"
 )
 
@@ -82,6 +83,9 @@ func (s *BlobService) RunGitBlobBackfill(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(gitBlobBackfillIdle):
+		}
+		if activity.Default.Wait(ctx) != nil {
+			return
 		}
 	}
 }

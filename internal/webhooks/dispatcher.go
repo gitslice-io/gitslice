@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/objectid"
 	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/secretbox"
@@ -221,11 +222,19 @@ func (d *Dispatcher) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-prune.C:
+			if activity.Default.Wait(ctx) != nil {
+				return
+			}
 			if err := d.stores.Webhooks.PruneWebhookHistory(ctx, time.Now().Add(-historyKeep)); err != nil && ctx.Err() == nil {
 				slog.Warn("prune webhook history", "error", err)
 			}
 			continue
 		case <-ticker.C:
+			// Retries wait for the server to be in use (internal/activity):
+			// an idle server leaves the database alone.
+			if activity.Default.Wait(ctx) != nil {
+				return
+			}
 		case <-d.nudge:
 		}
 		d.drainLogged(ctx)

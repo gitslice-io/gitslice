@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/storage"
 	"golang.org/x/sync/errgroup"
 )
@@ -42,6 +43,11 @@ func (s *RepositoryService) RunBlameWarmer(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-timer.C:
+		}
+		// An idle server leaves the database alone (internal/activity);
+		// landings come with requests, which wake it.
+		if activity.Default.Wait(ctx) != nil {
+			return
 		}
 		last = s.warmBlamesOnce(ctx, last, retry)
 		timer.Reset(blameWarmInterval)

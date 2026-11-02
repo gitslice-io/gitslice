@@ -118,6 +118,30 @@ it or open pull requests there.
 - Keep object id rules in `internal/objectid`.
 - Do not bypass changeset submit validation for user-visible writes.
 
+## Idle When Unused
+
+The database (Neon) and the server (Cloud Run) must be able to go idle and
+scale to zero when no one is making requests. An idle Gitslice should cost
+nothing.
+
+- Nothing may query the database on a timer while the server is unused.
+  Background loops (publisher, index worker, webhook and trigger dispatch,
+  check sweeps, blame warming, anything new) wait on `internal/activity`
+  before each pass; they run only while a request is in flight or ended
+  within `activity.IdleAfter`. Cloud Run throttles CPU between requests but
+  does not stop goroutines, so a bare ticker keeps Neon awake.
+- Background work is recorded in the database and resumes when the next
+  request wakes the loops; never rely on a loop running while idle.
+- Clients must not poll the server. Wait on something that costs nothing
+  while idle and is told when there is work (the CI doorbell,
+  design/32_ci_dispatch_on_cloudflare.md, or a webhook or trigger), and keep
+  any safety-net poll rare (an hour, not seconds).
+- The same holds for our own services around the server (Workers, Durable
+  Object alarms, daemons, dashboards): no fixed-interval calls to the API.
+- When adding anything periodic, check it against this rule. To verify, watch
+  `pg_stat_database.xact_commit` while there are no HTTP requests: it should
+  stay flat.
+
 ## Execution Rules
 
 - Before changing behavior, read the relevant design doc and nearby code.

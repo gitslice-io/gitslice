@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/checks"
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
 	"gitslice.io/gitslice/internal/secretmask"
@@ -609,6 +610,10 @@ func (s *AgentService) RunCheckDispatchSweep(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
+			// An idle server leaves the database alone (internal/activity).
+			if activity.Default.Wait(ctx) != nil {
+				return
+			}
 			s.runCheckDispatchSweepOnce(ctx, now)
 			if tick%checkRecoverEvery == 0 {
 				s.dispatcher.recoverCheckRuns(ctx)

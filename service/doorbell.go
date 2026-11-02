@@ -26,13 +26,15 @@ import (
 
 const (
 	// doorbellSafetyPoll is how often a daemon on the doorbell polls anyway.
-	doorbellSafetyPoll = 20 * time.Minute
+	// Each poll wakes the server and its database, so it is long: a ring is
+	// tried three times and kept for a daemon that is reconnecting.
+	doorbellSafetyPoll = time.Hour
 	// doorbellStandbyGrace is how long past a missed safety poll it still
 	// counts as online.
 	doorbellStandbyGrace = 3 * time.Minute
 	// doorbellTokenLife is how long a doorbell token is good for; a safety
 	// poll hands out a fresh one long before it runs out.
-	doorbellTokenLife = 2 * time.Hour
+	doorbellTokenLife = 3 * time.Hour
 )
 
 // Doorbell signs tokens for daemons and rings the doorbell Worker. The

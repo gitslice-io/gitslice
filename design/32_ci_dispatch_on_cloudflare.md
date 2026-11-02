@@ -331,7 +331,7 @@ this section is what the code does.
   (`DOORBELL_SECRET`) share the secret; the Worker is ours, so a key pair
   bought nothing.
 - `StandbyPollResponse` names `doorbell_url`, `doorbell_token` and
-  `safety_poll_after_ms` (20 minutes). The daemon opens the socket
+  `safety_poll_after_ms` (1 hour; 20 minutes at first). The daemon opens the socket
   (`internal/cli/agent_doorbell.go`, `Authorization: Bearer`), pings every
   30 s, polls on `"wake"`, on a dropped socket, and at the safety interval, and
   polls every 30 s while the socket is down. `GITSLICE_AGENT_DOORBELL=off`
@@ -343,6 +343,13 @@ this section is what the code does.
   member.
 - The server rings when queued runs remain unclaimed after handing out
   (`handOut`), with their count.
+- **The server's own loops.** Cloud Run throttles CPU between requests but
+  does not stop goroutines, and the publisher, index worker, webhook and
+  trigger dispatcher, check sweeps and blame warmer kept querying Neon about
+  once a second with no request in sight (measured 2026-11-02), so it never
+  scaled to zero. They now wait on `internal/activity`: once no request has
+  been in flight for 5 minutes they stop until the next one. Their work is in
+  the database, and new work comes with a request.
 
 ### Layer 2: Cloudflare runners
 

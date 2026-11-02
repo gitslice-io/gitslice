@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"time"
 
+	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/storage"
 )
 
@@ -65,6 +66,10 @@ func runPublisher(ctx context.Context, changesets storage.ChangesetStore, batchS
 			state.delay = state.baseInterval
 			drainPublish(ctx, changesets, batchSize, onPublished, timer, &state)
 		case <-timer.C:
+			// An idle server leaves the database alone (internal/activity).
+			if activity.Default.Wait(ctx) != nil {
+				return
+			}
 			drainPublish(ctx, changesets, batchSize, onPublished, timer, &state)
 		}
 	}
