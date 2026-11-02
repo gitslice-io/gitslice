@@ -154,7 +154,7 @@ func (d *agentDaemon) standby(ctx context.Context) error {
 			wait = min(max(wait, standbyPollMin), standbyPollMax)
 			if url, token := resp.GetDoorbellUrl(), resp.GetDoorbellToken(); url != "" && token != "" && !doorbellDisabled() {
 				if bell == nil {
-					bell = listenDoorbell(ctx, url, token)
+					bell = listenDoorbell(ctx, url, token, d.say)
 				} else {
 					bell.update(url, token)
 				}

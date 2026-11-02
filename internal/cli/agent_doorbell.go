@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"sync"
@@ -27,6 +28,11 @@ type doorbellListener struct {
 	url       string
 	token     string
 	connected bool
+	// say reports the socket opening and failing, once per change.
+	say      func(string)
+	lastFail string
+
+	started time.Time
 
 	wake   chan struct{}
 	lost   chan struct{}
@@ -34,16 +40,22 @@ type doorbellListener struct {
 	done   chan struct{}
 }
 
-// listenDoorbell starts waiting on the doorbell at waitURL with token.
-func listenDoorbell(ctx context.Context, waitURL, token string) *doorbellListener {
+// listenDoorbell starts waiting on the doorbell at waitURL with token. say
+// (may be nil) hears when the socket opens and why it fails.
+func listenDoorbell(ctx context.Context, waitURL, token string, say func(string)) *doorbellListener {
 	ctx, cancel := context.WithCancel(ctx)
+	if say == nil {
+		say = func(string) {}
+	}
 	l := &doorbellListener{
-		url:    waitURL,
-		token:  token,
-		wake:   make(chan struct{}, 1),
-		lost:   make(chan struct{}, 1),
-		cancel: cancel,
-		done:   make(chan struct{}),
+		say:     say,
+		url:     waitURL,
+		token:   token,
+		wake:    make(chan struct{}, 1),
+		lost:    make(chan struct{}, 1),
+		cancel:  cancel,
+		done:    make(chan struct{}),
+		started: time.Now(),
 	}
 	go l.run(ctx)
 	return l
@@ -115,8 +127,15 @@ func (l *doorbellListener) run(ctx context.Context) {
 		waitURL, token := l.url, l.token
 		l.mu.Unlock()
 		opened := time.Now()
-		_ = l.listenOnce(ctx, waitURL, token)
+		err := l.listenOnce(ctx, waitURL, token)
 		l.setConnected(false)
+		if ctx.Err() != nil {
+			return
+		}
+		if why := fmt.Sprint(err); why != l.lastFail {
+			l.lastFail = why
+			l.say(fmt.Sprintf("doorbell: %v; polling every half minute until it is back", err))
+		}
 		if time.Since(opened) > doorbellReadWithin {
 			retry = time.Second // it held for a while: not a failing dial
 		}
@@ -144,6 +163,10 @@ func (l *doorbellListener) listenOnce(ctx context.Context, waitURL, token string
 	}
 	defer conn.Close()
 	l.setConnected(true)
+	if l.lastFail != "" || time.Since(l.started) < doorbellReadWithin {
+		l.say("waiting on the doorbell: it rings when a check is queued")
+	}
+	l.lastFail = ""
 	stopPings := make(chan struct{})
 	defer close(stopPings)
 	go func() {
