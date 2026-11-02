@@ -11,15 +11,17 @@ import (
 // event is persisted via the AgentStore, and the hub only routes live traffic.
 // See design/16_bring_your_own_agent.md.
 type agentHub struct {
-	mu          sync.Mutex
-	daemons     map[string]*daemonConn
+	mu sync.Mutex
+	// daemons holds each daemon's connections, one per process
+	// (RegisterDaemon.instance_id), the newest last.
+	daemons     map[string][]*daemonConn
 	subscribers map[string]map[int64]chan *corev1.ConversationEvent
 	nextSub     int64
 }
 
 func newAgentHub() *agentHub {
 	return &agentHub{
-		daemons:     map[string]*daemonConn{},
+		daemons:     map[string][]*daemonConn{},
 		subscribers: map[string]map[int64]chan *corev1.ConversationEvent{},
 	}
 }
@@ -28,6 +30,11 @@ func newAgentHub() *agentHub {
 // handler owns a writer goroutine that drains send and forwards to the stream.
 type daemonConn struct {
 	daemonID string
+	// instance names the daemon process in check run claims
+	// (storage.InstanceKey); capacity is how many checks it runs at once, 0
+	// for no limit (design/32 layer 3).
+	instance string
+	capacity int
 	send     chan *corev1.ServerMessage
 	done     chan struct{}
 }
@@ -41,36 +48,64 @@ func (c *daemonConn) trySend(msg *corev1.ServerMessage) bool {
 	}
 }
 
-func (h *agentHub) registerDaemon(daemonID string) *daemonConn {
+// registerDaemon adds a connection for a process of the daemon, replacing an
+// earlier connection of the same process (a reconnect).
+func (h *agentHub) registerDaemon(daemonID, instance string, capacity int) *daemonConn {
 	conn := &daemonConn{
 		daemonID: daemonID,
+		instance: instance,
+		capacity: capacity,
 		send:     make(chan *corev1.ServerMessage, 64),
 		done:     make(chan struct{}),
 	}
 	h.mu.Lock()
-	if prev := h.daemons[daemonID]; prev != nil {
-		// Drop a stale connection for the same daemon id (e.g. reconnect).
-		close(prev.done)
+	kept := h.daemons[daemonID][:0]
+	for _, prev := range h.daemons[daemonID] {
+		if prev.instance == instance {
+			close(prev.done)
+			continue
+		}
+		kept = append(kept, prev)
 	}
-	h.daemons[daemonID] = conn
+	h.daemons[daemonID] = append(kept, conn)
 	h.mu.Unlock()
 	return conn
 }
 
 func (h *agentHub) unregisterDaemon(conn *daemonConn) {
 	h.mu.Lock()
-	if h.daemons[conn.daemonID] == conn {
-		delete(h.daemons, conn.daemonID)
-		close(conn.done)
+	defer h.mu.Unlock()
+	conns := h.daemons[conn.daemonID]
+	for i, c := range conns {
+		if c == conn {
+			close(conn.done)
+			conns = append(conns[:i:i], conns[i+1:]...)
+			break
+		}
 	}
-	h.mu.Unlock()
+	if len(conns) == 0 {
+		delete(h.daemons, conn.daemonID)
+	} else {
+		h.daemons[conn.daemonID] = conns
+	}
 }
 
+// daemon returns the daemon's newest connection.
 func (h *agentHub) daemon(daemonID string) (*daemonConn, bool) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	conn, ok := h.daemons[daemonID]
-	return conn, ok
+	conns := h.daemons[daemonID]
+	if len(conns) == 0 {
+		return nil, false
+	}
+	return conns[len(conns)-1], true
+}
+
+// conns returns every connection of the daemon, one per process.
+func (h *agentHub) conns(daemonID string) []*daemonConn {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]*daemonConn(nil), h.daemons[daemonID]...)
 }
 
 func (h *agentHub) onlineDaemonIDs() []string {

@@ -9,6 +9,7 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"gitslice.io/gitslice/internal/checks"
@@ -72,6 +73,17 @@ type checkDispatcher struct {
 
 	hub        *agentHub
 	serverAddr string
+
+	// wake tells a daemon waiting on standby that queued check runs are
+	// waiting for it (the doorbell, design/32 layer 1); nil without one.
+	wake func(ctx context.Context, daemonID string, queued int)
+	// onDemand are daemons whose processes are started when work is queued
+	// (Cloudflare runners, design/32 layer 2): they count as reachable
+	// with no process running.
+	onDemand map[string]bool
+
+	claimMu    sync.Mutex
+	claimLocks map[string]*sync.Mutex
 }
 
 func (d *checkDispatcher) resolveCheckPlan(ctx context.Context, slice *corev1.Slice, patchset *corev1.Patchset) (*checks.Plan, error) {
@@ -120,14 +132,14 @@ func (d *checkDispatcher) dispatchCIChecks(ctx context.Context, cs *corev1.Chang
 	// A daemon runs a slice's checks only while its owner keeps it exposed to
 	// the slice. Otherwise the checks error (sendChecks), without the daemon
 	// seeing the slice's secrets.
-	daemonID := strings.TrimSpace(slice.CiDaemonId)
+	hasDaemon := len(storage.CIDaemonPool(slice)) > 0
 	var runnable []checks.CheckSpec
 	for _, spec := range plan.Runnable {
 		if spec.OutOfSlice {
 			runnable = append(runnable, spec)
 			continue
 		}
-		if _, ok := bundled[spec.Name]; !ok && daemonID != "" {
+		if _, ok := bundled[spec.Name]; !ok && hasDaemon {
 			runnable = append(runnable, spec)
 		}
 	}
@@ -139,23 +151,13 @@ func (d *checkDispatcher) dispatchCIChecks(ctx context.Context, cs *corev1.Chang
 	}
 }
 
-// sendChecks creates a run for each spec on the slice's CI daemon and sends
-// the runs to it. Without a daemon, or with one that is not exposed to the
-// slice, the runs error. triggerRunID links the runs to the trigger run that
-// asked for them. It returns how many runs it created.
+// sendChecks creates a run for each spec on a CI daemon of the slice's pool
+// (pickDaemon) and hands the runs to it. Without a daemon, or with none
+// exposed to the slice, the runs error. triggerRunID links the runs to the
+// trigger run that asked for them. It returns how many runs it created.
 func (d *checkDispatcher) sendChecks(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, specs []checks.CheckSpec, triggerRunID string) (int, error) {
-	daemonID := strings.TrimSpace(slice.CiDaemonId)
-	refusal := d.ciDaemonRefusal(ctx, slice.Id, daemonID)
-	var secrets map[string]map[string]string
-	if daemonID != "" && refusal == "" {
-		var err error
-		secrets, err = d.secretsForChecks(ctx, slice.GetRef().GetAccount(), specs)
-		if err != nil {
-			return 0, fmt.Errorf("load CI secrets: %w", err)
-		}
-	}
+	daemonID, refusal := d.pickDaemon(ctx, slice)
 	created := 0
-	runSpecs := make([]*corev1.CheckRunSpec, 0, len(specs))
 	for _, spec := range specs {
 		runDaemon := daemonID
 		if refusal != "" {
@@ -187,25 +189,154 @@ func (d *checkDispatcher) sendChecks(ctx context.Context, cs *corev1.Changeset, 
 			}
 			continue
 		}
-		runSpecs = append(runSpecs, checkRunSpecFromPlan(run.Id, spec, secrets[spec.Name]))
 	}
-	if len(runSpecs) == 0 || daemonID == "" || d.hub == nil {
-		return created, nil
+	if created > 0 && daemonID != "" && refusal == "" {
+		d.handOut(ctx, daemonID)
 	}
-	conn, ok := d.hub.daemon(daemonID)
-	if !ok {
-		return created, nil // a detached daemon picks queued runs up when it polls
-	}
-	conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_RunChecks{RunChecks: &corev1.RunChecks{
-		ChangesetId:  cs.Id,
-		PatchsetId:   patchset.Id,
-		ResultTreeId: patchset.ResultTreeId,
-		Slice:        slice.Ref,
-		SliceId:      slice.Id,
-		ServerAddr:   d.serverAddr,
-		Checks:       runSpecs,
-	}}})
 	return created, nil
+}
+
+// handOut sends the daemon's queued runs to its processes connected here,
+// and rings the doorbell for one waiting on standby. A process connected to
+// another server instance gets them from that instance's sweep.
+func (d *checkDispatcher) handOut(ctx context.Context, daemonID string) {
+	d.dispatchQueued(ctx, daemonID)
+	if d.wake == nil || d.Checks == nil {
+		return
+	}
+	// Runs no process here had room for: wake the daemon's processes on
+	// standby, or start more runners.
+	queued, err := d.Checks.CountUnclaimedCheckRuns(ctx, daemonID)
+	if err != nil {
+		slog.Warn("failed to count queued check runs", "daemon_id", daemonID, "error", err)
+		return
+	}
+	if queued > 0 {
+		d.wake(ctx, daemonID, queued)
+	}
+}
+
+// pickDaemon chooses the daemon of the slice's pool that gets its check
+// runs: the first one exposed to the slice that is online, else the first
+// one exposed to it. With none exposed it returns the first daemon and why
+// it may not run them; with no pool, "".
+func (d *checkDispatcher) pickDaemon(ctx context.Context, slice *corev1.Slice) (string, string) {
+	pool := storage.CIDaemonPool(slice)
+	if len(pool) == 0 {
+		return "", ""
+	}
+	firstRefusal, fallback := "", ""
+	for _, daemonID := range pool {
+		if refusal := d.ciDaemonRefusal(ctx, slice.GetId(), daemonID); refusal != "" {
+			if firstRefusal == "" {
+				firstRefusal = refusal
+			}
+			continue
+		}
+		if d.daemonReachable(ctx, daemonID) {
+			return daemonID, ""
+		}
+		if fallback == "" {
+			fallback = daemonID
+		}
+	}
+	if fallback != "" {
+		return fallback, ""
+	}
+	return pool[0], firstRefusal
+}
+
+// daemonReachable reports whether a daemon is connected here or counts as
+// online (connected elsewhere, or waiting on standby).
+func (d *checkDispatcher) daemonReachable(ctx context.Context, daemonID string) bool {
+	if d.onDemand[daemonID] {
+		return true
+	}
+	if d.hub != nil && len(d.hub.conns(daemonID)) > 0 {
+		return true
+	}
+	return d.daemonOnline(ctx, daemonID)
+}
+
+func (d *checkDispatcher) claimLock(daemonID string) *sync.Mutex {
+	d.claimMu.Lock()
+	defer d.claimMu.Unlock()
+	if d.claimLocks == nil {
+		d.claimLocks = map[string]*sync.Mutex{}
+	}
+	lock := d.claimLocks[daemonID]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		d.claimLocks[daemonID] = lock
+	}
+	return lock
+}
+
+// dispatchQueued claims the daemon's queued runs for its processes
+// connected to this server, each up to its free check slots, and sends them
+// (design/32 layer 3). Claims make it safe for several server instances to
+// do this at once: a run goes to one process.
+func (d *checkDispatcher) dispatchQueued(ctx context.Context, daemonID string) {
+	daemonID = strings.TrimSpace(daemonID)
+	if d == nil || d.hub == nil || d.Checks == nil || daemonID == "" {
+		return
+	}
+	lock := d.claimLock(daemonID)
+	lock.Lock()
+	defer lock.Unlock()
+	for _, conn := range d.hub.conns(daemonID) {
+		limit := 0
+		if conn.capacity > 0 {
+			claimed, err := d.Checks.ListClaimedCheckRuns(ctx, conn.instance)
+			if err != nil {
+				slog.Warn("failed to count a daemon process's check runs", "daemon_id", daemonID, "error", err)
+				continue
+			}
+			if limit = conn.capacity - len(claimed); limit <= 0 {
+				continue
+			}
+		}
+		runs, err := d.Checks.ClaimCheckRuns(ctx, daemonID, conn.instance, limit, storage.CheckRunLease)
+		if err != nil {
+			slog.Warn("failed to claim queued check runs", "daemon_id", daemonID, "error", err)
+			continue
+		}
+		d.sendRuns(ctx, conn, runs, true)
+	}
+}
+
+// sendRuns sends runs to a daemon process, one RunChecks per patchset.
+func (d *checkDispatcher) sendRuns(ctx context.Context, conn *daemonConn, runs []*corev1.CheckRun, logErrors bool) bool {
+	grouped := map[string][]*corev1.CheckRun{}
+	for _, run := range runs {
+		if run == nil || run.Provenance != "ci" {
+			continue
+		}
+		key := run.ChangesetId + "\x00" + run.PatchsetId
+		grouped[key] = append(grouped[key], run)
+	}
+	keys := make([]string, 0, len(grouped))
+	for key := range grouped {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		if ctx.Err() != nil {
+			return false
+		}
+		group := grouped[key]
+		msg, err := d.rebuildRunChecksMessage(ctx, group)
+		if err != nil || msg == nil {
+			if err != nil && logErrors {
+				slog.Warn("failed to build a check dispatch", "daemon_id", conn.daemonID, "changeset_id", group[0].GetChangesetId(), "patchset_id", group[0].GetPatchsetId(), "error", err)
+			}
+			continue
+		}
+		if !conn.trySend(msg) {
+			return false
+		}
+	}
+	return true
 }
 
 // LaunchTriggerChecks runs checks.yaml checks that a trigger's check action
@@ -323,13 +454,12 @@ func (d *checkDispatcher) cancelCheckRun(run *corev1.CheckRun) {
 	if d == nil || d.hub == nil || run == nil || strings.TrimSpace(run.GetDaemonId()) == "" || strings.TrimSpace(run.GetId()) == "" {
 		return
 	}
-	conn, ok := d.hub.daemon(strings.TrimSpace(run.GetDaemonId()))
-	if !ok {
-		return
+	// Whichever process has it stops it; the others do not know the run.
+	for _, conn := range d.hub.conns(strings.TrimSpace(run.GetDaemonId())) {
+		conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_CancelCheck{CancelCheck: &corev1.CancelCheckRun{
+			RunId: run.GetId(),
+		}}})
 	}
-	conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_CancelCheck{CancelCheck: &corev1.CancelCheckRun{
-		RunId: run.GetId(),
-	}}})
 }
 
 func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, prior *corev1.CheckRun) (*corev1.CheckRun, error) {
@@ -346,17 +476,16 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 	if checkName == "" {
 		return nil, status.Error(codes.FailedPrecondition, "check run has no check name")
 	}
-	daemonID := strings.TrimSpace(slice.CiDaemonId)
+	daemonID, refusal := d.pickDaemon(ctx, slice)
 	if daemonID == "" {
 		return nil, status.Error(codes.FailedPrecondition, "slice has no CI daemon configured")
 	}
-	if refusal := d.ciDaemonRefusal(ctx, slice.Id, daemonID); refusal != "" {
+	if refusal != "" {
 		return nil, status.Error(codes.FailedPrecondition, refusal)
 	}
 	// A daemon that detached to wait on standby has no stream, but it is
-	// online and picks queued runs up when it next polls.
-	conn, connected := d.hub.daemon(daemonID)
-	if !connected && !d.daemonOnline(ctx, daemonID) {
+	// online and picks queued runs up when it is woken or next polls.
+	if !d.daemonReachable(ctx, daemonID) {
 		return nil, status.Error(codes.FailedPrecondition, "slice CI daemon is not online")
 	}
 
@@ -371,8 +500,7 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 		}
 		return nil, status.Errorf(codes.FailedPrecondition, "check %q has no runnable CI definition in this revision", checkName)
 	}
-	secrets, err := d.secretsForChecks(ctx, slice.GetRef().GetAccount(), []checks.CheckSpec{spec})
-	if err != nil {
+	if _, err := d.secretsForChecks(ctx, slice.GetRef().GetAccount(), []checks.CheckSpec{spec}); err != nil {
 		return nil, status.Errorf(codes.FailedPrecondition, "CI secrets could not be loaded: %v", err)
 	}
 
@@ -395,18 +523,7 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 		}
 	}
 
-	msg := &corev1.ServerMessage{Payload: &corev1.ServerMessage_RunChecks{RunChecks: &corev1.RunChecks{
-		ChangesetId:  cs.Id,
-		PatchsetId:   patchset.Id,
-		ResultTreeId: patchset.ResultTreeId,
-		Slice:        slice.Ref,
-		SliceId:      slice.Id,
-		ServerAddr:   d.serverAddr,
-		Checks:       []*corev1.CheckRunSpec{checkRunSpecFromPlan(run.Id, spec, secrets[spec.Name])},
-	}}}
-	if connected && !conn.trySend(msg) {
-		return nil, status.Error(codes.FailedPrecondition, "slice CI daemon is not online")
-	}
+	d.handOut(ctx, daemonID)
 	return run, nil
 }
 
@@ -465,21 +582,21 @@ func (s *ChangesetService) skippedRequiredCheckStatuses(ctx context.Context, cs 
 	return out, nil
 }
 
+// replayDaemonCheckRuns sends a process that (re)connected the runs it
+// holds claims on, then the daemon's unclaimed queued runs it has room for.
 func (s *AgentService) replayDaemonCheckRuns(ctx context.Context, daemonID string, conn *daemonConn) {
 	if s.Checks == nil || s.dispatcher == nil || conn == nil {
 		return
 	}
-	queued, err := s.Checks.ListRunsByDaemonStatus(ctx, daemonID, "queued")
-	if err != nil {
-		return
+	if claimed, err := s.Checks.ListClaimedCheckRuns(ctx, conn.instance); err == nil {
+		s.dispatcher.sendRuns(ctx, conn, claimed, false)
 	}
-	running, err := s.Checks.ListRunsByDaemonStatus(ctx, daemonID, "running")
-	if err != nil {
-		return
-	}
-	runs := append(queued, running...)
-	s.dispatchDaemonCheckRuns(ctx, daemonID, conn, runs, false)
+	s.dispatcher.dispatchQueued(ctx, daemonID)
 }
+
+// checkRecoverEvery is how many sweeps pass between looks for runs whose
+// process went away or whose daemon is gone (recoverCheckRuns).
+const checkRecoverEvery = 3
 
 func (s *AgentService) RunCheckDispatchSweep(ctx context.Context) {
 	if s == nil || s.hub == nil || s.Checks == nil || s.dispatcher == nil {
@@ -487,41 +604,44 @@ func (s *AgentService) RunCheckDispatchSweep(ctx context.Context) {
 	}
 	ticker := time.NewTicker(checkDispatchSweepInterval)
 	defer ticker.Stop()
-	for {
+	for tick := 1; ; tick++ {
 		select {
 		case <-ctx.Done():
 			return
 		case now := <-ticker.C:
 			s.runCheckDispatchSweepOnce(ctx, now)
+			if tick%checkRecoverEvery == 0 {
+				s.dispatcher.recoverCheckRuns(ctx)
+			}
 		}
 	}
 }
 
+// runCheckDispatchSweepOnce sends each connected process again the queued
+// runs it holds that it has not started (a message may have been lost), and
+// hands out queued runs nobody holds.
 func (s *AgentService) runCheckDispatchSweepOnce(ctx context.Context, now time.Time) {
 	if s == nil || s.hub == nil || s.Checks == nil || s.dispatcher == nil {
 		return
 	}
 	for _, daemonID := range s.hub.onlineDaemonIDs() {
-		if err := ctx.Err(); err != nil {
-			return
-		}
-		runs, err := s.Checks.ListRunsByDaemonStatus(ctx, daemonID, "queued")
-		if err != nil {
-			if ctx.Err() != nil {
+		for _, conn := range s.hub.conns(daemonID) {
+			if err := ctx.Err(); err != nil {
 				return
 			}
-			slog.Warn("check dispatch sweep failed to list queued runs", "daemon_id", daemonID, "error", err)
-			continue
+			runs, err := s.Checks.ListClaimedCheckRuns(ctx, conn.instance)
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				slog.Warn("check dispatch sweep failed to list claimed runs", "daemon_id", daemonID, "error", err)
+				continue
+			}
+			if stale := staleCheckRunsForDispatch(runs, now); len(stale) > 0 {
+				s.dispatcher.sendRuns(ctx, conn, stale, true)
+			}
 		}
-		staleRuns := staleCheckRunsForDispatch(runs, now)
-		if len(staleRuns) == 0 {
-			continue
-		}
-		conn, ok := s.hub.daemon(daemonID)
-		if !ok {
-			continue
-		}
-		s.dispatchDaemonCheckRuns(ctx, daemonID, conn, staleRuns, true)
+		s.dispatcher.dispatchQueued(ctx, daemonID)
 	}
 }
 
@@ -544,51 +664,123 @@ func staleCheckRunsForDispatch(runs []*corev1.CheckRun, now time.Time) []*corev1
 	return stale
 }
 
-func (s *AgentService) dispatchDaemonCheckRuns(ctx context.Context, daemonID string, conn *daemonConn, runs []*corev1.CheckRun, logErrors bool) bool {
-	if s == nil || s.dispatcher == nil || conn == nil {
-		return false
+// strandedRunAfter is how long a queued run waits on a daemon that is gone
+// before it moves to another daemon of the slice's pool.
+var strandedRunAfter = 2 * time.Minute
+
+// recoverCheckRuns looks after runs whose daemon process or daemon went
+// away (design/32 layer 3): a queued run whose claim lapsed is handed out
+// again, a running one is tried again (up to storage.MaxCheckRunAttempts),
+// and a queued run whose daemon is gone moves to another daemon of the pool.
+func (d *checkDispatcher) recoverCheckRuns(ctx context.Context) {
+	if d == nil || d.Checks == nil {
+		return
 	}
-	grouped := map[string][]*corev1.CheckRun{}
-	for _, run := range runs {
-		if run == nil || run.Provenance != "ci" {
+	lapsed, err := d.Checks.TakeLapsedCheckRuns(ctx, 100)
+	if err != nil {
+		slog.Warn("failed to take lapsed check run claims", "error", err)
+	}
+	for _, run := range lapsed {
+		if run.GetStatus() == "running" {
+			d.retryLostRun(ctx, run)
 			continue
 		}
-		key := run.ChangesetId + "\x00" + run.PatchsetId
-		grouped[key] = append(grouped[key], run)
+		d.handOut(ctx, run.GetDaemonId())
 	}
-	keys := make([]string, 0, len(grouped))
-	for key := range grouped {
-		keys = append(keys, key)
+	// Runners exit when idle; queued runs that waited for a free one get
+	// another ring.
+	for daemonID := range d.onDemand {
+		d.handOut(ctx, daemonID)
 	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		group := grouped[key]
-		select {
-		case <-ctx.Done():
-			return false
-		default:
-		}
-		if len(group) == 0 {
-			continue
-		}
-		msg, err := s.dispatcher.rebuildRunChecksMessage(ctx, group)
-		if err != nil || msg == nil {
-			if err != nil && logErrors {
-				slog.Warn("failed to rebuild queued check dispatch", "daemon_id", daemonID, "changeset_id", group[0].GetChangesetId(), "patchset_id", group[0].GetPatchsetId(), "error", err)
-			}
-			continue
-		}
-		if !conn.trySend(msg) {
-			if logErrors {
-				slog.Debug("queued check dispatch skipped closed daemon connection", "daemon_id", daemonID)
-			}
-			return false
-		}
-		if logErrors {
-			slog.Debug("re-pushed queued check runs", "daemon_id", daemonID, "changeset_id", group[0].GetChangesetId(), "patchset_id", group[0].GetPatchsetId(), "run_count", len(group))
-		}
+	stranded, err := d.Checks.ListStrandedCheckRuns(ctx, strandedRunAfter)
+	if err != nil {
+		slog.Warn("failed to list stranded check runs", "error", err)
 	}
-	return true
+	for _, run := range stranded {
+		d.moveStrandedRun(ctx, run)
+	}
+}
+
+// runContext loads a run's changeset, patchset and slice.
+func (d *checkDispatcher) runContext(ctx context.Context, run *corev1.CheckRun) (*corev1.Changeset, *corev1.Patchset, *corev1.Slice, error) {
+	cs, err := d.Changesets.Get(ctx, run.GetChangesetId())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	patchset := patchsetByID(cs, run.GetPatchsetId())
+	if patchset == nil {
+		return nil, nil, nil, storage.ErrNotFound
+	}
+	slice, err := d.Slices.Resolve(ctx, cs.AuthoringSlice)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return cs, patchset, slice, nil
+}
+
+// retryLostRun ends a running run whose daemon process stopped responding,
+// and queues another attempt on the slice's pool unless it has had its
+// tries.
+func (d *checkDispatcher) retryLostRun(ctx context.Context, run *corev1.CheckRun) {
+	lost := "the CI daemon process running it stopped responding"
+	if run.GetAttempt() >= storage.MaxCheckRunAttempts {
+		if _, err := d.Checks.UpdateCheckRunStatus(ctx, run.GetId(), "errored", -1, fmt.Sprintf("%s (tried %d times)", lost, run.GetAttempt())); err != nil && !errors.Is(err, storage.ErrConflict) {
+			slog.Warn("failed to end a lost check run", "run_id", run.GetId(), "error", err)
+		}
+		return
+	}
+	_, _, slice, err := d.runContext(ctx, run)
+	if err != nil {
+		slog.Warn("failed to load a lost check run's slice", "run_id", run.GetId(), "error", err)
+		return
+	}
+	daemonID, refusal := d.pickDaemon(ctx, slice)
+	if daemonID == "" || refusal != "" {
+		if _, err := d.Checks.UpdateCheckRunStatus(ctx, run.GetId(), "errored", -1, lost+"; "+firstNonEmptyString(refusal, "the slice has no CI daemon to try it again")); err != nil && !errors.Is(err, storage.ErrConflict) {
+			slog.Warn("failed to end a lost check run", "run_id", run.GetId(), "error", err)
+		}
+		return
+	}
+	next, err := d.Checks.CreateCheckRun(ctx, storage.CheckRunInput{
+		ChangesetID:  run.GetChangesetId(),
+		PatchsetID:   run.GetPatchsetId(),
+		CheckName:    run.GetCheckName(),
+		DaemonID:     daemonID,
+		Provenance:   "ci",
+		Status:       "queued",
+		TriggerRunID: run.GetTriggerRunId(),
+	})
+	if err != nil {
+		slog.Warn("failed to queue another attempt of a lost check run", "run_id", run.GetId(), "error", err)
+		return
+	}
+	if _, err := d.Checks.UpdateCheckRunStatus(ctx, run.GetId(), "canceled", -1, fmt.Sprintf("%s; tried again as attempt %d", lost, next.GetAttempt())); err != nil && !errors.Is(err, storage.ErrConflict) {
+		slog.Warn("failed to end a lost check run", "run_id", run.GetId(), "error", err)
+	}
+	d.cancelCheckRun(run)
+	d.handOut(ctx, daemonID)
+}
+
+// moveStrandedRun moves a queued run whose daemon is gone to another daemon
+// of the slice's pool that is online.
+func (d *checkDispatcher) moveStrandedRun(ctx context.Context, run *corev1.CheckRun) {
+	_, _, slice, err := d.runContext(ctx, run)
+	if err != nil {
+		return
+	}
+	daemonID, refusal := d.pickDaemon(ctx, slice)
+	if daemonID == "" || refusal != "" || daemonID == run.GetDaemonId() || !d.daemonReachable(ctx, daemonID) {
+		return
+	}
+	moved, err := d.Checks.ReassignCheckRun(ctx, run.GetId(), run.GetDaemonId(), daemonID)
+	if err != nil {
+		slog.Warn("failed to move a stranded check run", "run_id", run.GetId(), "error", err)
+		return
+	}
+	if moved {
+		slog.Info("moved a check run off a daemon that is gone", "run_id", run.GetId(), "from", run.GetDaemonId(), "to", daemonID)
+		d.handOut(ctx, daemonID)
+	}
 }
 
 func (d *checkDispatcher) rebuildRunChecksMessage(ctx context.Context, runs []*corev1.CheckRun) (*corev1.ServerMessage, error) {
@@ -678,6 +870,18 @@ func (s *AgentService) handleCheckRunUpdate(ctx context.Context, daemonID string
 	if run.DaemonId != daemonID {
 		ack()
 		return
+	}
+	// The process reporting on a run holds it (design/32 layer 3). A run
+	// that ended without it (canceled, or tried again elsewhere after its
+	// claim lapsed) is stopped there.
+	if run.Status == "queued" || run.Status == "running" {
+		_ = s.Checks.RenewCheckRunClaim(ctx, run.Id, conn.instance, storage.CheckRunLease)
+	} else if update.Status != "" && update.Status != run.Status && !update.Final {
+		conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_CancelCheck{CancelCheck: &corev1.CancelCheckRun{RunId: run.Id}}})
+	}
+	if s.dispatcher != nil && (update.Final || isFinalCheckStatus(update.Status)) {
+		// A slot is free on that process.
+		defer s.dispatcher.dispatchQueued(context.WithoutCancel(ctx), daemonID)
 	}
 	if update.LogChunk != "" || update.Summary != "" {
 		masker := s.runSecretMasker(ctx, run)
@@ -940,4 +1144,12 @@ func defaultCheckStream(stream string) string {
 		return "stderr"
 	}
 	return "stdout"
+}
+
+func isFinalCheckStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "passed", "failed", "errored", "skipped", "canceled":
+		return true
+	}
+	return false
 }

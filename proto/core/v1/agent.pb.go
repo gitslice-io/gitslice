@@ -664,8 +664,14 @@ type StandbyPollRequest struct {
 	Version           string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
 	ContainerRuntimes []string               `protobuf:"bytes,4,rep,name=container_runtimes,json=containerRuntimes,proto3" json:"container_runtimes,omitempty"`
 	AllowHostExec     bool                   `protobuf:"varint,5,opt,name=allow_host_exec,json=allowHostExec,proto3" json:"allow_host_exec,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// instance_id is the daemon process (RegisterDaemon.instance_id).
+	InstanceId string `protobuf:"bytes,6,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	// doorbell_open says the daemon holds a socket open to the doorbell
+	// (StandbyPollResponse.doorbell_url), so it counts as online until its
+	// next safety poll is due.
+	DoorbellOpen  bool `protobuf:"varint,7,opt,name=doorbell_open,json=doorbellOpen,proto3" json:"doorbell_open,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *StandbyPollRequest) Reset() {
@@ -733,6 +739,20 @@ func (x *StandbyPollRequest) GetAllowHostExec() bool {
 	return false
 }
 
+func (x *StandbyPollRequest) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+func (x *StandbyPollRequest) GetDoorbellOpen() bool {
+	if x != nil {
+		return x.DoorbellOpen
+	}
+	return false
+}
+
 type StandbyPollResponse struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	DaemonId string                 `protobuf:"bytes,1,opt,name=daemon_id,json=daemonId,proto3" json:"daemon_id,omitempty"`
@@ -740,9 +760,16 @@ type StandbyPollResponse struct {
 	// (Connect delivers them) rather than wait for the next poll.
 	Pending bool `protobuf:"varint,2,opt,name=pending,proto3" json:"pending,omitempty"`
 	// poll_after_ms is when to poll next if nothing is pending.
-	PollAfterMs   int64 `protobuf:"varint,3,opt,name=poll_after_ms,json=pollAfterMs,proto3" json:"poll_after_ms,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	PollAfterMs int64 `protobuf:"varint,3,opt,name=poll_after_ms,json=pollAfterMs,proto3" json:"poll_after_ms,omitempty"`
+	// The doorbell (design/32_ci_dispatch_on_cloudflare.md, layer 1): a
+	// daemon that holds a WebSocket open to doorbell_url, presenting
+	// doorbell_token, is told there when a check is queued for it, and polls
+	// only every safety_poll_after_ms. Empty when the server has no doorbell.
+	DoorbellUrl       string `protobuf:"bytes,4,opt,name=doorbell_url,json=doorbellUrl,proto3" json:"doorbell_url,omitempty"`
+	DoorbellToken     string `protobuf:"bytes,5,opt,name=doorbell_token,json=doorbellToken,proto3" json:"doorbell_token,omitempty"`
+	SafetyPollAfterMs int64  `protobuf:"varint,6,opt,name=safety_poll_after_ms,json=safetyPollAfterMs,proto3" json:"safety_poll_after_ms,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *StandbyPollResponse) Reset() {
@@ -796,6 +823,27 @@ func (x *StandbyPollResponse) GetPollAfterMs() int64 {
 	return 0
 }
 
+func (x *StandbyPollResponse) GetDoorbellUrl() string {
+	if x != nil {
+		return x.DoorbellUrl
+	}
+	return ""
+}
+
+func (x *StandbyPollResponse) GetDoorbellToken() string {
+	if x != nil {
+		return x.DoorbellToken
+	}
+	return ""
+}
+
+func (x *StandbyPollResponse) GetSafetyPollAfterMs() int64 {
+	if x != nil {
+		return x.SafetyPollAfterMs
+	}
+	return 0
+}
+
 type RegisterDaemon struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Name              string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
@@ -803,8 +851,15 @@ type RegisterDaemon struct {
 	Version           string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
 	ContainerRuntimes []string               `protobuf:"bytes,4,rep,name=container_runtimes,json=containerRuntimes,proto3" json:"container_runtimes,omitempty"`
 	AllowHostExec     bool                   `protobuf:"varint,5,opt,name=allow_host_exec,json=allowHostExec,proto3" json:"allow_host_exec,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// instance_id names this daemon process, so several processes can serve
+	// one daemon (design/32 layer 3): each claims the check runs it is sent.
+	// Empty from older daemons, which count as one process.
+	InstanceId string `protobuf:"bytes,6,opt,name=instance_id,json=instanceId,proto3" json:"instance_id,omitempty"`
+	// check_concurrency is how many checks the process runs at once; the
+	// server sends it no more. 0 means no limit.
+	CheckConcurrency int32 `protobuf:"varint,7,opt,name=check_concurrency,json=checkConcurrency,proto3" json:"check_concurrency,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RegisterDaemon) Reset() {
@@ -870,6 +925,20 @@ func (x *RegisterDaemon) GetAllowHostExec() bool {
 		return x.AllowHostExec
 	}
 	return false
+}
+
+func (x *RegisterDaemon) GetInstanceId() string {
+	if x != nil {
+		return x.InstanceId
+	}
+	return ""
+}
+
+func (x *RegisterDaemon) GetCheckConcurrency() int32 {
+	if x != nil {
+		return x.CheckConcurrency
+	}
+	return 0
 }
 
 type Heartbeat struct {
@@ -3118,23 +3187,32 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\fcheck_update\x18\x05 \x01(\v2 .gitslice.core.v1.CheckRunUpdateH\x00R\vcheckUpdate\x122\n" +
 	"\x06detach\x18\x06 \x01(\v2\x18.gitslice.core.v1.DetachH\x00R\x06detachB\t\n" +
 	"\apayload\"\b\n" +
-	"\x06Detach\"\xb3\x01\n" +
+	"\x06Detach\"\xf9\x01\n" +
 	"\x12StandbyPollRequest\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aruntime\x18\x02 \x01(\tR\aruntime\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\tR\aversion\x12-\n" +
 	"\x12container_runtimes\x18\x04 \x03(\tR\x11containerRuntimes\x12&\n" +
-	"\x0fallow_host_exec\x18\x05 \x01(\bR\rallowHostExec\"p\n" +
+	"\x0fallow_host_exec\x18\x05 \x01(\bR\rallowHostExec\x12\x1f\n" +
+	"\vinstance_id\x18\x06 \x01(\tR\n" +
+	"instanceId\x12#\n" +
+	"\rdoorbell_open\x18\a \x01(\bR\fdoorbellOpen\"\xeb\x01\n" +
 	"\x13StandbyPollResponse\x12\x1b\n" +
 	"\tdaemon_id\x18\x01 \x01(\tR\bdaemonId\x12\x18\n" +
 	"\apending\x18\x02 \x01(\bR\apending\x12\"\n" +
-	"\rpoll_after_ms\x18\x03 \x01(\x03R\vpollAfterMs\"\xaf\x01\n" +
+	"\rpoll_after_ms\x18\x03 \x01(\x03R\vpollAfterMs\x12!\n" +
+	"\fdoorbell_url\x18\x04 \x01(\tR\vdoorbellUrl\x12%\n" +
+	"\x0edoorbell_token\x18\x05 \x01(\tR\rdoorbellToken\x12/\n" +
+	"\x14safety_poll_after_ms\x18\x06 \x01(\x03R\x11safetyPollAfterMs\"\xfd\x01\n" +
 	"\x0eRegisterDaemon\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aruntime\x18\x02 \x01(\tR\aruntime\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\tR\aversion\x12-\n" +
 	"\x12container_runtimes\x18\x04 \x03(\tR\x11containerRuntimes\x12&\n" +
-	"\x0fallow_host_exec\x18\x05 \x01(\bR\rallowHostExec\"\v\n" +
+	"\x0fallow_host_exec\x18\x05 \x01(\bR\rallowHostExec\x12\x1f\n" +
+	"\vinstance_id\x18\x06 \x01(\tR\n" +
+	"instanceId\x12+\n" +
+	"\x11check_concurrency\x18\a \x01(\x05R\x10checkConcurrency\"\v\n" +
 	"\tHeartbeat\"\xfa\x01\n" +
 	"\n" +
 	"AgentEvent\x12'\n" +

@@ -300,8 +300,14 @@ type Slice struct {
 	// last_activity_at is when a changeset authored from the slice last landed,
 	// else created_at. Set in listings only, for sorting by recent activity.
 	LastActivityAt string `protobuf:"bytes,12,opt,name=last_activity_at,json=lastActivityAt,proto3" json:"last_activity_at,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// ci_daemon_ids is the slice's pool of CI daemons, in order of preference
+	// (design/32_ci_dispatch_on_cloudflare.md, layer 3). A check run goes to
+	// the first one that is online and exposed to the slice; ci_daemon_id is
+	// the first of them. ci_daemon_names are their names, in the same order.
+	CiDaemonIds   []string `protobuf:"bytes,13,rep,name=ci_daemon_ids,json=ciDaemonIds,proto3" json:"ci_daemon_ids,omitempty"`
+	CiDaemonNames []string `protobuf:"bytes,14,rep,name=ci_daemon_names,json=ciDaemonNames,proto3" json:"ci_daemon_names,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Slice) Reset() {
@@ -416,6 +422,20 @@ func (x *Slice) GetLastActivityAt() string {
 		return x.LastActivityAt
 	}
 	return ""
+}
+
+func (x *Slice) GetCiDaemonIds() []string {
+	if x != nil {
+		return x.CiDaemonIds
+	}
+	return nil
+}
+
+func (x *Slice) GetCiDaemonNames() []string {
+	if x != nil {
+		return x.CiDaemonNames
+	}
+	return nil
 }
 
 type SliceDefinition struct {
@@ -1070,9 +1090,14 @@ func (x *UpdateSliceDefinitionRequest) GetDefinition() *SliceDefinition {
 }
 
 type SetSliceCIDaemonRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Slice         *SliceRef              `protobuf:"bytes,1,opt,name=slice,proto3" json:"slice,omitempty"`
-	DaemonId      string                 `protobuf:"bytes,2,opt,name=daemon_id,json=daemonId,proto3" json:"daemon_id,omitempty"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Slice *SliceRef              `protobuf:"bytes,1,opt,name=slice,proto3" json:"slice,omitempty"`
+	// daemon_id alone makes it the slice's only CI daemon ("" clears the pool).
+	DaemonId string `protobuf:"bytes,2,opt,name=daemon_id,json=daemonId,proto3" json:"daemon_id,omitempty"`
+	// add appends daemon_id to the slice's pool of CI daemons, keeping the
+	// others; remove takes it out.
+	Add           bool `protobuf:"varint,3,opt,name=add,proto3" json:"add,omitempty"`
+	Remove        bool `protobuf:"varint,4,opt,name=remove,proto3" json:"remove,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1119,6 +1144,20 @@ func (x *SetSliceCIDaemonRequest) GetDaemonId() string {
 		return x.DaemonId
 	}
 	return ""
+}
+
+func (x *SetSliceCIDaemonRequest) GetAdd() bool {
+	if x != nil {
+		return x.Add
+	}
+	return false
+}
+
+func (x *SetSliceCIDaemonRequest) GetRemove() bool {
+	if x != nil {
+		return x.Remove
+	}
+	return false
 }
 
 type SetSliceSecretRequest struct {
@@ -2182,7 +2221,7 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\x0fListTagsRequest\x120\n" +
 	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\"=\n" +
 	"\x10ListTagsResponse\x12)\n" +
-	"\x04tags\x18\x01 \x03(\v2\x15.gitslice.core.v1.TagR\x04tags\"\xcb\x03\n" +
+	"\x04tags\x18\x01 \x03(\v2\x15.gitslice.core.v1.TagR\x04tags\"\x97\x04\n" +
 	"\x05Slice\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12,\n" +
 	"\x03ref\x18\x02 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x03ref\x12A\n" +
@@ -2200,7 +2239,9 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	" \x01(\bR\rmergeOnSubmit\x12\x1d\n" +
 	"\n" +
 	"created_at\x18\v \x01(\tR\tcreatedAt\x12(\n" +
-	"\x10last_activity_at\x18\f \x01(\tR\x0elastActivityAt\"\xe5\x01\n" +
+	"\x10last_activity_at\x18\f \x01(\tR\x0elastActivityAt\x12\"\n" +
+	"\rci_daemon_ids\x18\r \x03(\tR\vciDaemonIds\x12&\n" +
+	"\x0fci_daemon_names\x18\x0e \x03(\tR\rciDaemonNames\"\xe5\x01\n" +
 	"\x0fSliceDefinition\x12\x19\n" +
 	"\bslice_id\x18\x01 \x01(\tR\asliceId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x03R\aversion\x12%\n" +
@@ -2257,10 +2298,12 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\x18expected_definition_hash\x18\x02 \x01(\tR\x16expectedDefinitionHash\x12A\n" +
 	"\n" +
 	"definition\x18\x03 \x01(\v2!.gitslice.core.v1.SliceDefinitionR\n" +
-	"definition\"h\n" +
+	"definition\"\x92\x01\n" +
 	"\x17SetSliceCIDaemonRequest\x120\n" +
 	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x12\x1b\n" +
-	"\tdaemon_id\x18\x02 \x01(\tR\bdaemonId\"s\n" +
+	"\tdaemon_id\x18\x02 \x01(\tR\bdaemonId\x12\x10\n" +
+	"\x03add\x18\x03 \x01(\bR\x03add\x12\x16\n" +
+	"\x06remove\x18\x04 \x01(\bR\x06remove\"s\n" +
 	"\x15SetSliceSecretRequest\x120\n" +
 	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +

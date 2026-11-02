@@ -375,9 +375,11 @@ type SliceStore interface {
 	ListShared(ctx context.Context, subjectID string) ([]SharedSlice, error)
 	ListDefinitionVersions(ctx context.Context, sliceID string, limit int) ([]*corev1.SliceDefinitionVersion, error)
 	UpdateDefinition(ctx context.Context, subjectID, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error)
-	SetCIDaemon(ctx context.Context, sliceID, daemonID string) (*corev1.Slice, error)
-	// ListByCIDaemon lists the slices (not retired) that use one of the
-	// daemons as their CI daemon.
+	// SetCIDaemons sets the slice's pool of CI daemons, in order of
+	// preference; empty clears it (design/32 layer 3).
+	SetCIDaemons(ctx context.Context, sliceID string, daemonIDs []string) (*corev1.Slice, error)
+	// ListByCIDaemon lists the slices (not retired) that have one of the
+	// daemons in their pool of CI daemons.
 	ListByCIDaemon(ctx context.Context, daemonIDs []string) ([]*corev1.Slice, error)
 	// Secrets belong to an account and apply to folders of it, with
 	// everything below them (design/33_secrets.md). Paths are normalized with
@@ -553,6 +555,38 @@ type CheckStore interface {
 	// SetCheckRunDetails sets a run's link, summary and annotations
 	// (design/34_triggers.md).
 	SetCheckRunDetails(ctx context.Context, runID string, details CheckRunDetails) (*corev1.CheckRun, error)
+
+	// Claims (design/32_ci_dispatch_on_cloudflare.md, layer 3). instance is
+	// a daemon process, as InstanceKey names it.
+
+	// ClaimCheckRuns claims for instance up to limit (0: no limit) of the
+	// daemon's queued runs that no process holds a live claim on, oldest
+	// first, and returns them.
+	ClaimCheckRuns(ctx context.Context, daemonID, instance string, limit int, lease time.Duration) ([]*corev1.CheckRun, error)
+	// ListClaimedCheckRuns lists the queued and running runs instance holds.
+	ListClaimedCheckRuns(ctx context.Context, instance string) ([]*corev1.CheckRun, error)
+	// RenewCheckRunClaim gives an open run to instance, which reported on
+	// it, and renews the claim.
+	RenewCheckRunClaim(ctx context.Context, runID, instance string, lease time.Duration) error
+	// RenewCheckRunClaims renews every claim instance holds on open runs.
+	RenewCheckRunClaims(ctx context.Context, instance string, lease time.Duration) error
+	// ReleaseCheckRunClaims frees instance's claims on queued runs.
+	ReleaseCheckRunClaims(ctx context.Context, instance string) error
+	// CountUnclaimedCheckRuns counts the daemon's queued runs that no process
+	// holds a live claim on.
+	CountUnclaimedCheckRuns(ctx context.Context, daemonID string) (int, error)
+	// HasPendingCheckRuns reports whether the daemon has queued runs that
+	// instance holds or could claim, or running runs it holds.
+	HasPendingCheckRuns(ctx context.Context, daemonID, instance string) (bool, error)
+	// TakeLapsedCheckRuns clears up to limit lapsed claims on open runs and
+	// returns those runs; a running one among them lost its process.
+	TakeLapsedCheckRuns(ctx context.Context, limit int) ([]*corev1.CheckRun, error)
+	// ListStrandedCheckRuns lists unclaimed queued runs older than minAge
+	// whose daemon has not been seen within DaemonStaleAfter.
+	ListStrandedCheckRuns(ctx context.Context, minAge time.Duration) ([]*corev1.CheckRun, error)
+	// ReassignCheckRun moves an unclaimed queued run from one daemon to
+	// another, and reports whether it did.
+	ReassignCheckRun(ctx context.Context, runID, fromDaemon, toDaemon string) (bool, error)
 }
 
 // AgentStore persists agent daemons, conversations, and conversation events for
@@ -562,6 +596,9 @@ type AgentStore interface {
 	// daemon row (id generated when not already present for the subject+name).
 	RegisterDaemon(ctx context.Context, in AgentDaemonInput) (*corev1.AgentDaemon, error)
 	SetDaemonStatus(ctx context.Context, daemonID, status string) error
+	// SetDaemonStandby records that the daemon waits on the doorbell until
+	// until, so it counts as online without polling; zero clears it.
+	SetDaemonStandby(ctx context.Context, daemonID string, until time.Time) error
 	GetDaemon(ctx context.Context, daemonID string) (*corev1.AgentDaemon, error)
 	// ListDaemons lists the daemons the subject registered.
 	ListDaemons(ctx context.Context, subjectID string) ([]*corev1.AgentDaemon, error)

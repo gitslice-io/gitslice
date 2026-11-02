@@ -488,7 +488,7 @@ func TestSetSliceCIDaemonNeedsADaemonTheCallerMayManage(t *testing.T) {
 
 	// A slice that already names a daemon keeps it when its owner saves the
 	// same value, even if they could not name it now.
-	if _, err := mem.Slices.SetCIDaemon(alice, slice.Id, theirs.Id); err != nil {
+	if _, err := mem.Slices.SetCIDaemons(alice, slice.Id, []string{theirs.Id}); err != nil {
 		t.Fatal(err)
 	}
 	if err := set(theirs.Id); err != nil || current() != theirs.Id {

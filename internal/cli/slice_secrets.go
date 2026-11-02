@@ -11,7 +11,7 @@ import (
 	grpcstatus "google.golang.org/grpc/status"
 )
 
-func (r Runner) runSliceSetCIDaemon(ctx context.Context, opts commandOptions, sliceRef string, daemonID string) error {
+func (r Runner) runSliceSetCIDaemon(ctx context.Context, opts commandOptions, sliceRef string, daemonID string, add, remove bool) error {
 	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
 		return err
@@ -24,6 +24,8 @@ func (r Runner) runSliceSetCIDaemon(ctx context.Context, opts commandOptions, sl
 	updated, err := corev1.NewSliceServiceClient(conn).SetSliceCIDaemon(callCtx, &corev1.SetSliceCIDaemonRequest{
 		Slice:    ref,
 		DaemonId: daemonID,
+		Add:      add,
+		Remove:   remove,
 	})
 	if grpcstatus.Code(err) == codes.NotFound && strings.Contains(err.Error(), "daemon not found") {
 		return userError("daemon_not_found", "there is no daemon "+daemonID+" that you can use", "A CI daemon runs a slice's checks and holds its secrets, so you can name the daemons you registered or that belong to an account you own or administer, and the daemons their owners exposed to this slice. gs agent status --slice "+sliceRef+" lists them; the owner of any other daemon can expose it with gs agent expose <daemon> "+sliceRef+".")

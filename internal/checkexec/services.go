@@ -25,6 +25,7 @@ const (
 type runServices struct {
 	rt         RuntimeInfo
 	network    string
+	hosts      []string // service names the check resolves to 127.0.0.1, on the host network
 	containers []string
 }
 
@@ -38,13 +39,22 @@ func startServices(ctx context.Context, rt RuntimeInfo, spec checks.CheckSpec) (
 		return nil, "", nil, err
 	}
 	s := &runServices{rt: rt, network: networkNamePrefix + suffix}
-	args := []string{"network", "create"}
-	if !spec.Network {
-		args = append(args, "--internal")
-	}
-	args = append(args, s.network)
-	if out, err := exec.CommandContext(ctx, rt.Path, args...).CombinedOutput(); err != nil {
-		return nil, "", nil, fmt.Errorf("create the run's network: %s", strings.TrimSpace(firstNonEmptyString(string(out), err.Error())))
+	if HostNetwork() {
+		// No network of its own: the services listen on the host's, and the
+		// check finds them by name at 127.0.0.1.
+		s.network = hostNetwork
+		for _, service := range spec.Services {
+			s.hosts = append(s.hosts, service.Name)
+		}
+	} else {
+		args := []string{"network", "create"}
+		if !spec.Network {
+			args = append(args, "--internal")
+		}
+		args = append(args, s.network)
+		if out, err := exec.CommandContext(ctx, rt.Path, args...).CombinedOutput(); err != nil {
+			return nil, "", nil, fmt.Errorf("create the run's network: %s", strings.TrimSpace(firstNonEmptyString(string(out), err.Error())))
+		}
 	}
 
 	var notes []string
@@ -74,10 +84,12 @@ func (s *runServices) start(ctx context.Context, service checks.ServiceSpec) (*R
 		"run", "-d",
 		"--name", name,
 		"--network", s.network,
-		"--network-alias", service.Name,
 		"--security-opt=no-new-privileges",
 		"--pids-limit=" + defaultContainerPIDsLimit,
 		"--memory=" + containerLimitValue(service.Memory, defaultServiceMemory),
+	}
+	if s.network != hostNetwork {
+		args = append(args, "--network-alias", service.Name)
 	}
 	for _, key := range sortedEnvKeys(service.Env) {
 		args = append(args, "-e", key)
@@ -145,6 +157,9 @@ func (s *runServices) stop() {
 	}
 	for _, name := range s.containers {
 		removeContainer(s.rt.Path, name)
+	}
+	if s.network == hostNetwork {
+		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), containerCleanupTimeout)
 	defer cancel()

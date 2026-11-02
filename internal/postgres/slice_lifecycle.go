@@ -208,7 +208,7 @@ func (s *SliceStore) ResolveRetired(ctx context.Context, ref *corev1.SliceRef) (
 	row := s.db.QueryRowContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
 		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
-		       slices.archived_at is not null, slices.description, slices.merge_on_submit
+		       slices.archived_at is not null, slices.description, slices.merge_on_submit, coalesce((select json_agg(json_build_array(p.daemon_id, coalesce(nullif(d.label, ''), d.name, p.daemon_id)) order by p.position, p.added_at) from slice_ci_daemons p left join agent_daemons d on d.id = p.daemon_id where p.slice_id = slices.id), '[]'::json)
 		from slices
 		join accounts on accounts.id = slices.account_id
 		where accounts.slug = $1 and slices.slug = $2 and slices.deleted_at is not null

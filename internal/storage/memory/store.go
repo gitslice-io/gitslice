@@ -103,6 +103,7 @@ type backend struct {
 	entityChanges  map[string][]storage.HistoryEntityRef
 
 	agentDaemons     map[string]*corev1.AgentDaemon
+	daemonStandby    map[string]time.Time
 	agentDaemonOwner map[string]string          // daemon id -> the subject that registered it
 	daemonExposures  map[string]map[string]bool // daemon id -> ids of the slices it is exposed to
 	agentConvs       map[string]*corev1.Conversation
@@ -110,6 +111,7 @@ type backend struct {
 	agentConvNextSeq map[string]int64
 
 	checkRuns            map[string]*corev1.CheckRun
+	checkRunClaims       map[string]memoryCheckRunClaim
 	checkRunSupersededBy map[string]string
 	checkRunLogs         map[string][]*corev1.CheckRunLog
 }
@@ -201,12 +203,14 @@ func New() *Stores {
 		entitiesByPath:          map[string]storage.CurrentPathEntity{},
 		entityChanges:           map[string][]storage.HistoryEntityRef{},
 		agentDaemons:            map[string]*corev1.AgentDaemon{},
+		daemonStandby:           map[string]time.Time{},
 		agentDaemonOwner:        map[string]string{},
 		daemonExposures:         map[string]map[string]bool{},
 		agentConvs:              map[string]*corev1.Conversation{},
 		agentEvents:             map[string][]*corev1.ConversationEvent{},
 		agentConvNextSeq:        map[string]int64{},
 		checkRuns:               map[string]*corev1.CheckRun{},
+		checkRunClaims:          map[string]memoryCheckRunClaim{},
 		checkRunSupersededBy:    map[string]string{},
 		checkRunLogs:            map[string][]*corev1.CheckRunLog{},
 	}

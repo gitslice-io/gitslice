@@ -60,13 +60,13 @@ func TestNewPatchsetCancelsOpenOlderCheckRuns(t *testing.T) {
 	putRootCheckFileForDispatchTest(t, mem, "root-required", "echo root")
 	sliceRef := &corev1.SliceRef{Account: "acme", Slice: "cancel-open"}
 	slice := mem.PutSliceWithSubmitSettings(sliceRef, []string{"/acme/payment/cancel-open"}, "private", 0, []string{"root-required"})
-	if _, err := mem.Slices.SetCIDaemon(ctx, slice.Id, "daemon-1"); err != nil {
+	if _, err := mem.Slices.SetCIDaemons(ctx, slice.Id, []string{"daemon-1"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := mem.Agents.ExposeDaemon(ctx, "daemon-1", slice.Id, "test"); err != nil {
 		t.Fatal(err)
 	}
-	conn := handlers.Agent.hub.registerDaemon("daemon-1")
+	conn := handlers.Agent.hub.registerDaemon("daemon-1", "daemon-1/legacy", 0)
 	defer handlers.Agent.hub.unregisterDaemon(conn)
 
 	ref, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{})
@@ -124,7 +124,7 @@ func TestNewPatchsetCancelsOpenOlderCheckRuns(t *testing.T) {
 	}
 }
 
-func TestCheckDispatchSweepRepushesOnlyStaleQueuedRuns(t *testing.T) {
+func TestCheckDispatchSweepRepushesOnlyStaleClaimedRuns(t *testing.T) {
 	mem, handlers := newMemoryHandlers()
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
 	now := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
@@ -220,7 +220,7 @@ checks:
 	}}
 	handlers.Agent.Checks = checks
 
-	conn := handlers.Agent.hub.registerDaemon("daemon-1")
+	conn := handlers.Agent.hub.registerDaemon("daemon-1", "daemon-1/legacy", 0)
 	defer handlers.Agent.hub.unregisterDaemon(conn)
 	handlers.Agent.runCheckDispatchSweepOnce(ctx, now)
 
@@ -244,8 +244,8 @@ checks:
 		t.Fatalf("unexpected extra sweep message: %#v", extra)
 	default:
 	}
-	if len(checks.listCalls) != 1 || checks.listCalls[0] != "daemon-1:queued" {
-		t.Fatalf("ListRunsByDaemonStatus calls = %#v, want daemon-1:queued", checks.listCalls)
+	if len(checks.listCalls) != 1 || checks.listCalls[0] != "claimed:daemon-1/legacy" {
+		t.Fatalf("ListClaimedCheckRuns calls = %#v, want claimed:daemon-1/legacy", checks.listCalls)
 	}
 }
 
@@ -292,8 +292,32 @@ func TestHandleCheckRunUpdateDoesNotAckTransientStatusError(t *testing.T) {
 }
 
 type sweepFakeCheckStore struct {
+	storage.CheckStore
 	runs      []*corev1.CheckRun
 	listCalls []string
+}
+
+// The process holds every run here (design/32 layer 3); none is left to claim.
+func (s *sweepFakeCheckStore) ListClaimedCheckRuns(ctx context.Context, instance string) ([]*corev1.CheckRun, error) {
+	s.listCalls = append(s.listCalls, "claimed:"+instance)
+	var out []*corev1.CheckRun
+	for _, run := range s.runs {
+		out = append(out, proto.Clone(run).(*corev1.CheckRun))
+	}
+	return out, nil
+}
+
+func (s *sweepFakeCheckStore) HasPendingCheckRuns(ctx context.Context, daemonID, instance string) (bool, error) {
+	for _, run := range s.runs {
+		if run.GetDaemonId() == daemonID && run.GetStatus() == "queued" {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (s *sweepFakeCheckStore) ClaimCheckRuns(ctx context.Context, daemonID, instance string, limit int, lease time.Duration) ([]*corev1.CheckRun, error) {
+	return nil, nil
 }
 
 func (s *sweepFakeCheckStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInput) (*corev1.CheckRun, error) {
@@ -346,8 +370,13 @@ func (s *sweepFakeCheckStore) SetCheckRunDetails(ctx context.Context, runID stri
 }
 
 type checkUpdateFakeStore struct {
+	storage.CheckStore
 	run       *corev1.CheckRun
 	updateErr error
+}
+
+func (s *checkUpdateFakeStore) RenewCheckRunClaim(ctx context.Context, runID, instance string, lease time.Duration) error {
+	return nil
 }
 
 func (s *checkUpdateFakeStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInput) (*corev1.CheckRun, error) {

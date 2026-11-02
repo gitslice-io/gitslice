@@ -311,7 +311,9 @@ func resolvedAgentName(name string) string {
 	return name
 }
 
-func registerDaemonMessage(name, runtimeName string) *corev1.DaemonMessage {
+// registerDaemonMessage registers the daemon process instanceID, which runs
+// up to concurrency checks at once (0: no limit).
+func registerDaemonMessage(name, runtimeName, instanceID string, concurrency int) *corev1.DaemonMessage {
 	name = resolvedAgentName(name)
 	version := cliVersionInfo().Version
 	if strings.TrimSpace(version) == "" {
@@ -324,6 +326,8 @@ func registerDaemonMessage(name, runtimeName string) *corev1.DaemonMessage {
 			Version:           version,
 			ContainerRuntimes: detectContainerRuntimes(),
 			AllowHostExec:     true,
+			InstanceId:        instanceID,
+			CheckConcurrency:  int32(concurrency),
 		}},
 	}
 }

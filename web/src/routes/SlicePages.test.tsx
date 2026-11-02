@@ -1240,6 +1240,53 @@ describe("slice route pages (render smoke)", () => {
     );
   });
 
+  it("adds a backup CI daemon and removes one from the pool", async () => {
+    const api = makeApi();
+    const slice = {
+      id: "slice_nic_home",
+      ref: { account: "nic", slice: "home" },
+      definition: { sliceId: "slice_nic_home", version: "2", includedPaths: ["/nic"], visibility: "private" },
+      ciDaemonId: "daemon_1",
+      ciDaemonName: "runner-one",
+      ciDaemonIds: ["daemon_1", "daemon_3"],
+      ciDaemonNames: ["runner-one", "offline-runner"]
+    };
+    api.resolveSlice = vi.fn().mockResolvedValue(slice);
+    api.listDaemons = vi.fn().mockResolvedValue({
+      daemons: [
+        { id: "daemon_1", name: "runner-one", runtime: "ci", status: "online" },
+        { id: "daemon_2", name: "runner-two", runtime: "ci", status: "online" },
+        { id: "daemon_3", name: "offline-runner", runtime: "ci", status: "offline" }
+      ]
+    });
+    api.setSliceCIDaemon = vi.fn().mockResolvedValue(slice);
+    apiMock.current = api;
+
+    renderRoute(<SliceSettingsPage />);
+
+    expect(await screen.findByText("Pool")).toBeInTheDocument();
+    expect(screen.getByText("2. offline-runner")).toBeInTheDocument();
+    const backup = await screen.findByLabelText("Add a backup CI daemon");
+    // Only online daemons not in the pool can be added.
+    expect(within(backup).queryByText(/runner-one/)).not.toBeInTheDocument();
+    fireEvent.change(backup, { target: { value: "daemon_2" } });
+    await waitFor(() =>
+      expect(api.setSliceCIDaemon).toHaveBeenCalledWith({
+        add: true,
+        daemonId: "daemon_2",
+        slice: { account: "nic", slice: "home" }
+      })
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[1]);
+    await waitFor(() =>
+      expect(api.setSliceCIDaemon).toHaveBeenLastCalledWith({
+        daemonId: "daemon_3",
+        remove: true,
+        slice: { account: "nic", slice: "home" }
+      })
+    );
+  });
+
   it("names the slice's CI daemon, even for someone who cannot list it", async () => {
     const api = makeApi();
     api.resolveSlice = vi.fn().mockResolvedValue({

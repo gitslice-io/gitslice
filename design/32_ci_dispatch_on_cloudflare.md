@@ -1,6 +1,7 @@
 # 32. CI dispatch on Cloudflare: doorbell, runners, pool
 
-Status: design (2026-10-19), nothing built yet. Builds on design/16 (daemons),
+Status: built (2026-11-02), see "Implementation" at the end; layer 2 is
+behind its decision gate. Designed 2026-10-19. Builds on design/16 (daemons),
 design/17 (checks) and design/31 (the CI daemon). The detach-and-poll change
 described in design/31 ("Idle daemons and the server bill") is the foundation
 and is assumed here.
@@ -275,6 +276,96 @@ today and snapshot restore is quick for the cache sizes above.
   enough to automate the golden build?
 - Which Cloudflare plan is the account on (Queues, Durable Objects and Containers
   billing differ between free and paid)?
+
+## Implementation (2026-11-02)
+
+All three layers are built. Where the build differs from the design above,
+this section is what the code does.
+
+### Layer 3: pools and claims
+
+- `slice_ci_daemons(slice_id, daemon_id, position)` holds a slice's pool in
+  order of preference (migration 0050); `slices.ci_daemon_id` stays the first
+  member for older readers. `Slice.ci_daemon_ids` / `ci_daemon_names` carry it.
+  `SetSliceCIDaemon` takes `add` / `remove` (`gs slice set-ci-daemon
+  --add|--remove`); alone it replaces the pool. Adding a daemon needs the same
+  rights as naming one before (it manages it, or the daemon is exposed to the
+  slice). The slice settings page lists the pool and adds backups.
+- **Runs are still pinned to one daemon at creation**, not left unassigned
+  for the pool to race over: `pickDaemon` takes the first member exposed to
+  the slice that is online (connected here, or online in the store), else the
+  first exposed one. This kept the UI, ownership checks, masking and standby
+  polls unchanged. A queued, unclaimed run whose daemon has not been seen for
+  `DaemonStaleAfter` and is older than 2 minutes moves to the next reachable
+  member (`ListStrandedCheckRuns` / `ReassignCheckRun`).
+- **Processes and claims.** A daemon process sends `RegisterDaemon.instance_id`
+  (random per `gs agent start`) and `check_concurrency`
+  (`GITSLICE_CHECK_CONCURRENCY`). Older daemons count as one process,
+  `<daemon>/legacy`. The hub keeps one connection per process.
+  `dispatchQueued` claims queued runs for each local process up to its free
+  slots (`check_runs.claimed_by`, `lease_expires_at`, `FOR UPDATE SKIP
+  LOCKED`) and sends only what it claimed, so several server instances and
+  several processes of one daemon never get the same run. A process renews its
+  leases with every heartbeat (15 s) and every update; the lease is 90 s.
+  Updates are accepted from any process of the run's daemon and move the claim
+  to it, so a reconnecting process carries on with its runs.
+- **Lost processes.** On disconnect a process's queued claims are released at
+  once; running ones keep their claim until it lapses. The recovery sweep
+  (every 30 s) takes lapsed claims: a queued run is handed out again; a running
+  one is canceled ("the CI daemon process running it stopped responding") and
+  a new attempt is queued on the pool, up to 3 attempts, after which it errors.
+  A new attempt supersedes the old one, so its logs start fresh.
+
+### Layer 1: the doorbell
+
+- `doorbell/` is a Worker at `doorbell.gitslice.io` with one Durable Object
+  (`Bell`) per daemon, holding hibernating WebSockets; `"ping"` is answered by
+  the runtime's auto-response without waking it. **No Queue**: the server
+  POSTs `/ring` directly, retrying 3 times, and a ring for a daemon with no
+  socket is kept (1 hour) and delivered when one opens. Losing a ring costs a
+  safety poll, as designed.
+- **HMAC, not Ed25519.** Tokens are `gsdb1.<daemon>.<exp>.<HMAC(secret,
+  "doorbell-token", daemon, exp)>` (2 hours), and rings are signed
+  `HMAC(secret, "ring", body)` with a timestamp (5 minutes skew). The server
+  (`GITSLICE_DOORBELL_URL`, `GITSLICE_DOORBELL_SECRET`) and the Worker
+  (`DOORBELL_SECRET`) share the secret; the Worker is ours, so a key pair
+  bought nothing.
+- `StandbyPollResponse` names `doorbell_url`, `doorbell_token` and
+  `safety_poll_after_ms` (20 minutes). The daemon opens the socket
+  (`internal/cli/agent_doorbell.go`, `Authorization: Bearer`), pings every
+  30 s, polls on `"wake"`, on a dropped socket, and at the safety interval, and
+  polls every 30 s while the socket is down. `GITSLICE_AGENT_DOORBELL=off`
+  keeps the old polling.
+- **Online while waiting.** A poll says `doorbell_open`; the server then sets
+  `agent_daemons.standby_until` to the next safety poll plus 3 minutes, and
+  the daemon counts as online until then without polling. A ring nobody hears
+  clears it, so the daemon shows offline and its runs can move to another pool
+  member.
+- The server rings when queued runs remain unclaimed after handing out
+  (`handOut`), with their count.
+
+### Layer 2: Cloudflare runners
+
+- The same Worker has a `Runner` Container class (`doorbell/runner/`:
+  `docker:28-dind` plus `gs` built from the tree by `npm run deploy`),
+  `standard-4`, at most 4 (`MAX_RUNNERS`). A ring for `RUNNER_DAEMON_ID`
+  starts one runner per queued run up to the free slots. A runner starts
+  `dockerd` without iptables and runs `gs agent start --ci --name cf-ci
+  --detach-after 0 --idle-timeout 90s` with `GITSLICE_CHECK_CONCURRENCY=1`,
+  signed in as the agent account in `RUNNER_TOKEN` / `RUNNER_SUBJECT`. It exits
+  once idle; the Worker stops one that runs over 2 hours.
+- The server counts runner daemons (`GITSLICE_CI_RUNNER_DAEMONS`) as always
+  reachable, and the recovery sweep rings them again while runs wait, since a
+  saturated pool starts no runner for later runs.
+- **Host network.** Without iptables a bridge network cannot reach the
+  internet, so a runner sets `GITSLICE_CHECK_HOST_NETWORK=1`: image builds,
+  checks with `network: true` and services use the host network, and services
+  are reached by name through `--add-host <name>:127.0.0.1`. Checks without
+  network keep `--network=none`.
+- **No snapshots yet** (public beta). A runner builds each check image once
+  and starts with an empty build cache, so the decision gate below decides
+  whether a slice uses runners. Until it passes, the runner daemon is added to
+  a test slice, not to `gitslice/gitslice`.
 
 ## Sources
 

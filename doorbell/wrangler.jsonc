@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // The CI doorbell (design/32_ci_dispatch_on_cloudflare.md, layer 1):
+  // detached CI daemons wait here on a WebSocket, and the Gitslice server
+  // rings when a check is queued for one.
+  "name": "gitslice-doorbell",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-01",
+  "routes": [{ "pattern": "doorbell.gitslice.io", "custom_domain": true }],
+  // One Bell per daemon holds its waiting sockets, hibernating while idle.
+  "durable_objects": {
+    "bindings": [
+      { "name": "BELL", "class_name": "Bell" },
+      { "name": "RUNNER", "class_name": "Runner" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Bell", "Runner"] }],
+  // Cloudflare-hosted CI runners (layer 2): a ring for RUNNER_DAEMON_ID
+  // starts up to MAX_RUNNERS of them, one check at a time each.
+  "containers": [
+    {
+      "class_name": "Runner",
+      "image": "./runner/Dockerfile",
+      "instance_type": "standard-4",
+      "max_instances": 4
+    }
+  ],
+  "vars": {
+    "GITSLICE_SERVER_ADDR": "api.gitslice.io:443",
+    "RUNNER_DAEMON_ID": "agent_c9d983c9e2cfc05be4936da001dc9e52",
+    "RUNNER_NAME": "cf-ci",
+    "MAX_RUNNERS": "4"
+  },
+  // Secrets (wrangler secret put): DOORBELL_SECRET, the server's
+  // GITSLICE_DOORBELL_SECRET; RUNNER_TOKEN and RUNNER_SUBJECT, the agent
+  // account the runners sign in as.
+  "observability": { "enabled": true }
+}

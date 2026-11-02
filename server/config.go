@@ -83,6 +83,16 @@ type Config struct {
 	// (design/34_triggers.md).
 	TriggerDispatchURL    string
 	TriggerDispatchSecret string
+	// DoorbellURL is the Cloudflare doorbell Worker's origin
+	// (GITSLICE_DOORBELL_URL), and DoorbellSecret the key the server and the
+	// Worker share (GITSLICE_DOORBELL_SECRET). Without both, detached CI
+	// daemons poll every 30 s (design/32_ci_dispatch_on_cloudflare.md).
+	DoorbellURL    string
+	DoorbellSecret string
+	// CIRunnerDaemons are the daemons the doorbell starts Cloudflare runners
+	// for when checks are queued (GITSLICE_CI_RUNNER_DAEMONS, comma
+	// separated): they count as reachable with no runner running.
+	CIRunnerDaemons []string
 }
 
 func ConfigFromEnv() Config {
@@ -143,6 +153,13 @@ func ConfigFromEnv() Config {
 		// Triggers (design/34_triggers.md).
 		TriggerDispatchURL:    os.Getenv("GITSLICE_TRIGGER_DISPATCH_URL"),
 		TriggerDispatchSecret: os.Getenv("GITSLICE_TRIGGER_DISPATCH_SECRET"),
+
+		// The CI doorbell (design/32_ci_dispatch_on_cloudflare.md).
+		DoorbellURL:    os.Getenv("GITSLICE_DOORBELL_URL"),
+		DoorbellSecret: os.Getenv("GITSLICE_DOORBELL_SECRET"),
+		CIRunnerDaemons: strings.FieldsFunc(os.Getenv("GITSLICE_CI_RUNNER_DAEMONS"), func(r rune) bool {
+			return r == ',' || r == ' '
+		}),
 	}
 }
 

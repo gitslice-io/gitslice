@@ -28,7 +28,7 @@ func TestAgentStartCIFlagsAreExclusive(t *testing.T) {
 }
 
 func TestRegisterCIDaemonUsesCIRuntime(t *testing.T) {
-	msg := registerDaemonMessage("ci-host", ciAgentRuntime)
+	msg := registerDaemonMessage("ci-host", ciAgentRuntime, "", 0)
 	if got := msg.GetRegister().GetRuntime(); got != "ci" {
 		t.Fatalf("runtime = %q, want ci", got)
 	}

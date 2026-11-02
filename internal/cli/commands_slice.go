@@ -125,14 +125,24 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 		},
 	}
 	sliceDeleteCmd.Flags().BoolVar(&sliceDeleteYes, "yes", sliceDeleteYes, "confirm slice deletion")
+	var ciDaemonAdd, ciDaemonRemove bool
 	sliceSetCIDaemonCmd := &cobra.Command{
 		Use:   "set-ci-daemon <slice|account:slice> <daemon-id>",
-		Short: "Set the slice CI daemon",
-		Args:  exactArgs(2, "gs slice set-ci-daemon <slice|account:slice> <daemon-id>"),
+		Short: "Set the slice CI daemon, or add one to its pool",
+		Long: "Set the daemon that runs the slice's CI checks. A slice can have a pool of CI daemons:\n" +
+			"--add appends one and --remove takes one out. Each check run goes to the first daemon\n" +
+			"of the pool that is online, and a run waiting on a daemon that went away moves to the\n" +
+			"next one. An empty daemon id (\"\") clears the pool.",
+		Args: exactArgs(2, "gs slice set-ci-daemon <slice|account:slice> <daemon-id> [--add|--remove]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runSliceSetCIDaemon(cmd.Context(), *opts, args[0], args[1])
+			if ciDaemonAdd && ciDaemonRemove {
+				return userError("invalid_args", "--add and --remove cannot be used together", "Run the command once for each.")
+			}
+			return r.runSliceSetCIDaemon(cmd.Context(), *opts, args[0], args[1], ciDaemonAdd, ciDaemonRemove)
 		},
 	}
+	sliceSetCIDaemonCmd.Flags().BoolVar(&ciDaemonAdd, "add", false, "add the daemon to the slice's pool of CI daemons")
+	sliceSetCIDaemonCmd.Flags().BoolVar(&ciDaemonRemove, "remove", false, "take the daemon out of the slice's pool")
 	sliceSecretCmd := &cobra.Command{
 		Use:   "secret",
 		Short: "Manage the CI secrets of one slice",

@@ -164,7 +164,7 @@ func TestEffectiveDaemonStatusNeedsARecentSignOfLife(t *testing.T) {
 		{"offline", now, "offline"},
 	}
 	for _, c := range cases {
-		if got := storage.EffectiveDaemonStatus(c.status, c.lastSeen, now); got != c.want {
+		if got := storage.EffectiveDaemonStatus(c.status, c.lastSeen, time.Time{}, now); got != c.want {
 			t.Errorf("EffectiveDaemonStatus(%s, %s ago) = %s, want %s", c.status, now.Sub(c.lastSeen), got, c.want)
 		}
 	}

@@ -1,0 +1,21 @@
+{
+  "name": "gitslice-doorbell",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "npm run build:runner && wrangler deploy",
+    "types": "wrangler types",
+    "check": "wrangler types && tsc --noEmit",
+    "test": "node --test test/*.test.ts",
+    "build:runner": "cd .. && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -o doorbell/runner/gs ./cmd/gs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.4",
+    "typescript": "^5.6.3",
+    "wrangler": "^4.155.0"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "^0.3.7"
+  }
+}

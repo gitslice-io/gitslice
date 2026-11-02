@@ -125,14 +125,19 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, subjectID, sliceID, e
 	return cloneSlice(current).Definition, nil
 }
 
-func (s *SliceStore) SetCIDaemon(ctx context.Context, sliceID, daemonID string) (*corev1.Slice, error) {
+func (s *SliceStore) SetCIDaemons(ctx context.Context, sliceID string, daemonIDs []string) (*corev1.Slice, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	current := s.b.slices[strings.TrimSpace(sliceID)]
 	if current == nil {
 		return nil, storage.ErrNotFound
 	}
-	current.CiDaemonId = strings.TrimSpace(daemonID)
+	daemonIDs = storage.NormalizeCIDaemons(daemonIDs)
+	current.CiDaemonIds = daemonIDs
+	current.CiDaemonId = ""
+	if len(daemonIDs) > 0 {
+		current.CiDaemonId = daemonIDs[0]
+	}
 	return s.withCIDaemonName(cloneSlice(current)), nil
 }
 
@@ -145,7 +150,11 @@ func (s *SliceStore) ListByCIDaemon(ctx context.Context, daemonIDs []string) ([]
 	}
 	var out []*corev1.Slice
 	for _, slice := range s.b.slices {
-		if wanted[slice.CiDaemonId] && !s.b.retiredSlices[slice.Id] {
+		inPool := false
+		for _, id := range storage.CIDaemonPool(slice) {
+			inPool = inPool || wanted[id]
+		}
+		if inPool && !s.b.retiredSlices[slice.Id] {
 			out = append(out, s.withCIDaemonName(cloneSlice(slice)))
 		}
 	}
@@ -161,11 +170,24 @@ func (s *SliceStore) ListByCIDaemon(ctx context.Context, daemonIDs []string) ([]
 // withCIDaemonName fills in the name the slice's CI daemon is shown by. The
 // caller holds the lock.
 func (s *SliceStore) withCIDaemonName(slice *corev1.Slice) *corev1.Slice {
-	if d := s.b.agentDaemons[slice.CiDaemonId]; d != nil {
-		slice.CiDaemonName = d.DisplayName
-		if slice.CiDaemonName == "" {
-			slice.CiDaemonName = d.Name
+	name := func(id string) string {
+		if d := s.b.agentDaemons[id]; d != nil {
+			if d.DisplayName != "" {
+				return d.DisplayName
+			}
+			return d.Name
 		}
+		return ""
+	}
+	slice.CiDaemonName = name(slice.CiDaemonId)
+	slice.CiDaemonIds = storage.CIDaemonPool(slice)
+	slice.CiDaemonNames = nil
+	for _, id := range slice.CiDaemonIds {
+		member := name(id)
+		if member == "" {
+			member = id
+		}
+		slice.CiDaemonNames = append(slice.CiDaemonNames, member)
 	}
 	return slice
 }

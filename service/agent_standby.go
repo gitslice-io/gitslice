@@ -47,20 +47,32 @@ func (s *AgentService) StandbyPoll(ctx context.Context, req *corev1.StandbyPollR
 	}
 	pending := false
 	if s.Checks != nil {
-		for _, runStatus := range []string{"queued", "running"} {
-			runs, err := s.Checks.ListRunsByDaemonStatus(ctx, daemon.Id, runStatus)
-			if err != nil {
-				return nil, grpcError(err)
-			}
-			if len(runs) > 0 {
-				pending = true
-				break
-			}
+		// Queued runs this process may claim, or runs it already holds
+		// (design/32 layer 3).
+		pending, err = s.Checks.HasPendingCheckRuns(ctx, daemon.Id, storage.InstanceKey(daemon.Id, req.GetInstanceId()))
+		if err != nil {
+			return nil, grpcError(err)
 		}
 	}
-	return &corev1.StandbyPollResponse{
+	resp := &corev1.StandbyPollResponse{
 		DaemonId:    daemon.Id,
 		Pending:     pending,
 		PollAfterMs: standbyPollAfter.Milliseconds(),
-	}, nil
+	}
+	if s.doorbell != nil {
+		// The daemon waits on the doorbell and polls only as a safety net
+		// (design/32 layer 1); it counts as online meanwhile.
+		now := time.Now()
+		resp.DoorbellUrl = s.doorbell.WaitURL()
+		resp.DoorbellToken = s.doorbell.Token(daemon.Id, now.Add(doorbellTokenLife))
+		resp.SafetyPollAfterMs = doorbellSafetyPoll.Milliseconds()
+		standbyUntil := time.Time{} // polling: its polls keep it online
+		if req.GetDoorbellOpen() {
+			standbyUntil = now.Add(doorbellSafetyPoll + doorbellStandbyGrace)
+		}
+		if err := s.Agents.SetDaemonStandby(ctx, daemon.Id, standbyUntil); err != nil {
+			return nil, grpcError(err)
+		}
+	}
+	return resp, nil
 }

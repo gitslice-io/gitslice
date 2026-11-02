@@ -61,9 +61,21 @@ func (s *AgentStore) SetDaemonStatus(ctx context.Context, daemonID, status strin
 	return nil
 }
 
+// SetDaemonStandby records that the daemon waits on the doorbell until
+// until (design/32 layer 1), so it counts as online without polling; a zero
+// until clears it.
+func (s *AgentStore) SetDaemonStandby(ctx context.Context, daemonID string, until time.Time) error {
+	var at any
+	if !until.IsZero() {
+		at = until
+	}
+	_, err := s.db.ExecContext(ctx, `update agent_daemons set standby_until = $2 where id = $1`, daemonID, at)
+	return err
+}
+
 func (s *AgentStore) GetDaemon(ctx context.Context, daemonID string) (*corev1.AgentDaemon, error) {
 	row := s.db.QueryRowContext(ctx, `
-		select id, account, name, runtime, version, status, last_seen_at, created_at, label
+		select id, account, name, runtime, version, status, last_seen_at, created_at, label, standby_until
 		from agent_daemons where id = $1
 	`, daemonID)
 	return scanDaemon(row)
@@ -105,7 +117,7 @@ func (s *AgentStore) RenameDaemon(ctx context.Context, daemonID, displayName str
 
 func (s *AgentStore) ListDaemons(ctx context.Context, subjectID string) ([]*corev1.AgentDaemon, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select id, account, name, runtime, version, status, last_seen_at, created_at, label
+		select id, account, name, runtime, version, status, last_seen_at, created_at, label, standby_until
 		from agent_daemons where subject_id = $1 order by created_at asc
 	`, subjectID)
 	if err != nil {
@@ -169,7 +181,7 @@ func (s *AgentStore) ListDaemonExposures(ctx context.Context, daemonIDs []string
 
 func (s *AgentStore) ListDaemonsExposedToSlice(ctx context.Context, sliceID string) ([]*corev1.AgentDaemon, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select d.id, d.account, d.name, d.runtime, d.version, d.status, d.last_seen_at, d.created_at, d.label
+		select d.id, d.account, d.name, d.runtime, d.version, d.status, d.last_seen_at, d.created_at, d.label, d.standby_until
 		from agent_daemons d
 		join daemon_slice_exposures e on e.daemon_id = d.id
 		where e.slice_id = $1
@@ -196,7 +208,7 @@ func (s *AgentStore) ListDaemonsForAccounts(ctx context.Context, accounts []stri
 		return nil, nil
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		select id, account, name, runtime, version, status, last_seen_at, created_at, label
+		select id, account, name, runtime, version, status, last_seen_at, created_at, label, standby_until
 		from agent_daemons where account = any($1) order by created_at asc
 	`, accounts)
 	if err != nil {
@@ -457,8 +469,9 @@ func scanDaemon(row rowScanner) (*corev1.AgentDaemon, error) {
 	var (
 		d                     corev1.AgentDaemon
 		lastSeenAt, createdAt time.Time
+		standbyUntil          sql.NullTime
 	)
-	if err := row.Scan(&d.Id, &d.Account, &d.Name, &d.Runtime, &d.Version, &d.Status, &lastSeenAt, &createdAt, &d.DisplayName); err != nil {
+	if err := row.Scan(&d.Id, &d.Account, &d.Name, &d.Runtime, &d.Version, &d.Status, &lastSeenAt, &createdAt, &d.DisplayName, &standbyUntil); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, storage.ErrNotFound
 		}
@@ -466,7 +479,7 @@ func scanDaemon(row rowScanner) (*corev1.AgentDaemon, error) {
 	}
 	d.LastSeenAt = lastSeenAt.UTC().Format(time.RFC3339Nano)
 	d.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
-	d.Status = storage.EffectiveDaemonStatus(d.Status, lastSeenAt, time.Now())
+	d.Status = storage.EffectiveDaemonStatus(d.Status, lastSeenAt, standbyUntil.Time, time.Now())
 	return &d, nil
 }
 

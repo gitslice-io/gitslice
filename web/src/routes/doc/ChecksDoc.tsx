@@ -285,22 +285,26 @@ checks:
           "gs agent install --ci --name my-ci",
           "gs agent expose my-ci <account>:<slice>",
           "",
-          "# A slice owner chooses the exposed daemon.",
+          "# A slice owner chooses the exposed daemon, and can add backups.",
           "gs slice set-ci-daemon <account>:<slice> <daemon-id>",
+          "gs slice set-ci-daemon <account>:<slice> <backup-daemon-id> --add",
           "",
           "# Remove the user service when it is no longer needed.",
           "gs agent uninstall my-ci"
         ].join("\n")}</CommandBlock>
         <p className="mt-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-          When this daemon is offline, its runs remain queued. The Checks panel
+          With backups, each run goes to the first daemon of the slice's pool
+          that is online, and a run waiting on a daemon that went away moves to
+          the next one. When no daemon is online, runs remain queued. The Checks panel
           and <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">gs submit</code>{" "}
           say that the daemon is offline and checks begin when it reconnects.
         </p>
         <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">
           A checks-only daemon with nothing to run detaches from the server
-          after two minutes and polls every 30 seconds for queued checks, so an
-          idle daemon costs the server almost nothing. It stays online, and a
-          queued check may start up to about 30 seconds later.{" "}
+          after two minutes and waits on the server&apos;s doorbell, which wakes
+          it the moment a check is queued; it polls every 20 minutes as a safety
+          net. An idle daemon costs the server nothing, and it stays online.
+          Where the server has no doorbell it polls every 30 seconds instead.{" "}
           <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">--detach-after 0</code>{" "}
           keeps it connected.
         </p>

@@ -101,6 +101,7 @@ type containerRun struct {
 	user      []string          // --user / --userns arguments
 	home      bool              // give the check a HOME it can write
 	network   string            // the run's services network, if any
+	hosts     []string          // names that resolve to 127.0.0.1 (services, on the host network)
 	cacheDirs map[string]string // container cache path -> host folder
 }
 
@@ -182,6 +183,7 @@ func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSp
 		}
 		defer services.stop()
 		run.network = services.network
+		run.hosts = services.hosts
 		notes = append(notes, note)
 	}
 
@@ -430,6 +432,11 @@ func containerRunArgs(root, image, containerName string, spec checks.CheckSpec, 
 		args = append(args, "--network="+run.network)
 	case !spec.Network:
 		args = append(args, "--network=none")
+	case HostNetwork():
+		args = append(args, "--network="+hostNetwork)
+	}
+	for _, host := range run.hosts {
+		args = append(args, "--add-host", host+":127.0.0.1")
 	}
 	if _, ok := spec.Env["HOME"]; run.home && !ok {
 		args = append(args, "-e", "HOME="+containerHome)

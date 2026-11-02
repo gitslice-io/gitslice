@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	cryptorand "crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -290,6 +292,7 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 		checkSlots:      checkSlotsFromEnv(),
 		lazy:            in.Lazy,
 		name:            in.Name,
+		instanceID:      newAgentInstanceID(),
 		detachAfter:     detachAfter,
 		quiet:           opts.Quiet,
 	}
@@ -380,7 +383,7 @@ func (d *agentDaemon) serveAgentConnection(ctx context.Context, opts commandOpti
 		d.mu.Unlock()
 	}()
 
-	if err := sendQueue.send(connCtx, registerDaemonMessage(name, runtimeName)); err != nil {
+	if err := sendQueue.send(connCtx, registerDaemonMessage(name, runtimeName, d.instanceID, cap(d.checkSlots))); err != nil {
 		return err
 	}
 	registered, err := stream.Recv()
@@ -631,12 +634,16 @@ type agentDaemon struct {
 	workingDir string
 	sendQueue  *agentSendQueue
 	name       string // the name it registers with, as given
+	// instanceID names this process to the server, which sends each check
+	// run to one process of a daemon (design/32 layer 3).
+	instanceID string
 
 	// Detaching (agent_standby.go): a checks-only daemon with nothing to run
 	// closes its stream and polls instead.
 	detachAfter        time.Duration
 	detaching          atomic.Bool // a detach was sent; the stream is about to end
 	standbyUnsupported atomic.Bool // the server cannot take a detached daemon
+	doorbellOpen       atomic.Bool // its next standby poll says the doorbell socket is open
 	standbyPollFn      func(context.Context) (*corev1.StandbyPollResponse, error)
 	pollMu             sync.Mutex
 	pollConn           *grpc.ClientConn
@@ -694,6 +701,15 @@ func checkSlotsFromEnv() chan struct{} {
 		return nil
 	}
 	return make(chan struct{}, n)
+}
+
+// newAgentInstanceID is a random id for this daemon process.
+func newAgentInstanceID() string {
+	var b [8]byte
+	if _, err := cryptorand.Read(b[:]); err != nil {
+		return fmt.Sprintf("p%d", os.Getpid())
+	}
+	return hex.EncodeToString(b[:])
 }
 
 func defaultAgentName() string {

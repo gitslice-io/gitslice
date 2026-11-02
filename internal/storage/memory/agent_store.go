@@ -29,7 +29,7 @@ func (s *AgentStore) RegisterDaemon(ctx context.Context, in storage.AgentDaemonI
 			d.Version = in.Version
 			d.Status = "online"
 			d.LastSeenAt = now
-			return cloneDaemon(d), nil
+			return s.b.cloneDaemon(d), nil
 		}
 	}
 	id, err := objectid.RandomID("agent")
@@ -48,7 +48,7 @@ func (s *AgentStore) RegisterDaemon(ctx context.Context, in storage.AgentDaemonI
 	}
 	s.b.agentDaemons[id] = d
 	s.b.agentDaemonOwner[id] = in.SubjectID
-	return cloneDaemon(d), nil
+	return s.b.cloneDaemon(d), nil
 }
 
 func (s *AgentStore) SetDaemonStatus(ctx context.Context, daemonID, status string) error {
@@ -63,6 +63,17 @@ func (s *AgentStore) SetDaemonStatus(ctx context.Context, daemonID, status strin
 	return nil
 }
 
+func (s *AgentStore) SetDaemonStandby(ctx context.Context, daemonID string, until time.Time) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if until.IsZero() {
+		delete(s.b.daemonStandby, daemonID)
+	} else {
+		s.b.daemonStandby[daemonID] = until
+	}
+	return nil
+}
+
 func (s *AgentStore) GetDaemon(ctx context.Context, daemonID string) (*corev1.AgentDaemon, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
@@ -70,7 +81,7 @@ func (s *AgentStore) GetDaemon(ctx context.Context, daemonID string) (*corev1.Ag
 	if !ok {
 		return nil, storage.ErrNotFound
 	}
-	return cloneDaemon(d), nil
+	return s.b.cloneDaemon(d), nil
 }
 
 func (s *AgentStore) ListDaemons(ctx context.Context, subjectID string) ([]*corev1.AgentDaemon, error) {
@@ -79,7 +90,7 @@ func (s *AgentStore) ListDaemons(ctx context.Context, subjectID string) ([]*core
 	var out []*corev1.AgentDaemon
 	for id, d := range s.b.agentDaemons {
 		if s.b.agentDaemonOwner[id] == subjectID {
-			out = append(out, cloneDaemon(d))
+			out = append(out, s.b.cloneDaemon(d))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
@@ -96,7 +107,7 @@ func (s *AgentStore) ListDaemonsForAccounts(ctx context.Context, accounts []stri
 	var out []*corev1.AgentDaemon
 	for _, d := range s.b.agentDaemons {
 		if wanted[d.Account] {
-			out = append(out, cloneDaemon(d))
+			out = append(out, s.b.cloneDaemon(d))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
@@ -145,7 +156,7 @@ func (s *AgentStore) ListDaemonsExposedToSlice(ctx context.Context, sliceID stri
 	var out []*corev1.AgentDaemon
 	for id, exposed := range s.b.daemonExposures {
 		if d := s.b.agentDaemons[id]; d != nil && exposed[sliceID] {
-			out = append(out, cloneDaemon(d))
+			out = append(out, s.b.cloneDaemon(d))
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt < out[j].CreatedAt })
@@ -180,7 +191,7 @@ func (s *AgentStore) RenameDaemon(ctx context.Context, daemonID, displayName str
 		}
 	}
 	d.DisplayName = displayName
-	return cloneDaemon(d), nil
+	return s.b.cloneDaemon(d), nil
 }
 
 func (s *AgentStore) CreateConversation(ctx context.Context, in storage.ConversationInput) (*corev1.Conversation, error) {
@@ -356,12 +367,25 @@ func (s *AgentStore) LatestEventSeq(ctx context.Context, conversationID string) 
 }
 
 func cloneDaemon(d *corev1.AgentDaemon) *corev1.AgentDaemon {
+	return cloneDaemonUntil(d, time.Time{})
+}
+
+// cloneDaemon clones a daemon with the status it is shown with, counting
+// its wait on the doorbell.
+func (b *backend) cloneDaemon(d *corev1.AgentDaemon) *corev1.AgentDaemon {
+	if d == nil {
+		return nil
+	}
+	return cloneDaemonUntil(d, b.daemonStandby[d.Id])
+}
+
+func cloneDaemonUntil(d *corev1.AgentDaemon, standbyUntil time.Time) *corev1.AgentDaemon {
 	if d == nil {
 		return nil
 	}
 	out := proto.Clone(d).(*corev1.AgentDaemon)
 	if seen, err := time.Parse(time.RFC3339Nano, out.LastSeenAt); err == nil {
-		out.Status = storage.EffectiveDaemonStatus(out.Status, seen, time.Now())
+		out.Status = storage.EffectiveDaemonStatus(out.Status, seen, standbyUntil, time.Now())
 	}
 	return out
 }

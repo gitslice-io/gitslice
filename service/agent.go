@@ -40,6 +40,8 @@ type AgentService struct {
 	checkLogs  *checkLogHub
 	dispatcher *checkDispatcher
 	serverAddr string
+	// doorbell wakes daemons waiting on standby (design/32 layer 1).
+	doorbell *Doorbell
 }
 
 // Connect is the daemon's long-lived bidirectional channel. The first message
@@ -79,14 +81,25 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 		return grpcError(err)
 	}
 
-	conn := s.hub.registerDaemon(daemon.Id)
+	conn := s.hub.registerDaemon(daemon.Id, storage.InstanceKey(daemon.Id, reg.GetInstanceId()), int(max(reg.GetCheckConcurrency(), 0)))
 	// A daemon that detaches on purpose stays online (it polls with
-	// StandbyPoll); any other end of the stream marks it offline.
+	// StandbyPoll); any other end of the stream marks it offline, unless
+	// another of its processes is still connected.
 	detached := false
 	defer func() {
 		s.hub.unregisterDaemon(conn)
-		if !detached {
-			_ = s.Agents.SetDaemonStatus(context.WithoutCancel(ctx), daemon.Id, "offline")
+		background := context.WithoutCancel(ctx)
+		// Queued runs this process was sent but never started go back to
+		// the daemon's other processes (design/32 layer 3). Running ones keep
+		// their claim until it lapses, so a reconnect carries on with them.
+		if s.Checks != nil {
+			_ = s.Checks.ReleaseCheckRunClaims(background, conn.instance)
+		}
+		if !detached && len(s.hub.conns(daemon.Id)) == 0 {
+			_ = s.Agents.SetDaemonStatus(background, daemon.Id, "offline")
+		}
+		if s.dispatcher != nil {
+			s.dispatcher.dispatchQueued(background, daemon.Id)
 		}
 	}()
 
@@ -138,6 +151,9 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 		switch p := msg.Payload.(type) {
 		case *corev1.DaemonMessage_Heartbeat:
 			_ = s.Agents.SetDaemonStatus(ctx, daemon.Id, "online")
+			if s.Checks != nil {
+				_ = s.Checks.RenewCheckRunClaims(ctx, conn.instance, storage.CheckRunLease)
+			}
 		case *corev1.DaemonMessage_Detach:
 			if reg.Runtime != ciDaemonRuntime {
 				return status.Error(codes.FailedPrecondition, "only a checks-only daemon (gs agent start --ci) can detach")

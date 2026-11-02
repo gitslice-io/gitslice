@@ -5,21 +5,34 @@ import (
 	"fmt"
 	"strings"
 
+	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-func (s *SliceStore) SetCIDaemon(ctx context.Context, sliceID, daemonID string) (*corev1.Slice, error) {
+// SetCIDaemons sets the slice's pool of CI daemons, in order of preference
+// (design/32 layer 3); slices.ci_daemon_id is the first of them, for older
+// readers. An empty list clears it.
+func (s *SliceStore) SetCIDaemons(ctx context.Context, sliceID string, daemonIDs []string) (*corev1.Slice, error) {
 	sliceID = strings.TrimSpace(sliceID)
-	daemonID = strings.TrimSpace(daemonID)
 	if sliceID == "" {
 		return nil, fmt.Errorf("%w: slice_id is required", ErrInvalid)
 	}
-	res, err := s.db.ExecContext(ctx, `
+	daemonIDs = storage.NormalizeCIDaemons(daemonIDs)
+	first := ""
+	if len(daemonIDs) > 0 {
+		first = daemonIDs[0]
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	res, err := tx.ExecContext(ctx, `
 		update slices
 		set ci_daemon_id = nullif($2, ''),
 		    updated_at = now()
 		where id = $1
-	`, sliceID, daemonID)
+	`, sliceID, first)
 	if err != nil {
 		return nil, err
 	}
@@ -29,6 +42,19 @@ func (s *SliceStore) SetCIDaemon(ctx context.Context, sliceID, daemonID string) 
 	}
 	if affected == 0 {
 		return nil, ErrNotFound
+	}
+	if _, err := tx.ExecContext(ctx, `delete from slice_ci_daemons where slice_id = $1`, sliceID); err != nil {
+		return nil, err
+	}
+	for i, daemonID := range daemonIDs {
+		if _, err := tx.ExecContext(ctx, `
+			insert into slice_ci_daemons(slice_id, daemon_id, position) values ($1, $2, $3)
+		`, sliceID, daemonID, i); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
 	}
 	return s.Get(ctx, sliceID)
 }
@@ -40,10 +66,11 @@ func (s *SliceStore) ListByCIDaemon(ctx context.Context, daemonIDs []string) ([]
 	rows, err := s.db.QueryContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
 		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
-		       slices.archived_at is not null, slices.description, slices.merge_on_submit
+		       slices.archived_at is not null, slices.description, slices.merge_on_submit, coalesce((select json_agg(json_build_array(p.daemon_id, coalesce(nullif(d.label, ''), d.name, p.daemon_id)) order by p.position, p.added_at) from slice_ci_daemons p left join agent_daemons d on d.id = p.daemon_id where p.slice_id = slices.id), '[]'::json)
 		from slices
 		join accounts on accounts.id = slices.account_id
-		where slices.ci_daemon_id = any($1) and slices.deleted_at is null
+		where exists (select 1 from slice_ci_daemons p where p.slice_id = slices.id and p.daemon_id = any($1))
+		  and slices.deleted_at is null
 		order by accounts.slug, slices.slug
 	`, daemonIDs)
 	if err != nil {

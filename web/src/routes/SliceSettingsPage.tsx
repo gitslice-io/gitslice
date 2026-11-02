@@ -130,14 +130,14 @@ export function SliceSettingsPage() {
   });
 
   const ciDaemonMutation = useMutation({
-    mutationFn: async (daemonId: string) => {
+    mutationFn: async (change: CIDaemonChange) => {
       const targetSlice = slice?.ref ?? routeSliceRef;
       if (!targetSlice?.account || !targetSlice.slice) {
         throw new Error("Slice reference is not available.");
       }
 
       return api.setSliceCIDaemon({
-        daemonId,
+        ...change,
         slice: targetSlice
       });
     },
@@ -288,7 +288,7 @@ export function SliceSettingsPage() {
           }
           isLoading={daemonsQuery.isPending}
           message={ciSaveMessage}
-          onChange={(daemonId) => ciDaemonMutation.mutate(daemonId)}
+          onChange={(change) => ciDaemonMutation.mutate(change)}
           pending={ciDaemonMutation.isPending}
           slice={slice}
         />
@@ -377,6 +377,10 @@ export function SliceSettingsPage() {
   );
 }
 
+// A change to the slice's pool of CI daemons: daemonId alone replaces it,
+// add appends to it and remove takes one out.
+type CIDaemonChange = { daemonId: string; add?: boolean; remove?: boolean };
+
 function SliceCIDaemonPanel({
   currentDaemonId,
   currentDaemonName,
@@ -396,7 +400,7 @@ function SliceCIDaemonPanel({
   error: string;
   isLoading: boolean;
   message: string | null;
-  onChange(daemonId: string): void;
+  onChange(change: CIDaemonChange): void;
   pending: boolean;
   slice: Slice;
 }) {
@@ -406,6 +410,17 @@ function SliceCIDaemonPanel({
     (daemon) => daemon.id === currentDaemonId
   );
   const canUpdate = Boolean(slice.ref?.account && slice.ref.slice);
+  const disabled = isLoading || pending || !canUpdate;
+  // The pool (design/32): each run goes to the first one online.
+  const poolIds = slice.ciDaemonIds?.length ? slice.ciDaemonIds : currentDaemonId ? [currentDaemonId] : [];
+  const pool = poolIds.map((id, index) => ({
+    id,
+    name:
+      slice.ciDaemonNames?.[index] ||
+      (id === currentDaemonId ? currentDaemonName : "") ||
+      daemonName(daemons.find((daemon) => daemon.id === id), id)
+  }));
+  const backups = onlineDaemons.filter((daemon) => daemon.id && !poolIds.includes(daemon.id));
 
   return (
     <SlicePanel>
@@ -413,12 +428,34 @@ function SliceCIDaemonPanel({
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">CI daemon</h2>
           <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-            Full-tree checks for this slice run on the selected online agent daemon.
+            Full-tree checks for this slice run on the selected online agent daemon. Add backups to make a pool:
+            each check goes to the first daemon in the list that is online.
           </p>
           <p className="mt-3 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
-            Current
+            {pool.length > 1 ? "Pool" : "Current"}
           </p>
-          {currentDaemonId ? (
+          {pool.length > 1 ? (
+            <ol className="mt-1 grid gap-2">
+              {pool.map((member, index) => (
+                <li className="flex items-start justify-between gap-3" key={member.id}>
+                  <span className="min-w-0">
+                    <span className="block break-words text-sm font-medium text-zinc-950 dark:text-zinc-50">
+                      {index + 1}. {member.name}
+                    </span>
+                    <code className="block break-all font-mono text-xs text-slate-500 dark:text-zinc-400">{member.id}</code>
+                  </span>
+                  <button
+                    className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
+                    disabled={disabled}
+                    onClick={() => onChange({ daemonId: member.id, remove: true })}
+                    type="button"
+                  >
+                    Remove
+                  </button>
+                </li>
+              ))}
+            </ol>
+          ) : currentDaemonId ? (
             <>
               <p className="mt-1 break-words text-sm font-medium text-zinc-950 dark:text-zinc-50">
                 {currentDaemonName || daemonName(currentDaemon, currentDaemonId)}
@@ -437,9 +474,9 @@ function SliceCIDaemonPanel({
             CI daemon
             <select
               aria-label="CI daemon"
-              className="min-w-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-950 dark:text-zinc-50 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-zinc-800 disabled:text-slate-500 dark:disabled:text-zinc-400"
-              disabled={isLoading || pending || !canUpdate}
-              onChange={(event) => onChange(event.target.value)}
+              className={selectClass}
+              disabled={disabled}
+              onChange={(event) => onChange({ daemonId: event.target.value })}
               value={currentDaemonId}
             >
               <option value="">None</option>
@@ -455,6 +492,29 @@ function SliceCIDaemonPanel({
               ))}
             </select>
           </label>
+          {currentDaemonId && backups.length > 0 ? (
+            <label className="grid gap-1.5 text-sm font-medium text-zinc-800 dark:text-zinc-200">
+              Add a backup
+              <select
+                aria-label="Add a backup CI daemon"
+                className={selectClass}
+                disabled={disabled}
+                onChange={(event) => {
+                  if (event.target.value) {
+                    onChange({ daemonId: event.target.value, add: true });
+                  }
+                }}
+                value=""
+              >
+                <option value="">Choose a daemon</option>
+                {backups.map((daemon) => (
+                  <option key={daemon.id} value={daemon.id}>
+                    {daemonLabel(daemon, daemon.id ?? "")}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           {isLoading ? (
             <p className="text-xs text-slate-500 dark:text-zinc-400">Loading daemons...</p>
           ) : onlineDaemons.length === 0 ? (
@@ -477,6 +537,9 @@ function SliceCIDaemonPanel({
     </SlicePanel>
   );
 }
+
+const selectClass =
+  "min-w-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-950 dark:text-zinc-50 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-zinc-800 disabled:text-slate-500 dark:disabled:text-zinc-400";
 
 function daemonLabel(daemon: AgentDaemon | undefined, fallback: string) {
   if (!daemon) {

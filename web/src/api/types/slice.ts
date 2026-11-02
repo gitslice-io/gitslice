@@ -23,6 +23,10 @@ export interface Slice {
   // When a changeset authored from the slice last landed, else createdAt;
   // set in listings only.
   lastActivityAt?: string;
+  // The slice's pool of CI daemons in order of preference (ciDaemonId is the
+  // first), and their names.
+  ciDaemonIds?: string[];
+  ciDaemonNames?: string[];
 }
 
 export interface SliceDefinition {
@@ -72,7 +76,11 @@ export interface UpdateSliceDefinitionRequest {
 
 export interface SetSliceCIDaemonRequest {
   slice?: SliceRef;
+  // Alone, makes it the slice's only CI daemon ("" clears the pool).
   daemonId?: string;
+  // Append it to the slice's pool of CI daemons, or take it out.
+  add?: boolean;
+  remove?: boolean;
 }
 
 export interface SetSliceMergeOnSubmitRequest {

@@ -91,6 +91,7 @@ const (
 // StandbyPoll, while still connected), then detaches. A server that predates
 // StandbyPoll, or one that says no, leaves the daemon connected for good.
 func (d *agentDaemon) tryDetach(ctx context.Context) detachResult {
+	d.doorbellOpen.Store(false)
 	resp, err := d.standbyPollRPC(ctx)
 	switch {
 	case isStandbyUnsupported(err):
@@ -118,7 +119,13 @@ func (d *agentDaemon) tryDetach(ctx context.Context) detachResult {
 func (d *agentDaemon) standby(ctx context.Context) error {
 	d.say(fmt.Sprintf("idle for %s: detached from the server; polling for queued checks (it connects again when one is queued)", d.detachAfter))
 	failures := 0
+	// The doorbell (agent_doorbell.go), once a poll names one: while its
+	// socket is open the daemon polls only on a wake and every safety
+	// interval.
+	var bell *doorbellListener
+	defer func() { bell.stop() }()
 	for {
+		d.doorbellOpen.Store(bell.isConnected())
 		resp, err := d.standbyPollRPC(ctx)
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -145,10 +152,20 @@ func (d *agentDaemon) standby(ctx context.Context) error {
 				wait = time.Duration(resp.GetPollAfterMs()) * time.Millisecond
 			}
 			wait = min(max(wait, standbyPollMin), standbyPollMax)
+			if url, token := resp.GetDoorbellUrl(), resp.GetDoorbellToken(); url != "" && token != "" && !doorbellDisabled() {
+				if bell == nil {
+					bell = listenDoorbell(ctx, url, token)
+				} else {
+					bell.update(url, token)
+				}
+				if bell.isConnected() && resp.GetSafetyPollAfterMs() > 0 {
+					wait = time.Duration(resp.GetSafetyPollAfterMs()) * time.Millisecond
+				}
+			}
 		}
 		// GITSLICE_AGENT_POLL_INTERVAL sets the interval outright, and the
 		// first wait after a failure; later failures back off from it.
-		if override, ok := standbyPollOverride(); ok {
+		if override, ok := standbyPollOverride(); ok && !bell.isConnected() {
 			wait = override
 			if failures > 1 {
 				wait = min(override<<min(failures-1, 8), standbyPollMax)
@@ -160,8 +177,18 @@ func (d *agentDaemon) standby(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(wait):
+		case <-bell.woken():
+			d.say("the doorbell rang: polling")
+		case <-bell.dropped():
+			// Poll now, and every half minute until the socket is back.
 		}
 	}
+}
+
+// doorbellDisabled is GITSLICE_AGENT_DOORBELL=off: poll every half minute
+// even where the server has a doorbell.
+func doorbellDisabled() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv("GITSLICE_AGENT_DOORBELL")), "off")
 }
 
 // standbyRetryWait is how long to wait before polling again after failures
@@ -212,6 +239,8 @@ func (d *agentDaemon) standbyPollRPC(ctx context.Context) (*corev1.StandbyPollRe
 		Version:           version,
 		ContainerRuntimes: detectContainerRuntimes(),
 		AllowHostExec:     true,
+		InstanceId:        d.instanceID,
+		DoorbellOpen:      d.doorbellOpen.Load(),
 	})
 }
 

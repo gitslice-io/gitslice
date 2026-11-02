@@ -317,10 +317,11 @@ gs agent doctor --ci                       # what this machine is missing
 gs agent install --ci --name my-ci         # a user service (systemd or launchd) that restarts itself
 gs agent expose my-ci nic/tools            # let the slice's owners choose it
 gs slice set-ci-daemon nic/tools <daemon-id>
+gs slice set-ci-daemon nic/tools <other-daemon-id> --add   # a backup: runs go to the first one online
 gs agent uninstall my-ci
 ```
 
-`gs agent start --ci` runs one in the foreground instead. A checks-only daemon detaches after two idle minutes and polls every 30 s for queued checks (`--detach-after 0` stays connected), so it does not keep the server busy. While a slice's CI daemon is offline its checks stay queued, and `gs submit --watch` says so.
+`gs agent start --ci` runs one in the foreground instead. A checks-only daemon detaches after two idle minutes and waits on the server's doorbell, which wakes it when a check is queued (it polls every 20 minutes as a safety net, and every 30 s where there is no doorbell; `--detach-after 0` stays connected), so it does not keep the server busy. Several `gs agent start` processes with the same name share the daemon's checks, each up to `GITSLICE_CHECK_CONCURRENCY` at once, and a check whose process dies is tried again. While a slice's CI daemon is offline its checks stay queued, and `gs submit --watch` says so.
 
 If a command accepts a slice reference, prefer canonical `<account>/<slice>` in scripts. Bare slice slugs are CLI sugar and require a signed-in account. The reserved `home` slice covers `/account`, not `/account/home`.
 

@@ -105,7 +105,7 @@ func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1
 	row := s.db.QueryRowContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
 		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
-		       slices.archived_at is not null, slices.description, slices.merge_on_submit
+		       slices.archived_at is not null, slices.description, slices.merge_on_submit, coalesce((select json_agg(json_build_array(p.daemon_id, coalesce(nullif(d.label, ''), d.name, p.daemon_id)) order by p.position, p.added_at) from slice_ci_daemons p left join agent_daemons d on d.id = p.daemon_id where p.slice_id = slices.id), '[]'::json)
 		from slices
 		join accounts on accounts.id = slices.account_id
 		where accounts.slug = $1 and slices.slug = $2 and slices.deleted_at is null
@@ -116,7 +116,7 @@ func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1
 		row = s.db.QueryRowContext(ctx, `
 			select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
 			       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
-			       slices.archived_at is not null, slices.description, slices.merge_on_submit
+			       slices.archived_at is not null, slices.description, slices.merge_on_submit, coalesce((select json_agg(json_build_array(p.daemon_id, coalesce(nullif(d.label, ''), d.name, p.daemon_id)) order by p.position, p.added_at) from slice_ci_daemons p left join agent_daemons d on d.id = p.daemon_id where p.slice_id = slices.id), '[]'::json)
 			from slice_aliases
 			join slices on slices.id = slice_aliases.slice_id
 			join accounts on accounts.id = slices.account_id
@@ -134,7 +134,7 @@ func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, er
 	row := s.db.QueryRowContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
 		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
-		       slices.archived_at is not null, slices.description, slices.merge_on_submit
+		       slices.archived_at is not null, slices.description, slices.merge_on_submit, coalesce((select json_agg(json_build_array(p.daemon_id, coalesce(nullif(d.label, ''), d.name, p.daemon_id)) order by p.position, p.added_at) from slice_ci_daemons p left join agent_daemons d on d.id = p.daemon_id where p.slice_id = slices.id), '[]'::json)
 		from slices
 		join accounts on accounts.id = slices.account_id
 		where slices.id = $1
@@ -172,7 +172,7 @@ func (s *SliceStore) list(ctx context.Context, account, after string, limit int,
 	rows, err := s.db.QueryContext(ctx, `
 		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
 		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
-		       slices.archived_at is not null, slices.description, slices.merge_on_submit,
+		       slices.archived_at is not null, slices.description, slices.merge_on_submit, coalesce((select json_agg(json_build_array(p.daemon_id, coalesce(nullif(d.label, ''), d.name, p.daemon_id)) order by p.position, p.added_at) from slice_ci_daemons p left join agent_daemons d on d.id = p.daemon_id where p.slice_id = slices.id), '[]'::json),
 		       slices.created_at,
 		       coalesce((select max(c.updated_at) from changesets c
 		                 where c.authoring_slice_id = slices.id and c.status = 'submitted'), slices.created_at)
@@ -492,9 +492,9 @@ func scanSlice(row scanner) (*corev1.Slice, error) {
 		archived, mergeOnSubmit                                                              bool
 		version                                                                              int64
 		requiredApprovals                                                                    int32
-		includedJSON, requiredChecksJSON                                                     []byte
+		includedJSON, requiredChecksJSON, poolJSON                                           []byte
 	)
-	err := row.Scan(&id, &account, &slug, &version, &definitionHash, &ciDaemonID, &ciDaemonName, &visibility, &includedJSON, &requiredApprovals, &requiredChecksJSON, &archived, &description, &mergeOnSubmit)
+	err := row.Scan(&id, &account, &slug, &version, &definitionHash, &ciDaemonID, &ciDaemonName, &visibility, &includedJSON, &requiredApprovals, &requiredChecksJSON, &archived, &description, &mergeOnSubmit, &poolJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -509,7 +509,19 @@ func scanSlice(row scanner) (*corev1.Slice, error) {
 	if err := decodeJSON(requiredChecksJSON, &requiredChecks); err != nil {
 		return nil, err
 	}
+	var pool [][2]string
+	if err := decodeJSON(poolJSON, &pool); err != nil {
+		return nil, err
+	}
+	daemonIDs := make([]string, 0, len(pool))
+	daemonNames := make([]string, 0, len(pool))
+	for _, member := range pool {
+		daemonIDs = append(daemonIDs, member[0])
+		daemonNames = append(daemonNames, member[1])
+	}
 	return &corev1.Slice{
+		CiDaemonIds:    daemonIDs,
+		CiDaemonNames:  daemonNames,
 		Id:             id,
 		Ref:            &corev1.SliceRef{Account: account, Slice: slug},
 		DefinitionHash: definitionHash,

@@ -151,6 +151,12 @@ message StandbyPollRequest {
   string version = 3;
   repeated string container_runtimes = 4;
   bool allow_host_exec = 5;
+  // instance_id is the daemon process (RegisterDaemon.instance_id).
+  string instance_id = 6;
+  // doorbell_open says the daemon holds a socket open to the doorbell
+  // (StandbyPollResponse.doorbell_url), so it counts as online until its
+  // next safety poll is due.
+  bool doorbell_open = 7;
 }
 
 message StandbyPollResponse {
@@ -160,6 +166,13 @@ message StandbyPollResponse {
   bool pending = 2;
   // poll_after_ms is when to poll next if nothing is pending.
   int64 poll_after_ms = 3;
+  // The doorbell (design/32_ci_dispatch_on_cloudflare.md, layer 1): a
+  // daemon that holds a WebSocket open to doorbell_url, presenting
+  // doorbell_token, is told there when a check is queued for it, and polls
+  // only every safety_poll_after_ms. Empty when the server has no doorbell.
+  string doorbell_url = 4;
+  string doorbell_token = 5;
+  int64 safety_poll_after_ms = 6;
 }
 
 message RegisterDaemon {
@@ -168,6 +181,13 @@ message RegisterDaemon {
   string version = 3;
   repeated string container_runtimes = 4;
   bool allow_host_exec = 5;
+  // instance_id names this daemon process, so several processes can serve
+  // one daemon (design/32 layer 3): each claims the check runs it is sent.
+  // Empty from older daemons, which count as one process.
+  string instance_id = 6;
+  // check_concurrency is how many checks the process runs at once; the
+  // server sends it no more. 0 means no limit.
+  int32 check_concurrency = 7;
 }
 
 message Heartbeat {}

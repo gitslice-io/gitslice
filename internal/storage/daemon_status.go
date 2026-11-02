@@ -11,9 +11,10 @@ import "time"
 const DaemonStaleAfter = 90 * time.Second
 
 // EffectiveDaemonStatus is the status a daemon is shown with: the stored
-// status, except that "online" needs a recent sign of life.
-func EffectiveDaemonStatus(status string, lastSeen, now time.Time) string {
-	if status == "online" && now.Sub(lastSeen) > DaemonStaleAfter {
+// status, except that "online" needs a recent sign of life, or a wait on the
+// doorbell that has not run out (standbyUntil, design/32 layer 1).
+func EffectiveDaemonStatus(status string, lastSeen, standbyUntil, now time.Time) string {
+	if status == "online" && now.Sub(lastSeen) > DaemonStaleAfter && !standbyUntil.After(now) {
 		return "offline"
 	}
 	return status

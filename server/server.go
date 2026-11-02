@@ -199,6 +199,12 @@ func Run(ctx context.Context, cfg Config) error {
 	triggerChecks.CheckStore = stores.Checks
 	handlers := service.New(stores, objectStore, tracker)
 	handlers.SetTriggerEngine(triggerEngine)
+	doorbell, err := service.NewDoorbell(cfg.DoorbellURL, cfg.DoorbellSecret)
+	if err != nil {
+		return err
+	}
+	handlers.SetDoorbell(doorbell)
+	handlers.SetCIRunners(cfg.CIRunnerDaemons)
 	handlers.Feedback.Account = cfg.FeedbackAccount
 	handlers.Feedback.OperatorSubjects = cfg.OperatorSubjects
 	handlers.Webhook.Dispatcher = dispatcher

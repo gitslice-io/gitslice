@@ -211,14 +211,39 @@ func (s *SliceService) SetSliceCIDaemon(ctx context.Context, req *corev1.SetSlic
 	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, current); err != nil {
 		return nil, err
 	}
+	// The slice's pool of CI daemons (design/32 layer 3): daemon_id alone
+	// replaces it, add appends to it and remove takes one out.
+	daemonID := strings.TrimSpace(req.DaemonId)
+	pool := storage.CIDaemonPool(current)
+	inPool := map[string]bool{}
+	for _, id := range pool {
+		inPool[id] = true
+	}
+	var next []string
+	switch {
+	case req.Add && req.Remove:
+		return nil, status.Error(codes.InvalidArgument, "add and remove cannot both be set")
+	case (req.Add || req.Remove) && daemonID == "":
+		return nil, status.Error(codes.InvalidArgument, "daemon_id is required to add or remove a CI daemon")
+	case req.Add:
+		next = append(append(next, pool...), daemonID)
+	case req.Remove:
+		for _, id := range pool {
+			if id != daemonID {
+				next = append(next, id)
+			}
+		}
+	case daemonID != "":
+		next = []string{daemonID}
+	}
 	// A CI daemon runs the slice's checks and receives its secrets, so its
 	// owner decides which slices may name it. The people who may name one are
 	// those who manage it (they registered it, or own or administer the account
 	// it is registered under), and anyone else for a daemon its owner exposed to
 	// this slice. For any other daemon they get NotFound, as for an id that does
-	// not exist. Clearing it, or naming the daemon the slice already has, needs
+	// not exist. Removing one, or naming a daemon already in the pool, needs
 	// nothing more.
-	if daemonID := strings.TrimSpace(req.DaemonId); daemonID != "" && daemonID != current.CiDaemonId {
+	if daemonID != "" && !req.Remove && !inPool[daemonID] {
 		if s.Agents == nil {
 			return nil, status.Error(codes.FailedPrecondition, "agent daemons are not available")
 		}
@@ -242,7 +267,7 @@ func (s *SliceService) SetSliceCIDaemon(ctx context.Context, req *corev1.SetSlic
 			return nil, err
 		}
 	}
-	updated, err := s.Slices.SetCIDaemon(ctx, current.Id, req.DaemonId)
+	updated, err := s.Slices.SetCIDaemons(ctx, current.Id, next)
 	if err != nil {
 		return nil, grpcError(err)
 	}

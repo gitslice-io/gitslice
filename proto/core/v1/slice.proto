@@ -121,6 +121,12 @@ message Slice {
   // last_activity_at is when a changeset authored from the slice last landed,
   // else created_at. Set in listings only, for sorting by recent activity.
   string last_activity_at = 12;
+  // ci_daemon_ids is the slice's pool of CI daemons, in order of preference
+  // (design/32_ci_dispatch_on_cloudflare.md, layer 3). A check run goes to
+  // the first one that is online and exposed to the slice; ci_daemon_id is
+  // the first of them. ci_daemon_names are their names, in the same order.
+  repeated string ci_daemon_ids = 13;
+  repeated string ci_daemon_names = 14;
 }
 
 message SliceDefinition {
@@ -194,7 +200,12 @@ message UpdateSliceDefinitionRequest {
 
 message SetSliceCIDaemonRequest {
   SliceRef slice = 1;
+  // daemon_id alone makes it the slice's only CI daemon ("" clears the pool).
   string daemon_id = 2;
+  // add appends daemon_id to the slice's pool of CI daemons, keeping the
+  // others; remove takes it out.
+  bool add = 3;
+  bool remove = 4;
 }
 
 message SetSliceSecretRequest {

@@ -190,11 +190,14 @@ func ensureBuiltImage(ctx context.Context, rt RuntimeInfo, img builtImage, timeo
 	buildCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	dockerfile := filepath.Join(contextDir, filepath.FromSlash(img.dockerfile))
-	cmd := exec.CommandContext(buildCtx, rt.Path, "build",
-		"--label", builtImageFamilyKey+"="+img.Family,
+	buildArgs := []string{"build",
+		"--label", builtImageFamilyKey + "=" + img.Family,
 		"-t", img.Tag,
-		"-f", dockerfile,
-		contextDir)
+		"-f", dockerfile}
+	if HostNetwork() {
+		buildArgs = append(buildArgs, "--network="+hostNetwork)
+	}
+	cmd := exec.CommandContext(buildCtx, rt.Path, append(buildArgs, contextDir)...)
 	configureProcessGroup(cmd)
 	var output cappedBuffer
 	cmd.Stdout = &output

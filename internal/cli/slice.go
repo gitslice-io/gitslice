@@ -24,6 +24,8 @@ type sliceOutput struct {
 	Visibility        string   `json:"visibility"`
 	CIDaemonID        string   `json:"ci_daemon_id,omitempty"`
 	CIDaemonName      string   `json:"ci_daemon_name,omitempty"`
+	CIDaemonIDs       []string `json:"ci_daemon_ids,omitempty"`
+	CIDaemonNames     []string `json:"ci_daemon_names,omitempty"`
 	IncludedPaths     []string `json:"included_paths"`
 	RequiredApprovals int32    `json:"required_approvals"`
 	RequiredChecks    []string `json:"required_checks"`
@@ -461,6 +463,17 @@ func writeSliceText(w io.Writer, slice *corev1.Slice) error {
 	} else {
 		fmt.Fprintln(w, "ci_daemon_id: none")
 	}
+	if len(out.CIDaemonIDs) > 1 {
+		// The pool (design/32 layer 3): runs go to the first one online.
+		members := make([]string, len(out.CIDaemonIDs))
+		for i, id := range out.CIDaemonIDs {
+			members[i] = id
+			if i < len(out.CIDaemonNames) && out.CIDaemonNames[i] != "" && out.CIDaemonNames[i] != id {
+				members[i] = out.CIDaemonNames[i] + " (" + id + ")"
+			}
+		}
+		fmt.Fprintf(w, "ci_daemons: %s\n", strings.Join(members, ", "))
+	}
 	fmt.Fprintf(w, "required_approvals: %d\n", out.RequiredApprovals)
 	if out.MergeOnSubmit {
 		fmt.Fprintln(w, "merge_on_submit: on (a stale changeset is merged onto the latest base at submit)")
@@ -489,6 +502,8 @@ func sliceToOutput(slice *corev1.Slice) sliceOutput {
 		DefinitionHash: slice.DefinitionHash,
 		CIDaemonID:     slice.CiDaemonId,
 		CIDaemonName:   slice.CiDaemonName,
+		CIDaemonIDs:    append([]string(nil), slice.CiDaemonIds...),
+		CIDaemonNames:  append([]string(nil), slice.CiDaemonNames...),
 		Archived:       slice.Archived,
 		Description:    slice.Description,
 		MergeOnSubmit:  slice.MergeOnSubmit,
