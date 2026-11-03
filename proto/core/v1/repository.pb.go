@@ -828,8 +828,15 @@ type CheckoutRequest struct {
 	// the server sets. The client fetches whatever is not sent (ReadFiles,
 	// ReadBlobStream).
 	IncludeContent bool `protobuf:"varint,3,opt,name=include_content,json=includeContent,proto3" json:"include_content,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// root_tree_id and paths check out those repository paths of a tree instead
+	// of a slice at a commit: a CI checkout of a patchset's result tree, in one
+	// call rather than a listing and a read per file. Each path must be one the
+	// caller may read; slice and commit_id are not used, and the header names
+	// neither.
+	RootTreeId    string   `protobuf:"bytes,4,opt,name=root_tree_id,json=rootTreeId,proto3" json:"root_tree_id,omitempty"`
+	Paths         []string `protobuf:"bytes,5,rep,name=paths,proto3" json:"paths,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CheckoutRequest) Reset() {
@@ -881,6 +888,20 @@ func (x *CheckoutRequest) GetIncludeContent() bool {
 		return x.IncludeContent
 	}
 	return false
+}
+
+func (x *CheckoutRequest) GetRootTreeId() string {
+	if x != nil {
+		return x.RootTreeId
+	}
+	return ""
+}
+
+func (x *CheckoutRequest) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
 }
 
 type CheckoutResponse struct {
@@ -2345,11 +2366,14 @@ const file_proto_core_v1_repository_proto_rawDesc = "" +
 	"\x10ReadFileResponse\x12\x12\n" +
 	"\x04data\x18\x01 \x01(\fR\x04data\x12\x16\n" +
 	"\x06offset\x18\x02 \x01(\x03R\x06offset\x12!\n" +
-	"\fcontent_hash\x18\x03 \x01(\tR\vcontentHash\"\x89\x01\n" +
+	"\fcontent_hash\x18\x03 \x01(\tR\vcontentHash\"\xc1\x01\n" +
 	"\x0fCheckoutRequest\x120\n" +
 	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x12\x1b\n" +
 	"\tcommit_id\x18\x02 \x01(\tR\bcommitId\x12'\n" +
-	"\x0finclude_content\x18\x03 \x01(\bR\x0eincludeContent\"\xd7\x01\n" +
+	"\x0finclude_content\x18\x03 \x01(\bR\x0eincludeContent\x12 \n" +
+	"\froot_tree_id\x18\x04 \x01(\tR\n" +
+	"rootTreeId\x12\x14\n" +
+	"\x05paths\x18\x05 \x03(\tR\x05paths\"\xd7\x01\n" +
 	"\x10CheckoutResponse\x12:\n" +
 	"\x06header\x18\x01 \x01(\v2 .gitslice.core.v1.CheckoutHeaderH\x00R\x06header\x12=\n" +
 	"\aentries\x18\x02 \x01(\v2!.gitslice.core.v1.CheckoutEntriesH\x00R\aentries\x12@\n" +

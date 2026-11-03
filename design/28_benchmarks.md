@@ -286,6 +286,12 @@ at 10,000 files. Nothing was slow by itself; everything was per file:
   the files' content (each distinct content once, files up to 4 MiB, 256 MiB
   in all), gzip-compressed. A warm cache asks for the listing only and
   fetches what it lacks with `ReadFiles`.
+- `Checkout` also takes `root_tree_id` and `paths` (2026-11-03): a CI daemon
+  checks out a patchset's result tree in that one call, each path authorized
+  as a `ReadFile` of it would be, instead of a `ListDirectory` per folder and
+  a `ReadFile` per file (about 1,400 requests for the Gitslice tree on a
+  runner with an empty cache, as every Cloudflare runner starts). Files not
+  sent inline are read as before; an older server makes the daemon walk.
 - The CLI needs a server with these calls; it no longer falls back to the
   per-file ones.
 - Changeset validation reads all edits' blobs in one query and resolves the

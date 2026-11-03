@@ -204,6 +204,38 @@ commit, is now the largest cost of a build from scratch, and the pack mirror
 avoids it on a cold start. These are unit-level measurements; nothing has been
 run against a slice of tens of gigabytes.
 
+## Covers (2026-11-03)
+
+Measured on the Gitslice slice (623 commits, 11 MB as a clone): restoring the
+mirror took 3.9 s, but a full clone on a new instance then wrote all 5,364
+files of the history from the object store (162 MB, 41 s) and had git
+compress them for that one response. The clone ran past Cloudflare's
+100-second limit and failed; the same clone on a warm instance took 5 s.
+Scaling to zero (AGENTS.md, "Idle When Unused") makes new instances common.
+
+OpenAI's Pando answers fetches from stored, already compressed packs
+("covers") and merges small packs in the background. Ours
+(`internal/gitcompat/cover.go`):
+
+- **Compact** writes every file the history needs, repacks the repository
+  into one pack with deltas and a bitmap index (`git repack -a -d -b`), and
+  mirrors it (with its `.bitmap`). The state records `cover_head` and
+  `complete_at`; an instance that restores it marks the repository complete,
+  writes no file for a clone, and git sends the pack nearly as stored.
+- A fetch that leaves the repository without a cover, or with more than 8
+  packs (landings add one each), asks for a compaction after its response is
+  sent, at most once per 10 minutes per instance.
+- **Compaction runs in a request of its own.** Cloud Run gives a container CPU
+  only while it serves a request, and the clone that needed it must not wait.
+  The server POSTs `/git/_internal/compact` to its own Cloud Run URL
+  (`GITSLICE_SELF_URL`, past Cloudflare and its limit), signed with a key
+  derived from `GITSLICE_SECRETS_KEY`. Without a self URL (tests, local
+  servers) it compacts in-process.
+- Files written while serving after a cover are not mirrored; a cold instance
+  writes those few again until the next cover.
+- Clients need nothing new: unlike Pando's packfile URIs, the pack still
+  travels in the fetch response.
+
 ## Not done
 
 - **Where the hydrated files live.** A full clone writes every file into the

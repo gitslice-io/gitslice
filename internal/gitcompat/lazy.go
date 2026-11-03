@@ -340,6 +340,10 @@ func (p *Projector) HydrateFor(ctx context.Context, repoPath string, body []byte
 	}
 	// Everything reachable from the last complete head is present, so only what
 	// is newer needs searching.
+	if understood && !req.excludesBlobs() && len(req.haves) == 0 {
+		// A clone of whole files: worth a cover (cover.go).
+		p.noteFullFetch(repoPath)
+	}
 	missing, err := p.missingContents(ctx, repoPath, req, understood, p.completeAt(repoPath))
 	if err != nil {
 		return err

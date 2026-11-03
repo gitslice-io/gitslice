@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/storage"
@@ -43,6 +44,12 @@ type Projector struct {
 	// complete records, per repository, a head at which every file's contents
 	// are present, so a full clone need not search for missing ones again.
 	complete map[string]string
+
+	// Covers (cover.go).
+	compactRequester CompactRequester
+	serveLocks       map[string]*sync.RWMutex
+	coverAsked       map[string]time.Time
+	fullFetches      map[string]bool
 }
 
 type ProjectorStores struct {
@@ -114,6 +121,21 @@ func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account,
 	if err := authz.New(p.auth).Authorize(ctx, subjectID, slice, authz.ActionRead); err != nil {
 		return "", nil, err
 	}
+	return p.ensureResolved(ctx, account, sliceSlug, slice)
+}
+
+// ensureProjected brings a slice's projection up to date for the server's own
+// use (Compact), without a subject to authorize.
+func (p *Projector) ensureProjected(ctx context.Context, account, sliceSlug string) (string, error) {
+	slice, err := p.slices.Resolve(ctx, &corev1.SliceRef{Account: account, Slice: sliceSlug})
+	if err != nil {
+		return "", err
+	}
+	repoPath, _, err := p.ensureResolved(ctx, account, sliceSlug, slice)
+	return repoPath, err
+}
+
+func (p *Projector) ensureResolved(ctx context.Context, account, sliceSlug string, slice *corev1.Slice) (string, *Projection, error) {
 	repoPath := filepath.Join(p.cacheRoot, account, sliceSlug+".git")
 	// Registered first, so it runs after the lock is released: a request that
 	// changed the head stays open while the mirror catches up, because Cloud Run
@@ -150,6 +172,8 @@ func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account,
 			recordGitMirror("restore", "ok")
 			if state := loadProjectionState(repoPath); state != nil {
 				p.setPublished(repoPath, state.NativeHeadID)
+				// A restored cover holds every file up to its head.
+				p.setComplete(repoPath, state.CompleteAt)
 			}
 		}
 	}

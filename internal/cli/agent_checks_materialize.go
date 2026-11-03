@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -49,7 +50,52 @@ func (d *agentDaemon) materializeCheckTree(ctx context.Context, repo RepoClient,
 	if len(prefixes) == 0 {
 		prefixes = []string{"/"}
 	}
+	cache, err := d.runner.objectCache()
+	if err != nil {
+		return err
+	}
+	// One Checkout call where the server has it (agent_checks_stream.go);
+	// otherwise a listing per folder and a read per file.
+	tree, ok := repo.(checkTreeRepoClient)
+	if !ok {
+		tree = checkTreeRepoClient{inner: repo}
+	}
 	plan := newCheckMaterializePlan()
+	err = tree.streamTree(ctx, rootTreeID, prefixes, plan, cache)
+	switch {
+	case errors.Is(err, errNoTreeCheckout):
+		plan = newCheckMaterializePlan()
+		if err := d.walkCheckTree(ctx, repo, rootTreeID, prefixes, plan); err != nil {
+			return err
+		}
+	case err != nil:
+		return err
+	}
+	for _, dir := range plan.sortedDirs() {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		target, err := checkTreeLocalPath(destRoot, dir)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			return err
+		}
+	}
+	g, groupCtx := errgroup.WithContext(ctx)
+	g.SetLimit(checkMaterializeReadConcurrency)
+	for _, entry := range plan.sortedFiles() {
+		entry := entry
+		g.Go(func() error {
+			return materializeCheckFile(groupCtx, repo, cache, rootTreeID, entry, destRoot)
+		})
+	}
+	return g.Wait()
+}
+
+// walkCheckTree lists the prefixes of rootTreeID into plan, a call per folder.
+func (d *agentDaemon) walkCheckTree(ctx context.Context, repo RepoClient, rootTreeID string, prefixes []string, plan *checkMaterializePlan) error {
 	for _, prefix := range prefixes {
 		if prefix == "/" {
 			if err := d.materializeCheckDirectory(ctx, repo, rootTreeID, "/", plan); err != nil {
@@ -78,31 +124,7 @@ func (d *agentDaemon) materializeCheckTree(ctx context.Context, repo RepoClient,
 			return fmt.Errorf("unsupported check tree entry kind for %s: %s", prefix, entryKindName(entry.GetKind()))
 		}
 	}
-	for _, dir := range plan.sortedDirs() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		target, err := checkTreeLocalPath(destRoot, dir)
-		if err != nil {
-			return err
-		}
-		if err := os.MkdirAll(target, 0o755); err != nil {
-			return err
-		}
-	}
-	cache, err := d.runner.objectCache()
-	if err != nil {
-		return err
-	}
-	g, groupCtx := errgroup.WithContext(ctx)
-	g.SetLimit(checkMaterializeReadConcurrency)
-	for _, entry := range plan.sortedFiles() {
-		entry := entry
-		g.Go(func() error {
-			return materializeCheckFile(groupCtx, repo, cache, rootTreeID, entry, destRoot)
-		})
-	}
-	return g.Wait()
+	return nil
 }
 
 func (d *agentDaemon) materializeCheckDirectory(ctx context.Context, repo RepoClient, rootTreeID, dir string, plan *checkMaterializePlan) error {

@@ -244,7 +244,16 @@ func Run(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	var gitHandler http.Handler = gitcompat.NewHandler(gitcompat.SubjectResolver(resolveSubject), projector, handlers.Blob, handlers.Changeset)
+	gitcompatHandler := gitcompat.NewHandler(gitcompat.SubjectResolver(resolveSubject), projector, handlers.Blob, handlers.Changeset)
+	// Covers (internal/gitcompat/cover.go) are built in a request the server
+	// sends itself, at its own URL; without one they are built in-process.
+	if key := cfg.internalKey(); key != nil {
+		gitcompatHandler.SetInternalKey(key)
+		if cfg.SelfURL != "" {
+			projector.SetCompactRequester(gitcompat.SelfCompactRequester(cfg.SelfURL, key))
+		}
+	}
+	var gitHandler http.Handler = gitcompatHandler
 	gitHandler = newHTTPRateLimitMiddleware(cfg)(gitHandler)
 	combinedServer := &http.Server{
 		Handler:           activity.Default.Middleware(NewCombinedGRPCGatewayHandler(grpcServer, NewHTTPHandler(apiHandler, gitHandler, cfg.HTTPAllowedOrigin, cfg))),

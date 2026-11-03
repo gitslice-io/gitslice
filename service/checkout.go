@@ -31,6 +31,9 @@ const (
 // the files.
 func (s *RepositoryService) Checkout(req *corev1.CheckoutRequest, stream corev1.RepositoryService_CheckoutServer) error {
 	ctx := stream.Context()
+	if root := strings.TrimSpace(req.GetRootTreeId()); root != "" {
+		return s.checkoutTree(ctx, req, root, stream)
+	}
 	if req.GetSlice() == nil {
 		return status.Error(codes.InvalidArgument, "slice is required")
 	}
@@ -91,6 +94,88 @@ func (s *RepositoryService) Checkout(req *corev1.CheckoutRequest, stream corev1.
 		}
 	}
 	if err := sendEntries(); err != nil {
+		return err
+	}
+	if !req.GetIncludeContent() {
+		return nil
+	}
+	return s.streamCheckoutContents(ctx, stream, files)
+}
+
+// checkoutTreeMaxPaths bounds the paths of one tree checkout.
+const checkoutTreeMaxPaths = 1000
+
+// checkoutTree streams the given paths of a tree (CheckoutRequest.root_tree_id),
+// each authorized as ReadFile authorizes a path without a slice.
+func (s *RepositoryService) checkoutTree(ctx context.Context, req *corev1.CheckoutRequest, rootTreeID string, stream corev1.RepositoryService_CheckoutServer) error {
+	if len(req.GetPaths()) == 0 || len(req.GetPaths()) > checkoutTreeMaxPaths {
+		return status.Errorf(codes.InvalidArgument, "a tree checkout takes 1 to %d paths", checkoutTreeMaxPaths)
+	}
+	subjectID := optionalSubject(ctx)
+	var wanted []string
+	for _, raw := range req.GetPaths() {
+		p, err := repositoryReadPath(raw)
+		if err != nil {
+			return status.Error(codes.InvalidArgument, err.Error())
+		}
+		if accountSlugForRepositoryPath(p) == "" {
+			return status.Errorf(codes.InvalidArgument, "%s is not in an account", p)
+		}
+		if err := s.ensureRepositoryPathRead(ctx, subjectID, p); err != nil {
+			return err
+		}
+		wanted = append(wanted, p)
+	}
+	if err := stream.Send(&corev1.CheckoutResponse{Part: &corev1.CheckoutResponse_Header{Header: &corev1.CheckoutHeader{}}}); err != nil {
+		return err
+	}
+	seen := map[string]bool{}
+	var files []storage.TreeEntry
+	var batch []*corev1.TreeEntry
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		err := stream.Send(&corev1.CheckoutResponse{Part: &corev1.CheckoutResponse_Entries{Entries: &corev1.CheckoutEntries{Entries: batch}}})
+		batch = nil
+		return err
+	}
+	add := func(entry storage.TreeEntry) error {
+		if seen[entry.Path] {
+			return nil
+		}
+		seen[entry.Path] = true
+		batch = append(batch, treeEntryFromRepositoryEntry(entry))
+		if entry.Kind == "file" {
+			files = append(files, entry)
+		}
+		if len(batch) >= checkoutEntriesPerMessage {
+			return flush()
+		}
+		return nil
+	}
+	for _, p := range wanted {
+		entry, err := s.Repository.GetEntryAtTree(ctx, rootTreeID, p)
+		if err != nil {
+			return grpcError(err)
+		}
+		if entry.Kind != "directory" {
+			if err := add(*entry); err != nil {
+				return err
+			}
+			continue
+		}
+		entries, err := s.Repository.ListTreeAtTree(ctx, rootTreeID, p)
+		if err != nil {
+			return grpcError(err)
+		}
+		for _, e := range entries {
+			if err := add(e); err != nil {
+				return err
+			}
+		}
+	}
+	if err := flush(); err != nil {
 		return err
 	}
 	if !req.GetIncludeContent() {

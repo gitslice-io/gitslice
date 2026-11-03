@@ -37,6 +37,8 @@ type Handler struct {
 	projector  *Projector
 	blobs      BlobAPI
 	changesets ChangesetAPI
+	// internalKey signs the server's requests to itself (compact_http.go).
+	internalKey []byte
 }
 
 type BlobAPI interface {
@@ -67,6 +69,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		recordGitHTTPRequest(operation, recorder.status)
 	}()
 	w = recorder
+	if compactURLPath(r.URL.Path) {
+		h.serveCompact(w, r)
+		return
+	}
 	account, slice, pathInfo, err := parseGitPath(r.URL.Path)
 	if err != nil {
 		http.NotFound(w, r)
@@ -104,6 +110,11 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := h.serveBackend(w, r, repoPath, pathInfo); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if r.Method == http.MethodPost && strings.HasSuffix(pathInfo, "/git-upload-pack") {
+		// The response is sent; ask for a cover if the next clone needs one.
+		h.projector.MaybeRequestCover(account, slice)
 	}
 }
 
@@ -156,6 +167,10 @@ func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, repoPath,
 			return fmt.Errorf("hydrating file contents: %w", err)
 		}
 	}
+	// A compaction does not replace the packs while git reads them.
+	serve := h.projector.serveLock(repoPath)
+	serve.RLock()
+	defer serve.RUnlock()
 	cmd := exec.CommandContext(r.Context(), "git", "http-backend")
 	cmd.Stdin = bytes.NewReader(body)
 	cmd.Env = append(os.Environ(),

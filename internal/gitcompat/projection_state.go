@@ -48,6 +48,13 @@ type projectionState struct {
 	// A mirror copies exactly these; packs of hydrated file contents are
 	// excluded because the native store already holds those files.
 	HistoryPacks []string `json:"history_packs,omitempty"`
+	// CoverHead is the head the last cover was built at (cover.go): then the
+	// repository was repacked into one pack holding every file too, and
+	// HistoryPacks named only it. CompleteAt is a head at which every object
+	// reachable is in HistoryPacks, so a restored repository needs no file
+	// written for the history up to it.
+	CoverHead  string `json:"cover_head,omitempty"`
+	CompleteAt string `json:"complete_at,omitempty"`
 }
 
 type projectedCommit struct {

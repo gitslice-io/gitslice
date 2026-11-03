@@ -87,3 +87,61 @@ func TestRepositoryCheckoutStreamsSliceListingAndContent(t *testing.T) {
 		t.Fatalf("without content: paths = %v, contents = %v", paths, contents)
 	}
 }
+
+// TestRepositoryCheckoutOfATree: a CI checkout names a tree and paths
+// (folders or files) and gets their listing and contents in one call, each
+// path authorized as a ReadFile of it would be.
+func TestRepositoryCheckoutOfATree(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	alice := authctx.WithSubjectID(context.Background(), "user_alice")
+	a, b := []byte("a\n"), []byte("b\n")
+	for _, data := range [][]byte{a, b} {
+		mem.PutObject(filesystem.BlobKey(objectid.RawContentHash(data)), data)
+	}
+	file := func(p string, data []byte) storage.FileEntry {
+		return storage.FileEntry{Path: p, BlobID: objectid.BlobID(data), ContentHash: objectid.RawContentHash(data), Mode: 0o100644, Size: int64(len(data))}
+	}
+	mem.PutCommitWithFiles("commit_tree", []storage.FileEntry{
+		file("/acme/co/src/a.txt", a),
+		file("/acme/co/top.txt", b),
+		file("/acme/co/other/x.txt", b),
+	}, nil)
+	mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "co"}, []string{"/acme/co"}, "private")
+	root, err := mem.Repository.RootTreeForCommit(alice, "commit_tree")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	stream := &checkoutStream{ctx: alice}
+	if err := handlers.Repository.Checkout(&corev1.CheckoutRequest{RootTreeId: root, Paths: []string{"/acme/co/src", "/acme/co/top.txt"}, IncludeContent: true}, stream); err != nil {
+		t.Fatal(err)
+	}
+	if stream.msgs[0].GetHeader() == nil {
+		t.Fatalf("first message = %v, want the header", stream.msgs[0])
+	}
+	var paths []string
+	contents := map[string]string{}
+	for _, msg := range stream.msgs[1:] {
+		for _, entry := range msg.GetEntries().GetEntries() {
+			paths = append(paths, entry.GetPath())
+		}
+		for _, content := range msg.GetContents().GetContents() {
+			contents[content.GetContentHash()] = string(content.GetData())
+		}
+	}
+	if want := []string{"/acme/co/src/a.txt", "/acme/co/top.txt"}; !reflect.DeepEqual(paths, want) {
+		t.Fatalf("paths = %v, want %v", paths, want)
+	}
+	if want := map[string]string{objectid.RawContentHash(a): "a\n", objectid.RawContentHash(b): "b\n"}; !reflect.DeepEqual(contents, want) {
+		t.Fatalf("contents = %v, want %v", contents, want)
+	}
+
+	// Someone who may not read the account gets nothing, and paths are required.
+	mallory := authctx.WithSubjectID(context.Background(), "user_mallory")
+	if err := handlers.Repository.Checkout(&corev1.CheckoutRequest{RootTreeId: root, Paths: []string{"/acme/co/src"}}, &checkoutStream{ctx: mallory}); err == nil {
+		t.Fatal("an outsider checked out a private tree")
+	}
+	if err := handlers.Repository.Checkout(&corev1.CheckoutRequest{RootTreeId: root}, &checkoutStream{ctx: alice}); err == nil {
+		t.Fatal("a tree checkout without paths should be refused")
+	}
+}

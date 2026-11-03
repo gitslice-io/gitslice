@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -72,6 +74,17 @@ type packEntry struct {
 	Name string     `json:"name"`
 	Pack packObject `json:"pack"`
 	Idx  packObject `json:"idx"`
+	// Bitmap is a cover's bitmap index (cover.go), when it has one.
+	Bitmap *packObject `json:"bitmap,omitempty"`
+}
+
+// objects lists what the entry stores.
+func (e packEntry) objects() []packObject {
+	out := []packObject{e.Pack, e.Idx}
+	if e.Bitmap != nil {
+		out = append(out, *e.Bitmap)
+	}
+	return out
 }
 
 // packObject is an object stored in parts: Key.0, Key.1, ...
@@ -190,9 +203,21 @@ func (m *PackMirror) push(ctx context.Context, s *packSnapshot) error {
 		if err != nil {
 			return fmt.Errorf("upload %s index: %w", name, err)
 		}
-		next.Packs = append(next.Packs, packEntry{Name: name, Pack: pack, Idx: idx})
+		entry := packEntry{Name: name, Pack: pack, Idx: idx}
+		if _, statErr := os.Stat(filepath.Join(dir, name+".bitmap")); statErr == nil {
+			bitmap, err := m.putFile(ctx, prefix+"packs/"+name+".bitmap", filepath.Join(dir, name+".bitmap"))
+			if err != nil {
+				return fmt.Errorf("upload %s bitmap: %w", name, err)
+			}
+			entry.Bitmap = &bitmap
+		}
+		next.Packs = append(next.Packs, entry)
 	}
-	state, err := m.putBytes(ctx, prefix+"state/"+s.gitHead+".json", s.state)
+	// Named by its contents too: a cover rewrites the state of the same head,
+	// and an instance reading the previous manifest must still find what it
+	// names.
+	stateSum := sha256.Sum256(s.state)
+	state, err := m.putBytes(ctx, prefix+"state/"+s.gitHead+"-"+hex.EncodeToString(stateSum[:8])+".json", s.state)
 	if err != nil {
 		return fmt.Errorf("upload state: %w", err)
 	}
@@ -218,11 +243,13 @@ func dropped(previous *packManifest, next *packManifest) []packObject {
 	}
 	keep := map[string]bool{next.State.Key: true}
 	for _, e := range next.Packs {
-		keep[e.Pack.Key], keep[e.Idx.Key] = true, true
+		for _, obj := range e.objects() {
+			keep[obj.Key] = true
+		}
 	}
 	var out []packObject
 	for _, e := range previous.Packs {
-		for _, obj := range []packObject{e.Pack, e.Idx} {
+		for _, obj := range e.objects() {
 			if !keep[obj.Key] {
 				out = append(out, obj)
 			}
@@ -427,6 +454,12 @@ func (m *PackMirror) Restore(ctx context.Context, account, slice, repoPath strin
 		// The index goes last: git treats a pack without an index as absent.
 		if err := m.getFile(ctx, e.Pack, filepath.Join(packDir, e.Name+".pack")); err != nil {
 			return false, err
+		}
+		if e.Bitmap != nil {
+			if err := m.getFile(ctx, *e.Bitmap, filepath.Join(packDir, e.Name+".bitmap")); err != nil {
+				return false, err
+			}
+			total += e.Bitmap.Size
 		}
 		if err := m.getFile(ctx, e.Idx, filepath.Join(packDir, e.Name+".idx")); err != nil {
 			return false, err

@@ -1,6 +1,8 @@
 package server
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"fmt"
 	"math"
 	"os"
@@ -89,6 +91,10 @@ type Config struct {
 	// daemons poll every 30 s (design/32_ci_dispatch_on_cloudflare.md).
 	DoorbellURL    string
 	DoorbellSecret string
+	// SelfURL is the server's own URL that bypasses the CDN
+	// (GITSLICE_SELF_URL, the Cloud Run service URL): the server asks itself
+	// to build Git covers there, in a request of their own.
+	SelfURL string
 	// CIRunnerDaemons are the daemons the doorbell starts Cloudflare runners
 	// for when checks are queued (GITSLICE_CI_RUNNER_DAEMONS, comma
 	// separated): they count as reachable with no runner running.
@@ -157,10 +163,22 @@ func ConfigFromEnv() Config {
 		// The CI doorbell (design/32_ci_dispatch_on_cloudflare.md).
 		DoorbellURL:    os.Getenv("GITSLICE_DOORBELL_URL"),
 		DoorbellSecret: os.Getenv("GITSLICE_DOORBELL_SECRET"),
+		SelfURL:        os.Getenv("GITSLICE_SELF_URL"),
 		CIRunnerDaemons: strings.FieldsFunc(os.Getenv("GITSLICE_CI_RUNNER_DAEMONS"), func(r rune) bool {
 			return r == ',' || r == ' '
 		}),
 	}
+}
+
+// internalKey signs the server's requests to itself. It is derived from the
+// secrets key, which every instance holds; nil without one.
+func (c Config) internalKey() []byte {
+	if c.SecretsKey == "" {
+		return nil
+	}
+	mac := hmac.New(sha256.New, []byte(c.SecretsKey))
+	mac.Write([]byte("gitslice internal requests v1"))
+	return mac.Sum(nil)
 }
 
 func (c Config) usesR2() bool {
