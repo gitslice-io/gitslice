@@ -10,6 +10,79 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "pando-style-git-covers",
+    title: "What we borrowed from OpenAI's Pando: a cold clone from a timeout to 5 seconds",
+    dek: "A clone on a fresh server instance read every file of the history and compressed it for one client, and timed out. Stored, compressed packs (covers) and a one-call CI checkout fixed it: 5.1 seconds for the clone, one request for the checkout.",
+    date: "2026-11-03",
+    readingMinutes: 6,
+    tags: ["performance", "git"],
+    markdown: `OpenAI recently described [Pando](https://openai.com/index/scaling-git-at-openai/), the Git backend behind their monorepo. Two of its ideas fit a problem we had: answer fetches from stored, already compressed packs instead of building one per client, and do not make the server repeat the same work for every reader of the same history. This post is about how we applied both to Gitslice, and what it changed: a cold clone went from a timeout to 5 seconds, and a CI checkout from well over a hundred requests to one.
+
+## 1. How Gitslice serves Git
+
+Gitslice keeps its own history (changesets, paths, slices), and serves each slice to Git clients as an ordinary repository, built from that history. To keep slices of tens of gigabytes practical, the repository is built lazily: commits and trees are computed from metadata, and file contents are written in only when a fetch needs them. A mirror in object storage (R2) holds the history, so a new server instance restores it instead of rebuilding it.
+
+New instances are common for us: the server runs on Cloud Run and scales to zero when nobody is using it. So what a cold instance costs to answer a clone matters as much as what a warm one costs.
+
+## 2. What a cold clone cost
+
+We timed a fresh clone of the Gitslice slice itself, 623 commits and 11 MB as a clone, on a new instance:
+
+| Step on a cold instance | Time |
+|---|---:|
+| Restore the history from the mirror | 3.9 s |
+| Write every file of the history (5,364 files, 162 MB), one object read each | 41 s |
+| Compress them into the pack for this one response | the rest |
+| **The clone** | **failed: cut off at Cloudflare's 100 s limit** |
+
+On a warm instance the same clone took 5 seconds. Everything slow was work the previous instance had already done and thrown away: reading every file, and compressing them into a pack for a single client. That is the problem Pando was built around. Their old backend spent its CPU building packs, and built nearly the same pack again for each client.
+
+## 3. Covers
+
+Pando answers fetches with stored packs, which they call covers, and merges small packs into larger ones in the background, much as an LSM tree compacts its files. Ours works the same way, within the rules of the platform it runs on:
+
+- After a full clone, the server builds a cover: it writes every file the history needs, repacks everything into one pack with deltas and a bitmap index (\`git repack -a -d -b\`), and stores it in the mirror together with the head it is complete at.
+- A new instance restores the cover, knows every file is already there, and Git sends the pack almost as stored: with the bitmap it can tell which objects a clone needs without walking the history, and it reuses the stored deltas instead of computing new ones.
+- Landings add small packs on top. When there are more than eight, the next full clone asks for a new cover.
+- Building a cover takes CPU, and Cloud Run gives a container CPU only while it serves a request. So the server asks for one with a signed request to its own Cloud Run URL, past Cloudflare and its time limit. It never builds one in the background, and never inside the clone that needed it.
+- Partial clones stay lazy, and repositories over 512 MiB are not covered, since a Cloud Run container's disk is its memory.
+
+Clients need nothing new. Pando can send links to stored packs (packfile URIs), which clients must opt into; ours still sends the pack in the fetch response, so any Git client benefits.
+
+The first cover of the Gitslice slice took 35 seconds to build and came to 10.5 MB. The next cold instance restored it in 1.9 seconds and wrote no file at all:
+
+| Cold clone of \`gitslice/gitslice\` | Before | After |
+|---|---:|---:|
+| Time | over 100 s, then a 524 | **5.1 s** |
+| Files written from object storage | 5,364 | 0 |
+| Work per clone | read every file, compress every object | send a stored pack |
+
+There was one catch in our first version. A cover was requested only after a clone succeeded, and the clone that most needs a cover is the one that times out, so a large slice would never have got one. Now every full clone asks, however it ended. We also had to name the mirrored state by its contents: a cover rewrites the state of the same head, and an instance still reading the previous manifest must find what that manifest names.
+
+## 4. A CI checkout in one request
+
+Pando's other lesson is about fan-out: when many readers want the same history (in their example, every push is fetched by four CI jobs), each of them should cost the server as little as possible.
+
+Our CI daemon checked out a patchset's tree one directory and one file at a time: 133 directory listings, and up to about 1,400 file reads for the Gitslice tree when its cache is empty, which is how every fresh runner starts. Each was a request with its own authentication and database reads.
+
+\`Checkout\`, the streaming call \`gs init\` already uses, now also takes a tree and a list of paths, each authorized exactly as a single file read would be. The daemon makes that one call and gets the listing and the contents together. Files too large to send inline are read as before, and against an older server the daemon walks the tree as it used to.
+
+| CI checkout of the Gitslice tree | Before | After |
+|---|---:|---:|
+| Requests | 133 listings + up to ~1,400 reads | **1** |
+| Time in production | — | 1.5 s |
+
+It took two releases, and how we found out is worth telling. In v0.4.22 the daemon checked whether its client could stream with an interface that did not match the generated gRPC client, so it always fell back to walking the tree. The unit test passed, because its fake matched our interface rather than the real client. We noticed only by counting the daemon's requests in production after the release: 133 listings and no \`Checkout\`. v0.4.23 fixes it, with a compile-time check against the generated client.
+
+## 5. Where we differ from Pando
+
+Pando keeps Git's model and scales the server: branches are independent, and each branch serializes its own updates. Gitslice changes the model instead: a change is admitted per path rather than per branch, so agents working on different paths do not wait for each other even on \`main\`, and a slice gives each agent a sparse, permissioned view of the monorepo. The Git side is a compatibility layer, which is why borrowing Pando's ideas for it was so direct.
+
+Two more of Pando's ideas are on our list: tree bundles for CI and agents (one cached, immutable object per tree, so even the server's reads become cache hits), and deterministic simulation testing for our submit and publish path.
+
+The server side is live at gitslice.io, and the one-request CI checkout is in gs v0.4.23 (\`gs upgrade\`). The design is in \`design/23_large_git_projection.md\` in the [gitslice/gitslice](https://gitslice.io/slices/gitslice/gitslice) slice.`
+  },
+  {
     slug: "benchmarking-gitslice-against-git",
     title: "Benchmarking Gitslice against Git: where we win, where we lose, and what 455 seconds taught us",
     dek: "We timed import, commit and checkout against Git on the same files. A one-directory checkout beats Git; import is still 3x slower. And a 455-second checkout over a real network became 2.7 seconds by removing per-file round trips.",

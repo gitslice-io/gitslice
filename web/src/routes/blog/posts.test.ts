@@ -38,4 +38,15 @@ describe("blog posts", () => {
     expect(html).toContain('<code class="language-bash">GITSLICE_TEST_DATABASE_URL=...');
     expect(html).toContain('<td align="right">455 s</td>');
   });
+
+  it("include the Pando post", () => {
+    const post = getPost("pando-style-git-covers");
+    expect(blogPosts[0]).toBe(post);
+    expect(post?.markdown).toContain("| Cold clone of `gitslice/gitslice` | Before | After |");
+    expect(post?.markdown).toContain("git repack -a -d -b");
+    const html = marked.parse(post?.markdown ?? "", { async: false });
+    expect(html).toContain('<a href="https://openai.com/index/scaling-git-at-openai/">Pando</a>');
+    expect(html).toContain('<td align="right"><strong>5.1 s</strong></td>');
+    expect(html).toContain("<th>CI checkout of the Gitslice tree</th>");
+  });
 });
