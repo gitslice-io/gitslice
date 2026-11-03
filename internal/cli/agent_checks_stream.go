@@ -22,8 +22,11 @@ import (
 
 // checkoutStreamer is a repository client that can stream a checkout.
 type checkoutStreamer interface {
-	Checkout(ctx context.Context, in *corev1.CheckoutRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[corev1.CheckoutResponse], error)
+	Checkout(ctx context.Context, in *corev1.CheckoutRequest, opts ...grpc.CallOption) (corev1.RepositoryService_CheckoutClient, error)
 }
+
+// The generated client must be one, or every checkout would walk the tree.
+var _ checkoutStreamer = corev1.NewRepositoryServiceClient(nil)
 
 // errNoTreeCheckout is a server that cannot check out a tree in one call
 // (older than tree checkouts): the caller walks the tree instead.

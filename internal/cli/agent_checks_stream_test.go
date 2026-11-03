@@ -36,7 +36,7 @@ func (c *cannedCheckout) Recv() (*corev1.CheckoutResponse, error) {
 	return msg, nil
 }
 
-func (s *streamingCheckRepo) Checkout(ctx context.Context, in *corev1.CheckoutRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[corev1.CheckoutResponse], error) {
+func (s *streamingCheckRepo) Checkout(ctx context.Context, in *corev1.CheckoutRequest, opts ...grpc.CallOption) (corev1.RepositoryService_CheckoutClient, error) {
 	if s.unsupport {
 		return nil, status.Error(codes.InvalidArgument, "slice is required")
 	}
