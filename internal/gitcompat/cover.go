@@ -49,8 +49,8 @@ const coverCooldown = 10 * time.Minute
 // gets CPU (a request to the server itself). It must not block.
 type CompactRequester func(account, slice string)
 
-// SetCompactRequester sets how fetches ask for covers; nil compacts in a
-// goroutine of this process (tests and local servers, which have CPU).
+// SetCompactRequester sets how fetches ask for covers; nil compacts in this
+// process, in the fetch's handler (tests and local servers, which have CPU).
 func (p *Projector) SetCompactRequester(r CompactRequester) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -159,7 +159,8 @@ func (p *Projector) needsCover(repoPath string) bool {
 
 // MaybeRequestCover asks for a compaction of the slice when its repository
 // needs one, at most once per coverCooldown on this instance. A fetch calls it
-// after its response is sent.
+// after its response is written; without a requester it compacts before it
+// returns.
 func (p *Projector) MaybeRequestCover(account, slice string) {
 	repoPath := filepath.Join(p.cacheRoot, account, slice+".git")
 	if !p.needsCover(repoPath) {
@@ -180,11 +181,13 @@ func (p *Projector) MaybeRequestCover(account, slice string) {
 		request(account, slice)
 		return
 	}
-	go func() {
-		if err := p.Compact(context.Background(), account, slice); err != nil {
-			slog.Warn("git cover failed", "repo", account+"/"+slice+".git", "error", err)
-		}
-	}()
+	// In-process (tests and local servers, which have CPU), in the fetch's
+	// handler after its response, so nothing runs on in the background.
+	ctx, cancel := context.WithTimeout(context.Background(), compactTimeout)
+	defer cancel()
+	if err := p.Compact(ctx, account, slice); err != nil {
+		slog.Warn("git cover failed", "repo", account+"/"+slice+".git", "error", err)
+	}
 }
 
 // Compact builds the slice's cover: it brings the projection up to date,

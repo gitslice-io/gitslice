@@ -108,13 +108,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeGitError(w, err)
 		return
 	}
+	if r.Method == http.MethodPost && strings.HasSuffix(pathInfo, "/git-upload-pack") {
+		// Once the response is over, ask for a cover if the next clone needs
+		// one: also when this one failed, as a cold clone of a large slice cut
+		// off at the CDN's time limit does, or no clone would ever be cheap.
+		defer h.projector.MaybeRequestCover(account, slice)
+	}
 	if err := h.serveBackend(w, r, repoPath, pathInfo); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	if r.Method == http.MethodPost && strings.HasSuffix(pathInfo, "/git-upload-pack") {
-		// The response is sent; ask for a cover if the next clone needs one.
-		h.projector.MaybeRequestCover(account, slice)
 	}
 }
 
