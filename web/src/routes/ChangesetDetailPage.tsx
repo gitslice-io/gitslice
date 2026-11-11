@@ -50,6 +50,7 @@ import {
   isTerminalStatus,
   mergeErrorMessage
 } from "./changeset-detail/status";
+import { dependentChangesetsQuery, type DependentChangeset } from "./changeset-detail/dependents";
 import { sortedPatchsets } from "./changeset-detail/patchsetUtils";
 import {
   FileVersionDrawer,
@@ -68,6 +69,9 @@ import { ChangesetLoadError } from "./changeset-detail/ChangesetLoadError";
 
 const fullDiffPathLimit = 20;
 const eagerFileDiffCount = 10;
+
+// One array for "none", so what reads it does not see a new value each render.
+const NO_DEPENDENTS: DependentChangeset[] = [];
 
 export function ChangesetDetailPage() {
   const api = useApi();
@@ -168,26 +172,10 @@ export function ChangesetDetailPage() {
     enabled: Boolean(
       changeset?.id && authoringSlice?.account && authoringSlice?.slice
     ),
-    queryKey: [
-      "changesetsBySlice",
-      authoringSlice?.account,
-      authoringSlice?.slice
-    ],
-    queryFn: () => api.listChangesets({ authoringSlice, limit: 200, summary: true })
+    ...dependentChangesetsQuery(api, authoringSlice, changeset?.id ?? "")
   });
 
-  const dependentChangesets = useMemo(() => {
-    const selfId = changeset?.id;
-    if (!selfId) {
-      return [] as { id: string; title: string }[];
-    }
-    return (sliceChangesetsQuery.data?.changesets ?? [])
-      .filter((candidate) => candidate.parentChangesetId === selfId && candidate.id)
-      .map((candidate) => ({
-        id: candidate.id as string,
-        title: candidate.title ?? ""
-      }));
-  }, [sliceChangesetsQuery.data?.changesets, changeset?.id]);
+  const dependentChangesets = sliceChangesetsQuery.data ?? NO_DEPENDENTS;
 
   const canonicalChangesetId = changeset?.id || changesetId;
   const sliceSearch = changeset ? changesetSliceSearch(changeset) : "";

@@ -61,6 +61,7 @@ import {
 } from "../lib/socialMeta";
 import { SelectionProvider, useSelection } from "../state/selection";
 import { THEME_BOOTSTRAP_SCRIPT } from "../theme";
+import { dependentChangesetsQuery } from "./changeset-detail/dependents";
 import { sortedPatchsets } from "./changeset-detail/patchsetUtils";
 import { UsernameGate } from "./UsernameGate";
 import { AccountNotFound, ChangesetNotFound, PageNotFound, SliceNotFound } from "./NotFoundPage";
@@ -812,15 +813,9 @@ const changesetShortRoute = createRoute({
               })
           }),
           authoringSlice?.account && authoringSlice?.slice
-            ? context.queryClient.ensureQueryData({
-                queryKey: [
-                  "changesetsBySlice",
-                  authoringSlice.account,
-                  authoringSlice.slice
-                ],
-                queryFn: () =>
-                  api.listChangesets({ authoringSlice, limit: 200, summary: true })
-              })
+            ? context.queryClient.ensureQueryData(
+                dependentChangesetsQuery(api, authoringSlice, changeset.id ?? "")
+              )
             : Promise.resolve(undefined)
         ]);
       } catch (error) {

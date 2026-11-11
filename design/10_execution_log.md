@@ -9325,6 +9325,12 @@ pages are code-split, analytics waits for the page to load.
   the HTML (about 50 ms) and is fetched once. A signed-out visitor sees the
   whole page, "Sign in" included, in the server's HTML either way; this is
   for signed-in people, whose API calls wait for Clerk.
+- **Changeset pages no longer carry the slice's changeset list.** To show
+  the changesets stacked on one, the page cached the slice's last 200
+  changesets whole (paths, descriptions, requirements: about 412 KB), and the
+  server render wrote all of it into the HTML of every changeset page, about
+  1 MB. It now keeps the ids and titles of the dependents only
+  (`web/src/routes/changeset-detail/dependents.ts`); the API call is the same.
 - Tested on a local Worker built with the staging environment (Clerk's test
   instance works on localhost): signed-out pages make no request for the UI
   script and show "Sign in" at once; /login and /signup draw their cards,
