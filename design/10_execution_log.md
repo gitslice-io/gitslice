@@ -9343,6 +9343,12 @@ pages are code-split, analytics waits for the page to load.
   has moving times. `TriggerRunsPanel` shows its time through `Timestamp`,
   because a cached page's "3h ago" hydrated against the browser's "4h ago"
   is a React hydration error (seen while testing this).
+- **Sign-in frame, again.** Fifteen phone loads of /login on production
+  showed one with a layout shift of 0.24: the browser painted the centered
+  frame with only its first row parsed (84px tall), and it jumped when the
+  rest of the HTML arrived. The frame's full height is now on the frame's own
+  tag (`reservedFrameHeight` in `AuthFrame`), not only on the box inside it.
+  Smaller samples had not shown it.
 - Tested on a local Worker built with the staging environment (Clerk's test
   instance works on localhost): signed-out pages make no request for the UI
   script and show "Sign in" at once; /login and /signup draw their cards,
