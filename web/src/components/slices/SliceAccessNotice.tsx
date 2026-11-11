@@ -71,6 +71,7 @@ function SignInButton() {
     <Link
       className="mt-3 inline-flex rounded-md bg-zinc-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
       onClick={() => rememberReturnTo(currentPath())}
+      reloadDocument
       to="/login"
     >
       Sign in

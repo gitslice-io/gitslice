@@ -32,7 +32,7 @@ export function ChangesetLoadError({
         message="This changeset is in a private slice. Sign in to see it if you are a member."
         title="Sign in to see this changeset"
       >
-        <Link className={messageLinkClass} to="/login">
+        <Link className={messageLinkClass} reloadDocument to="/login">
           Sign in
         </Link>
       </PageMessage>

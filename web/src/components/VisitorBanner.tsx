@@ -37,6 +37,7 @@ export function VisitorBanner({ show }: { show: boolean }) {
           </Link>
           <Link
             className="inline-flex min-h-8 items-center rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+            reloadDocument
             to="/signup"
           >
             Sign up

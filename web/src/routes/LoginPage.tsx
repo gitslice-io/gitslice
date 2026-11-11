@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { AuthFrame } from "../components/AuthFrame";
 import { CLI_LOGIN_SEARCH_STORAGE_KEY } from "../auth/cliLogin";
 import { clearReturnTo, peekReturnTo } from "../auth/returnTo";
+import { clerkUiInDocument, reloadForClerkUi } from "../lib/clerkUi";
 
 export function LoginPage() {
   const { isLoaded, isSignedIn } = useAuth();
@@ -32,7 +33,16 @@ export function LoginPage() {
     window.location.replace(returnTo);
   }, [isLoaded, isSignedIn, pendingCliLoginSearch, returnTo]);
 
-  if (!isLoaded) {
+  // Reached from a page that did not load Clerk's UI: load this one from the
+  // server, which includes it (lib/clerkUi).
+  const [needsUi] = useState(() => !clerkUiInDocument());
+  useEffect(() => {
+    if (needsUi) {
+      reloadForClerkUi();
+    }
+  }, [needsUi]);
+
+  if (!isLoaded || needsUi) {
     return (
       <AuthFrame reserve="sign-in" title="Sign in">
         <p className="text-sm text-slate-600 dark:text-zinc-400">Loading session...</p>

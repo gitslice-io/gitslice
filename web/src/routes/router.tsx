@@ -50,6 +50,7 @@ import { shortChangesetId } from "../lib/objectId";
 import { changesetsListQuery, parseStatusTab } from "./changesets-list/filters";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { conversationsEnabled } from "../lib/features";
+import { CLERK_UI_ATTRIBUTE, clerkUiInDocument, clerkUiWanted } from "../lib/clerkUi";
 import {
   changesetHead,
   sliceHead,
@@ -122,6 +123,16 @@ function createQueryClient() {
 }
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
+  // Whether this document asks Clerk for its UI script (lib/clerkUi). The
+  // server decides from the address and the cookies; the browser keeps to
+  // what the document was served with.
+  loader: async ({ location }) => {
+    if (import.meta.env.SSR) {
+      const { getRequestHeader } = await import("@tanstack/react-start/server");
+      return { clerkUi: clerkUiWanted(location.pathname, getRequestHeader("cookie") ?? "") };
+    }
+    return { clerkUi: clerkUiInDocument() };
+  },
   head: () => ({
     meta: [
       { charSet: "utf-8" },
@@ -156,16 +167,21 @@ function RootDocument({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { getDehydratedQueryState, queryClient } = router.options
     .context as RouterContext;
+  const rootData = useRouterState({
+    select: (state) => state.matches.find((match) => match.routeId === rootRoute.id)?.loaderData
+  }) as { clerkUi?: boolean } | undefined;
+  // Unknown (an error before the loader ran) means load it.
+  const clerkUi = rootData?.clerkUi ?? clerkUiInDocument();
 
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning {...{ [CLERK_UI_ATTRIBUTE]: clerkUi ? "1" : "0" }}>
       <head>
         <HeadContent />
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} />
       </head>
       <body>
         <PostHogProvider />
-        <ClerkAuthProvider>
+        <ClerkAuthProvider ui={clerkUi}>
           <QueryClientProvider client={queryClient}>
             <HydrationBoundary state={getDehydratedQueryState()}>
               {children}

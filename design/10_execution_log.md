@@ -9292,14 +9292,40 @@ pages are code-split, analytics waits for the page to load.
   were revalidated on every page. The mark is served as a 96 px file (1.1 KB,
   was 15.7 KB at 512 px for a 24 px image).
 
-**Not changed, and why**
-- Clerk's UI bundle (about 300 KB compressed, from Clerk's CDN) loads for
-  every visitor, and `isLoaded` waits for it. `prefetchUI={false}` stops it,
-  but then `<SignIn>` and `<UserButton>` never get their UI in this SDK
-  version, so it stays.
-- Caching server-rendered pages at the edge for signed-out visitors would
-  cut time to first byte further. It needs a rule for when a page goes stale
-  and was left out.
+**Second pass, same day: the two things first left out**
+- **Clerk's UI script only where it is used.** It is about 300 KB compressed
+  and Clerk does not report the session as loaded until it arrives.
+  `prefetchUI={false}` stops it, but then `<SignIn>`, `<SignUp>` and
+  `<UserButton>` never get their UI, so it cannot be off everywhere. The
+  server now decides per document (`web/src/lib/clerkUi.ts`, the root route's
+  loader): on for /login, /signup, /cli-login and for any request with a
+  session cookie, off for a visitor with no session on any other page. The
+  decision is written on `<html data-clerk-ui>` and the browser keeps to it.
+  A sign-in page reached inside a document without the UI (RequireAuth's
+  redirect, say) reloads itself once from the server; links to /login and
+  /signup are full document loads; if a session appears in such a document
+  (signed in from another tab) the top bar reloads the page instead of
+  mounting the account button.
+- **A short edge cache for signed-out page views** (`web/src/lib/pageCache.ts`,
+  used in `server.ts`): slice, changeset, changeset-list and account pages,
+  only for a GET that cannot be signed in (no session cookie, no
+  Authorization header, no Clerk parameter), only a 200 HTML response that
+  sets no cookie. Fresh for 30 s; up to 5 min it is served at once and
+  re-rendered in the background (`waitUntil`). The key holds the build id
+  (`__BUILD_ID__`, vite.config.ts), the address, and whether the visitor
+  banner shows. The page's queries are older than their 15 s stale time when
+  a stale copy hydrates, so the browser refetches them: a visitor can see a
+  page up to 5 min old for a moment, never for the visit. Nothing runs on a
+  timer. To turn it off, return `undefined` from `pageCacheKey`. The response
+  header `x-gitslice-page-cache` says hit, stale or miss.
+- Tested on a local Worker built with the staging environment (Clerk's test
+  instance works on localhost): signed-out pages make no request for the UI
+  script and show "Sign in" at once; /login and /signup draw their cards,
+  directly and through RequireAuth's redirect; a ticket sign-in with a
+  temporary Clerk test user (deleted afterwards) gave a signed-in session
+  whose pages had the account button, authenticated API calls through the
+  lazy client, and no cache header. Cache: miss then hit (10 to 20 ms), stale
+  then refreshed, a 404 and a session cookie never stored.
 
 **Verification**
 - `npx tsc -b`, `npx vitest run --environment jsdom` (web).

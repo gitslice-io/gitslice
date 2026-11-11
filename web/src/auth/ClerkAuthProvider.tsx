@@ -5,9 +5,12 @@ import { aliasUser, identifyUser, resetUser } from "../analytics/posthog";
 
 interface ClerkAuthProviderProps {
   children: ReactNode;
+  // False where this document shows none of Clerk's own components
+  // (lib/clerkUi): Clerk then skips its UI script.
+  ui?: boolean;
 }
 
-export function ClerkAuthProvider({ children }: ClerkAuthProviderProps) {
+export function ClerkAuthProvider({ children, ui = true }: ClerkAuthProviderProps) {
   const publishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
 
   if (!publishableKey) {
@@ -43,6 +46,8 @@ export function ClerkAuthProvider({ children }: ClerkAuthProviderProps) {
           colorNeutral: "var(--clerk-color-neutral)"
         }
       }}
+      // Only ever false or unset: unset is Clerk's default, which loads it.
+      prefetchUI={ui ? undefined : false}
       publishableKey={publishableKey}
     >
       <ClerkAnalyticsIdentity />

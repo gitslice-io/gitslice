@@ -1,7 +1,9 @@
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useAuth, UserButton } from "@clerk/tanstack-react-start";
+import { useEffect, useState } from "react";
 
 import { cn } from "../lib/cn";
+import { clerkUiInDocument, reloadForClerkUi } from "../lib/clerkUi";
 import { conversationsEnabled } from "../lib/features";
 import { useHomeTarget } from "../state/homeTarget";
 import { useSelection } from "../state/selection";
@@ -75,6 +77,15 @@ export function TopBar() {
   const { account } = useSelection();
   const home = useHomeTarget();
   const { isLoaded, isSignedIn } = useAuth();
+  // A document served to a visitor with no session has no Clerk UI
+  // (lib/clerkUi). If a session then appears in it (signed in from another
+  // tab), the account button cannot draw: load the page again, signed in.
+  const [hasClerkUi] = useState(clerkUiInDocument);
+  useEffect(() => {
+    if (isLoaded && isSignedIn && !hasClerkUi) {
+      reloadForClerkUi();
+    }
+  }, [hasClerkUi, isLoaded, isSignedIn]);
   const pathname = useRouterState({
     select: (state) => state.location.pathname
   });
@@ -137,7 +148,7 @@ export function TopBar() {
           <ClaimsNotice />
           <ThemeToggle />
           {account ? <AccountSwitcher /> : null}
-          {!isLoaded ? (
+          {!isLoaded || (isSignedIn && !hasClerkUi) ? (
             <div
               aria-hidden
               className="size-8 shrink-0 animate-pulse rounded-full bg-slate-200 dark:bg-zinc-700"
@@ -162,6 +173,7 @@ export function TopBar() {
           ) : (
             <Link
               className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              reloadDocument
               to="/login"
             >
               Sign in
