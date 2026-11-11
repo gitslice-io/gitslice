@@ -8,13 +8,24 @@ interface AuthFrameProps {
   title: string;
   // False where the page hosts a card with a heading of its own.
   titleIsHeading?: boolean;
+  // The Clerk card this frame is about to hold. Its room is kept from the
+  // first paint, so the frame does not grow (and, centered, jump) when the
+  // card arrives a moment after the page.
+  reserve?: keyof typeof reservedHeight;
   children: ReactNode;
 }
+
+// Clerk's cards as measured at phone and desktop widths.
+const reservedHeight = {
+  "sign-in": "min-h-[30rem] sm:min-h-[28.75rem]",
+  "sign-up": "min-h-[35rem] sm:min-h-[34rem]"
+} as const;
 
 export function AuthFrame({
   eyebrow = "Gitslice",
   title,
   titleIsHeading = true,
+  reserve,
   children
 }: AuthFrameProps) {
   return (
@@ -38,7 +49,7 @@ export function AuthFrame({
             {title}
           </p>
         )}
-        <div className="mt-6">{children}</div>
+        <div className={reserve ? `mt-6 ${reservedHeight[reserve]}` : "mt-6"}>{children}</div>
       </section>
     </main>
   );

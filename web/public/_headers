@@ -1,0 +1,13 @@
+# Images that keep their name between deploys: without this the browser asks
+# the server about each one again on every page. A changed image takes a new
+# file name. (The build adds the rule for the hashed files under /assets/.)
+/brand/*
+  Cache-Control: public, max-age=604800
+/favicon.png
+  Cache-Control: public, max-age=604800
+/apple-touch-icon.png
+  Cache-Control: public, max-age=604800
+/icon-192.png
+  Cache-Control: public, max-age=604800
+/icon-512.png
+  Cache-Control: public, max-age=604800

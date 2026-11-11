@@ -1,7 +1,9 @@
 import { useAuth } from "@clerk/tanstack-react-start";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
-import { createApiClient, defaultApiBaseUrl } from "./client";
+import { afterPageLoad } from "../analytics/idle";
+import { createLazyApiClient, loadApiClientModule } from "./lazyClient";
+import { defaultApiBaseUrl } from "./rpcError";
 import type {
   AbandonChangesetRequest,
   AgentDaemon,
@@ -336,8 +338,17 @@ export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
     [getToken, isLoaded, isSignedIn]
   );
 
+  // The client's code is not in the page's first script (./lazyClient). It
+  // is fetched once the page has loaded, so it is there by the time a call
+  // is made; a call made sooner fetches it itself.
+  useEffect(() => {
+    void afterPageLoad()
+      .then(loadApiClientModule)
+      .catch(() => undefined);
+  }, []);
+
   return useMemo(
-    () => createApiClient({ getToken: getApiToken, baseUrl }),
+    () => createLazyApiClient({ getToken: getApiToken, baseUrl }),
     [baseUrl, getApiToken]
   );
 }

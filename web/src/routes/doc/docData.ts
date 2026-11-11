@@ -67,7 +67,7 @@ export const docSections: Array<{
   {
     id: "cli",
     title: "CLI Reference",
-    description: "A compact command lookup for daily `gs` work."
+    description: "A compact command lookup for daily gs work."
   }
 ];
 
@@ -86,7 +86,7 @@ export const startSteps = [
   {
     title: "Open your home slice",
     description:
-      "Your personal account has a `home` slice rooted at /<you>. Use it for a first workflow. For a big slice, `gs init --lazy <slice> <dir>` mounts it instead of downloading everything (Linux and macOS, with FUSE); see Lazy Workspaces.",
+      "Your personal account has a home slice rooted at /<you>. Use it for a first workflow. For a big slice, gs init --lazy <slice> <dir> mounts it instead of downloading everything (Linux and macOS, with FUSE); see Lazy Workspaces.",
     command: "gs init <you>:home\n# example: gs init nic:home"
   },
   {

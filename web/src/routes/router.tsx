@@ -25,7 +25,7 @@ import type { ReactNode } from "react";
 import appCss from "../index.css?url";
 import { PostHogProvider } from "../analytics/PostHogProvider";
 import { ClerkAuthProvider } from "../auth/ClerkAuthProvider";
-import { RpcError } from "../api/client";
+import { RpcError } from "../api/rpcError";
 import {
   sliceDirectoryQueryKey,
   sliceFileQueryKey,
@@ -44,7 +44,7 @@ import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
 import { VisitorBanner } from "../components/VisitorBanner";
 import { visitorBannerWanted } from "../lib/visitorBanner";
-import { isNotFoundError } from "../api/client";
+import { isNotFoundError } from "../api/rpcError";
 import type { Changeset, Slice } from "../api/types";
 import { shortChangesetId } from "../lib/objectId";
 import { changesetsListQuery, parseStatusTab } from "./changesets-list/filters";
@@ -495,6 +495,26 @@ const sliceDetailRoute = createRoute({
                   slice: sliceRef
                 })
             });
+          // The listings say which README the root shows, and rendering it
+          // is one more round trip after them. A slice of one folder nearly
+          // always shows that folder's README.md, so ask for it alongside the
+          // listings; they still decide, and a wrong guess is dropped.
+          const guessedReadmePath =
+            !selectedPath && includedPaths.length === 1
+              ? `${normalizeRepositoryPath(includedPaths[0]).replace(/\/$/, "")}/README.md`
+              : "";
+          const guessedReadmeKey = sliceRenderedFileQueryKey(sliceRef, commitId, guessedReadmePath);
+          if (guessedReadmePath) {
+            void context.queryClient.prefetchQuery({
+              queryKey: guessedReadmeKey,
+              queryFn: () => api.renderFile({ commitId, path: guessedReadmePath, slice: sliceRef })
+            });
+          }
+          const dropGuessedReadme = () => {
+            if (guessedReadmePath) {
+              context.queryClient.removeQueries({ exact: true, queryKey: guessedReadmeKey });
+            }
+          };
           // A folder's README is part of its page: find it as the page does
           // (through single-folder levels), and ask the server for it
           // rendered, so the page is served with it.
@@ -509,9 +529,13 @@ const sliceDetailRoute = createRoute({
               );
             }
             if (!readme || Number(readme.size) > README_MAX_BYTES) {
+              dropGuessedReadme();
               return;
             }
             const readmePath = normalizeRepositoryPath(readme.path ?? "");
+            if (readmePath !== guessedReadmePath) {
+              dropGuessedReadme();
+            }
             await context.queryClient.ensureQueryData({
               queryKey: sliceRenderedFileQueryKey(sliceRef, commitId, readmePath),
               queryFn: () => api.renderFile({ commitId, path: readmePath, slice: sliceRef })
@@ -522,6 +546,19 @@ const sliceDetailRoute = createRoute({
           );
           const work: Promise<unknown>[] = Array.from(navigatorPaths, listing);
           if (selectedPath && !isSliceProjectionDirectoryPath(selectedPath, includedPaths)) {
+            // A path whose last part has an extension is nearly always a
+            // file: read it while its kind is looked up, not after. For a
+            // folder the read fails and nothing comes of it.
+            // Without one it is nearly always a folder: list it meanwhile.
+            // A wrong guess fails, and the lookup's answer is what is used.
+            if (/[^/]\.[^/]+$/.test(selectedPath)) {
+              void context.queryClient.prefetchQuery({
+                queryKey: sliceFileQueryKey(sliceRef, commitId, selectedPath),
+                queryFn: () => api.readFile({ commitId, path: selectedPath, slice: sliceRef })
+              });
+            } else {
+              void listing(selectedPath).catch(() => undefined);
+            }
             work.push(
               context.queryClient
                 .ensureQueryData({

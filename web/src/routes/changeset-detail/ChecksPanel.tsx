@@ -7,7 +7,7 @@ import {
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { RpcError } from "../../api/client";
+import { RpcError } from "../../api/rpcError";
 import type { CheckRun, CheckRunLog } from "../../api/types";
 import { useApi, type ApiClient } from "../../api/useApi";
 import { cn } from "../../lib/cn";

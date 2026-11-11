@@ -34,8 +34,8 @@ export function LoginPage() {
 
   if (!isLoaded) {
     return (
-      <AuthFrame title="Sign in">
-        <p className="text-sm text-slate-600">Loading session...</p>
+      <AuthFrame reserve="sign-in" title="Sign in">
+        <p className="text-sm text-slate-600 dark:text-zinc-400">Loading session...</p>
       </AuthFrame>
     );
   }
@@ -61,7 +61,7 @@ export function LoginPage() {
   }
 
   return (
-    <AuthFrame title="Sign in" titleIsHeading={false}>
+    <AuthFrame reserve="sign-in" title="Sign in" titleIsHeading={false}>
       <SignIn
         appearance={{
           elements: {

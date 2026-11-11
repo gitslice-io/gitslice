@@ -19,8 +19,9 @@ export function SectionLink({
 }) {
   return (
     <Link
+      aria-current={active ? "page" : undefined}
       className={[
-        "block rounded-md border px-4 py-3 text-left transition active:scale-[0.98]",
+        "block rounded-md border px-3 py-1.5 text-left transition active:scale-[0.98] lg:px-4 lg:py-3",
         active
           ? "border-zinc-950 dark:border-zinc-100 bg-zinc-950 dark:bg-zinc-100 text-white dark:text-zinc-950"
           : "border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50"
@@ -30,7 +31,7 @@ export function SectionLink({
       <span className="block text-sm font-semibold">{section.title}</span>
       <span
         className={[
-          "mt-1 block text-xs leading-5",
+          "mt-1 hidden text-xs leading-5 lg:block",
           active ? "text-slate-300 dark:text-zinc-500" : "text-slate-500 dark:text-zinc-400"
         ].join(" ")}
       >

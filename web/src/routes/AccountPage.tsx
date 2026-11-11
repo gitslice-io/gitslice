@@ -3,7 +3,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 
-import { RpcError, isNotFoundError } from "../api/client";
+import { RpcError, isNotFoundError } from "../api/rpcError";
 import type { AccountProfile, ListSlicesResponse } from "../api/types";
 import { useApi } from "../api/useApi";
 import { AccountAvatar, rememberAvatarVersion } from "../components/AccountAvatar";

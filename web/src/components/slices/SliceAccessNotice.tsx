@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 
-import { RpcError } from "../../api/client";
+import { RpcError } from "../../api/rpcError";
 import { currentPath, rememberReturnTo } from "../../auth/returnTo";
 import { SliceNotice, getErrorMessage } from "./SlicePageParts";
 

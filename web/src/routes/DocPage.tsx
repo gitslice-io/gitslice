@@ -20,7 +20,10 @@ export function DocPage() {
   return (
     <section className="mx-auto grid w-full max-w-[100rem] gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]">
       <aside className="lg:sticky lg:top-6 lg:self-start">
-        <div className="grid gap-2">
+        {/* On a phone the sections are a few rows of names, so the page being
+            read starts on the first screen; the full cards need the room of a
+            side column. */}
+        <nav aria-label="Documentation sections" className="flex flex-wrap gap-2 lg:grid">
           {docSections.map((item) => (
             <SectionLink
               active={section === item.id}
@@ -28,7 +31,7 @@ export function DocPage() {
               section={item}
             />
           ))}
-        </div>
+        </nav>
       </aside>
 
       <div className="min-w-0">

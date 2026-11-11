@@ -12,8 +12,8 @@ export function SignupPage() {
 
   if (!isLoaded) {
     return (
-      <AuthFrame title="Sign up">
-        <p className="text-sm text-slate-600">Loading session...</p>
+      <AuthFrame reserve="sign-up" title="Sign up">
+        <p className="text-sm text-slate-600 dark:text-zinc-400">Loading session...</p>
       </AuthFrame>
     );
   }
@@ -23,7 +23,7 @@ export function SignupPage() {
   }
 
   return (
-    <AuthFrame title="Sign up" titleIsHeading={false}>
+    <AuthFrame reserve="sign-up" title="Sign up" titleIsHeading={false}>
       <SignUp
         appearance={{
           elements: {

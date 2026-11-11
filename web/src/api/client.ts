@@ -17,46 +17,13 @@ import { WebhookService } from "../gen/proto/core/v1/webhook_pb";
 import type { ApiClient } from "./useApi";
 import type * as Api from "./types";
 
-export interface RpcErrorBody {
-  code?: string | number;
-  message?: string;
-  details?: unknown;
-}
+import { RpcError, defaultApiBaseUrl, type CreateApiClientOptions } from "./rpcError";
 
-export class RpcError extends Error {
-  readonly code: string | number;
-  readonly status: number;
-  readonly details?: unknown;
-
-  constructor(status: number, body: RpcErrorBody = {}) {
-    super(body.message || `RPC failed with HTTP ${status}`);
-    this.name = "RpcError";
-    this.code = body.code ?? status;
-    this.status = status;
-    this.details = body.details;
-  }
-}
-
-// isNotFoundError says the server answered that the thing asked for does not
-// exist (as opposed to failing, or refusing this caller).
-export function isNotFoundError(error: unknown): boolean {
-  return (
-    error instanceof RpcError &&
-    (error.status === 404 ||
-      error.code === 5 ||
-      error.code === "5" ||
-      error.code === "NotFound" ||
-      error.code === "not_found")
-  );
-}
-
-export const defaultApiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
-
-export interface CreateApiClientOptions {
-  getToken: () => Promise<string | null | undefined>;
-  baseUrl?: string;
-  fetch?: typeof globalThis.fetch;
-}
+// Kept here for the code that has always imported them from the client. Code
+// that every page loads imports them from ./rpcError instead, so it does not
+// bring the client with it (see ./lazyClient).
+export { RpcError, defaultApiBaseUrl, isNotFoundError } from "./rpcError";
+export type { CreateApiClientOptions, RpcErrorBody } from "./rpcError";
 
 export function createApiClient({
   getToken,

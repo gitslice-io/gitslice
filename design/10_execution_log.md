@@ -9245,3 +9245,65 @@ swarm.
 **Also changed:**
 - Signed-out viewers of a change page now see "Sign in to see checks"
   instead of a red `ListCheckRuns` error.
+
+## 2026-11-11 — Web review: UI fixes and faster pages
+
+Goal: review the web app, fix what is wrong in the UI, and make it faster.
+Measured on production with headless Chromium at 1366 px and 390 px, light
+and dark, before changing anything.
+
+**What was already good.** Pages paint in 0.2 to 1.3 s with no layout shift,
+pages are code-split, analytics waits for the page to load.
+
+**UI fixes**
+- The brand mark is black on transparent and was invisible in dark mode (top
+  bar, landing page, sign-in frame). `BrandMark` now inverts in dark mode.
+- Sign-in on a phone jumped when Clerk's card arrived (layout shift 0.21;
+  over 0.1 is poor). `AuthFrame` takes `reserve="sign-in" | "sign-up"` and
+  holds the card's measured height from the first paint.
+- The docs listed all ten section cards above the content on a phone, about
+  two screens of scrolling before the page read. Below `lg` the sections are
+  now a few rows of names; the cards are unchanged on a wide screen.
+- The landing page's three buttons wrapped their labels at 390 px. The
+  primary one is now full width on a phone and the other two share a row.
+- Two docs strings showed Markdown backticks as text.
+
+**Performance**
+- The API client (Connect, protobuf, the service descriptors) was 178 KB of
+  the 660 KB script every page loads, including the landing page, docs, blog
+  and sign-in, which make no calls. `useApi` now returns
+  `createLazyApiClient` (`web/src/api/lazyClient.ts`): a proxy that imports
+  `./client` on the first call, and `useApi` also fetches it once the page
+  has loaded. The first script is 483 KB (148 KB gzip, was 196 KB).
+  `RpcError`, `isNotFoundError` and `defaultApiBaseUrl` moved to
+  `api/rpcError.ts`; `api/clientChunk.test.ts` fails if anything but
+  `serverApi.ts` imports `./client` statically again.
+- The slice page's server render made its API calls in up to four rounds,
+  each waiting on the last. It now starts the likely next call with the
+  current round: the root README (`<included path>/README.md`, when the slice
+  has one included path), the file's contents when the path has an extension,
+  and the folder's listing when it has none. The listings and the path lookup
+  still decide; a wrong guess fails or is removed from the cache and is not
+  sent to the browser. Same host, same API, 16 requests each, median time to
+  first byte: slice root 458 to 328 ms, file 408 to 296 ms, folder 572 to
+  455 ms. A wrong guess costs one extra API call (a folder named like a
+  file, a file with no extension, a root with no README.md).
+- `web/public/_headers` caches the icons and `/brand/*` for a week; they
+  were revalidated on every page. The mark is served as a 96 px file (1.1 KB,
+  was 15.7 KB at 512 px for a 24 px image).
+
+**Not changed, and why**
+- Clerk's UI bundle (about 300 KB compressed, from Clerk's CDN) loads for
+  every visitor, and `isLoaded` waits for it. `prefetchUI={false}` stops it,
+  but then `<SignIn>` and `<UserButton>` never get their UI in this SDK
+  version, so it stays.
+- Caching server-rendered pages at the edge for signed-out visitors would
+  cut time to first byte further. It needs a rule for when a page goes stale
+  and was left out.
+
+**Verification**
+- `npx tsc -b`, `npx vitest run --environment jsdom` (web).
+- The built Worker run locally with `vite preview` against the production
+  API: root, file, folder, a file without an extension, a dotted folder, a
+  missing path, a slice that does not exist, and another account's slice all
+  render as before.
