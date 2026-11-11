@@ -9318,6 +9318,13 @@ pages are code-split, analytics waits for the page to load.
   page up to 5 min old for a moment, never for the visit. Nothing runs on a
   timer. To turn it off, return `undefined` from `pageCacheKey`. The response
   header `x-gitslice-page-cache` says hit, stale or miss.
+- **Clerk's own script is preloaded** (`web/src/auth/clerkScript.ts`, a
+  `<link rel="preload">` from the root route). Clerk adds its script tag from
+  its own code, so the download started only after the app's script had run
+  (about 900 ms into the page on production). With the preload it starts with
+  the HTML (about 50 ms) and is fetched once. A signed-out visitor sees the
+  whole page, "Sign in" included, in the server's HTML either way; this is
+  for signed-in people, whose API calls wait for Clerk.
 - Tested on a local Worker built with the staging environment (Clerk's test
   instance works on localhost): signed-out pages make no request for the UI
   script and show "Sign in" at once; /login and /signup draw their cards,

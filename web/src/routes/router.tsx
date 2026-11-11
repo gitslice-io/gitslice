@@ -25,6 +25,7 @@ import type { ReactNode } from "react";
 import appCss from "../index.css?url";
 import { PostHogProvider } from "../analytics/PostHogProvider";
 import { ClerkAuthProvider } from "../auth/ClerkAuthProvider";
+import { clerkScriptPreload } from "../auth/clerkScript";
 import { RpcError } from "../api/rpcError";
 import {
   sliceDirectoryQueryKey,
@@ -148,6 +149,8 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      // Start fetching Clerk's script with the page (auth/clerkScript).
+      ...[clerkScriptPreload(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY)].filter((link) => link !== undefined),
       { rel: "icon", type: "image/png", sizes: "64x64", href: "/favicon.png" },
       {
         rel: "apple-touch-icon",
