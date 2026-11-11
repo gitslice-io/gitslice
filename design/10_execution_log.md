@@ -9331,6 +9331,18 @@ pages are code-split, analytics waits for the page to load.
   server render wrote all of it into the HTML of every changeset page, about
   1 MB. It now keeps the ids and titles of the dependents only
   (`web/src/routes/changeset-detail/dependents.ts`); the API call is the same.
+- **The changeset page no longer moves after it loads.** Three things
+  arrived late above the diff and pushed it down (layout shift 0.07 to 0.09):
+  the Markdown description (shown first as one unwrapped line of raw source,
+  then rendered), the "Sign in to see checks" notice (shown only after the
+  API refused the request), and the trigger runs (fetched by the browser).
+  Now the description is plain wrapped paragraphs until it is rendered, the
+  page tells `ChecksPanel` when the viewer has no session (`signedOut`, no
+  request), and the loader prefetches trigger runs, and finished check runs
+  for a signed-in viewer. A run still going is left to the browser: its text
+  has moving times. `TriggerRunsPanel` shows its time through `Timestamp`,
+  because a cached page's "3h ago" hydrated against the browser's "4h ago"
+  is a React hydration error (seen while testing this).
 - Tested on a local Worker built with the staging environment (Clerk's test
   instance works on localhost): signed-out pages make no request for the UI
   script and show "Sign in" at once; /login and /signup draw their cards,

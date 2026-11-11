@@ -61,6 +61,7 @@ import {
 } from "../lib/socialMeta";
 import { SelectionProvider, useSelection } from "../state/selection";
 import { THEME_BOOTSTRAP_SCRIPT } from "../theme";
+import { isTerminalCheckStatus } from "./changeset-detail/checkStatus";
 import { dependentChangesetsQuery } from "./changeset-detail/dependents";
 import { sortedPatchsets } from "./changeset-detail/patchsetUtils";
 import { UsernameGate } from "./UsernameGate";
@@ -797,7 +798,37 @@ const changesetShortRoute = createRoute({
               patchsets[patchsets.length - 1]?.id ||
               "";
         const authoringSlice = changeset.authoringSlice;
+        // The panels above the diff. Fetched by the browser they arrive after
+        // the page and push the diff down; a failure here only leaves them to
+        // the browser, as before. Check runs need a session.
+        const { isServerSignedIn } = await import("../api/serverApi");
+        const panels = [
+          context.queryClient.prefetchQuery({
+            queryKey: ["triggerRuns", canonicalChangesetId],
+            queryFn: async () =>
+              (await api.listTriggerRuns({ changesetId: canonicalChangesetId, limit: 50 })).runs ?? []
+          }),
+          isServerSignedIn().then(async (signedIn) => {
+            if (!signedIn || !toPatchset) {
+              return;
+            }
+            const queryKey = ["checkRuns", canonicalChangesetId, toPatchset];
+            await context.queryClient.prefetchQuery({
+              queryKey,
+              queryFn: async () =>
+                (await api.listCheckRuns({ changesetId: canonicalChangesetId, patchsetId: toPatchset })).runs ?? []
+            });
+            // A run still going shows times that move ("last seen 5s ago");
+            // the server's text and the browser's would differ. Those are
+            // left to the browser, which polls them anyway.
+            const runs = context.queryClient.getQueryData<{ status?: string }[]>(queryKey);
+            if (runs?.some((run) => !isTerminalCheckStatus(run.status))) {
+              context.queryClient.removeQueries({ exact: true, queryKey });
+            }
+          })
+        ];
         await Promise.all([
+          Promise.allSettled(panels),
           context.queryClient.ensureQueryData({
             queryKey: [
               "changesetDiff",

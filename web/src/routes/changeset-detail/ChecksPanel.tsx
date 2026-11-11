@@ -12,24 +12,35 @@ import type { CheckRun, CheckRunLog } from "../../api/types";
 import { useApi, type ApiClient } from "../../api/useApi";
 import { cn } from "../../lib/cn";
 import { formatRelativeTime } from "../../lib/time";
+import { isTerminalCheckStatus, normalizeCheckStatus } from "./checkStatus";
 import { errorMessage } from "./status";
 import { TriggerRunLog } from "./TriggerRunsPanel";
 
 const CHECK_POLL_INTERVAL_MS = 3500;
-const terminalCheckStatuses = new Set([
-  "passed",
-  "failed",
-  "errored",
-  "skipped",
-  "canceled"
-]);
 
 interface ChecksPanelProps {
   changesetId: string;
   patchsetId: string;
+  // The viewer is known to have no session. Check runs need one, so the
+  // panel says so from the first render (the server's included) instead of
+  // asking the API, being refused, and appearing a moment after the page.
+  signedOut?: boolean;
 }
 
-export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
+function SignInToSeeChecks() {
+  return (
+    <section className="mt-3 rounded-lg border border-dashed border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-3 md:px-5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
+          Checks
+        </h2>
+        <span className="text-xs text-slate-500 dark:text-zinc-400">Sign in to see checks</span>
+      </div>
+    </section>
+  );
+}
+
+export function ChecksPanel({ changesetId, patchsetId, signedOut = false }: ChecksPanelProps) {
   const api = useApi();
   const queryClient = useQueryClient();
   const [selectedRunId, setSelectedRunId] = useState("");
@@ -39,7 +50,7 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
   );
 
   const runsQuery = useQuery({
-    enabled: Boolean(changesetId && patchsetId),
+    enabled: Boolean(changesetId && patchsetId) && !signedOut,
     queryKey: checkRunsQueryKey,
     queryFn: async () =>
       (await api.listCheckRuns({ changesetId, patchsetId })).runs ?? [],
@@ -87,22 +98,17 @@ export function ChecksPanel({ changesetId, patchsetId }: ChecksPanelProps) {
     return null;
   }
 
+  if (signedOut) {
+    return <SignInToSeeChecks />;
+  }
+
   if (runsQuery.isPending && runs.length === 0) {
     return null;
   }
 
   // Check runs need a signed-in viewer, even on a public slice.
   if (runsQuery.isError && isUnauthenticated(runsQuery.error)) {
-    return (
-      <section className="mt-3 rounded-lg border border-dashed border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-3 md:px-5">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
-            Checks
-          </h2>
-          <span className="text-xs text-slate-500 dark:text-zinc-400">Sign in to see checks</span>
-        </div>
-      </section>
-    );
+    return <SignInToSeeChecks />;
   }
 
   if (runsQuery.isError) {
@@ -413,9 +419,6 @@ function shouldShowExitCode(run: CheckRun) {
   );
 }
 
-function isTerminalCheckStatus(status?: string) {
-  return terminalCheckStatuses.has(normalizeCheckStatus(status));
-}
 
 // queuedOfflineDaemonMessage says what a queued run waits for when its daemon
 // is offline. JSON leaves daemonOnline out when it is false, and a server
@@ -434,9 +437,6 @@ function queuedOfflineDaemonMessage(run: CheckRun) {
   return `Waiting for ${daemon}, offline, last seen ${formatRelativeTime(run.daemonLastSeenAt)}`;
 }
 
-function normalizeCheckStatus(status?: string) {
-  return (status || "queued").toLowerCase();
-}
 
 // safeDetailsUrl allows only http(s) links out of a check.
 export function safeDetailsUrl(url?: string) {

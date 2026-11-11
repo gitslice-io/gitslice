@@ -4,8 +4,8 @@ import { useState } from "react";
 import { RpcError } from "../../api/rpcError";
 import type { TriggerRun } from "../../api/types";
 import { useApi } from "../../api/useApi";
+import { Timestamp } from "../../components/Timestamp";
 import { cn } from "../../lib/cn";
-import { formatRelativeTime } from "../../lib/time";
 import { errorMessage } from "./status";
 
 // Trigger runs (design/34_triggers.md) about this changeset: the triggers in
@@ -73,7 +73,7 @@ export function TriggerRunsPanel({ changesetId, patchsetId }: { changesetId: str
                     <span className="truncate font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50">{run.triggerId}</span>
                     <TriggerStatusBadge status={run.status} />
                     <span className="text-xs text-slate-500 dark:text-zinc-400">
-                      {run.eventKind} · {run.action} · {formatRelativeTime(run.createdAt)}
+                      {run.eventKind} · {run.action} · <Timestamp relative value={run.createdAt} />
                     </span>
                   </div>
                   {run.error ? <p className="mt-1 line-clamp-2 text-sm text-slate-600 dark:text-zinc-400">{run.error}</p> : null}

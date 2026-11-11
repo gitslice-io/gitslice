@@ -77,6 +77,7 @@ export function ChangesetDetailPage() {
   const api = useApi();
   const queryClient = useQueryClient();
   const { isLoaded, isSignedIn } = useAuth();
+  const viewerSignedOut = isLoaded && !isSignedIn;
   const { accounts: viewerAccounts } = useSelection();
   const params = useParams({ strict: false }) as { id?: string };
   const changesetId = params.id ?? "";
@@ -637,6 +638,7 @@ export function ChangesetDetailPage() {
           <ChecksPanel
             changesetId={canonicalChangesetId}
             patchsetId={selectedToPatchset}
+            signedOut={viewerSignedOut}
           />
           <TriggerRunsPanel
             changesetId={canonicalChangesetId}

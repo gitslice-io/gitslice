@@ -63,6 +63,13 @@ describe("ChecksPanel", () => {
     vi.useRealTimers();
   });
 
+  it("tells a viewer known to be signed out at once, without asking the API", () => {
+    renderRoute(<ChecksPanel changesetId="cs_1" patchsetId="ps_2" signedOut />);
+
+    expect(screen.getByText("Sign in to see checks")).toBeInTheDocument();
+    expect(apiMock.current.listCheckRuns).not.toHaveBeenCalled();
+  });
+
   it("asks signed-out viewers to sign in instead of showing an error", async () => {
     apiMock.current.listCheckRuns = vi
       .fn()

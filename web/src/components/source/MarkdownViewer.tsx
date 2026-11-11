@@ -5,6 +5,9 @@ import { markRepoImages, resolvePictures, resolveRepoLink } from "../../lib/repo
 import { sanitizeHtml } from "../../lib/sanitize";
 import { THEME_CHANGE_EVENT } from "../../theme";
 
+const PROSE_CLASS =
+  "prose prose-slate dark:prose-invert prose-sm max-w-none [&_:not(pre)>code]:[overflow-wrap:anywhere] prose-a:text-sky-700 dark:prose-a:text-sky-300 prose-a:underline prose-code:text-zinc-900 dark:prose-code:text-zinc-100 prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-pre:border-slate-200 dark:prose-pre:border-zinc-800 prose-pre:bg-slate-50 dark:prose-pre:bg-zinc-950 prose-pre:text-zinc-900 dark:prose-pre:text-zinc-100";
+
 interface MarkdownRenderState {
   error: boolean;
   html: string | null;
@@ -198,9 +201,28 @@ export function MarkdownViewer({ source = "", html: serverHtml, links }: Markdow
     return (
       <div className="p-4" onClick={followRelativeLink} ref={container}>
         <div
-          className="prose prose-slate dark:prose-invert prose-sm max-w-none [&_:not(pre)>code]:[overflow-wrap:anywhere] prose-a:text-sky-700 dark:prose-a:text-sky-300 prose-a:underline prose-code:text-zinc-900 dark:prose-code:text-zinc-100 prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-pre:border-slate-200 dark:prose-pre:border-zinc-800 prose-pre:bg-slate-50 dark:prose-pre:bg-zinc-950 prose-pre:text-zinc-900 dark:prose-pre:text-zinc-100"
+          className={PROSE_CLASS}
           dangerouslySetInnerHTML={{ __html: rendered.html }}
         />
+      </div>
+    );
+  }
+
+  // Not rendered yet (the server's HTML, and the browser until the renderer
+  // has loaded): the text as plain paragraphs in the rendered document's own
+  // box. Prose keeps its height when the Markdown replaces it, so what is
+  // below does not move; raw source in one unwrapped line did.
+  if (!rendered.error) {
+    return (
+      <div className="p-4">
+        <div className={PROSE_CLASS}>
+          {source
+            .split(/\n\s*\n/)
+            .filter((paragraph) => paragraph.trim() !== "")
+            .map((paragraph, index) => (
+              <p key={index}>{paragraph}</p>
+            ))}
+        </div>
       </div>
     );
   }
