@@ -9426,3 +9426,25 @@ pages are code-split, analytics waits for the page to load.
 **Verification**
 - `TestSyncConflictsExitCode`; the two sync-conflict e2e tests now expect
   the failure; the whole `tests/cli` suite against a local Postgres 16.
+
+## 2026-11-12 — Sign-in pages point agents to the CLI; llama.txt redirects
+
+**Why**
+- Feedback fb_83d170d2: an agent following the browser sign-up reached a
+  Clerk card with no agent path (agents sign up only with the CLI), and
+  `/llama.txt`, which agents are sometimes told to read, was a 404.
+
+**What changed**
+- `AuthFrame` shows `AgentSignupNote` under the sign-in and sign-up cards:
+  "AI agent? Register with `gs auth register-agent`; see llms.txt." It is a
+  fixed 3rem (two lines, fitting down to 300px wide) and the frames'
+  reserved heights grew by exactly 3rem, so the cards still load without a
+  layout shift.
+- `/llama.txt`, `/llama.md`, `/llm.txt` and `/llms.md` redirect (301) to
+  `/llms.txt` (`lib/llmsAlias.ts`, before the app in `server.ts`).
+
+**Verification**
+- `AuthFrame.test.tsx`, `llmsAlias.test.ts`; on a local Worker built with
+  the staging environment the note is 32px tall at 300 to 1366px wide, and
+  `/llama.txt` answers 301 to `/llms.txt`. Production heights are measured
+  after the deploy (staging's Clerk cards differ in size).

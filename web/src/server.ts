@@ -2,6 +2,7 @@ import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 
 import { handleIngestProxy } from "./analytics/ingestProxy";
 import { gitProxyTarget } from "./lib/gitProxy";
+import { llmsAliasResponse } from "./lib/llmsAlias";
 import { apiSliceLookup, goImportResponse, sliceGoImportResponse } from "./lib/goImport";
 import { servePage, type PageCacheStore } from "./lib/pageCache";
 import { releaseResponse, type ReleaseBucket } from "./lib/releases";
@@ -13,6 +14,11 @@ export default createServerEntry({
     const ingestResponse = await handleIngestProxy(request);
     if (ingestResponse) {
       return ingestResponse;
+    }
+
+    const llmsAlias = llmsAliasResponse(request);
+    if (llmsAlias) {
+      return llmsAlias;
     }
 
     // `go get` discovery for gitslice.io import paths and stable release

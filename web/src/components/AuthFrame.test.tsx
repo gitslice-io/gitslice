@@ -24,4 +24,15 @@ describe("AuthFrame", () => {
     expect(screen.getAllByRole("heading", { level: 1 })).toHaveLength(1);
     expect(screen.getByText("Sign in")).toBeInTheDocument();
   });
+
+  it("points agents on the sign-in and sign-up cards to CLI registration", () => {
+    render(<AuthFrame reserve="sign-up" title="Sign up">card</AuthFrame>);
+    expect(screen.getByText("gs auth register-agent")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "llms.txt" })).toHaveAttribute("href", "/llms.txt");
+  });
+
+  it("leaves the note off frames without a card", () => {
+    render(<AuthFrame title="Authorizing CLI">body</AuthFrame>);
+    expect(screen.queryByText("gs auth register-agent")).not.toBeInTheDocument();
+  });
 });

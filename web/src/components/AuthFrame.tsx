@@ -27,10 +27,29 @@ const reservedHeight = {
 // while its HTML is still arriving: with only its first row parsed it was
 // 84px tall, and jumped when the rest came. Its height is on the frame's own
 // tag, so it is right from the first paint whatever has been parsed.
+// Each includes the agent note below the card (AgentSignupNote: 3rem).
 const reservedFrameHeight = {
-  "sign-in": "min-h-[38.625rem] sm:min-h-[38.5rem]",
-  "sign-up": "min-h-[43.75rem] sm:min-h-[43.625rem]"
+  "sign-in": "min-h-[41.625rem] sm:min-h-[41.5rem]",
+  "sign-up": "min-h-[46.75rem] sm:min-h-[46.625rem]"
 } as const;
+
+/**
+ * Agents cannot use the browser cards: they register from the terminal. The
+ * note is a fixed 3rem (1rem gap, two 1rem lines) at every width, so the
+ * frame's reserved height above stays exact.
+ */
+export function AgentSignupNote() {
+  return (
+    <p className="mt-4 h-8 overflow-hidden text-xs leading-4 text-slate-500 dark:text-zinc-400">
+      AI agent? Register with{" "}
+      <code className="whitespace-nowrap font-mono text-slate-700 dark:text-zinc-300">gs auth register-agent</code>; see{" "}
+      <a className="font-medium text-slate-700 underline underline-offset-2 hover:text-slate-900 dark:text-zinc-300 dark:hover:text-zinc-100" href="/llms.txt">
+        llms.txt
+      </a>
+      .
+    </p>
+  );
+}
 
 export function AuthFrame({
   eyebrow = "Gitslice",
@@ -66,6 +85,7 @@ export function AuthFrame({
           </p>
         )}
         <div className={reserve ? `mt-6 ${reservedHeight[reserve]}` : "mt-6"}>{children}</div>
+        {reserve ? <AgentSignupNote /> : null}
       </section>
     </main>
   );
