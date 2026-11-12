@@ -186,8 +186,8 @@ func TestSyncMergesUpstreamChangesToTheSameFile(t *testing.T) {
 	runCLI(t, home, upstream, "workspace", "init", "acme/payment")
 	writeWorkspaceFile(t, upstream, file, lines("ONE", "two", "three", "theirs", "five", "six", "SEVEN"))
 	runCLI(t, home, upstream, "create", "--message", "upstream edits line four", "--all", "--submit")
-	if out := runCLI(t, home, conflicted, "sync"); !strings.Contains(out, "conflicts: 1 path(s)\n  /acme/payment/shared.txt") {
-		t.Fatalf("sync should name the conflict:\n%s", out)
+	if out, errOut := runCLIFails(t, home, conflicted, "sync"); !strings.Contains(out, "conflicts: 1 path(s)\n  /acme/payment/shared.txt") || !strings.Contains(errOut, "sync left 1 path(s) with conflict markers") {
+		t.Fatalf("sync should name the conflict and fail:\n%s\n%s", out, errOut)
 	}
 	assertWorkspaceFile(t, conflicted, file, lines("ONE", "two", "three", "<<<<<<< changeset", "mine", "=======", "theirs", ">>>>>>> upstream", "five", "six", "SEVEN"))
 	if out, err := runCLIResult(home, conflicted, "submit"); err == nil || !strings.Contains(err.Error(), "unresolved patchset conflicts") {

@@ -51,6 +51,8 @@ func exitCodeForError(err error) int {
 		switch cmdErr.Code {
 		case "not_logged_in", "invalid_user_config", "unauthenticated":
 			return 4
+		case "sync_conflicts":
+			return 3
 		}
 	}
 	if grpcstatus.Code(err) == codes.Unauthenticated {

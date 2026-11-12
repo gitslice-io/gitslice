@@ -145,7 +145,10 @@ func TestWorkspaceSyncRecordsAndResolvesConflicts(t *testing.T) {
 	runCLI(t, home, workspaceB, "cs", "create", "--title", "remote sync conflict")
 	runCLI(t, home, workspaceB, "cs", "submit")
 
-	out := runCLI(t, home, workspaceA, "sync")
+	out, errOut := runCLIFails(t, home, workspaceA, "sync")
+	if !strings.Contains(errOut, "sync left 1 path(s) with conflict markers") {
+		t.Fatalf("sync with a conflict should fail:\n%s", errOut)
+	}
 	if !strings.Contains(out, "conflicts: 1 path(s)") || !strings.Contains(out, "/acme/payment/sync_conflict.go") {
 		t.Fatalf("sync output missing conflict:\n%s", out)
 	}

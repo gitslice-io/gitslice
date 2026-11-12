@@ -1312,6 +1312,7 @@ Stable exit codes:
 0  success
 1  general command failure
 2  command canceled
+3  gs sync left files with conflict markers (its result is still printed)
 4  authentication missing, invalid, or rejected by the server
 ```
 

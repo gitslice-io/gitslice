@@ -85,7 +85,7 @@ gs create --message "update notes" --all --non-interactive --json
 gs submit --no-watch --non-interactive --json
 ```
 
-If a command fails, inspect stderr in JSON mode and follow `error.hint`. Baseline exit codes are `0` success, `1` general failure, `2` canceled, and `4` authentication failure.
+If a command fails, inspect stderr in JSON mode and follow `error.hint`. Baseline exit codes are `0` success, `1` general failure, `2` canceled, `3` `gs sync` left conflict markers to resolve, and `4` authentication failure.
 
 ## Auth And Context
 

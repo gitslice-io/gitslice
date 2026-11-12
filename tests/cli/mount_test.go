@@ -539,9 +539,9 @@ func TestMountSyncMergesAChangesetOutsideATree(t *testing.T) {
 	writeWorkspaceFile(t, upstream, "acme/payment/added.txt", "added upstream\n")
 	runCLI(t, home, upstream, "create", "--message", "upstream edits", "--all", "--submit")
 
-	out := runCLI(t, mountHome, app, "sync")
-	if !strings.Contains(out, "conflict.txt") {
-		t.Fatalf("gs sync should report conflict.txt:\n%s", out)
+	out, errOut := runCLIFails(t, mountHome, app, "sync")
+	if !strings.Contains(out, "conflict.txt") || !strings.Contains(errOut, "sync left 1 path(s) with conflict markers") {
+		t.Fatalf("gs sync should report conflict.txt and fail:\n%s\n%s", out, errOut)
 	}
 	if got, want := read("merge.txt"), lines("ONE", "two", "three", "four", "five", "six", "SEVEN"); got != want {
 		t.Fatalf("merge.txt after gs sync = %q, want %q", got, want)

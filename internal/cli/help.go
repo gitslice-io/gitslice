@@ -121,6 +121,10 @@ disable ANSI color. Scripts should consume documented JSON fields from gs schema
 2
   Command canceled.
 
+3
+  gs sync finished but left files with conflict markers; resolve them, then
+  run gs modify.
+
 4
   Authentication is missing, invalid, or rejected by the server.
 

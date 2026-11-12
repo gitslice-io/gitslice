@@ -9408,3 +9408,21 @@ pages are code-split, analytics waits for the page to load.
 **Verification**
 - `TestPrintWorkspaceStackOnce`, `TestModifyMessageRetitles`; the whole
   `tests/cli` suite against a local Postgres 16.
+
+## 2026-11-12 — gs sync fails when it leaves conflicts
+
+**Why**
+- Feedback fb_4f209d65 (#1): `gs sync` that left conflict markers exited 0,
+  so a script or agent checking the exit code carried on as if the
+  workspace were ready.
+
+**What changed**
+- After printing its result (text, or JSON on stdout), a sync that left
+  conflicts returns `sync_conflicts`, exit code 3: "sync left N path(s) with
+  conflict markers", hint "Resolve the conflicts, then run gs modify." The
+  exit-codes help topic, design/04 and the gs-cli skill list code 3.
+- A blocked `gs create --submit` already fails (`submit_blocked`, exit 1).
+
+**Verification**
+- `TestSyncConflictsExitCode`; the two sync-conflict e2e tests now expect
+  the failure; the whole `tests/cli` suite against a local Postgres 16.

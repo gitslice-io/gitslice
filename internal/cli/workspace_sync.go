@@ -321,7 +321,10 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		if output.ConflictPaths == nil {
 			output.ConflictPaths = []string{}
 		}
-		return r.writeJSONOutput(opts, output)
+		if err := r.writeJSONOutput(opts, output); err != nil {
+			return err
+		}
+		return syncConflictsError(output.ConflictCount)
 	}
 	if opts.Quiet {
 		if output.Status == "up_to_date" {
@@ -357,9 +360,18 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		for _, p := range output.ConflictPaths {
 			fmt.Fprintf(r.Stdout, "  %s\n", p)
 		}
-		fmt.Fprintln(r.Stdout, "resolve conflicts, then run gs modify")
 	}
-	return nil
+	return syncConflictsError(output.ConflictCount)
+}
+
+// syncConflictsError makes a sync that left conflicts fail (exit code 3),
+// after its result is printed, so a script or agent that checks the exit
+// code does not carry on as if the workspace were ready to submit.
+func syncConflictsError(count int) error {
+	if count == 0 {
+		return nil
+	}
+	return userError("sync_conflicts", fmt.Sprintf("sync left %d path(s) with conflict markers", count), "Resolve the conflicts, then run gs modify.")
 }
 
 type remoteWorkspaceFile struct {
