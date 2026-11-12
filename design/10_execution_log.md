@@ -9387,3 +9387,24 @@ pages are code-split, analytics waits for the page to load.
 - New `Merge3` cases (a change beside a conflict joins it, one three lines
   away stays apart, clean neighbors stay clean) and a test of the reported
   block rewrite; `go test ./internal/... ./service/... ./server/...`.
+
+## 2026-11-12 — gs status shows the tree once; modify --message retitles
+
+**Why**
+- Feedback fb_27efd70e: after a land, `gs status` printed `dependencies:`
+  and `active:` twice and used `status:` both for the dependency tree
+  (`status: closed`) and for the workspace's changes. `gs modify --message`
+  was accepted but did nothing ("reserved for future use").
+
+**What changed**
+- `gs status` prints the tree through `printWorkspaceStack`: one header line
+  with the tree's state (`dependencies: stk_… (closed)`), the workspace's
+  active changeset, then the changesets. `status:` is only the workspace's
+  own changes. `gs deps` and the other tree commands print as before.
+- `gs modify --message <title>` sets the changeset's title through
+  `UpdateChangesetInfo` once the new patchset is in, as `gs edit --title`
+  does.
+
+**Verification**
+- `TestPrintWorkspaceStackOnce`, `TestModifyMessageRetitles`; the whole
+  `tests/cli` suite against a local Postgres 16.

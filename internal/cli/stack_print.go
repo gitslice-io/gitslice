@@ -69,6 +69,26 @@ func printStack(w io.Writer, stack *corev1.ChangesetStack) {
 	if stack.ActiveEntryId != "" {
 		fmt.Fprintf(w, "active: %s\n", firstNonEmpty(storage.ShortChangesetID(stack.ActiveEntryId), stack.ActiveEntryId))
 	}
+	printStackEntries(w, stack)
+}
+
+// printWorkspaceStack is the dependency tree as gs status shows it: one
+// header line with the tree's state (so "status:" is left to the
+// workspace's own changes), the workspace's active changeset, and the
+// changesets.
+func printWorkspaceStack(w io.Writer, stack *corev1.ChangesetStack, activeChangesetID string) {
+	header := "dependencies: " + stack.Id
+	if stack.Status != "" {
+		header += " (" + stack.Status + ")"
+	}
+	fmt.Fprintln(w, header)
+	if active := firstNonEmpty(activeChangesetID, stack.ActiveEntryId); active != "" {
+		fmt.Fprintf(w, "active: %s\n", firstNonEmpty(storage.ShortChangesetID(active), active))
+	}
+	printStackEntries(w, stack)
+}
+
+func printStackEntries(w io.Writer, stack *corev1.ChangesetStack) {
 	fmt.Fprintln(w, "changesets:")
 	if len(stack.Entries) == 0 {
 		fmt.Fprintln(w, "  none")

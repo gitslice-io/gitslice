@@ -155,6 +155,13 @@ func (r Runner) runStackModify(ctx context.Context, opts commandOptions, message
 	if err != nil {
 		return err
 	}
+	if title := strings.TrimSpace(message); title != "" {
+		// --message retitles the changeset, as gs edit --title does, once
+		// the new patchset is in.
+		if _, err := changesetClient.UpdateChangesetInfo(callCtx, &corev1.UpdateChangesetInfoRequest{ChangesetId: cs.Id, Title: &title}); err != nil {
+			return err
+		}
+	}
 	state.CurrentPatchsetID = patchset.Id
 	if cs.StackId != "" {
 		state.ActiveStackID = cs.StackId
@@ -194,6 +201,5 @@ func (r Runner) runStackModify(ctx context.Context, opts commandOptions, message
 	if len(restacked) > 0 {
 		fmt.Fprintf(r.Stdout, "updated dependents: %s\n", strings.Join(restacked, ", "))
 	}
-	_ = message
 	return nil
 }

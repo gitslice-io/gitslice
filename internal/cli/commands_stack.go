@@ -65,7 +65,7 @@ func (r Runner) stackCommands(opts *commandOptions) []*cobra.Command {
 			return r.runStackModify(cmd.Context(), *opts, modifyMessage, modifyNoRestack, modifyAll)
 		},
 	}
-	modifyCmd.Flags().StringVar(&modifyMessage, "message", modifyMessage, "replacement title is reserved for future use")
+	modifyCmd.Flags().StringVar(&modifyMessage, "message", modifyMessage, "new title for the changeset (as gs edit --title)")
 	modifyCmd.Flags().BoolVar(&modifyNoRestack, "no-update-dependents", modifyNoRestack, "do not update dependent changesets after modifying")
 	modifyCmd.Flags().BoolVar(&modifyAll, "all", modifyAll, "snapshot all current workspace edits")
 

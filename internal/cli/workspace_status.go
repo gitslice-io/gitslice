@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -241,11 +240,7 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions) error {
 		fmt.Fprintf(r.Stdout, "offline: %s is unreachable; %s\n", cfg.ServerAddr, note)
 	}
 	if stack != nil {
-		fmt.Fprintf(r.Stdout, "dependencies: %s\n", stack.Id)
-		if state.CurrentChangesetID != "" {
-			fmt.Fprintf(r.Stdout, "active: %s\n", firstNonEmpty(storage.ShortChangesetID(state.CurrentChangesetID), state.CurrentChangesetID))
-		}
-		printStack(r.Stdout, stack)
+		printWorkspaceStack(r.Stdout, stack, state.CurrentChangesetID)
 	}
 	if len(changes) == 0 && output.ConflictCount == 0 {
 		fmt.Fprintln(r.Stdout, "status: clean")
