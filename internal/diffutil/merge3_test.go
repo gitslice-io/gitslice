@@ -34,6 +34,12 @@ func TestMerge3(t *testing.T) {
 			want: lines("a", "b", "c", "d", "<<<<<<< ours", "x", "=======", "y", ">>>>>>> theirs", "e", "f", "g")},
 		{name: "delete what the other changed", ours: lines("a", "b", "c", "e", "f", "g"), theirs: lines("a", "b", "c", "D", "e", "f", "g"),
 			want: lines("a", "b", "c", "<<<<<<< ours", "=======", "D", ">>>>>>> theirs", "e", "f", "g")},
+		{name: "change beside a conflict joins it", ours: lines("A1", "b", "c", "d", "e", "f", "g"), theirs: lines("A2", "b", "X", "c", "d", "e", "f", "g"),
+			want: lines("<<<<<<< ours", "A1", "b", "=======", "A2", "b", "X", ">>>>>>> theirs", "c", "d", "e", "f", "g")},
+		{name: "change three lines from a conflict stays apart", ours: lines("a", "B1", "c", "d", "e", "f", "g"), theirs: lines("a", "B2", "c", "d", "e", "F", "g"),
+			want: lines("a", "<<<<<<< ours", "B1", "=======", "B2", ">>>>>>> theirs", "c", "d", "e", "F", "g")},
+		{name: "clean changes beside each other stay clean", ours: lines("A", "b", "c", "d", "e", "f", "g"), theirs: lines("a", "b", "C", "d", "e", "f", "g"),
+			want: lines("A", "b", "C", "d", "e", "f", "g"), wantClean: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got, clean := Merge3([]byte(base), []byte(tc.ours), []byte(tc.theirs), "ours", "theirs")
@@ -68,5 +74,20 @@ func TestMerge3(t *testing.T) {
 	want[10], want[19000] = "ours", "theirs"
 	if !clean || string(got) != lines(want...) {
 		t.Fatalf("large file merge was not clean or not exact (clean %v)", clean)
+	}
+}
+
+// TestMerge3BlockRewrite covers both sides rewriting one test: each kept the
+// render line, but put its own declaration on a different side of it. No
+// part of either version may land outside the markers, or the merge holds
+// both declarations.
+func TestMerge3BlockRewrite(t *testing.T) {
+	base := "it(\"adds\", () => {\n  render(<P />);\n  click();\n});\n"
+	ours := "it(\"adds when signed in\", () => {\n  render(<P />);\n  const btn = a();\n  click();\n});\n"
+	theirs := "it(\"adds for admins\", () => {\n  const btn = b();\n  render(<P />);\n  click();\n});\n"
+	got, clean := Merge3([]byte(base), []byte(ours), []byte(theirs), "ours", "theirs")
+	want := "<<<<<<< ours\nit(\"adds when signed in\", () => {\n  render(<P />);\n  const btn = a();\n=======\nit(\"adds for admins\", () => {\n  const btn = b();\n  render(<P />);\n>>>>>>> theirs\n  click();\n});\n"
+	if clean || string(got) != want {
+		t.Fatalf("Merge3 = clean %v\n%s\nwant conflict\n%s", clean, got, want)
 	}
 }

@@ -9364,3 +9364,26 @@ pages are code-split, analytics waits for the page to load.
   API: root, file, folder, a file without an extension, a dotted folder, a
   missing path, a slice that does not exist, and another account's slice all
   render as before.
+
+## 2026-11-12 — Conflicts take in the changes beside them
+
+**Why**
+- Feedback fb_4f209d65 (#2): both sides of a restack rewrote one test block.
+  The conflict markers wrapped only the `it(...)` line, and each side's
+  declaration, kept on a different side of an unchanged line, was applied
+  outside the markers. The file held two `const btn` declarations; had they
+  not clashed it could have compiled into a silently wrong test.
+
+**What changed**
+- `diffutil.Merge3` (used by the server's restack merge) first finds its
+  clusters of overlapping changes, then joins every change within three
+  unchanged lines of a conflict (`conflictContext`, git's hunk context) into
+  that conflict. Each side of the joined region shows only its own changes.
+  Clean changes next to each other are still merged cleanly; the CLI's sync
+  merge was not affected, as it writes the whole file in markers on any
+  conflict.
+
+**Verification**
+- New `Merge3` cases (a change beside a conflict joins it, one three lines
+  away stays apart, clean neighbors stay clean) and a test of the reported
+  block rewrite; `go test ./internal/... ./service/... ./server/...`.

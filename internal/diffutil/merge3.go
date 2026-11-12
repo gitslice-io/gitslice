@@ -22,9 +22,10 @@ func Merge3(base, ours, theirs []byte, oursLabel, theirsLabel string) (merged []
 	oursHunks := lineHunks(baseLines, splitLines(ours))
 	theirsHunks := lineHunks(baseLines, splitLines(theirs))
 
-	var out []string
-	clean = true
-	pos, i, j := 0, 0, 0
+	// First find the clusters: runs of hunks from either side that overlap
+	// or touch.
+	var clusters []mergeCluster
+	i, j := 0, 0
 	for i < len(oursHunks) || j < len(theirsHunks) {
 		// A cluster starts at the next hunk and takes in every hunk from the
 		// other side that overlaps or touches it.
@@ -54,26 +55,87 @@ func Merge3(base, ours, theirs []byte, oursLabel, theirsLabel string) (merged []
 				break
 			}
 		}
-		out = append(out, baseLines[pos:start]...)
-		oursSide := applyHunks(baseLines, start, end, oursHunks[fromOurs:i])
-		theirsSide := applyHunks(baseLines, start, end, theirsHunks[fromTheirs:j])
+		c := mergeCluster{start: start, end: end, ours: oursHunks[fromOurs:i], theirs: theirsHunks[fromTheirs:j]}
+		c.resolve(baseLines)
+		clusters = append(clusters, c)
+	}
+
+	// A change next to a conflict usually belongs to the same edit (both
+	// sides rewrote one block, but each kept a line or two of it). Applying
+	// it outside the markers can leave half of one side's version in the
+	// file unmarked, such as a declaration that the other side also makes.
+	// So a conflict takes in every change within conflictContext unchanged
+	// lines of it, and the whole region is shown inside the markers.
+	for k := 0; k < len(clusters); k++ {
+		if !clusters[k].conflict {
+			continue
+		}
+		for k > 0 && clusters[k].start-clusters[k-1].end < conflictContext {
+			clusters[k-1].absorb(clusters[k], baseLines)
+			clusters = append(clusters[:k], clusters[k+1:]...)
+			k--
+		}
+		for k+1 < len(clusters) && clusters[k+1].start-clusters[k].end < conflictContext {
+			clusters[k].absorb(clusters[k+1], baseLines)
+			clusters = append(clusters[:k+1], clusters[k+2:]...)
+		}
+	}
+
+	var out []string
+	clean = true
+	pos := 0
+	for _, c := range clusters {
+		out = append(out, baseLines[pos:c.start]...)
 		switch {
-		case i == fromOurs:
-			out = append(out, theirsSide...)
-		case j == fromTheirs, linesEqual(oursSide, theirsSide):
-			out = append(out, oursSide...)
+		case len(c.ours) == 0:
+			out = append(out, c.theirsSide...)
+		case !c.conflict:
+			out = append(out, c.oursSide...)
 		default:
 			clean = false
 			out = append(out, "<<<<<<< "+oursLabel+"\n")
-			out = append(out, terminated(oursSide)...)
+			out = append(out, terminated(c.oursSide)...)
 			out = append(out, "=======\n")
-			out = append(out, terminated(theirsSide)...)
+			out = append(out, terminated(c.theirsSide)...)
 			out = append(out, ">>>>>>> "+theirsLabel+"\n")
 		}
-		pos = end
+		pos = c.end
 	}
 	out = append(out, baseLines[pos:]...)
 	return []byte(strings.Join(out, "")), clean
+}
+
+// conflictContext is how many unchanged lines must separate a conflict from
+// another change for that change to be applied on its own, outside the
+// markers. It matches the context git shows around a hunk.
+const conflictContext = 3
+
+// mergeCluster is a region base[start:end] that one or both sides changed.
+type mergeCluster struct {
+	start, end           int
+	ours, theirs         []lineHunk
+	oursSide, theirsSide []string
+	conflict             bool
+}
+
+// resolve works out what each side made of the region and whether they
+// disagree.
+func (c *mergeCluster) resolve(base []string) {
+	c.oursSide = applyHunks(base, c.start, c.end, c.ours)
+	c.theirsSide = applyHunks(base, c.start, c.end, c.theirs)
+	c.conflict = len(c.ours) > 0 && len(c.theirs) > 0 && !linesEqual(c.oursSide, c.theirsSide)
+}
+
+// absorb extends c over next, the cluster after it, and the unchanged lines
+// between them. The result is a conflict when c was one: both sides of the
+// joined region are shown, each with only its own changes.
+func (c *mergeCluster) absorb(next mergeCluster, base []string) {
+	wasConflict := c.conflict || next.conflict
+	c.end = next.end
+	c.ours = append(append([]lineHunk(nil), c.ours...), next.ours...)
+	c.theirs = append(append([]lineHunk(nil), c.theirs...), next.theirs...)
+	c.resolve(base)
+	c.conflict = wasConflict && !linesEqual(c.oursSide, c.theirsSide)
 }
 
 // lineHunk replaces base[start:end] with lines.
