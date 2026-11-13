@@ -34,6 +34,10 @@ const (
 	SliceService_SetSliceArchived_FullMethodName            = "/gitslice.core.v1.SliceService/SetSliceArchived"
 	SliceService_SetSliceDescription_FullMethodName         = "/gitslice.core.v1.SliceService/SetSliceDescription"
 	SliceService_SetSliceMergeOnSubmit_FullMethodName       = "/gitslice.core.v1.SliceService/SetSliceMergeOnSubmit"
+	SliceService_GetSliceGitMirror_FullMethodName           = "/gitslice.core.v1.SliceService/GetSliceGitMirror"
+	SliceService_SetSliceGitMirror_FullMethodName           = "/gitslice.core.v1.SliceService/SetSliceGitMirror"
+	SliceService_DeleteSliceGitMirror_FullMethodName        = "/gitslice.core.v1.SliceService/DeleteSliceGitMirror"
+	SliceService_PushSliceGitMirror_FullMethodName          = "/gitslice.core.v1.SliceService/PushSliceGitMirror"
 	SliceService_CreateTag_FullMethodName                   = "/gitslice.core.v1.SliceService/CreateTag"
 	SliceService_ListTags_FullMethodName                    = "/gitslice.core.v1.SliceService/ListTags"
 	SliceService_ListSliceMembers_FullMethodName            = "/gitslice.core.v1.SliceService/ListSliceMembers"
@@ -86,6 +90,17 @@ type SliceServiceClient interface {
 	// SetSliceMergeOnSubmit turns merging stale changesets on submit on or off
 	// (Slice.merge_on_submit). Owners and admins of its account may change it.
 	SetSliceMergeOnSubmit(ctx context.Context, in *SetSliceMergeOnSubmitRequest, opts ...grpc.CallOption) (*Slice, error)
+	// Git mirrors (design/35_git_mirrors.md): the server pushes the slice's
+	// history and tags to a Git repository elsewhere, such as GitHub, after
+	// every landing and tag. Owners and admins of the slice's account see and
+	// change them. GetSliceGitMirror fails with NotFound when there is none.
+	GetSliceGitMirror(ctx context.Context, in *GetSliceGitMirrorRequest, opts ...grpc.CallOption) (*SliceGitMirror, error)
+	// SetSliceGitMirror creates or replaces the slice's mirror and pushes soon.
+	SetSliceGitMirror(ctx context.Context, in *SetSliceGitMirrorRequest, opts ...grpc.CallOption) (*SliceGitMirror, error)
+	// DeleteSliceGitMirror stops mirroring; the remote keeps what it has.
+	DeleteSliceGitMirror(ctx context.Context, in *DeleteSliceGitMirrorRequest, opts ...grpc.CallOption) (*Empty, error)
+	// PushSliceGitMirror pushes now, skipping any retry wait.
+	PushSliceGitMirror(ctx context.Context, in *PushSliceGitMirrorRequest, opts ...grpc.CallOption) (*SliceGitMirror, error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -248,6 +263,42 @@ func (c *sliceServiceClient) SetSliceMergeOnSubmit(ctx context.Context, in *SetS
 	return out, nil
 }
 
+func (c *sliceServiceClient) GetSliceGitMirror(ctx context.Context, in *GetSliceGitMirrorRequest, opts ...grpc.CallOption) (*SliceGitMirror, error) {
+	out := new(SliceGitMirror)
+	err := c.cc.Invoke(ctx, SliceService_GetSliceGitMirror_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sliceServiceClient) SetSliceGitMirror(ctx context.Context, in *SetSliceGitMirrorRequest, opts ...grpc.CallOption) (*SliceGitMirror, error) {
+	out := new(SliceGitMirror)
+	err := c.cc.Invoke(ctx, SliceService_SetSliceGitMirror_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sliceServiceClient) DeleteSliceGitMirror(ctx context.Context, in *DeleteSliceGitMirrorRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, SliceService_DeleteSliceGitMirror_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sliceServiceClient) PushSliceGitMirror(ctx context.Context, in *PushSliceGitMirrorRequest, opts ...grpc.CallOption) (*SliceGitMirror, error) {
+	out := new(SliceGitMirror)
+	err := c.cc.Invoke(ctx, SliceService_PushSliceGitMirror_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *sliceServiceClient) CreateTag(ctx context.Context, in *CreateTagRequest, opts ...grpc.CallOption) (*Tag, error) {
 	out := new(Tag)
 	err := c.cc.Invoke(ctx, SliceService_CreateTag_FullMethodName, in, out, opts...)
@@ -346,6 +397,17 @@ type SliceServiceServer interface {
 	// SetSliceMergeOnSubmit turns merging stale changesets on submit on or off
 	// (Slice.merge_on_submit). Owners and admins of its account may change it.
 	SetSliceMergeOnSubmit(context.Context, *SetSliceMergeOnSubmitRequest) (*Slice, error)
+	// Git mirrors (design/35_git_mirrors.md): the server pushes the slice's
+	// history and tags to a Git repository elsewhere, such as GitHub, after
+	// every landing and tag. Owners and admins of the slice's account see and
+	// change them. GetSliceGitMirror fails with NotFound when there is none.
+	GetSliceGitMirror(context.Context, *GetSliceGitMirrorRequest) (*SliceGitMirror, error)
+	// SetSliceGitMirror creates or replaces the slice's mirror and pushes soon.
+	SetSliceGitMirror(context.Context, *SetSliceGitMirrorRequest) (*SliceGitMirror, error)
+	// DeleteSliceGitMirror stops mirroring; the remote keeps what it has.
+	DeleteSliceGitMirror(context.Context, *DeleteSliceGitMirrorRequest) (*Empty, error)
+	// PushSliceGitMirror pushes now, skipping any retry wait.
+	PushSliceGitMirror(context.Context, *PushSliceGitMirrorRequest) (*SliceGitMirror, error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -413,6 +475,18 @@ func (UnimplementedSliceServiceServer) SetSliceDescription(context.Context, *Set
 }
 func (UnimplementedSliceServiceServer) SetSliceMergeOnSubmit(context.Context, *SetSliceMergeOnSubmitRequest) (*Slice, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetSliceMergeOnSubmit not implemented")
+}
+func (UnimplementedSliceServiceServer) GetSliceGitMirror(context.Context, *GetSliceGitMirrorRequest) (*SliceGitMirror, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetSliceGitMirror not implemented")
+}
+func (UnimplementedSliceServiceServer) SetSliceGitMirror(context.Context, *SetSliceGitMirrorRequest) (*SliceGitMirror, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetSliceGitMirror not implemented")
+}
+func (UnimplementedSliceServiceServer) DeleteSliceGitMirror(context.Context, *DeleteSliceGitMirrorRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteSliceGitMirror not implemented")
+}
+func (UnimplementedSliceServiceServer) PushSliceGitMirror(context.Context, *PushSliceGitMirrorRequest) (*SliceGitMirror, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PushSliceGitMirror not implemented")
 }
 func (UnimplementedSliceServiceServer) CreateTag(context.Context, *CreateTagRequest) (*Tag, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateTag not implemented")
@@ -714,6 +788,78 @@ func _SliceService_SetSliceMergeOnSubmit_Handler(srv interface{}, ctx context.Co
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SliceService_GetSliceGitMirror_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSliceGitMirrorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).GetSliceGitMirror(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_GetSliceGitMirror_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).GetSliceGitMirror(ctx, req.(*GetSliceGitMirrorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SliceService_SetSliceGitMirror_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetSliceGitMirrorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).SetSliceGitMirror(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_SetSliceGitMirror_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).SetSliceGitMirror(ctx, req.(*SetSliceGitMirrorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SliceService_DeleteSliceGitMirror_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteSliceGitMirrorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).DeleteSliceGitMirror(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_DeleteSliceGitMirror_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).DeleteSliceGitMirror(ctx, req.(*DeleteSliceGitMirrorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SliceService_PushSliceGitMirror_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PushSliceGitMirrorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).PushSliceGitMirror(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_PushSliceGitMirror_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).PushSliceGitMirror(ctx, req.(*PushSliceGitMirrorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SliceService_CreateTag_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateTagRequest)
 	if err := dec(in); err != nil {
@@ -888,6 +1034,22 @@ var SliceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetSliceMergeOnSubmit",
 			Handler:    _SliceService_SetSliceMergeOnSubmit_Handler,
+		},
+		{
+			MethodName: "GetSliceGitMirror",
+			Handler:    _SliceService_GetSliceGitMirror_Handler,
+		},
+		{
+			MethodName: "SetSliceGitMirror",
+			Handler:    _SliceService_SetSliceGitMirror_Handler,
+		},
+		{
+			MethodName: "DeleteSliceGitMirror",
+			Handler:    _SliceService_DeleteSliceGitMirror_Handler,
+		},
+		{
+			MethodName: "PushSliceGitMirror",
+			Handler:    _SliceService_PushSliceGitMirror_Handler,
 		},
 		{
 			MethodName: "CreateTag",

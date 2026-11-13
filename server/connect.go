@@ -333,6 +333,22 @@ func (a connectSliceAdapter) SetSliceDescription(ctx context.Context, req *conne
 	return connectResponse(a.svc.SetSliceDescription(ctx, req.Msg))
 }
 
+func (a connectSliceAdapter) GetSliceGitMirror(ctx context.Context, req *connect.Request[corev1.GetSliceGitMirrorRequest]) (*connect.Response[corev1.SliceGitMirror], error) {
+	return connectResponse(a.svc.GetSliceGitMirror(ctx, req.Msg))
+}
+
+func (a connectSliceAdapter) SetSliceGitMirror(ctx context.Context, req *connect.Request[corev1.SetSliceGitMirrorRequest]) (*connect.Response[corev1.SliceGitMirror], error) {
+	return connectResponse(a.svc.SetSliceGitMirror(ctx, req.Msg))
+}
+
+func (a connectSliceAdapter) DeleteSliceGitMirror(ctx context.Context, req *connect.Request[corev1.DeleteSliceGitMirrorRequest]) (*connect.Response[corev1.Empty], error) {
+	return connectResponse(a.svc.DeleteSliceGitMirror(ctx, req.Msg))
+}
+
+func (a connectSliceAdapter) PushSliceGitMirror(ctx context.Context, req *connect.Request[corev1.PushSliceGitMirrorRequest]) (*connect.Response[corev1.SliceGitMirror], error) {
+	return connectResponse(a.svc.PushSliceGitMirror(ctx, req.Msg))
+}
+
 func (a connectSliceAdapter) SetSliceMergeOnSubmit(ctx context.Context, req *connect.Request[corev1.SetSliceMergeOnSubmitRequest]) (*connect.Response[corev1.Slice], error) {
 	return connectResponse(a.svc.SetSliceMergeOnSubmit(ctx, req.Msg))
 }

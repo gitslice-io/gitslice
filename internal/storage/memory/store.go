@@ -27,6 +27,7 @@ type Stores struct {
 	Triggers   *TriggerStore
 	Feedback   *FeedbackStore
 	Blames     *BlameStore
+	GitMirrors *GitMirrorStore
 
 	backend *backend
 }
@@ -237,6 +238,7 @@ func New() *Stores {
 		Triggers:   NewTriggerStore(),
 		Feedback:   &FeedbackStore{b: b},
 		Blames:     &BlameStore{b: b},
+		GitMirrors: &GitMirrorStore{b: b},
 		backend:    b,
 	}
 }

@@ -177,6 +177,14 @@ export function createApiClient({
       unary<Api.Slice>(() => slice.setSliceDescription(toProtoRequest(request))),
     setSliceMergeOnSubmit: (request) =>
       unary<Api.Slice>(() => slice.setSliceMergeOnSubmit(toProtoRequest(request))),
+    getSliceGitMirror: (request) =>
+      unary<Api.SliceGitMirror>(() => slice.getSliceGitMirror(toProtoRequest(request))),
+    setSliceGitMirror: (request) =>
+      unary<Api.SliceGitMirror>(() => slice.setSliceGitMirror(toProtoRequest(request))),
+    deleteSliceGitMirror: (request) =>
+      unary<Api.Empty>(() => slice.deleteSliceGitMirror(toProtoRequest(request))),
+    pushSliceGitMirror: (request) =>
+      unary<Api.SliceGitMirror>(() => slice.pushSliceGitMirror(toProtoRequest(request))),
     createChangeset: (request) =>
       unary<Api.Changeset>(() =>
         changeset.createChangeset(toProtoRequest(request))

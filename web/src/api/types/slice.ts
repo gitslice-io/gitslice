@@ -83,6 +83,40 @@ export interface SetSliceCIDaemonRequest {
   remove?: boolean;
 }
 
+// A slice's Git mirror (design/35_git_mirrors.md): the server pushes the
+// slice's history and tags to a Git repository elsewhere, such as GitHub.
+export interface SliceGitMirror {
+  slice?: SliceRef;
+  url?: string;
+  branch?: string;
+  username?: string;
+  tokenSecret?: string;
+  // The folder that becomes the repository root, or empty.
+  root?: string;
+  pending?: boolean;
+  lastAttemptAt?: string;
+  lastPushedAt?: string;
+  lastPushedCommit?: string;
+  lastPushedNativeCommit?: string;
+  lastError?: string;
+  nextAttemptAt?: string;
+  failures?: number;
+  createdBy?: string;
+  updatedAt?: string;
+}
+
+export interface SliceGitMirrorRequest {
+  slice?: SliceRef;
+}
+
+export interface SetSliceGitMirrorRequest {
+  slice?: SliceRef;
+  url?: string;
+  branch?: string;
+  username?: string;
+  tokenSecret?: string;
+}
+
 export interface SetSliceMergeOnSubmitRequest {
   slice?: SliceRef;
   enabled?: boolean;

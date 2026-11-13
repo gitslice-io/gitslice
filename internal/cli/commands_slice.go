@@ -182,6 +182,7 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	sliceCmd.AddCommand(r.sliceMemberCommands(opts)...)
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceHistoryCmd, sliceUpdateCmd, sliceSetCIDaemonCmd, sliceSecretCmd, sliceDeleteCmd)
 	sliceCmd.AddCommand(r.sliceLifecycleCommands(opts)...)
+	sliceCmd.AddCommand(r.sliceMirrorCommand(opts))
 
 	return sliceCmd
 }

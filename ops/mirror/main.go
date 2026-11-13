@@ -4,7 +4,9 @@
 //	mirror -repo . -source https://gitslice.io/git/gitslice/gitslice.git \
 //	       -subdir gitslice/gitslice -push -new-tags-out tags.txt
 //
-// GITSLICE_MIRROR_TOKEN, when set, authenticates the source fetch.
+// GITSLICE_MIRROR_TOKEN, when set, authenticates the source fetch. Slices
+// can instead be mirrored by the server itself (gs slice mirror,
+// design/35_git_mirrors.md).
 package main
 
 import (

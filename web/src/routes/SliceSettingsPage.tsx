@@ -23,6 +23,7 @@ import {
   sliceDisplayName
 } from "../components/slices/SlicePageParts";
 import { SliceWebhooksPanel } from "../components/slices/SliceWebhooksPanel";
+import { SliceGitMirrorPanel } from "../components/slices/SliceGitMirrorPanel";
 import { SliceSecretsPanel } from "../components/slices/SliceSecretsPanel";
 import { SliceMembersPanel } from "../components/slices/SliceMembersPanel";
 import { SliceDescriptionPanel } from "../components/slices/SliceDescriptionPanel";
@@ -365,6 +366,12 @@ export function SliceSettingsPage() {
             includedPaths={slice.definition?.includedPaths ?? []}
             slice={webhookSlice}
           />
+        </div>
+      ) : null}
+
+      {showWebhooks && webhookSlice ? (
+        <div className="mt-8">
+          <SliceGitMirrorPanel slice={webhookSlice} />
         </div>
       ) : null}
 

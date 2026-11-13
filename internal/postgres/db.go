@@ -24,6 +24,7 @@ type DB struct {
 	triggers   *TriggerStore
 	feedback   *FeedbackStore
 	blames     *BlameStore
+	mirrors    *GitMirrorStore
 }
 
 func Open(ctx context.Context, databaseURL string) (*DB, error) {
@@ -99,6 +100,11 @@ func (d *DB) Blames() *BlameStore {
 	return d.blames
 }
 
+// GitMirrors returns the slice Git mirror store (design/35_git_mirrors.md).
+func (d *DB) GitMirrors() *GitMirrorStore {
+	return d.mirrors
+}
+
 // Feedback returns the feedback store (design/25_feedback.md).
 func (d *DB) Feedback() *FeedbackStore {
 	return d.feedback
@@ -120,4 +126,5 @@ func (d *DB) initStores() {
 	d.triggers = &TriggerStore{db: d.db}
 	d.feedback = &FeedbackStore{db: d.db}
 	d.blames = &BlameStore{db: d.db}
+	d.mirrors = &GitMirrorStore{db: d.db}
 }

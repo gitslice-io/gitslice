@@ -39,6 +39,8 @@ type Handler struct {
 	changesets ChangesetAPI
 	// internalKey signs the server's requests to itself (compact_http.go).
 	internalKey []byte
+	// mirrorRunner pushes a slice's Git mirror (mirror_http.go).
+	mirrorRunner MirrorRunner
 }
 
 type BlobAPI interface {
@@ -71,6 +73,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w = recorder
 	if compactURLPath(r.URL.Path) {
 		h.serveCompact(w, r)
+		return
+	}
+	if r.URL.Path == mirrorPath {
+		h.serveMirror(w, r)
 		return
 	}
 	account, slice, pathInfo, err := parseGitPath(r.URL.Path)

@@ -19,6 +19,9 @@ type SliceService struct {
 	Slices     storage.SliceStore
 	Agents     storage.AgentStore
 	Analytics  analytics.Client
+	// GitMirrors is optional: without it the Git mirror calls are
+	// unavailable (design/35_git_mirrors.md).
+	GitMirrors *GitMirrors
 }
 
 func (s *SliceService) CreateSlice(ctx context.Context, req *corev1.CreateSliceRequest) (*corev1.Slice, error) {

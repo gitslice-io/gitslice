@@ -79,6 +79,17 @@ type Options struct {
 	Client *http.Client
 	// Triggers, when set, turns events into trigger runs too.
 	Triggers Triggers
+	// Mirrors, when set, queues and pushes slice Git mirrors
+	// (design/35_git_mirrors.md).
+	Mirrors Mirrors
+}
+
+// Mirrors queues Git mirror pushes for recorded events and runs due ones.
+type Mirrors interface {
+	// FanOut marks the mirrors the event gives something to push.
+	FanOut(ctx context.Context, event storage.WebhookEvent)
+	// Drain pushes (or asks for pushes of) the mirrors that are due.
+	Drain(ctx context.Context)
 }
 
 // Triggers turns recorded events into trigger runs and runs them
@@ -142,7 +153,7 @@ func (d *Dispatcher) Emit(ctx context.Context, event storage.WebhookEvent) {
 // handles them, nudged at once when triggers are enabled).
 func (d *Dispatcher) Flush(ctx context.Context) {
 	if !d.mayHaveHooks(ctx) {
-		if d.opts.Triggers != nil {
+		if d.opts.Triggers != nil || d.opts.Mirrors != nil {
 			d.Nudge()
 		}
 		return
@@ -270,6 +281,9 @@ func (d *Dispatcher) DrainOnce(ctx context.Context) error {
 				}
 			}
 			deliveries := d.fanOut(ctx, event, ec, hooks, slices)
+			if d.opts.Mirrors != nil {
+				d.opts.Mirrors.FanOut(ctx, event)
+			}
 			if ec != nil && d.opts.Triggers != nil {
 				if envelope, err := json.Marshal(d.payload(event, ec, nil)); err == nil {
 					d.opts.Triggers.FanOut(ctx, event, envelope)
@@ -311,6 +325,9 @@ func (d *Dispatcher) DrainOnce(ctx context.Context) error {
 	}
 	if d.opts.Triggers != nil {
 		d.opts.Triggers.Drain(ctx)
+	}
+	if d.opts.Mirrors != nil {
+		d.opts.Mirrors.Drain(ctx)
 	}
 	return nil
 }

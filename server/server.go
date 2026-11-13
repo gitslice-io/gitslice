@@ -149,6 +149,13 @@ func Run(ctx context.Context, cfg Config) error {
 		DispatchSecret:      cfg.TriggerDispatchSecret,
 		AllowPrivateTargets: cfg.WebhookAllowPrivateTargets,
 	})
+	// Slice Git mirrors (design/35_git_mirrors.md): the dispatcher's drains
+	// queue and claim pushes; the projector (below) does them.
+	gitMirrors := &service.GitMirrors{
+		Mirrors:             db.GitMirrors(),
+		Slices:              db.Slices(),
+		AllowPrivateTargets: cfg.WebhookAllowPrivateTargets,
+	}
 	dispatcher := webhooks.NewDispatcher(webhooks.Stores{
 		Webhooks:   db.Webhooks(),
 		Slices:     db.Slices(),
@@ -160,7 +167,9 @@ func Run(ctx context.Context, cfg Config) error {
 		WebBaseURL:          cfg.webBaseURL(),
 		AllowPrivateTargets: cfg.WebhookAllowPrivateTargets,
 		Triggers:            triggerEngine,
+		Mirrors:             gitMirrors,
 	})
+	gitMirrors.Nudge = dispatcher.Nudge
 	go dispatcher.Run(ctx)
 	pubNudge := newPublishNudger()
 	db.Changesets().SetPendingPublishListener(pubNudge.Nudge)
@@ -209,6 +218,7 @@ func Run(ctx context.Context, cfg Config) error {
 	handlers.Feedback.Account = cfg.FeedbackAccount
 	handlers.Feedback.OperatorSubjects = cfg.OperatorSubjects
 	handlers.Webhook.Dispatcher = dispatcher
+	handlers.Slice.GitMirrors = gitMirrors
 	handlers.Auth.AgentSignupEnabled = cfg.AgentSignupEnabled
 	handlers.Auth.OperatorSubjects = cfg.OperatorSubjects
 	if users := clerk.NewUserClient(cfg.Clerk.SecretKey); users != nil {
@@ -253,6 +263,14 @@ func Run(ctx context.Context, cfg Config) error {
 			projector.SetCompactRequester(gitcompat.SelfCompactRequester(cfg.SelfURL, key))
 		}
 	}
+	var mirrorRequest func(account, slice string)
+	if key := cfg.internalKey(); key != nil && cfg.SelfURL != "" {
+		// Mirror pushes, like covers, run in a request to the server itself,
+		// where Cloud Run gives them CPU.
+		mirrorRequest = gitcompat.SelfMirrorRequester(cfg.SelfURL, key)
+	}
+	gitMirrors.SetPusher(projector.PushMirror, mirrorRequest)
+	gitcompatHandler.SetMirrorRunner(gitMirrors.Run)
 	var gitHandler http.Handler = gitcompatHandler
 	gitHandler = newHTTPRateLimitMiddleware(cfg)(gitHandler)
 	combinedServer := &http.Server{

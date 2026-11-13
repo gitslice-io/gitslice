@@ -1,6 +1,7 @@
 package webhooks
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -140,4 +141,30 @@ func newClient(allowPrivate bool) *http.Client {
 // isBlocked reports whether err came from refusing a non-public address.
 func isBlocked(err error) bool {
 	return errors.Is(err, errBlockedAddress)
+}
+
+// ResolvePublic resolves host and returns one of its addresses, refusing a
+// host with any non-public address unless allowPrivate. Callers that cannot
+// use NewClient's dialer (git, for Git mirrors) pin the connection to the
+// returned address.
+func ResolvePublic(ctx context.Context, host string, allowPrivate bool) (netip.Addr, error) {
+	if ip, err := netip.ParseAddr(host); err == nil {
+		if !allowPrivate && !publicAddress(ip) {
+			return netip.Addr{}, errBlockedAddress
+		}
+		return ip, nil
+	}
+	addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	if err != nil {
+		return netip.Addr{}, fmt.Errorf("resolve %s: %w", host, err)
+	}
+	if len(addrs) == 0 {
+		return netip.Addr{}, fmt.Errorf("resolve %s: no addresses", host)
+	}
+	for _, ip := range addrs {
+		if !allowPrivate && !publicAddress(ip.Unmap()) {
+			return netip.Addr{}, errBlockedAddress
+		}
+	}
+	return addrs[0].Unmap(), nil
 }

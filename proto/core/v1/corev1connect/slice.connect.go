@@ -76,6 +76,18 @@ const (
 	// SliceServiceSetSliceMergeOnSubmitProcedure is the fully-qualified name of the SliceService's
 	// SetSliceMergeOnSubmit RPC.
 	SliceServiceSetSliceMergeOnSubmitProcedure = "/gitslice.core.v1.SliceService/SetSliceMergeOnSubmit"
+	// SliceServiceGetSliceGitMirrorProcedure is the fully-qualified name of the SliceService's
+	// GetSliceGitMirror RPC.
+	SliceServiceGetSliceGitMirrorProcedure = "/gitslice.core.v1.SliceService/GetSliceGitMirror"
+	// SliceServiceSetSliceGitMirrorProcedure is the fully-qualified name of the SliceService's
+	// SetSliceGitMirror RPC.
+	SliceServiceSetSliceGitMirrorProcedure = "/gitslice.core.v1.SliceService/SetSliceGitMirror"
+	// SliceServiceDeleteSliceGitMirrorProcedure is the fully-qualified name of the SliceService's
+	// DeleteSliceGitMirror RPC.
+	SliceServiceDeleteSliceGitMirrorProcedure = "/gitslice.core.v1.SliceService/DeleteSliceGitMirror"
+	// SliceServicePushSliceGitMirrorProcedure is the fully-qualified name of the SliceService's
+	// PushSliceGitMirror RPC.
+	SliceServicePushSliceGitMirrorProcedure = "/gitslice.core.v1.SliceService/PushSliceGitMirror"
 	// SliceServiceCreateTagProcedure is the fully-qualified name of the SliceService's CreateTag RPC.
 	SliceServiceCreateTagProcedure = "/gitslice.core.v1.SliceService/CreateTag"
 	// SliceServiceListTagsProcedure is the fully-qualified name of the SliceService's ListTags RPC.
@@ -136,6 +148,17 @@ type SliceServiceClient interface {
 	// SetSliceMergeOnSubmit turns merging stale changesets on submit on or off
 	// (Slice.merge_on_submit). Owners and admins of its account may change it.
 	SetSliceMergeOnSubmit(context.Context, *connect.Request[v1.SetSliceMergeOnSubmitRequest]) (*connect.Response[v1.Slice], error)
+	// Git mirrors (design/35_git_mirrors.md): the server pushes the slice's
+	// history and tags to a Git repository elsewhere, such as GitHub, after
+	// every landing and tag. Owners and admins of the slice's account see and
+	// change them. GetSliceGitMirror fails with NotFound when there is none.
+	GetSliceGitMirror(context.Context, *connect.Request[v1.GetSliceGitMirrorRequest]) (*connect.Response[v1.SliceGitMirror], error)
+	// SetSliceGitMirror creates or replaces the slice's mirror and pushes soon.
+	SetSliceGitMirror(context.Context, *connect.Request[v1.SetSliceGitMirrorRequest]) (*connect.Response[v1.SliceGitMirror], error)
+	// DeleteSliceGitMirror stops mirroring; the remote keeps what it has.
+	DeleteSliceGitMirror(context.Context, *connect.Request[v1.DeleteSliceGitMirrorRequest]) (*connect.Response[v1.Empty], error)
+	// PushSliceGitMirror pushes now, skipping any retry wait.
+	PushSliceGitMirror(context.Context, *connect.Request[v1.PushSliceGitMirrorRequest]) (*connect.Response[v1.SliceGitMirror], error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -256,6 +279,30 @@ func NewSliceServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(sliceServiceMethods.ByName("SetSliceMergeOnSubmit")),
 			connect.WithClientOptions(opts...),
 		),
+		getSliceGitMirror: connect.NewClient[v1.GetSliceGitMirrorRequest, v1.SliceGitMirror](
+			httpClient,
+			baseURL+SliceServiceGetSliceGitMirrorProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("GetSliceGitMirror")),
+			connect.WithClientOptions(opts...),
+		),
+		setSliceGitMirror: connect.NewClient[v1.SetSliceGitMirrorRequest, v1.SliceGitMirror](
+			httpClient,
+			baseURL+SliceServiceSetSliceGitMirrorProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("SetSliceGitMirror")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteSliceGitMirror: connect.NewClient[v1.DeleteSliceGitMirrorRequest, v1.Empty](
+			httpClient,
+			baseURL+SliceServiceDeleteSliceGitMirrorProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("DeleteSliceGitMirror")),
+			connect.WithClientOptions(opts...),
+		),
+		pushSliceGitMirror: connect.NewClient[v1.PushSliceGitMirrorRequest, v1.SliceGitMirror](
+			httpClient,
+			baseURL+SliceServicePushSliceGitMirrorProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("PushSliceGitMirror")),
+			connect.WithClientOptions(opts...),
+		),
 		createTag: connect.NewClient[v1.CreateTagRequest, v1.Tag](
 			httpClient,
 			baseURL+SliceServiceCreateTagProcedure,
@@ -312,6 +359,10 @@ type sliceServiceClient struct {
 	setSliceArchived            *connect.Client[v1.SetSliceArchivedRequest, v1.Slice]
 	setSliceDescription         *connect.Client[v1.SetSliceDescriptionRequest, v1.Slice]
 	setSliceMergeOnSubmit       *connect.Client[v1.SetSliceMergeOnSubmitRequest, v1.Slice]
+	getSliceGitMirror           *connect.Client[v1.GetSliceGitMirrorRequest, v1.SliceGitMirror]
+	setSliceGitMirror           *connect.Client[v1.SetSliceGitMirrorRequest, v1.SliceGitMirror]
+	deleteSliceGitMirror        *connect.Client[v1.DeleteSliceGitMirrorRequest, v1.Empty]
+	pushSliceGitMirror          *connect.Client[v1.PushSliceGitMirrorRequest, v1.SliceGitMirror]
 	createTag                   *connect.Client[v1.CreateTagRequest, v1.Tag]
 	listTags                    *connect.Client[v1.ListTagsRequest, v1.ListTagsResponse]
 	listSliceMembers            *connect.Client[v1.ListSliceMembersRequest, v1.ListSliceMembersResponse]
@@ -395,6 +446,26 @@ func (c *sliceServiceClient) SetSliceMergeOnSubmit(ctx context.Context, req *con
 	return c.setSliceMergeOnSubmit.CallUnary(ctx, req)
 }
 
+// GetSliceGitMirror calls gitslice.core.v1.SliceService.GetSliceGitMirror.
+func (c *sliceServiceClient) GetSliceGitMirror(ctx context.Context, req *connect.Request[v1.GetSliceGitMirrorRequest]) (*connect.Response[v1.SliceGitMirror], error) {
+	return c.getSliceGitMirror.CallUnary(ctx, req)
+}
+
+// SetSliceGitMirror calls gitslice.core.v1.SliceService.SetSliceGitMirror.
+func (c *sliceServiceClient) SetSliceGitMirror(ctx context.Context, req *connect.Request[v1.SetSliceGitMirrorRequest]) (*connect.Response[v1.SliceGitMirror], error) {
+	return c.setSliceGitMirror.CallUnary(ctx, req)
+}
+
+// DeleteSliceGitMirror calls gitslice.core.v1.SliceService.DeleteSliceGitMirror.
+func (c *sliceServiceClient) DeleteSliceGitMirror(ctx context.Context, req *connect.Request[v1.DeleteSliceGitMirrorRequest]) (*connect.Response[v1.Empty], error) {
+	return c.deleteSliceGitMirror.CallUnary(ctx, req)
+}
+
+// PushSliceGitMirror calls gitslice.core.v1.SliceService.PushSliceGitMirror.
+func (c *sliceServiceClient) PushSliceGitMirror(ctx context.Context, req *connect.Request[v1.PushSliceGitMirrorRequest]) (*connect.Response[v1.SliceGitMirror], error) {
+	return c.pushSliceGitMirror.CallUnary(ctx, req)
+}
+
 // CreateTag calls gitslice.core.v1.SliceService.CreateTag.
 func (c *sliceServiceClient) CreateTag(ctx context.Context, req *connect.Request[v1.CreateTagRequest]) (*connect.Response[v1.Tag], error) {
 	return c.createTag.CallUnary(ctx, req)
@@ -467,6 +538,17 @@ type SliceServiceHandler interface {
 	// SetSliceMergeOnSubmit turns merging stale changesets on submit on or off
 	// (Slice.merge_on_submit). Owners and admins of its account may change it.
 	SetSliceMergeOnSubmit(context.Context, *connect.Request[v1.SetSliceMergeOnSubmitRequest]) (*connect.Response[v1.Slice], error)
+	// Git mirrors (design/35_git_mirrors.md): the server pushes the slice's
+	// history and tags to a Git repository elsewhere, such as GitHub, after
+	// every landing and tag. Owners and admins of the slice's account see and
+	// change them. GetSliceGitMirror fails with NotFound when there is none.
+	GetSliceGitMirror(context.Context, *connect.Request[v1.GetSliceGitMirrorRequest]) (*connect.Response[v1.SliceGitMirror], error)
+	// SetSliceGitMirror creates or replaces the slice's mirror and pushes soon.
+	SetSliceGitMirror(context.Context, *connect.Request[v1.SetSliceGitMirrorRequest]) (*connect.Response[v1.SliceGitMirror], error)
+	// DeleteSliceGitMirror stops mirroring; the remote keeps what it has.
+	DeleteSliceGitMirror(context.Context, *connect.Request[v1.DeleteSliceGitMirrorRequest]) (*connect.Response[v1.Empty], error)
+	// PushSliceGitMirror pushes now, skipping any retry wait.
+	PushSliceGitMirror(context.Context, *connect.Request[v1.PushSliceGitMirrorRequest]) (*connect.Response[v1.SliceGitMirror], error)
 	// CreateTag names a native commit for this slice, for releases. Tags are
 	// immutable: creating an existing name again succeeds only for the same
 	// commit. Requires write access. The Git projection publishes each tag as
@@ -583,6 +665,30 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(sliceServiceMethods.ByName("SetSliceMergeOnSubmit")),
 		connect.WithHandlerOptions(opts...),
 	)
+	sliceServiceGetSliceGitMirrorHandler := connect.NewUnaryHandler(
+		SliceServiceGetSliceGitMirrorProcedure,
+		svc.GetSliceGitMirror,
+		connect.WithSchema(sliceServiceMethods.ByName("GetSliceGitMirror")),
+		connect.WithHandlerOptions(opts...),
+	)
+	sliceServiceSetSliceGitMirrorHandler := connect.NewUnaryHandler(
+		SliceServiceSetSliceGitMirrorProcedure,
+		svc.SetSliceGitMirror,
+		connect.WithSchema(sliceServiceMethods.ByName("SetSliceGitMirror")),
+		connect.WithHandlerOptions(opts...),
+	)
+	sliceServiceDeleteSliceGitMirrorHandler := connect.NewUnaryHandler(
+		SliceServiceDeleteSliceGitMirrorProcedure,
+		svc.DeleteSliceGitMirror,
+		connect.WithSchema(sliceServiceMethods.ByName("DeleteSliceGitMirror")),
+		connect.WithHandlerOptions(opts...),
+	)
+	sliceServicePushSliceGitMirrorHandler := connect.NewUnaryHandler(
+		SliceServicePushSliceGitMirrorProcedure,
+		svc.PushSliceGitMirror,
+		connect.WithSchema(sliceServiceMethods.ByName("PushSliceGitMirror")),
+		connect.WithHandlerOptions(opts...),
+	)
 	sliceServiceCreateTagHandler := connect.NewUnaryHandler(
 		SliceServiceCreateTagProcedure,
 		svc.CreateTag,
@@ -651,6 +757,14 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 			sliceServiceSetSliceDescriptionHandler.ServeHTTP(w, r)
 		case SliceServiceSetSliceMergeOnSubmitProcedure:
 			sliceServiceSetSliceMergeOnSubmitHandler.ServeHTTP(w, r)
+		case SliceServiceGetSliceGitMirrorProcedure:
+			sliceServiceGetSliceGitMirrorHandler.ServeHTTP(w, r)
+		case SliceServiceSetSliceGitMirrorProcedure:
+			sliceServiceSetSliceGitMirrorHandler.ServeHTTP(w, r)
+		case SliceServiceDeleteSliceGitMirrorProcedure:
+			sliceServiceDeleteSliceGitMirrorHandler.ServeHTTP(w, r)
+		case SliceServicePushSliceGitMirrorProcedure:
+			sliceServicePushSliceGitMirrorHandler.ServeHTTP(w, r)
 		case SliceServiceCreateTagProcedure:
 			sliceServiceCreateTagHandler.ServeHTTP(w, r)
 		case SliceServiceListTagsProcedure:
@@ -730,6 +844,22 @@ func (UnimplementedSliceServiceHandler) SetSliceDescription(context.Context, *co
 
 func (UnimplementedSliceServiceHandler) SetSliceMergeOnSubmit(context.Context, *connect.Request[v1.SetSliceMergeOnSubmitRequest]) (*connect.Response[v1.Slice], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.SetSliceMergeOnSubmit is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) GetSliceGitMirror(context.Context, *connect.Request[v1.GetSliceGitMirrorRequest]) (*connect.Response[v1.SliceGitMirror], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.GetSliceGitMirror is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) SetSliceGitMirror(context.Context, *connect.Request[v1.SetSliceGitMirrorRequest]) (*connect.Response[v1.SliceGitMirror], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.SetSliceGitMirror is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) DeleteSliceGitMirror(context.Context, *connect.Request[v1.DeleteSliceGitMirrorRequest]) (*connect.Response[v1.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.DeleteSliceGitMirror is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) PushSliceGitMirror(context.Context, *connect.Request[v1.PushSliceGitMirrorRequest]) (*connect.Response[v1.SliceGitMirror], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.PushSliceGitMirror is not implemented"))
 }
 
 func (UnimplementedSliceServiceHandler) CreateTag(context.Context, *connect.Request[v1.CreateTagRequest]) (*connect.Response[v1.Tag], error) {

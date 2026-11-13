@@ -148,8 +148,11 @@ import type {
   SendAgentMessageResponse,
   SetSliceCIDaemonRequest,
   SetSliceDescriptionRequest,
+  SetSliceGitMirrorRequest,
   SetSliceMergeOnSubmitRequest,
   Slice,
+  SliceGitMirror,
+  SliceGitMirrorRequest,
   StreamConversationRequest,
   StreamCheckRunRequest,
   SubmitStackRequest,
@@ -238,6 +241,10 @@ export interface ApiClient {
   setSliceCIDaemon(request: SetSliceCIDaemonRequest): Promise<Slice>;
   setSliceDescription(request: SetSliceDescriptionRequest): Promise<Slice>;
   setSliceMergeOnSubmit(request: SetSliceMergeOnSubmitRequest): Promise<Slice>;
+  getSliceGitMirror(request: SliceGitMirrorRequest): Promise<SliceGitMirror>;
+  setSliceGitMirror(request: SetSliceGitMirrorRequest): Promise<SliceGitMirror>;
+  deleteSliceGitMirror(request: SliceGitMirrorRequest): Promise<Empty>;
+  pushSliceGitMirror(request: SliceGitMirrorRequest): Promise<SliceGitMirror>;
   createChangeset(request: CreateChangesetRequest): Promise<Changeset>;
   listChangesets(
     request: ListChangesetsRequest

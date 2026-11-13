@@ -265,6 +265,23 @@ admin's approval. Inspect runs with `gs trigger ls [folder]`,
 `gs trigger runs --changeset <id>`, `gs trigger logs <run-id>`; run one by
 hand with `gs trigger run <trigger-id>` (it must list `manual` in `on`).
 
+## Git mirrors (backup to GitHub)
+
+An owner or admin can have the server push a slice to a Git repository
+elsewhere, such as GitHub, after every landing and every tag:
+
+    gs slice secret set <account>/<slice> GITHUB_MIRROR_TOKEN < token.txt
+    gs slice mirror set <account>/<slice> --url https://github.com/<owner>/<repo>.git \
+        --token-secret GITHUB_MIRROR_TOKEN
+    gs slice mirror <account>/<slice>          # last push, pending work, last error
+    gs slice mirror push <account>/<slice>     # push now
+    gs slice mirror rm <account>/<slice>
+
+For GitHub use a fine-grained token with Contents read and write on that one
+repository. A slice with one root folder is pushed with that folder as the
+repository root. Pushes are fast-forward only: if someone commits on the
+remote, the mirror stops and shows the error until the remote is reset.
+
 ## Large slices: lazy workspaces
 
 `gs init` downloads every file of the slice. For a big slice, on Linux or macOS

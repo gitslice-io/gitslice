@@ -314,6 +314,18 @@ export const commandGroups = [
     ]
   },
   {
+    title: "Git mirrors",
+    commands: [
+      [
+        "gs slice mirror set <slice> --url <https-url> --token-secret <NAME>",
+        "Push the slice to a Git repository elsewhere, such as GitHub, after every landing and tag (owners and admins)."
+      ],
+      ["gs slice mirror <slice>", "The mirror's URL, its last push and any error."],
+      ["gs slice mirror push <slice>", "Push now instead of waiting for a retry."],
+      ["gs slice mirror rm <slice>", "Stop mirroring; the remote keeps what it has."]
+    ]
+  },
+  {
     title: "Webhooks",
     commands: [
       [

@@ -47,6 +47,17 @@ service SliceService {
   // SetSliceMergeOnSubmit turns merging stale changesets on submit on or off
   // (Slice.merge_on_submit). Owners and admins of its account may change it.
   rpc SetSliceMergeOnSubmit(SetSliceMergeOnSubmitRequest) returns (Slice);
+  // Git mirrors (design/35_git_mirrors.md): the server pushes the slice's
+  // history and tags to a Git repository elsewhere, such as GitHub, after
+  // every landing and tag. Owners and admins of the slice's account see and
+  // change them. GetSliceGitMirror fails with NotFound when there is none.
+  rpc GetSliceGitMirror(GetSliceGitMirrorRequest) returns (SliceGitMirror);
+  // SetSliceGitMirror creates or replaces the slice's mirror and pushes soon.
+  rpc SetSliceGitMirror(SetSliceGitMirrorRequest) returns (SliceGitMirror);
+  // DeleteSliceGitMirror stops mirroring; the remote keeps what it has.
+  rpc DeleteSliceGitMirror(DeleteSliceGitMirrorRequest) returns (Empty);
+  // PushSliceGitMirror pushes now, skipping any retry wait.
+  rpc PushSliceGitMirror(PushSliceGitMirrorRequest) returns (SliceGitMirror);
   // CreateTag names a native commit for this slice, for releases. Tags are
   // immutable: creating an existing name again succeeds only for the same
   // commit. Requires write access. The Git projection publishes each tag as
@@ -261,6 +272,59 @@ message RenameSliceRequest {
 message SetSliceArchivedRequest {
   SliceRef slice = 1;
   bool archived = 2;
+}
+
+// SliceGitMirror is a slice's Git mirror setting and its last push.
+message SliceGitMirror {
+  SliceRef slice = 1;
+  // An https Git URL, such as https://github.com/acme/app.git.
+  string url = 2;
+  // The remote branch the slice's default target goes to (default main).
+  string branch = 3;
+  // The user name sent with the token (default x-access-token, for GitHub).
+  string username = 4;
+  // The name of the account secret holding the token, visible at the
+  // slice's folders. Empty pushes without credentials.
+  string token_secret = 5;
+  // The folder that becomes the repository root (the slice's one root
+  // folder), or empty when the slice's paths are pushed in full.
+  string root = 6;
+  // pending: something is waiting to be pushed.
+  bool pending = 7;
+  // RFC 3339 times; empty when never.
+  string last_attempt_at = 8;
+  string last_pushed_at = 9;
+  // The mirror's head after the last good push, and the native commit it
+  // reflects.
+  string last_pushed_commit = 10;
+  string last_pushed_native_commit = 11;
+  // The last push's error, empty after a good one.
+  string last_error = 12;
+  // When a failed push is tried again.
+  string next_attempt_at = 13;
+  int32 failures = 14;
+  string created_by = 15;
+  string updated_at = 16;
+}
+
+message GetSliceGitMirrorRequest {
+  SliceRef slice = 1;
+}
+
+message SetSliceGitMirrorRequest {
+  SliceRef slice = 1;
+  string url = 2;
+  string branch = 3;
+  string username = 4;
+  string token_secret = 5;
+}
+
+message DeleteSliceGitMirrorRequest {
+  SliceRef slice = 1;
+}
+
+message PushSliceGitMirrorRequest {
+  SliceRef slice = 1;
 }
 
 message SetSliceMergeOnSubmitRequest {

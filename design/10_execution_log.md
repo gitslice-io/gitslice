@@ -9469,3 +9469,34 @@ pages are code-split, analytics waits for the page to load.
   whole `tests/cli` suite against a local Postgres 16.
 - Production, gitslice:gitslice (1,385 files), a sync with nothing to
   update: v0.4.23 198.9 s and 193.5 s; this build 0.81 s and 0.64 s.
+
+## 2026-11-13 — Slice Git mirrors (design/35)
+
+**Why**
+- The only mirror was our GitHub Actions export, which GitHub runs late
+  (often hours) and nobody else could set up. Asked for a backup flow anyone
+  can use, as a slice setting.
+
+**What changed**
+- `internal/gitmirror`: the exporter moved out of `ops/mirror` (which now
+  calls it), plus empty remotes (whole history), hydration of files a lazy
+  projection lacks, credentials passed only through the environment and
+  redacted from errors.
+- Server: `slice_git_mirrors` (migration 0051), queued by the webhook
+  dispatcher on landings that touch the slice and on its tags; pushes run
+  in a self request (`/git/_internal/mirror`) from a work repository that
+  borrows the projection's objects; fast-forward only; backoff 1 m to 12 h;
+  hosts must be public and git is pinned to the checked address.
+- API `Get/Set/Delete/PushSliceGitMirror` (account owners and admins), CLI
+  `gs slice mirror [set|push|rm]`, web "Mirror to Git" panel in slice
+  settings, docs (CLI reference, llms.txt, skill).
+
+**Verification**
+- Unit: `internal/gitmirror`, `internal/gitcompat` (lazy projection pushed
+  with its folder as root), `service` (permissions, validation, queueing,
+  backoff, private hosts), `ops/mirror` (unchanged tests).
+- Postgres 16: `TestGitMirrorStore`; `tests/cli` `TestSliceGitMirror` (first
+  push, landing + tag, divergence error, removal); full `tests/cli`,
+  `tests/rpc` and `internal/postgres` suites pass.
+- Web: panel tests, `tsc`, `npm run build`; full vitest 696/698 with two
+  timing failures in `SlicePages.test.tsx` under load, which pass alone.
