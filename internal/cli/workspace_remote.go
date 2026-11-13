@@ -15,11 +15,66 @@ import (
 func (r Runner) remoteWorkspaceFiles(ctx context.Context, repo corev1.RepositoryServiceClient, ws WorkspaceConfig, commitID string) (map[string]remoteWorkspaceFile, error) {
 	out := map[string]remoteWorkspaceFile{}
 	for _, includedPath := range ws.IncludedPaths {
+		listed, err := r.listRemoteWorkspacePath(ctx, repo, ws, commitID, includedPath, out)
+		if err != nil {
+			return nil, err
+		}
+		if listed {
+			continue
+		}
 		if err := r.collectRemoteWorkspacePath(ctx, repo, ws, commitID, includedPath, out); err != nil {
 			return nil, err
 		}
 	}
 	return out, nil
+}
+
+// listRemoteWorkspacePath adds the files at and under globalPath from one
+// recursive listing, as gs init reads them (a file lists as itself). Walking
+// the tree instead took one round trip per file and directory: 6,813 files
+// made gs sync take over two hours (feedback fb_9e9ee3c7). listed is false
+// when the server listed one level only (or cannot list), or the listing came back empty
+// (an empty directory, or nothing there); the caller then walks the path.
+func (r Runner) listRemoteWorkspacePath(ctx context.Context, repo corev1.RepositoryServiceClient, ws WorkspaceConfig, commitID, globalPath string, out map[string]remoteWorkspaceFile) (bool, error) {
+	entries, recursive, err := listDirectoryPages(ctx, repo, &corev1.ListDirectoryRequest{
+		CommitId:  commitID,
+		Path:      globalPath,
+		PageSize:  10000,
+		Slice:     &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
+		Recursive: true,
+	})
+	if grpcstatus.Code(err) == codes.NotFound {
+		return true, nil
+	}
+	if grpcstatus.Code(err) == codes.Unimplemented {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !recursive || len(entries) == 0 {
+		return false, nil
+	}
+	for _, entry := range entries {
+		if entry.GetKind() != corev1.EntryKind_ENTRY_KIND_FILE {
+			continue
+		}
+		rel, err := workspaceRelPath(ws, entry.Path)
+		if err != nil {
+			return false, err
+		}
+		out[entry.Path] = remoteWorkspaceFile{
+			BaseSnapshotFile: BaseSnapshotFile{
+				Path:        entry.Path,
+				RelPath:     rel,
+				ContentHash: entry.ContentHash,
+				Mode:        normalizedSnapshotMode(entry.Mode),
+				Size:        entry.Size,
+			},
+			Entry: entry,
+		}
+	}
+	return true, nil
 }
 
 func (r Runner) collectRemoteWorkspacePath(ctx context.Context, repo corev1.RepositoryServiceClient, ws WorkspaceConfig, commitID, globalPath string, out map[string]remoteWorkspaceFile) error {

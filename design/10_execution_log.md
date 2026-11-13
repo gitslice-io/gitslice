@@ -9448,3 +9448,24 @@ pages are code-split, analytics waits for the page to load.
   the staging environment the note is 32px tall at 300 to 1366px wide, and
   `/llama.txt` answers 301 to `/llms.txt`. Production heights are measured
   after the deploy (staging's Clerk cards differ in size).
+
+## 2026-11-13 — gs sync lists the slice in one call
+
+**Why**
+- Feedback fb_9e9ee3c7: on v0.4.23, `gs sync` of gitslice:grandsur (6,813
+  files) took 2 h 10 min to update 4 paths, with 28 s of CPU time; a fresh
+  `gs init` of the same slice took 54 s.
+- `remoteWorkspaceFiles` read the new base by walking the tree, one
+  `ResolvePath` (and a listing per directory) per entry, in sequence.
+
+**What changed**
+- It lists each included path with one recursive `ListDirectory` (pages of
+  10,000), as `gs init` does. The walk is kept for servers that list one
+  level only or do not implement listing, and for an empty listing.
+
+**Verification**
+- `TestRemoteWorkspaceFilesListsOnce` (one listing, no resolves; the
+  one-level fallback gives the same files); `go test ./internal/cli`; the
+  whole `tests/cli` suite against a local Postgres 16.
+- Production, gitslice:gitslice (1,385 files), a sync with nothing to
+  update: v0.4.23 198.9 s and 193.5 s; this build 0.81 s and 0.64 s.
