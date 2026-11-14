@@ -1,6 +1,6 @@
 # 35. Git Mirrors
 
-Status: built 2026-11-13, not deployed.
+Status: deployed 2026-11-14 (server gitslice-prod-00131, gs v0.4.25). `gitslice-io/gitslice` is fed by this mirror since 2026-11-14; the export workflow is off (`GITSLICE_EXPORT_ENABLED=false`) and stays as a manual fallback.
 
 ## Goal
 
