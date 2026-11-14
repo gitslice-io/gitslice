@@ -10,6 +10,90 @@ export interface BlogPost {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "slice-git-mirrors",
+    title: "Back up any slice to GitHub with one setting",
+    dek: "A slice can now keep a copy of itself in a GitHub repository, or any Git host. The server pushes after every landing and tag: no workflow, no worker, and it never force-pushes.",
+    date: "2026-11-14",
+    readingMinutes: 5,
+    tags: ["git", "feature"],
+    markdown: `Your code lives on Gitslice, but you may still want a copy on GitHub: as a backup in case you ever need to leave, so people can find and read the code where they already look, or to keep running GitHub Actions. Until now that took a scheduled job, an exporter and two tokens. Now it is a slice setting:
+
+\`\`\`bash
+gs slice secret set acme/app GITHUB_MIRROR_TOKEN < token.txt
+gs slice mirror set acme/app --url https://github.com/acme/app.git --token-secret GITHUB_MIRROR_TOKEN
+\`\`\`
+
+From then on, every landing and every tag on the slice reaches the GitHub repository within moments, with no workflow to keep running. This post covers how it works and why we built it this way.
+
+## 1. What we had before
+
+Gitslice is developed on Gitslice, and [gitslice-io/gitslice](https://github.com/gitslice-io/gitslice) on GitHub is a read-only mirror. A GitHub Actions workflow fetched the slice every ten minutes, rebuilt each new commit with the slice's folder as the repository root, and pushed it.
+
+That worked, with two problems:
+
+- **It was late.** GitHub runs scheduled workflows when it has capacity. "Every ten minutes" often meant hours, and a release waited until someone started the workflow by hand.
+- **It was ours alone.** Anyone else wanting the same backup had to copy the exporter and the workflow, and look after a Gitslice token and a GitHub token.
+
+## 2. A setting of the slice
+
+Our first idea was a trigger: when something lands, start a worker that pushes to GitHub. But a mirror isn't a reaction to an event. It is a standing fact about the slice: *this slice also lives at that URL*. A slice is what \`git clone\` gives you: one repository with a main branch and tags. So one slice maps to one remote repository.
+
+Keeping it out of the tree matters too. The URL and the token are configuration, like the slice's CI settings. A changeset can't redirect your backup somewhere else, and only the account's owners and admins can change it.
+
+## 3. The server pushes
+
+Gitslice already serves every slice to Git clients: it keeps a Git repository per slice, built from its own history, so \`git clone\` works. Mirroring means pushing that repository somewhere else. So the server does it, and you don't need to run a worker.
+
+Every time something lands or a tag is created, the mirror is marked as needing a push. The server then:
+
+1. brings the slice's Git repository up to date, as a \`git fetch\` would;
+2. reads the remote branch, and finds where it stands in the slice's history from the \`Gitslice-Commit\` trailer each mirrored commit carries;
+3. writes the new commits, each the same commit every time it is computed, with its author, dates and message;
+4. pushes the branch, fast-forward only, then any new tags.
+
+A few details make this fit how Gitslice runs:
+
+- **Lazy repositories.** The server builds a slice's Git repository lazily: commits and trees first, file contents when a fetch needs them. Before pushing, it lists the files the new commits need and the remote doesn't have yet, and reads only those from object storage.
+- **CPU only during requests.** Our server runs on Cloud Run, which gives a container CPU only while it serves a request. So, like the [stored packs](/blogs/pando-style-git-covers) we build for clones, a push runs inside a signed request the server sends to itself, never in the background.
+- **Retries.** A failed push stays pending and is retried after 1 minute, then 5 and 30 minutes, then 2 and 6 hours, then every 12 hours. The last error is shown in the slice settings and in \`gs slice mirror\`.
+
+## 4. It never forces
+
+A backup that can overwrite what it backs up isn't a backup. The mirror only ever moves the remote branch forward:
+
+- **An empty repository** receives the whole history.
+- **A repository that is already a mirror** (ours, for instance, which has been fed by the workflow for months) is picked up where it stands, found by its trailers.
+- **A repository someone committed to directly** stops the mirror. The push fails with an error saying the remote has commits that didn't come from Gitslice, and nothing is overwritten. You decide what to do with those commits.
+
+Tags are pushed once. A tag the remote already has is never moved.
+
+## 5. The root folder
+
+Most slices have one root folder, such as \`/acme/app\`. Pushing that path as it is would put everything under \`acme/app/\` in the GitHub repository, which isn't what anyone wants. So a slice with one root folder is pushed with that folder as the repository root, the same rule our Go module tags already follow. A slice of several folders is pushed with full paths.
+
+## 6. Tokens
+
+The token is a [secret](/doc/secrets) of the slice's account. The mirror setting stores the secret's name, never its value. For GitHub, use a fine-grained personal access token with read and write access to Contents on that one repository. GitLab and others work too: set \`--username\` to whatever user name your host expects with a token.
+
+- **Where the token goes.** It reaches \`git\` as an HTTP header set through the environment, never on a command line. It is removed from any error before the error is stored or shown.
+- **Where pushes go.** Mirrors push to \`https\` URLs on public addresses only. The host is resolved and checked before each push, and \`git\` is pinned to the checked address, so a DNS change can't point the push at an internal service in between. Redirects are refused.
+
+## 7. Try it
+
+Set it up from the command line:
+
+\`\`\`bash
+gs slice mirror set acme/app --url https://github.com/acme/app.git --token-secret GITHUB_MIRROR_TOKEN
+gs slice mirror acme/app        # last push, anything pending, last error
+gs slice mirror push acme/app   # push now
+gs slice mirror rm acme/app     # stop mirroring
+\`\`\`
+
+Or open the slice's settings and use the **Mirror to Git** panel, which sits under Secrets so you can add the token first. The commands need \`gs\` v0.4.25 or later (\`gs upgrade\`). The commands are in the [CLI reference](/doc/cli), and the design is in \`design/35_git_mirrors.md\` in the [Gitslice slice](/slices/gitslice/gitslice).
+
+We're moving our own GitHub mirror over to this next, and retiring the workflow.`,
+  },
+  {
     slug: "pando-style-git-covers",
     title: "What we borrowed from OpenAI's Pando: a cold clone from a timeout to 5 seconds",
     dek: "A clone on a fresh server instance read every file of the history and compressed it for one client, and timed out. Stored, compressed packs (covers) and a one-call CI checkout fixed it: 5.1 seconds for the clone, one request for the checkout.",
