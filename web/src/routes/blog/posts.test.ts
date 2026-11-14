@@ -54,7 +54,10 @@ describe("blog posts", () => {
     expect(blogPosts[0]).toBe(post);
     expect(post?.markdown).toContain("gs slice mirror set acme/app --url https://github.com/acme/app.git");
     const html = marked.parse(post?.markdown ?? "", { async: false });
-    expect(html).toContain('<a href="/blogs/pando-style-git-covers">stored packs</a>');
+    expect(html).toContain('<a href="/doc/mirrors">Git Mirrors docs</a>');
+    for (const internal of ["Cloud Run", "object storage", "R2", "signed request", "design/35"]) {
+      expect(post?.markdown).not.toContain(internal);
+    }
     expect(html).toContain('<code class="language-bash">gs slice secret set acme/app GITHUB_MIRROR_TOKEN');
   });
 });
