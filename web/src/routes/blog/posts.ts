@@ -14,7 +14,7 @@ export const blogPosts: BlogPost[] = [
     title: "Back up any slice to GitHub with one setting",
     dek: "A slice can now keep a copy of itself in a GitHub repository, or any Git host. The server pushes after every landing and tag: no workflow, no worker, and it never force-pushes.",
     date: "2026-11-14",
-    readingMinutes: 5,
+    readingMinutes: 6,
     tags: ["git", "feature"],
     markdown: `Your code lives on Gitslice, but you may still want a copy on GitHub: as a backup in case you ever need to leave, so people can find and read the code where they already look, or to keep running GitHub Actions. Until now that took a scheduled job, an exporter and two tokens. Now it is a slice setting:
 
@@ -89,9 +89,13 @@ gs slice mirror push acme/app   # push now
 gs slice mirror rm acme/app     # stop mirroring
 \`\`\`
 
-Or open the slice's settings and use the **Mirror to Git** panel, which sits under Secrets so you can add the token first. The commands need \`gs\` v0.4.25 or later (\`gs upgrade\`). The commands are in the [CLI reference](/doc/cli), and the design is in \`design/35_git_mirrors.md\` in the [Gitslice slice](/slices/gitslice/gitslice).
+Or open the slice's settings and use the **Mirror to Git** panel, which sits under Secrets so you can add the token first. The commands need \`gs\` v0.4.25 or later (\`gs upgrade\`). The [Git Mirrors docs](/doc/mirrors) cover tokens, retries and what to do if the remote has diverged, and the design is in \`design/35_git_mirrors.md\` in the [Gitslice slice](/slices/gitslice/gitslice).
 
-We're moving our own GitHub mirror over to this next, and retiring the workflow.`,
+## 8. Our own mirror
+
+[gitslice-io/gitslice](https://github.com/gitslice-io/gitslice) now runs on this. We stored a fine-grained token on the slice, ran \`gs slice mirror set\`, and the first push found the repository already up to date: it recognized the commits the old workflow had written by their trailers and pushed nothing. Then we turned the scheduled workflow off, keeping it only as a manual fallback.
+
+The next landing reached GitHub 9 seconds after it landed. The scheduled workflow had sometimes taken hours. GitHub's own CI started on the push, as it does for any push made with a personal token, and so will the release workflow when the next tag arrives.`,
   },
   {
     slug: "pando-style-git-covers",

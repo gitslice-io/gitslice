@@ -27,6 +27,15 @@ describe("DocPage", () => {
     expect(screen.getByText(/1 minute, 5 minutes, 30 minutes/)).toBeInTheDocument();
   });
 
+  it("documents Git mirrors: setup, token, retries and recovery", () => {
+    params.current = { section: "mirrors" };
+    render(<DocPage />);
+    expect(screen.getByRole("heading", { level: 1, name: "Git Mirrors" })).toBeInTheDocument();
+    expect(screen.getByText(/gs slice mirror set acme\/app --url https:\/\/github.com\/acme\/app.git/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "It never force-pushes" })).toBeInTheDocument();
+    expect(screen.getByText(/after 1 minute,\s+5 minutes, 30 minutes/)).toBeInTheDocument();
+  });
+
   it("documents secrets: scope, masking, access and local env files", () => {
     params.current = { section: "secrets" };
     render(<DocPage />);

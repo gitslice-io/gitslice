@@ -281,6 +281,7 @@ For GitHub use a fine-grained token with Contents read and write on that one
 repository. A slice with one root folder is pushed with that folder as the
 repository root. Pushes are fast-forward only: if someone commits on the
 remote, the mirror stops and shows the error until the remote is reset.
+More: https://gitslice.io/doc/mirrors
 
 ## Large slices: lazy workspaces
 
@@ -338,6 +339,7 @@ when a link points at a private slice. To share one:
 
 - Docs: https://gitslice.io/doc
 - Agents guide: https://gitslice.io/doc/agents
+- Git mirrors: https://gitslice.io/doc/mirrors
 - CLI reference: https://gitslice.io/doc/cli
 - Source: https://gitslice.io/slices/gitslice/gitslice
   (clone: git clone https://gitslice.io/git/gitslice/gitslice.git)

@@ -7,6 +7,7 @@ export type DocSection =
   | "secrets"
   | "triggers"
   | "webhooks"
+  | "mirrors"
   | "git-users"
   | "cli";
 
@@ -58,6 +59,11 @@ export const docSections: Array<{
     id: "webhooks",
     title: "Webhooks",
     description: "Send a slice's events to your own service: tags, landed commits, reviews, checks."
+  },
+  {
+    id: "mirrors",
+    title: "Git Mirrors",
+    description: "Back up a slice to GitHub or any Git host: pushed after every landing and tag."
   },
   {
     id: "git-users",
@@ -398,6 +404,7 @@ export function normalizeSection(value: string | undefined): DocSection {
     value === "secrets" ||
     value === "triggers" ||
     value === "webhooks" ||
+    value === "mirrors" ||
     value === "git-users" ||
     value === "cli"
   ) {
