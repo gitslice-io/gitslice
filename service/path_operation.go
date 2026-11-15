@@ -10,6 +10,7 @@ import (
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/triggers"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -46,6 +47,10 @@ func (s *ChangesetService) CopyPath(ctx context.Context, req *corev1.CopyPathReq
 		}
 		if !paths.InAnyPrefix(sourceSlice.GetDefinition().GetIncludedPaths(), source) {
 			return nil, status.Errorf(codes.FailedPrecondition, "%s is outside slice %s/%s", source, sourceSlice.GetRef().GetAccount(), sourceSlice.GetRef().GetSlice())
+		}
+		def := slice.GetDefinition()
+		if def.GetRequiredApprovals() > 0 || len(def.GetRequiredChecks()) > 0 {
+			return nil, status.Errorf(codes.FailedPrecondition, "slice %s/%s requires review or checks; use a changeset to copy paths from outside the slice", slice.GetRef().GetAccount(), slice.GetRef().GetSlice())
 		}
 		readable = []string{source}
 	}
@@ -106,14 +111,24 @@ func (s *ChangesetService) pathOperationTarget(ctx context.Context, subjectID st
 	if isIncludedPath(included, destination) {
 		return nil, "", "", status.Errorf(codes.FailedPrecondition, "%s is one of the slice's included paths; choose a path inside it", destination)
 	}
+	if triggers.TouchesGitsliceConfig(source) || triggers.TouchesGitsliceConfig(destination) {
+		return nil, "", "", status.Error(codes.FailedPrecondition, ".gitslice configuration paths cannot be copied or moved directly; use a changeset")
+	}
 	return slice, source, destination, nil
 }
 
 // landPathOperation makes a changeset of the single edit on the latest commit
 // and submits it without the slice's required approvals and checks, then
-// waits for the commit. The edit relocates entries already in the tree and
-// never carries new content, which is why it may skip review.
+// waits for the commit. .gitslice paths and cross-slice edits into protected
+// slices are rejected before reaching SubmitBypassingRequirements.
 func (s *ChangesetService) landPathOperation(ctx context.Context, subjectID string, slice *corev1.Slice, edit *corev1.FileEdit, readable []string, title string) (*corev1.PathOperationResponse, error) {
+	def := slice.GetDefinition()
+	if len(readable) > 0 && (def.GetRequiredApprovals() > 0 || len(def.GetRequiredChecks()) > 0) {
+		return nil, status.Errorf(codes.FailedPrecondition, "slice %s/%s requires review or checks; use a changeset to copy paths from outside the slice", slice.GetRef().GetAccount(), slice.GetRef().GetSlice())
+	}
+	if triggers.TouchesGitsliceConfig(edit.GetOldPath()) || triggers.TouchesGitsliceConfig(edit.GetPath()) {
+		return nil, status.Error(codes.FailedPrecondition, ".gitslice configuration paths cannot be copied or moved directly; use a changeset")
+	}
 	submitter, ok := s.Changesets.(changesetSubmitBypassingRequirements)
 	if !ok {
 		return nil, status.Error(codes.Unimplemented, "this server can't land a copy or move directly")
@@ -123,11 +138,23 @@ func (s *ChangesetService) landPathOperation(ctx context.Context, subjectID stri
 		return nil, grpcError(err)
 	}
 	baseCommitID := ref.GetCommitId()
-	if _, err := s.Repository.GetEntry(ctx, baseCommitID, edit.OldPath); err != nil {
+	sourceEntry, err := s.Repository.GetEntry(ctx, baseCommitID, edit.OldPath)
+	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, status.Errorf(codes.NotFound, "%s does not exist", edit.OldPath)
 		}
 		return nil, grpcError(err)
+	}
+	if sourceEntry.Kind != "file" {
+		children, err := s.Repository.ListFiles(ctx, baseCommitID, edit.OldPath)
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		for _, child := range children {
+			if triggers.TouchesGitsliceConfig(child.Path) {
+				return nil, status.Error(codes.FailedPrecondition, ".gitslice configuration paths cannot be copied or moved directly; use a changeset")
+			}
+		}
 	}
 	if _, err := s.Repository.GetEntry(ctx, baseCommitID, edit.Path); err == nil {
 		return nil, status.Errorf(codes.AlreadyExists, "%s already exists", edit.Path)
@@ -137,6 +164,14 @@ func (s *ChangesetService) landPathOperation(ctx context.Context, subjectID stri
 	edits := []*corev1.FileEdit{edit}
 	validation, err := s.validator.validateFileEditsReading(ctx, slice, baseCommitID, "", edits, true, readable)
 	if err != nil {
+		return nil, err
+	}
+	for _, p := range validation.AffectedPaths {
+		if triggers.TouchesGitsliceConfig(p) {
+			return nil, status.Error(codes.FailedPrecondition, ".gitslice configuration paths cannot be copied or moved directly; use a changeset")
+		}
+	}
+	if err := s.ensurePathOperationWithinProtectedSlices(ctx, slice, edit, readable, validation.Coverage); err != nil {
 		return nil, err
 	}
 	cs, err := s.Changesets.Create(ctx, subjectID, &corev1.CreateChangesetRequest{
@@ -230,4 +265,45 @@ func isIncludedPath(included []string, p string) bool {
 		}
 	}
 	return false
+}
+
+// ensurePathOperationWithinProtectedSlices rejects a copy or move that crosses
+// the boundary of any slice covering the affected paths when that slice has
+// required approvals or required checks. Intra-slice copies and moves of
+// already-reviewed files inside the same protected slice are permitted.
+func (s *ChangesetService) ensurePathOperationWithinProtectedSlices(ctx context.Context, authoringSlice *corev1.Slice, edit *corev1.FileEdit, readable []string, coverage []*corev1.PathCoverage) error {
+	if s.Slices == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	if authoringSlice != nil && len(readable) == 0 {
+		seen[authoringSlice.GetId()] = true
+	}
+	for _, cov := range coverage {
+		for _, id := range cov.GetCoveringSliceIds() {
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			other, err := s.Slices.Get(ctx, id)
+			if err != nil {
+				if errors.Is(err, storage.ErrNotFound) {
+					continue
+				}
+				return grpcError(err)
+			}
+			if other.GetArchived() {
+				continue
+			}
+			def := other.GetDefinition()
+			if def.GetRequiredApprovals() <= 0 && len(def.GetRequiredChecks()) == 0 {
+				continue
+			}
+			inc := def.GetIncludedPaths()
+			if !paths.InAnyPrefix(inc, edit.GetOldPath()) || !paths.InAnyPrefix(inc, edit.GetPath()) {
+				return status.Errorf(codes.FailedPrecondition, "slice %s/%s requires review or checks; use a changeset to copy or move paths across its boundary", other.GetRef().GetAccount(), other.GetRef().GetSlice())
+			}
+		}
+	}
+	return nil
 }
