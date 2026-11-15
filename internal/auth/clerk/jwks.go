@@ -13,11 +13,21 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/sync/singleflight"
 )
 
-const maxJWKSSize = 1 << 20
+const (
+	maxJWKSSize         = 1 << 20
+	jwksFetchTimeout    = 5 * time.Second
+	jwksRefreshCooldown = 30 * time.Second
+)
+
+var defaultJWKSClient = &http.Client{
+	Timeout: jwksFetchTimeout,
+}
 
 type keySource interface {
 	Key(context.Context, *jwt.Token) (any, error)
@@ -26,9 +36,12 @@ type keySource interface {
 type remoteKeySource struct {
 	url    string
 	client *http.Client
+	now    func() time.Time
 
-	mu   sync.RWMutex
-	keys map[string]*rsa.PublicKey
+	sf          singleflight.Group
+	mu          sync.RWMutex
+	keys        map[string]*rsa.PublicKey
+	lastRefresh time.Time
 }
 
 func (s *remoteKeySource) Key(ctx context.Context, token *jwt.Token) (any, error) {
@@ -39,6 +52,9 @@ func (s *remoteKeySource) Key(ctx context.Context, token *jwt.Token) (any, error
 	if key := s.cachedKey(kid); key != nil {
 		return key, nil
 	}
+	if !s.canRefresh() {
+		return nil, fmt.Errorf("clerk: no JWKS key found for kid %q", kid)
+	}
 	if err := s.refresh(ctx); err != nil {
 		return nil, err
 	}
@@ -46,6 +62,13 @@ func (s *remoteKeySource) Key(ctx context.Context, token *jwt.Token) (any, error
 		return key, nil
 	}
 	return nil, fmt.Errorf("clerk: no JWKS key found for kid %q", kid)
+}
+
+func (s *remoteKeySource) timeNow() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 func (s *remoteKeySource) cachedKey(kid string) *rsa.PublicKey {
@@ -57,10 +80,44 @@ func (s *remoteKeySource) cachedKey(kid string) *rsa.PublicKey {
 	return s.keys[kid]
 }
 
+func (s *remoteKeySource) canRefresh() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.keys == nil {
+		return true
+	}
+	return s.timeNow().Sub(s.lastRefresh) >= jwksRefreshCooldown
+}
+
 func (s *remoteKeySource) refresh(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	ch := s.sf.DoChan("jwks", func() (any, error) {
+		if !s.canRefresh() {
+			return nil, nil
+		}
+		fetchCtx, cancel := context.WithTimeout(context.Background(), jwksFetchTimeout)
+		defer cancel()
+		return nil, s.doRefresh(fetchCtx)
+	})
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case res := <-ch:
+		return res.Err
+	}
+}
+
+func (s *remoteKeySource) doRefresh(ctx context.Context) error {
 	client := s.client
 	if client == nil {
-		client = http.DefaultClient
+		client = defaultJWKSClient
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url, nil)
@@ -85,8 +142,10 @@ func (s *remoteKeySource) refresh(ctx context.Context) error {
 		return errors.New("clerk: JWKS contains no RSA signing keys")
 	}
 
+	now := s.timeNow()
 	s.mu.Lock()
 	s.keys = keys
+	s.lastRefresh = now
 	s.mu.Unlock()
 	return nil
 }
