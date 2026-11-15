@@ -1,6 +1,19 @@
 package r2
 
-import "testing"
+import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
+	"testing"
+
+	"gitslice.io/gitslice/internal/storage"
+)
 
 func TestResolveObjectKey(t *testing.T) {
 	tests := []struct {
@@ -121,5 +134,88 @@ func TestRangeHeader(t *testing.T) {
 				t.Fatalf("rangeHeader(%d, %d) = %q, want %q", tt.offset, tt.length, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPutStreamsReadSeekerWithContentLengthAndCopyUsesCopyObject(t *testing.T) {
+	var gotMethod, gotPath, gotCopySource string
+	var gotContentLength int64
+	var gotBody []byte
+	return404 := false
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotCopySource = r.Header.Get("X-Amz-Copy-Source")
+		gotContentLength, _ = strconv.ParseInt(r.Header.Get("Content-Length"), 10, 64)
+		body, _ := io.ReadAll(r.Body)
+		gotBody = body
+		if return404 {
+			w.WriteHeader(http.StatusNotFound)
+			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><Error><Code>NoSuchKey</Code><Message>missing</Message></Error>`))
+			return
+		}
+		if gotCopySource != "" {
+			w.Header().Set("Content-Type", "application/xml")
+			_, _ = w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?><CopyObjectResult><ETag>"abc"</ETag></CopyObjectResult>`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	store, err := New(Config{
+		Endpoint:        srv.URL,
+		Region:          "auto",
+		Bucket:          "gitslice-test",
+		Prefix:          "env",
+		AccessKeyID:     "test-key",
+		SecretAccessKey: "test-secret",
+		UsePathStyle:    true,
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	// Put via *os.File (io.ReadSeeker) sends explicit Content-Length without chunking.
+	tmpPath := filepath.Join(t.TempDir(), "staged.bin")
+	payload := bytes.Repeat([]byte("abcd"), 256)
+	if err := os.WriteFile(tmpPath, payload, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(tmpPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	if err := store.Put(context.Background(), "staging/u1", f); err != nil {
+		t.Fatalf("Put(*os.File) error = %v", err)
+	}
+	if gotMethod != http.MethodPut || gotPath != "/gitslice-test/env/staging/u1" {
+		t.Fatalf("Put request = %s %s", gotMethod, gotPath)
+	}
+	if gotContentLength != int64(len(payload)) {
+		t.Fatalf("Content-Length = %d, want %d", gotContentLength, len(payload))
+	}
+	if !bytes.Equal(gotBody, payload) {
+		t.Fatalf("Put body mismatch: got %d bytes, want %d", len(gotBody), len(payload))
+	}
+
+	// Copy sends server-side X-Amz-Copy-Source with encoded source key.
+	if err := store.Copy(context.Background(), "blobs/sha256/ab/cd/abcd", "staging/u 1:2"); err != nil {
+		t.Fatalf("Copy() error = %v", err)
+	}
+	if gotPath != "/gitslice-test/env/blobs/sha256/ab/cd/abcd" {
+		t.Fatalf("Copy target path = %q", gotPath)
+	}
+	if want := "gitslice-test/env/staging/u%201:2"; gotCopySource != want {
+		t.Fatalf("X-Amz-Copy-Source = %q, want %q", gotCopySource, want)
+	}
+
+	// Copy missing source maps to storage.ErrNotFound.
+	return404 = true
+	if err := store.Copy(context.Background(), "blobs/dst", "staging/missing"); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("Copy(missing) error = %v, want storage.ErrNotFound", err)
 	}
 }

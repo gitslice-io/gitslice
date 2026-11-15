@@ -161,35 +161,24 @@ func (s *Store) ListTree(ctx context.Context, rootTreeID, p string) ([]TreeEntry
 }
 
 func (s *Store) ListFiles(ctx context.Context, rootTreeID, prefix string) ([]FileEntry, error) {
-	parts, err := splitPath(prefix)
+	entries, err := s.ListTree(ctx, rootTreeID, prefix)
 	if err != nil {
 		return nil, err
 	}
-	if len(parts) == 0 {
-		return s.collectFiles(ctx, rootTreeID, "")
-	}
-	entry, err := s.entryAt(ctx, rootTreeID, parts)
-	if errors.Is(err, ErrNotFound) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	fullPath := "/" + strings.Join(parts, "/")
-	switch entry.Kind {
-	case "file":
-		return []FileEntry{{
-			Path:        fullPath,
+	var out []FileEntry
+	for _, entry := range entries {
+		if entry.Kind != "file" {
+			continue
+		}
+		out = append(out, FileEntry{
+			Path:        entry.Path,
 			BlobID:      entry.BlobID,
 			ContentHash: entry.ContentHash,
 			Mode:        entry.Mode,
 			Size:        entry.Size,
-		}}, nil
-	case "directory":
-		return s.collectFiles(ctx, entry.TreeID, fullPath)
-	default:
-		return nil, nil
+		})
 	}
+	return out, nil
 }
 
 func (s *Store) entryAt(ctx context.Context, treeID string, parts []string) (Entry, error) {
@@ -208,36 +197,4 @@ func (s *Store) entryAt(ctx context.Context, treeID string, parts []string) (Ent
 		return Entry{}, ErrNotFound
 	}
 	return s.entryAt(ctx, entry.TreeID, parts[1:])
-}
-
-func (s *Store) collectFiles(ctx context.Context, treeID, prefix string) ([]FileEntry, error) {
-	node, err := s.readSharedNode(ctx, treeID)
-	if err != nil {
-		return nil, err
-	}
-	var out []FileEntry
-	for _, entry := range node.Entries {
-		p := prefix + "/" + entry.Name
-		if prefix == "" {
-			p = "/" + entry.Name
-		}
-		switch entry.Kind {
-		case "file":
-			out = append(out, FileEntry{
-				Path:        p,
-				BlobID:      entry.BlobID,
-				ContentHash: entry.ContentHash,
-				Mode:        entry.Mode,
-				Size:        entry.Size,
-			})
-		case "directory":
-			children, err := s.collectFiles(ctx, entry.TreeID, p)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, children...)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-	return out, nil
 }

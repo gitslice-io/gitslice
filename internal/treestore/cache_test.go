@@ -2,6 +2,9 @@ package treestore
 
 import (
 	"context"
+	"errors"
+	"io"
+	"sync/atomic"
 	"testing"
 
 	"gitslice.io/gitslice/internal/objectstore/cache"
@@ -92,15 +95,94 @@ func TestNodeCacheSharesReadsNotWrites(t *testing.T) {
 		t.Fatalf("changing a node read for writing changed the cached node: %q", shared.Entries[0].Name)
 	}
 
+	// ApplyEdits should reuse s.nodes on warm paths without hitting inner.Get.
+	inner.mu.Lock()
+	getsBeforeWrite := len(inner.getKeys)
+	inner.mu.Unlock()
+
 	next, err := store.ApplyEdits(ctx, root, []FileEdit{upsert("/acme/x", "3")})
 	if err != nil {
 		t.Fatal(err)
 	}
+	inner.mu.Lock()
+	getsDuringWrite := len(inner.getKeys) - getsBeforeWrite
+	inner.mu.Unlock()
+	if getsDuringWrite != 0 {
+		t.Fatalf("ApplyEdits read %d cached nodes from storage, want 0", getsDuringWrite)
+	}
+
 	if got := hashAt(root, "/acme/x"); got != "sha256:1" {
 		t.Fatalf("the old tree reads %s after a write", got)
 	}
 	if got := hashAt(next, "/acme/x"); got != "sha256:3" {
 		t.Fatalf("the new tree reads %s", got)
+	}
+}
+
+type failingPutStore struct {
+	*memoryObjectStore
+	failPut atomic.Bool
+}
+
+func (f *failingPutStore) Put(ctx context.Context, key string, r io.Reader) error {
+	if f.failPut.Load() {
+		return errors.New("simulated object store Put failure")
+	}
+	return f.memoryObjectStore.Put(ctx, key, r)
+}
+
+func TestFailedFlushDoesNotPoisonNodeCache(t *testing.T) {
+	ctx := context.Background()
+	inner := &failingPutStore{memoryObjectStore: newMemoryObjectStore()}
+	store := New(inner)
+
+	root, err := store.ApplyEdits(ctx, EmptyRootID(), []FileEdit{treeFile("/acme/a.go")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	entriesBefore := store.nodes.used
+
+	inner.failPut.Store(true)
+	if _, err := store.ApplyEdits(ctx, root, []FileEdit{treeFile("/acme/b.go")}); err == nil {
+		t.Fatal("expected ApplyEdits to fail when flush Put fails")
+	}
+	if store.nodes.used != entriesBefore {
+		t.Fatalf("failed flush mutated nodeCache: used = %d, want %d", store.nodes.used, entriesBefore)
+	}
+}
+
+func TestSequentialEditsPruneUnreachableIntermediateNodes(t *testing.T) {
+	ctx := context.Background()
+	objects := newMemoryObjectStore()
+	store := New(objects)
+
+	root, err := store.ApplyEdits(ctx, EmptyRootID(), []FileEdit{
+		treeFile("/acme/payment/old.go"),
+		treeFile("/acme/payment/keep.go"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	putsBefore := objects.putCount()
+
+	// Rename triggers sequential deletePath + setEntry, creating intermediate
+	// nodes for /acme/payment, /acme, and / that become unreachable once
+	// new.go is inserted. Only the 3 final path-copied nodes should be flushed.
+	renamed, err := store.ApplyEdits(ctx, root, []FileEdit{{
+		Op:      "rename",
+		OldPath: "/acme/payment/old.go",
+		Path:    "/acme/payment/new.go",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	flushed := objects.putCount() - putsBefore
+	if flushed != 3 {
+		t.Fatalf("rename flushed %d tree blobs, want 3 (unreachable intermediates must be pruned)", flushed)
+	}
+	reachable := walkTreeKeysFromBase(t, objects, renamed)
+	if len(reachable) == 0 {
+		t.Fatal("expected reachable nodes in base store")
 	}
 }
 

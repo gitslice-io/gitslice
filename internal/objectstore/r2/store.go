@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -100,11 +101,21 @@ func (s *Store) Put(ctx context.Context, key string, r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	// R2 requires a Content-Length on PutObject and rejects chunked/streaming
-	// uploads with HTTP 411 (MissingContentLength). A bare io.Reader makes the
-	// SDK stream without a known length, so buffer the body and pass an explicit
-	// length via a seekable *bytes.Reader. Objects here are content-addressed
-	// trees/blobs, consistent with the buffering the filesystem store does.
+	// R2 requires an explicit Content-Length on PutObject and rejects chunked
+	// uploads with HTTP 411 (MissingContentLength). When the caller provides an
+	// io.ReadSeeker (such as a staged *os.File or *bytes.Reader), determine its
+	// byte length via Seek and stream it directly without a duplicate heap copy.
+	if rs, ok := r.(io.ReadSeeker); ok {
+		if size, ok := seekableRemainingSize(rs); ok {
+			_, err = s.client.PutObject(ctx, &s3.PutObjectInput{
+				Bucket:        aws.String(s.bucket),
+				Key:           aws.String(objectKey),
+				Body:          rs,
+				ContentLength: aws.Int64(size),
+			})
+			return err
+		}
+	}
 	buf, err := io.ReadAll(r)
 	if err != nil {
 		return err
@@ -116,6 +127,60 @@ func (s *Store) Put(ctx context.Context, key string, r io.Reader) error {
 		ContentLength: aws.Int64(int64(len(buf))),
 	})
 	return err
+}
+
+// Copy performs a server-side S3 CopyObject within the bucket so staged objects
+// can be promoted without re-downloading and re-uploading their payload.
+func (s *Store) Copy(ctx context.Context, dstKey, srcKey string) error {
+	dstObjectKey, err := resolveObjectKey(s.prefix, dstKey)
+	if err != nil {
+		return err
+	}
+	srcObjectKey, err := resolveObjectKey(s.prefix, srcKey)
+	if err != nil {
+		return err
+	}
+	if dstObjectKey == srcObjectKey {
+		return nil
+	}
+	_, err = s.client.CopyObject(ctx, &s3.CopyObjectInput{
+		Bucket:     aws.String(s.bucket),
+		Key:        aws.String(dstObjectKey),
+		CopySource: aws.String(encodeCopySource(s.bucket, srcObjectKey)),
+	})
+	if err != nil {
+		if isNotFound(err) {
+			return fmt.Errorf("%w: %w", storage.ErrNotFound, err)
+		}
+		return err
+	}
+	return nil
+}
+
+func seekableRemainingSize(rs io.ReadSeeker) (int64, bool) {
+	cur, err := rs.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return 0, false
+	}
+	end, err := rs.Seek(0, io.SeekEnd)
+	if err != nil {
+		return 0, false
+	}
+	if _, err := rs.Seek(cur, io.SeekStart); err != nil {
+		return 0, false
+	}
+	if end < cur {
+		return 0, false
+	}
+	return end - cur, true
+}
+
+func encodeCopySource(bucket, key string) string {
+	parts := strings.Split(key, "/")
+	for i, part := range parts {
+		parts[i] = url.PathEscape(part)
+	}
+	return url.PathEscape(bucket) + "/" + strings.Join(parts, "/")
 }
 
 func (s *Store) Get(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
