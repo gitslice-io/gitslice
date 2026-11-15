@@ -93,6 +93,53 @@ func TestSliceStoreListPublic(t *testing.T) {
 	}
 }
 
+func TestSliceIDNoCollisionBetweenHyphenatedAccountsAndSlices(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+
+	subA, err := store.Auth().EnsureExternalSubject(ctx, "clerk", "ext_alice_hyphen", "alice-h@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Auth().ChooseUsername(ctx, subA, "alice-h"); err != nil {
+		t.Fatal(err)
+	}
+	subAB, err := store.Auth().EnsureExternalSubject(ctx, "clerk", "ext_alice_h_bob", "alice-h-bob@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Auth().ChooseUsername(ctx, subAB, "alice-h-bob"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Previously ("alice-h", "bob-home") and ("alice-h-bob", "home") both mapped
+	// to slice_alice_h_bob_home. Verify both coexist cleanly with distinct IDs.
+	created, err := store.Slices().Create(
+		ctx,
+		subA,
+		&corev1.SliceRef{Account: "alice-h", Slice: "bob-home"},
+		[]string{"/alice-h/bob-home"},
+		"private",
+		0,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("Create(alice-h:bob-home) = %v, want nil", err)
+	}
+	homeSlice, err := store.Slices().Resolve(ctx, &corev1.SliceRef{Account: "alice-h-bob", Slice: "home"})
+	if err != nil {
+		t.Fatalf("Resolve(alice-h-bob:home) = %v, want nil", err)
+	}
+	if created.Id == homeSlice.Id {
+		t.Fatalf("slice IDs collided: both got %q", created.Id)
+	}
+	if got := homeSlice.Definition.GetIncludedPaths(); len(got) != 1 || got[0] != "/alice-h-bob" {
+		t.Fatalf("alice-h-bob:home included paths = %v, want [/alice-h-bob]", got)
+	}
+	if got := created.Definition.GetIncludedPaths(); len(got) != 1 || got[0] != "/alice-h/bob-home" {
+		t.Fatalf("alice-h:bob-home included paths = %v, want [/alice-h/bob-home]", got)
+	}
+}
+
 func sliceNamed(slices []*corev1.Slice, name string) bool {
 	for _, slice := range slices {
 		if slice.Ref.Slice == name {

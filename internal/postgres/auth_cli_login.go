@@ -29,6 +29,9 @@ func (s *AuthStore) StartCliLogin(ctx context.Context) (string, time.Time, error
 		return "", time.Time{}, err
 	}
 	expiresAt := time.Now().UTC().Add(cliLoginTTL)
+	if _, err := s.db.ExecContext(ctx, `delete from cli_login_sessions where expires_at <= now()`); err != nil {
+		return "", time.Time{}, err
+	}
 	if _, err := s.db.ExecContext(ctx, `
 		insert into cli_login_sessions(code_hash, status, expires_at)
 		values ($1, $2, $3)
@@ -51,6 +54,15 @@ func (s *AuthStore) CompleteCliLogin(ctx context.Context, code, subjectID string
 	}
 	defer tx.Rollback()
 
+	var existingSubject string
+	err = tx.QueryRowContext(ctx, `select id from subjects where id = $1`, subjectID).Scan(&existingSubject)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+
 	var codeHash string
 	err = tx.QueryRowContext(ctx, `
 		select code_hash
@@ -67,23 +79,15 @@ func (s *AuthStore) CompleteCliLogin(ctx context.Context, code, subjectID string
 		return err
 	}
 
-	token, sessionID, hashedToken, expiresAt, err := newSessionWithTTL(subjectID, cliLoginTokenPrefix, cliLoginSessionTTL)
-	if err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		insert into sessions(id, subject_id, token_hash, expires_at)
-		values ($1, $2, $3, $4)
-	`, sessionID, subjectID, hashedToken, expiresAt); err != nil {
-		return err
-	}
+	// Do not mint or persist a raw session token in cli_login_sessions; mint
+	// the session lazily when the CLI polls with the raw login code.
 	if _, err := tx.ExecContext(ctx, `
 		update cli_login_sessions
 		set status = $2,
 		    subject_id = $3,
-		    session_token = $4
+		    session_token = null
 		where code_hash = $1
-	`, codeHash, cliLoginStatusApproved, subjectID, token); err != nil {
+	`, codeHash, cliLoginStatusApproved, subjectID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -101,7 +105,7 @@ func (s *AuthStore) PollCliLogin(ctx context.Context, code string) (string, stri
 	}
 	defer tx.Rollback()
 
-	var status, token, subjectID string
+	var status, legacyToken, subjectID string
 	var expiresAt time.Time
 	codeHash := tokenHash(code)
 	err = tx.QueryRowContext(ctx, `
@@ -109,7 +113,7 @@ func (s *AuthStore) PollCliLogin(ctx context.Context, code string) (string, stri
 		from cli_login_sessions
 		where code_hash = $1
 		for update
-	`, codeHash).Scan(&status, &token, &subjectID, &expiresAt)
+	`, codeHash).Scan(&status, &legacyToken, &subjectID, &expiresAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return cliLoginStatusExpired, "", "", nil
 	}
@@ -117,7 +121,7 @@ func (s *AuthStore) PollCliLogin(ctx context.Context, code string) (string, stri
 		return "", "", "", err
 	}
 	if !expiresAt.After(time.Now().UTC()) {
-		if _, err := tx.ExecContext(ctx, `delete from cli_login_sessions where code_hash = $1`, codeHash); err != nil {
+		if _, err := tx.ExecContext(ctx, `delete from cli_login_sessions where expires_at <= now() or code_hash = $1`, codeHash); err != nil {
 			return "", "", "", err
 		}
 		if err := tx.Commit(); err != nil {
@@ -134,6 +138,21 @@ func (s *AuthStore) PollCliLogin(ctx context.Context, code string) (string, stri
 	if status == cliLoginStatusApproved {
 		if _, err := tx.ExecContext(ctx, `delete from cli_login_sessions where code_hash = $1`, codeHash); err != nil {
 			return "", "", "", err
+		}
+		token := legacyToken
+		if token == "" {
+			var sessionID, hashedToken string
+			var sessionExpiresAt time.Time
+			token, sessionID, hashedToken, sessionExpiresAt, err = newSessionWithTTL(subjectID, cliLoginTokenPrefix, cliLoginSessionTTL)
+			if err != nil {
+				return "", "", "", err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				insert into sessions(id, subject_id, token_hash, expires_at)
+				values ($1, $2, $3, $4)
+			`, sessionID, subjectID, hashedToken, sessionExpiresAt); err != nil {
+				return "", "", "", err
+			}
 		}
 		if err := tx.Commit(); err != nil {
 			return "", "", "", err
