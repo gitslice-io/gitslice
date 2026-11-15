@@ -35,78 +35,225 @@ type builtImage struct {
 	Family     string
 	files      []string // context-relative files the build reads, sorted
 	dockerfile string   // context-relative
-	root       string   // the build context on disk
+	root       string   // canonical build context on disk
 }
 
 // resolveBuiltImage hashes the Dockerfile and inputs of a build in the
-// materialized tree. Its tag changes exactly when one of them does, so an
-// image that already exists under it can be used as it is.
+// materialized tree while confining every read and symlink inside the context
+// directory via os.OpenRoot.
 func resolveBuiltImage(workspaceRoot, scope string, b *checks.ImageBuild) (builtImage, error) {
+	if b == nil {
+		return builtImage{}, fmt.Errorf("image build spec is nil")
+	}
 	contextRoot, err := workspaceDir(workspaceRoot, b.ContextDir)
 	if err != nil {
 		return builtImage{}, err
 	}
+	dockerfileRel, err := cleanContextRel(b.Dockerfile, false)
+	if err != nil {
+		return builtImage{}, err
+	}
+
+	srcRoot, err := os.OpenRoot(contextRoot)
+	if err != nil {
+		return builtImage{}, fmt.Errorf("open build context: %w", err)
+	}
+	defer srcRoot.Close()
+
+	// Verify the Dockerfile itself exists inside contextRoot and resolves to a regular file.
+	if err := ensureRealDirParents(srcRoot, dockerfileRel); err != nil {
+		return builtImage{}, err
+	}
+	dfStat, err := srcRoot.Stat(filepath.FromSlash(dockerfileRel))
+	if errors.Is(err, fs.ErrNotExist) {
+		return builtImage{}, fmt.Errorf("build input %s is not in the tree", path.Join(logicalPathRel(b.ContextDir), dockerfileRel))
+	}
+	if err != nil {
+		return builtImage{}, fmt.Errorf("dockerfile %s escapes build context: %w", dockerfileRel, err)
+	}
+	if !dfStat.Mode().IsRegular() {
+		return builtImage{}, fmt.Errorf("dockerfile %s must be a regular file", dockerfileRel)
+	}
+
 	seen := map[string]struct{}{}
 	var files []string
-	for _, rel := range append([]string{b.Dockerfile}, b.Inputs...) {
-		rel = path.Clean(strings.ReplaceAll(rel, "\\", "/"))
-		target := filepath.Join(contextRoot, filepath.FromSlash(rel))
-		if err := ensureInside(contextRoot, target); err != nil {
+	addFile := func(rel string) {
+		if _, ok := seen[rel]; !ok {
+			seen[rel] = struct{}{}
+			files = append(files, rel)
+		}
+	}
+
+	inputs := make([]string, 0, 1+len(b.Inputs))
+	inputs = append(inputs, dockerfileRel)
+	for _, rawInput := range b.Inputs {
+		cleaned, err := cleanContextRel(rawInput, true)
+		if err != nil {
 			return builtImage{}, err
 		}
-		info, err := os.Lstat(target)
+		inputs = append(inputs, cleaned)
+	}
+
+	for _, rel := range inputs {
+		if rel != "." {
+			if err := ensureRealDirParents(srcRoot, rel); err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					return builtImage{}, fmt.Errorf("build input %s is not in the tree", path.Join(logicalPathRel(b.ContextDir), rel))
+				}
+				return builtImage{}, err
+			}
+		}
+		info, err := srcRoot.Lstat(filepath.FromSlash(rel))
 		if errors.Is(err, fs.ErrNotExist) {
 			return builtImage{}, fmt.Errorf("build input %s is not in the tree", path.Join(logicalPathRel(b.ContextDir), rel))
 		}
 		if err != nil {
 			return builtImage{}, err
 		}
-		if !info.IsDir() {
-			if _, ok := seen[rel]; !ok {
-				seen[rel] = struct{}{}
-				files = append(files, rel)
+
+		switch {
+		case info.Mode()&fs.ModeSymlink != 0:
+			if _, err := validateConfinedSymlink(srcRoot, contextRoot, rel); err != nil {
+				return builtImage{}, err
 			}
-			continue
-		}
-		err = filepath.WalkDir(target, func(p string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return err
-			}
-			relPath, err := filepath.Rel(contextRoot, p)
+			addFile(rel)
+		case info.IsDir():
+			err = fs.WalkDir(srcRoot.FS(), rel, func(walkPath string, d fs.DirEntry, walkErr error) error {
+				if walkErr != nil {
+					return walkErr
+				}
+				if d.IsDir() {
+					return nil
+				}
+				if d.Type()&fs.ModeSymlink != 0 {
+					if _, err := validateConfinedSymlink(srcRoot, contextRoot, walkPath); err != nil {
+						return err
+					}
+					addFile(walkPath)
+					return nil
+				}
+				if !d.Type().IsRegular() {
+					return fmt.Errorf("build input %s has unsupported file mode", walkPath)
+				}
+				addFile(walkPath)
+				return nil
+			})
 			if err != nil {
-				return err
+				return builtImage{}, err
 			}
-			relPath = filepath.ToSlash(relPath)
-			if _, ok := seen[relPath]; !ok {
-				seen[relPath] = struct{}{}
-				files = append(files, relPath)
-			}
-			return nil
-		})
-		if err != nil {
-			return builtImage{}, err
+		case info.Mode().IsRegular():
+			addFile(rel)
+		default:
+			return builtImage{}, fmt.Errorf("build input %s has unsupported file mode", rel)
 		}
 	}
 	sort.Strings(files)
 
 	h := sha256.New()
-	fmt.Fprintf(h, "gitslice-ci build v1\ndockerfile %s\n", path.Clean(b.Dockerfile))
+	fmt.Fprintf(h, "gitslice-ci build v1\ndockerfile %s\n", dockerfileRel)
 	for _, rel := range files {
-		sum, mode, err := hashFile(filepath.Join(contextRoot, filepath.FromSlash(rel)))
+		sum, mode, err := hashContextEntry(srcRoot, contextRoot, rel)
 		if err != nil {
 			return builtImage{}, err
 		}
 		fmt.Fprintf(h, "%s %s %s\n", mode, sum, rel)
 	}
 	key := hex.EncodeToString(h.Sum(nil))[:24]
-	family := builtImageFamily(scope, b.ContextDir, b.Dockerfile)
+	family := builtImageFamily(scope, b.ContextDir, dockerfileRel)
 	return builtImage{
 		Tag:        builtImageRepoPrefix + family + ":" + key,
 		Family:     family,
 		files:      files,
-		dockerfile: path.Clean(strings.ReplaceAll(b.Dockerfile, "\\", "/")),
+		dockerfile: dockerfileRel,
 		root:       contextRoot,
 	}, nil
+}
+
+func cleanContextRel(raw string, allowDot bool) (string, error) {
+	if strings.ContainsAny(raw, "\r\n\x00") {
+		return "", fmt.Errorf("build path %q contains control characters", raw)
+	}
+	normalized := strings.ReplaceAll(strings.TrimSpace(raw), "\\", "/")
+	if normalized == "" {
+		return "", fmt.Errorf("build path is empty")
+	}
+	if strings.HasPrefix(normalized, "/") {
+		return "", fmt.Errorf("build path %q must be relative to build context", raw)
+	}
+	for _, seg := range strings.Split(normalized, "/") {
+		if seg == ".." {
+			return "", fmt.Errorf("build path %q escapes build context", raw)
+		}
+	}
+	cleaned := path.Clean(normalized)
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("build path %q escapes build context", raw)
+	}
+	if cleaned == "." && !allowDot {
+		return "", fmt.Errorf("build path %q must name a file", raw)
+	}
+	return cleaned, nil
+}
+
+// ensureRealDirParents guarantees no ancestor directory of rel inside root is a
+// symlink, preventing both symlink-traversal reads and symlink-directory overwrites.
+func ensureRealDirParents(root *os.Root, rel string) error {
+	dir := path.Dir(rel)
+	if dir == "." || dir == "/" || dir == "" {
+		return nil
+	}
+	parts := strings.Split(dir, "/")
+	var cur string
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+		if cur == "" {
+			cur = part
+		} else {
+			cur = cur + "/" + part
+		}
+		info, err := root.Lstat(filepath.FromSlash(cur))
+		if err != nil {
+			return err
+		}
+		if info.Mode()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("build input %s traverses symlink directory %s", rel, cur)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("build input %s parent %s is not a directory", rel, cur)
+		}
+	}
+	return nil
+}
+
+// validateConfinedSymlink ensures a symlink at rel (whose parent directories
+// inside canonicalRoot are already verified real directories) uses a relative
+// target that remains strictly within root.
+func validateConfinedSymlink(root *os.Root, canonicalRoot, rel string) (string, error) {
+	if err := ensureRealDirParents(root, rel); err != nil {
+		return "", err
+	}
+	linkTarget, err := os.Readlink(filepath.Join(canonicalRoot, filepath.FromSlash(rel)))
+	if err != nil {
+		return "", err
+	}
+	if linkTarget == "" || strings.ContainsAny(linkTarget, "\r\n\x00") {
+		return "", fmt.Errorf("symlink %s has invalid target", rel)
+	}
+	slashTarget := strings.ReplaceAll(linkTarget, "\\", "/")
+	if filepath.IsAbs(linkTarget) || strings.HasPrefix(slashTarget, "/") {
+		return "", fmt.Errorf("symlink %s has absolute target %q outside build context", rel, linkTarget)
+	}
+	resolved := path.Clean(path.Join(path.Dir(rel), slashTarget))
+	if resolved == ".." || strings.HasPrefix(resolved, "../") {
+		return "", fmt.Errorf("symlink %s target %q escapes build context", rel, linkTarget)
+	}
+	// Ask os.Root.Stat to resolve any multi-hop symlink chain within root.
+	if _, statErr := root.Stat(filepath.FromSlash(rel)); statErr != nil && !errors.Is(statErr, fs.ErrNotExist) {
+		return "", fmt.Errorf("symlink %s escapes build context: %w", rel, statErr)
+	}
+	return linkTarget, nil
 }
 
 // builtImageFamily groups the images built from one Dockerfile of one
@@ -116,8 +263,9 @@ func builtImageFamily(scope, contextDir, dockerfile string) string {
 	return hex.EncodeToString(sum[:])[:16]
 }
 
-func hashFile(p string) (string, string, error) {
-	info, err := os.Lstat(p)
+func hashContextEntry(srcRoot *os.Root, canonicalRoot, rel string) (string, string, error) {
+	osRel := filepath.FromSlash(rel)
+	info, err := srcRoot.Lstat(osRel)
 	if err != nil {
 		return "", "", err
 	}
@@ -125,17 +273,17 @@ func hashFile(p string) (string, string, error) {
 	mode := "file"
 	switch {
 	case info.Mode()&fs.ModeSymlink != 0:
-		target, err := os.Readlink(p)
+		target, err := validateConfinedSymlink(srcRoot, canonicalRoot, rel)
 		if err != nil {
 			return "", "", err
 		}
 		mode = "link"
-		io.WriteString(h, target)
-	default:
+		_, _ = io.WriteString(h, target)
+	case info.Mode().IsRegular():
 		if info.Mode()&0o111 != 0 {
 			mode = "exec"
 		}
-		f, err := os.Open(p)
+		f, err := srcRoot.Open(osRel)
 		if err != nil {
 			return "", "", err
 		}
@@ -143,20 +291,49 @@ func hashFile(p string) (string, string, error) {
 		if _, err := io.Copy(h, f); err != nil {
 			return "", "", err
 		}
+	default:
+		return "", "", fmt.Errorf("build input %s has unsupported file mode", rel)
 	}
 	return hex.EncodeToString(h.Sum(nil)), mode, nil
 }
 
-// buildLocks makes checks that need the same image wait for one build.
-var buildLocks sync.Map // tag -> chan struct{}
+type refBuildLock struct {
+	ch   chan struct{}
+	refs int
+}
+
+var (
+	buildLocksMu sync.Mutex
+	buildLocks   = map[string]*refBuildLock{}
+)
 
 func lockBuild(ctx context.Context, tag string) (func(), error) {
-	value, _ := buildLocks.LoadOrStore(tag, make(chan struct{}, 1))
-	lock := value.(chan struct{})
+	buildLocksMu.Lock()
+	entry, ok := buildLocks[tag]
+	if !ok {
+		entry = &refBuildLock{ch: make(chan struct{}, 1)}
+		buildLocks[tag] = entry
+	}
+	entry.refs++
+	buildLocksMu.Unlock()
+
+	releaseRef := func() {
+		buildLocksMu.Lock()
+		entry.refs--
+		if entry.refs == 0 {
+			delete(buildLocks, tag)
+		}
+		buildLocksMu.Unlock()
+	}
+
 	select {
-	case lock <- struct{}{}:
-		return func() { <-lock }, nil
+	case entry.ch <- struct{}{}:
+		return sync.OnceFunc(func() {
+			<-entry.ch
+			releaseRef()
+		}), nil
 	case <-ctx.Done():
+		releaseRef()
 		return nil, ctx.Err()
 	}
 }
@@ -164,12 +341,18 @@ func lockBuild(ctx context.Context, tag string) (func(), error) {
 // ensureBuiltImage returns the image for a build, building it unless an
 // image with its tag exists. note says which happened, for the check's log.
 func ensureBuiltImage(ctx context.Context, rt RuntimeInfo, img builtImage, timeout time.Duration) (setupMs int64, cached bool, note string, result *Result, err error) {
+	if err := checks.ValidateImageRef(img.Tag); err != nil {
+		return 0, false, "", nil, err
+	}
 	unlock, err := lockBuild(ctx, img.Tag)
 	if err != nil {
 		return 0, false, "", nil, err
 	}
 	defer unlock()
-	if exec.CommandContext(ctx, rt.Path, "image", "inspect", img.Tag).Run() == nil {
+
+	inspectCmd := exec.CommandContext(ctx, rt.Path, "image", "inspect", "--", img.Tag)
+	inspectCmd.Env = containerClientEnv()
+	if inspectCmd.Run() == nil {
 		return 0, true, "using image " + img.Tag + ", built earlier from the same Dockerfile and inputs", nil, nil
 	}
 
@@ -178,10 +361,8 @@ func ensureBuiltImage(ctx context.Context, rt RuntimeInfo, img builtImage, timeo
 		return 0, false, "", nil, fmt.Errorf("create build context: %w", err)
 	}
 	defer os.RemoveAll(contextDir)
-	for _, rel := range img.files {
-		if err := copyContextFile(filepath.Join(img.root, filepath.FromSlash(rel)), filepath.Join(contextDir, filepath.FromSlash(rel))); err != nil {
-			return 0, false, "", nil, fmt.Errorf("copy build input %s: %w", rel, err)
-		}
+	if err := copyContext(img.root, contextDir, img.files); err != nil {
+		return 0, false, "", nil, err
 	}
 
 	if timeout <= 0 {
@@ -190,14 +371,17 @@ func ensureBuiltImage(ctx context.Context, rt RuntimeInfo, img builtImage, timeo
 	buildCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	dockerfile := filepath.Join(contextDir, filepath.FromSlash(img.dockerfile))
-	buildArgs := []string{"build",
+	buildArgs := []string{
+		"build",
 		"--label", builtImageFamilyKey + "=" + img.Family,
 		"-t", img.Tag,
-		"-f", dockerfile}
-	if HostNetwork() {
-		buildArgs = append(buildArgs, "--network="+hostNetwork)
+		"-f", dockerfile,
 	}
-	cmd := exec.CommandContext(buildCtx, rt.Path, append(buildArgs, contextDir)...)
+	buildArgs = append(buildArgs, containerBuildNetworkArgs()...)
+	buildArgs = append(buildArgs, contextDir)
+
+	cmd := exec.CommandContext(buildCtx, rt.Path, buildArgs...)
+	cmd.Env = containerClientEnv()
 	configureProcessGroup(cmd)
 	var output cappedBuffer
 	cmd.Stdout = &output
@@ -233,38 +417,126 @@ func ensureBuiltImage(ctx context.Context, rt RuntimeInfo, img builtImage, timeo
 	return setupMs, false, fmt.Sprintf("built image %s in %s; later runs reuse it until the Dockerfile or its inputs change", img.Tag, time.Duration(setupMs)*time.Millisecond), nil, nil
 }
 
-func copyContextFile(src, dst string) error {
-	info, err := os.Lstat(src)
+func copyContext(srcDir, dstDir string, files []string) error {
+	realSrc, err := filepath.EvalSymlinks(srcDir)
+	if err != nil {
+		return fmt.Errorf("resolve build source root: %w", err)
+	}
+	realDst, err := filepath.EvalSymlinks(dstDir)
+	if err != nil {
+		return fmt.Errorf("resolve build destination root: %w", err)
+	}
+	srcRoot, err := os.OpenRoot(realSrc)
+	if err != nil {
+		return fmt.Errorf("open build source root: %w", err)
+	}
+	defer srcRoot.Close()
+	dstRoot, err := os.OpenRoot(realDst)
+	if err != nil {
+		return fmt.Errorf("open build destination root: %w", err)
+	}
+	defer dstRoot.Close()
+
+	for _, rel := range files {
+		if err := copyContextEntry(srcRoot, realSrc, dstRoot, realDst, rel); err != nil {
+			return fmt.Errorf("copy build input %s: %w", rel, err)
+		}
+	}
+	return nil
+}
+
+func copyContextFile(srcDir, dstDir, rel string) error {
+	return copyContext(srcDir, dstDir, []string{rel})
+}
+
+func copyContextEntry(srcRoot *os.Root, realSrc string, dstRoot *os.Root, realDst, rel string) error {
+	cleaned, err := cleanContextRel(rel, false)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+	if err := ensureRealDirParents(srcRoot, cleaned); err != nil {
+		return err
+	}
+	if err := mkdirAllRealInRoot(dstRoot, path.Dir(cleaned)); err != nil {
+		return err
+	}
+
+	osRel := filepath.FromSlash(cleaned)
+	info, err := srcRoot.Lstat(osRel)
+	if err != nil {
 		return err
 	}
 	if info.Mode()&fs.ModeSymlink != 0 {
-		target, err := os.Readlink(src)
+		target, err := validateConfinedSymlink(srcRoot, realSrc, cleaned)
 		if err != nil {
 			return err
 		}
-		return os.Symlink(target, dst)
+		if _, err := dstRoot.Lstat(osRel); err == nil {
+			return fmt.Errorf("destination %s already exists", cleaned)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return os.Symlink(target, filepath.Join(realDst, osRel))
 	}
-	if err := os.Link(src, dst); err == nil {
-		return nil
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("unsupported file mode for %s", cleaned)
 	}
-	in, err := os.Open(src)
+
+	in, err := srcRoot.Open(osRel)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode().Perm())
+	inInfo, err := in.Stat()
+	if err != nil {
+		return err
+	}
+	if !inInfo.Mode().IsRegular() {
+		return fmt.Errorf("source %s is not a regular file", cleaned)
+	}
+
+	out, err := dstRoot.OpenFile(osRel, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm())
 	if err != nil {
 		return err
 	}
 	if _, err := io.Copy(out, in); err != nil {
-		out.Close()
+		_ = out.Close()
 		return err
 	}
 	return out.Close()
+}
+
+func mkdirAllRealInRoot(root *os.Root, relDir string) error {
+	if relDir == "." || relDir == "/" || relDir == "" {
+		return nil
+	}
+	parts := strings.Split(relDir, "/")
+	var cur string
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+		if cur == "" {
+			cur = part
+		} else {
+			cur = cur + "/" + part
+		}
+		osRel := filepath.FromSlash(cur)
+		info, err := root.Lstat(osRel)
+		if errors.Is(err, fs.ErrNotExist) {
+			if mkErr := root.Mkdir(osRel, 0o755); mkErr != nil {
+				return mkErr
+			}
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&fs.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("build destination path %s is not a real directory", cur)
+		}
+	}
+	return nil
 }
 
 // pruneBuiltImages removes all but the newest images built from one
@@ -273,22 +545,38 @@ func copyContextFile(src, dst string) error {
 func pruneBuiltImages(rt RuntimeInfo, family string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, rt.Path, "image", "ls",
+	lsCmd := exec.CommandContext(ctx, rt.Path, "image", "ls",
 		"--filter", "label="+builtImageFamilyKey+"="+family,
-		"--format", "{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}").Output()
+		"--format", "{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}")
+	lsCmd.Env = containerClientEnv()
+	out, err := lsCmd.Output()
 	if err != nil {
 		return
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	pruneImageListing(ctx, rt.Path, string(out), keptBuiltImages)
+}
+
+func pruneImageListing(ctx context.Context, runtimePath, raw string, keep int) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return
+	}
+	lines := strings.Split(trimmed, "\n")
 	sort.Sort(sort.Reverse(sort.StringSlice(lines)))
 	for i, line := range lines {
-		if i < keptBuiltImages {
+		if i < keep {
 			continue
 		}
 		_, ref, ok := strings.Cut(line, "\t")
-		if !ok || strings.HasSuffix(ref, ":<none>") {
+		ref = strings.TrimSpace(ref)
+		if !ok || ref == "" || strings.HasSuffix(ref, ":<none>") || strings.HasPrefix(ref, "<none>:") {
 			continue
 		}
-		_ = exec.CommandContext(ctx, rt.Path, "image", "rm", ref).Run()
+		if err := checks.ValidateImageRef(ref); err != nil {
+			continue
+		}
+		rmCmd := exec.CommandContext(ctx, runtimePath, "image", "rm", "--", ref)
+		rmCmd.Env = containerClientEnv()
+		_ = rmCmd.Run()
 	}
 }

@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gitslice.io/gitslice/internal/checks"
 )
 
 // RuntimeInfo describes the container runtime checks run under.
@@ -79,7 +81,9 @@ func probeRuntime(ctx context.Context, name, path string) RuntimeInfo {
 	if name == "podman" {
 		format = "{{.Host.Security.Rootless}}"
 	}
-	out, err := exec.CommandContext(ctx, path, "info", "--format", format).CombinedOutput()
+	cmd := exec.CommandContext(ctx, path, "info", "--format", format)
+	cmd.Env = containerClientEnv()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		detail := strings.TrimSpace(lastLine(string(out)))
 		if detail == "" {
@@ -123,7 +127,12 @@ func needsHome(ctx context.Context, rt RuntimeInfo, image string) bool {
 	if len(userArgs(rt)) == 0 || rt.Name == "podman" {
 		return false
 	}
-	out, err := exec.CommandContext(ctx, rt.Path, "image", "inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", image).Output()
+	if err := checks.ValidateImageRef(image); err != nil {
+		return false
+	}
+	cmd := exec.CommandContext(ctx, rt.Path, "image", "inspect", "--format", "{{range .Config.Env}}{{println .}}{{end}}", "--", image)
+	cmd.Env = containerClientEnv()
+	out, err := cmd.Output()
 	if err != nil {
 		return true
 	}
