@@ -5,9 +5,11 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strings"
 
 	"connectrpc.com/connect"
 	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/metrics"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	corev1connect "gitslice.io/gitslice/proto/core/v1/corev1connect"
 	"gitslice.io/gitslice/service"
@@ -17,9 +19,13 @@ import (
 )
 
 func NewConnectHandler(resolve subjectResolver, handlers *service.Handlers) http.Handler {
+	return newConnectHandler(resolve, handlers, nil)
+}
+
+func newConnectHandler(resolve subjectResolver, handlers *service.Handlers, limiters *serverLimiters) http.Handler {
 	mux := http.NewServeMux()
 	mount := func(pattern string, handler http.Handler) {
-		mux.Handle(pattern, connectAuthMiddleware(resolve)(handler))
+		mux.Handle(pattern, connectAuthMiddlewareWithLimiters(resolve, limiters)(handler))
 	}
 	// Shared-link preview images; anonymous by design (see social_image.go).
 	mux.Handle("/og/", newSocialImageHandler(handlers.Slice))
@@ -38,14 +44,31 @@ func NewConnectHandler(resolve subjectResolver, handlers *service.Handlers) http
 	mount(corev1connect.NewSecretServiceHandler(connectSecretAdapter{svc: handlers.Secret}))
 	mount(corev1connect.NewFeedbackServiceHandler(connectFeedbackAdapter{svc: handlers.Feedback}))
 	mount(corev1connect.NewTriggerServiceHandler(connectTriggerServiceAdapter{svc: handlers.Trigger}))
-	mount(corev1connect.NewTriggerRunServiceHandler(connectTriggerRunServiceAdapter{svc: handlers.TriggerRun}))
+	mount(corev1connect.NewTriggerRunServiceHandler(connectTriggerRunServiceAdapter{svc: handlers.TriggerRun, limiters: limiters}))
 	return mux
 }
 
 func connectAuthMiddleware(resolve subjectResolver) func(http.Handler) http.Handler {
+	return connectAuthMiddlewareWithLimiters(resolve, nil)
+}
+
+func connectAuthMiddlewareWithLimiters(resolve subjectResolver, limiters *serverLimiters) func(http.Handler) http.Handler {
 	errorWriter := connect.NewErrorWriter()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasPrefix(r.URL.Path, triggerRunServicePrefix) {
+				if limiters != nil && limiters.triggerFail != nil {
+					ipKey := "ip:" + httpClientIPWithProxies(r, limiters.proxies)
+					if !limiters.triggerFail.Peek(ipKey) {
+						ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
+						_ = errorWriter.Write(w, r, connect.NewError(connect.CodeResourceExhausted, errors.New("trigger run authentication failure rate limit exceeded")))
+						return
+					}
+					r = r.WithContext(withClientIPKey(r.Context(), ipKey))
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
 			if isPublicMethod(r.URL.Path) {
 				next.ServeHTTP(w, r)
 				return
@@ -62,6 +85,11 @@ func connectAuthMiddleware(resolve subjectResolver) func(http.Handler) http.Hand
 			subjectID, err := resolve(r.Context(), token)
 			if err != nil {
 				_ = errorWriter.Write(w, r, connectAuthError(err))
+				return
+			}
+			if limiters != nil && limiters.subject != nil && !limiters.subject.Allow("subject:"+subjectID) {
+				ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
+				_ = errorWriter.Write(w, r, connect.NewError(connect.CodeResourceExhausted, errors.New("rate limit exceeded")))
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(authctx.WithSubjectID(r.Context(), subjectID)))
@@ -834,49 +862,71 @@ func (a connectTriggerServiceAdapter) CancelTriggerRun(ctx context.Context, req 
 }
 
 type connectTriggerRunServiceAdapter struct {
-	svc *service.TriggerRunService
+	svc      *service.TriggerRunService
+	limiters *serverLimiters
+}
+
+func connectTriggerRunResponse[T any](ctx context.Context, limiters *serverLimiters, msg *T, err error) (*connect.Response[T], error) {
+	if isAuthFailureError(err) && limiters != nil && limiters.triggerFail != nil {
+		if ipKey, ok := clientIPKeyFromContext(ctx); ok && !limiters.triggerFail.Allow(ipKey) {
+			ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
+			return nil, connect.NewError(connect.CodeResourceExhausted, errors.New("trigger run authentication failure rate limit exceeded"))
+		}
+	}
+	return connectResponse(msg, err)
 }
 
 func (a connectTriggerRunServiceAdapter) StartRun(ctx context.Context, req *connect.Request[corev1.StartTriggerRunRequest]) (*connect.Response[corev1.StartTriggerRunResponse], error) {
-	return connectResponse(a.svc.StartRun(ctx, req.Msg))
+	msg, err := a.svc.StartRun(ctx, req.Msg)
+	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
 }
 
 func (a connectTriggerRunServiceAdapter) StartCallback(ctx context.Context, req *connect.Request[corev1.StartTriggerRunRequest]) (*connect.Response[corev1.StartTriggerRunResponse], error) {
-	return connectResponse(a.svc.StartCallback(ctx, req.Msg))
+	msg, err := a.svc.StartCallback(ctx, req.Msg)
+	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
 }
 
 func (a connectTriggerRunServiceAdapter) FinishRun(ctx context.Context, req *connect.Request[corev1.FinishTriggerRunRequest]) (*connect.Response[corev1.TriggerRun], error) {
-	return connectResponse(a.svc.FinishRun(ctx, req.Msg))
+	msg, err := a.svc.FinishRun(ctx, req.Msg)
+	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
 }
 
 func (a connectTriggerRunServiceAdapter) AppendRunLog(ctx context.Context, req *connect.Request[corev1.AppendTriggerRunLogRequest]) (*connect.Response[corev1.Empty], error) {
-	return connectResponse(a.svc.AppendRunLog(ctx, req.Msg))
+	msg, err := a.svc.AppendRunLog(ctx, req.Msg)
+	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
 }
 
 func (a connectTriggerRunServiceAdapter) GetRunState(ctx context.Context, req *connect.Request[corev1.TriggerRunTokenRequest]) (*connect.Response[corev1.TriggerRunState], error) {
-	return connectResponse(a.svc.GetRunState(ctx, req.Msg))
+	msg, err := a.svc.GetRunState(ctx, req.Msg)
+	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
 }
 
 func (a connectTriggerRunServiceAdapter) SetRunState(ctx context.Context, req *connect.Request[corev1.SetTriggerRunStateRequest]) (*connect.Response[corev1.Empty], error) {
-	return connectResponse(a.svc.SetRunState(ctx, req.Msg))
+	msg, err := a.svc.SetRunState(ctx, req.Msg)
+	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
 }
 
 func (a connectTriggerRunServiceAdapter) CreateCheck(ctx context.Context, req *connect.Request[corev1.CreateTriggerCheckRequest]) (*connect.Response[corev1.CheckRun], error) {
-	return connectResponse(a.svc.CreateCheck(ctx, req.Msg))
+	msg, err := a.svc.CreateCheck(ctx, req.Msg)
+	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
 }
 
 func (a connectTriggerRunServiceAdapter) UpdateCheck(ctx context.Context, req *connect.Request[corev1.UpdateTriggerCheckRequest]) (*connect.Response[corev1.CheckRun], error) {
-	return connectResponse(a.svc.UpdateCheck(ctx, req.Msg))
+	msg, err := a.svc.UpdateCheck(ctx, req.Msg)
+	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
 }
 
 func (a connectTriggerRunServiceAdapter) ReadFile(ctx context.Context, req *connect.Request[corev1.TriggerReadFileRequest]) (*connect.Response[corev1.TriggerReadFileResponse], error) {
-	return connectResponse(a.svc.ReadFile(ctx, req.Msg))
+	msg, err := a.svc.ReadFile(ctx, req.Msg)
+	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
 }
 
 func (a connectTriggerRunServiceAdapter) ListDirectory(ctx context.Context, req *connect.Request[corev1.TriggerListDirectoryRequest]) (*connect.Response[corev1.TriggerListDirectoryResponse], error) {
-	return connectResponse(a.svc.ListDirectory(ctx, req.Msg))
+	msg, err := a.svc.ListDirectory(ctx, req.Msg)
+	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
 }
 
 func (a connectTriggerRunServiceAdapter) GetChangeset(ctx context.Context, req *connect.Request[corev1.TriggerRunTokenRequest]) (*connect.Response[corev1.Changeset], error) {
-	return connectResponse(a.svc.GetChangeset(ctx, req.Msg))
+	msg, err := a.svc.GetChangeset(ctx, req.Msg)
+	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
 }

@@ -54,6 +54,10 @@ type Config struct {
 	RateLimitPerSubjectBurst int
 	RateLimitHTTPPerIPRPS    float64
 	RateLimitHTTPPerIPBurst  int
+	// TrustedProxyCIDRs lists proxy IPs/CIDRs permitted to supply
+	// X-Forwarded-For (GITSLICE_TRUSTED_PROXIES). When empty, loopback,
+	// private, and link-local proxy peers are trusted.
+	TrustedProxyCIDRs []string
 	// AgentSignupEnabled turns on the unauthenticated AuthService/RegisterAgent
 	// RPC; AgentSignupPerHour caps registrations per client IP.
 	AgentSignupEnabled bool
@@ -142,6 +146,7 @@ func ConfigFromEnv() Config {
 		RateLimitPerSubjectBurst: intValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_SUBJECT_BURST"), 1000),
 		RateLimitHTTPPerIPRPS:    floatValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_HTTP_RPS"), 30),
 		RateLimitHTTPPerIPBurst:  intValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_HTTP_BURST"), 60),
+		TrustedProxyCIDRs:        splitList(os.Getenv("GITSLICE_TRUSTED_PROXIES")),
 		AgentSignupEnabled:       envEnabled(os.Getenv("GITSLICE_AGENT_SIGNUP_ENABLED")),
 		AgentSignupPerHour:       intValueOrDefault(os.Getenv("GITSLICE_AGENT_SIGNUP_PER_HOUR"), 5),
 		OperatorSubjects:         splitList(os.Getenv("GITSLICE_OPERATOR_SUBJECTS")),
@@ -211,6 +216,9 @@ func (c Config) Validate() error {
 		}
 	}
 	if _, err := c.secretsBox(); err != nil {
+		return err
+	}
+	if _, err := parseTrustedProxies(c.TrustedProxyCIDRs); err != nil {
 		return err
 	}
 	// The filesystem object store needs a root; R2 supplies its own location.
