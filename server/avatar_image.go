@@ -44,6 +44,12 @@ func newAvatarImageHandler(avatars avatarSource) http.Handler {
 			return
 		}
 		data, version := avatars.AccountAvatar(r.Context(), account)
+		if len(data) == 0 {
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			http.Error(w, "avatar temporarily unavailable", http.StatusServiceUnavailable)
+			return
+		}
 		current := version
 		if current == "" {
 			current = avatarGeneratedVersion

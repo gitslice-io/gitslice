@@ -3,12 +3,15 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
+	"io"
 	"testing"
 
 	"gitslice.io/gitslice/internal/avatar"
+	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 )
@@ -107,4 +110,64 @@ func TestAccountAvatars(t *testing.T) {
 	wantStatus(t, err, codes.Unauthenticated, "signed out")
 	_, err = handlers.Auth.SetAccountAvatar(ann, &corev1.SetAccountAvatarRequest{Account: "anna", Image: []byte("<svg/>")})
 	wantStatus(t, err, codes.InvalidArgument, "not a picture")
+}
+
+type failingProfileAuthStore struct {
+	storage.AuthStore
+	err error
+}
+
+func (f *failingProfileAuthStore) GetAccountProfile(ctx context.Context, account string) (*storage.AccountProfile, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.AuthStore.GetAccountProfile(ctx, account)
+}
+
+type failingAvatarObjectStore struct {
+	ObjectStore
+	err error
+}
+
+func (f *failingAvatarObjectStore) Get(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.ObjectStore.Get(ctx, key, offset, length)
+}
+
+func TestAccountAvatarTransientErrorsReturnNil(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	ann := asUser(t, handlers, "user_ann", "anna")
+	red := testPicture(t, color.RGBA{R: 255, A: 255})
+	if _, err := handlers.Auth.SetAccountAvatar(ann, &corev1.SetAccountAvatarRequest{Account: "anna", Image: red}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Transient DB error -> nil, "" (not cacheable pixel fallback).
+	dbErrSvc := &AuthService{
+		Auth:        &failingProfileAuthStore{AuthStore: mem.Auth, err: errors.New("db connection reset")},
+		ObjectStore: mem.Objects,
+	}
+	if data, ver := dbErrSvc.AccountAvatar(context.Background(), "anna"); data != nil || ver != "" {
+		t.Fatalf("transient DB error returned len=%d ver=%q, want nil, \"\"", len(data), ver)
+	}
+
+	// Transient R2/object store error -> nil, "".
+	objErrSvc := &AuthService{
+		Auth:        mem.Auth,
+		ObjectStore: &failingAvatarObjectStore{ObjectStore: mem.Objects, err: errors.New("r2 timeout")},
+	}
+	if data, ver := objErrSvc.AccountAvatar(context.Background(), "anna"); data != nil || ver != "" {
+		t.Fatalf("transient ObjectStore.Get error returned len=%d ver=%q, want nil, \"\"", len(data), ver)
+	}
+
+	// Missing object key (storage.ErrNotFound) still falls back to pixel art.
+	missingObjSvc := &AuthService{
+		Auth:        mem.Auth,
+		ObjectStore: &failingAvatarObjectStore{ObjectStore: mem.Objects, err: storage.ErrNotFound},
+	}
+	if data, ver := missingObjSvc.AccountAvatar(context.Background(), "anna"); ver != "" || !bytes.Equal(data, avatar.Pixel("anna")) {
+		t.Fatalf("ErrNotFound from object store should fall back to pixel art, got len=%d ver=%q", len(data), ver)
+	}
 }

@@ -68,30 +68,38 @@ func (s *AuthService) SetAccountAvatar(ctx context.Context, req *corev1.SetAccou
 
 // AccountAvatar returns the PNG an account shows and its avatar version: the
 // uploaded picture, or the one generated from the name ("" version) when
-// there is none, the account does not exist, or the upload cannot be read.
+// there is none or the account does not exist. On transient store errors it
+// returns nil, "" so callers do not cache fallback art over an uploaded URL.
 // Anyone may read it, signed in or not, as on GitHub.
 func (s *AuthService) AccountAvatar(ctx context.Context, account string) ([]byte, string) {
 	account = strings.TrimSpace(account)
 	profile, err := s.Auth.GetAccountProfile(ctx, account)
 	if err != nil {
-		if !errors.Is(err, storage.ErrNotFound) {
-			slog.Warn("read account for avatar", "account", account, "error", err)
+		if errors.Is(err, storage.ErrNotFound) {
+			return avatar.Pixel(account), ""
 		}
+		slog.Warn("read account for avatar", "account", account, "error", err)
+		return nil, ""
+	}
+	if profile.AvatarKey == "" {
 		return avatar.Pixel(account), ""
 	}
-	if profile.AvatarKey == "" || s.ObjectStore == nil {
-		return avatar.Pixel(account), ""
+	if s.ObjectStore == nil {
+		return nil, ""
 	}
 	reader, err := s.ObjectStore.Get(ctx, profile.AvatarKey, 0, 0)
 	if err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return avatar.Pixel(account), ""
+		}
 		slog.Warn("read uploaded avatar", "account", account, "key", profile.AvatarKey, "error", err)
-		return avatar.Pixel(account), ""
+		return nil, ""
 	}
 	defer reader.Close()
 	data, err := io.ReadAll(io.LimitReader(reader, avatar.MaxUploadBytes))
 	if err != nil {
 		slog.Warn("read uploaded avatar", "account", account, "key", profile.AvatarKey, "error", err)
-		return avatar.Pixel(account), ""
+		return nil, ""
 	}
 	return data, avatarVersion(profile.AvatarKey)
 }
