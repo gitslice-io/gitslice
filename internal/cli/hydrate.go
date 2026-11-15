@@ -50,6 +50,8 @@ type receivedCheckout struct {
 	entries  []*corev1.TreeEntry
 	// fetched are the contents the stream brought, now in the cache.
 	fetched map[string]bool
+	// fromListingCache: the entries came from this machine's listing cache.
+	fromListingCache bool
 }
 
 // receiveCheckout reads a Checkout stream (design/28_benchmarks.md). It asks
@@ -72,6 +74,11 @@ func receiveCheckoutListingAt(ctx context.Context, conn *grpc.ClientConn, ref *c
 }
 
 func receiveCheckoutStream(ctx context.Context, conn *grpc.ClientConn, ref *corev1.SliceRef, commitID string, cache *clientcache.ObjectCache, includeContent bool) (*receivedCheckout, error) {
+	// A listing this machine already has (same slice definition, same commit)
+	// is read from the local listing cache once the header arrives, and the
+	// rest of the stream is not waited for.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	stream, err := corev1.NewRepositoryServiceClient(conn).Checkout(ctx, &corev1.CheckoutRequest{Slice: ref, CommitId: commitID, IncludeContent: includeContent}, grpc.UseCompressor(gzip.Name))
 	if err != nil {
 		return nil, err
@@ -88,6 +95,16 @@ func receiveCheckoutStream(ctx context.Context, conn *grpc.ClientConn, ref *core
 		switch part := msg.GetPart().(type) {
 		case *corev1.CheckoutResponse_Header:
 			out.slice, out.commitID = part.Header.GetSlice(), part.Header.GetCommitId()
+			if !includeContent {
+				if entries, ok := readCachedListing(cache, out.slice, out.commitID); ok {
+					out.entries, out.fromListingCache = entries, true
+					cancel()
+					if out.slice.GetDefinition() == nil || out.commitID == "" {
+						return nil, fmt.Errorf("checkout stream ended without its header")
+					}
+					return out, nil
+				}
+			}
 		case *corev1.CheckoutResponse_Entries:
 			out.entries = append(out.entries, part.Entries.GetEntries()...)
 		case *corev1.CheckoutResponse_Contents:
@@ -105,6 +122,9 @@ func receiveCheckoutStream(ctx context.Context, conn *grpc.ClientConn, ref *core
 	}
 	if out.slice == nil || out.slice.GetDefinition() == nil || out.commitID == "" {
 		return nil, fmt.Errorf("checkout stream ended without its header")
+	}
+	if !includeContent {
+		writeCachedListing(cache, out.slice, out.commitID, out.entries)
 	}
 	return out, nil
 }
