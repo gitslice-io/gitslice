@@ -11,7 +11,6 @@ import (
 	"gitslice.io/gitslice/internal/objectid"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/treestore"
-	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 // EnsureExternalSubject idempotently provisions a subject only
@@ -243,10 +242,7 @@ func (s *AuthStore) UsernamesForSubjects(ctx context.Context, subjectIDs []strin
 // (with its first definition version) and the account root directory. It is
 // idempotent, and shared by personal and organization provisioning.
 func (s *AuthStore) provisionHomeTx(ctx context.Context, tx *sql.Tx, accountID, slug, createdBy string) error {
-	candidateSliceID, err := objectid.RandomID("slice")
-	if err != nil {
-		return err
-	}
+	homeSliceID := signupHomeSliceID(slug)
 	homeIncludedPaths := []string{"/" + slug}
 	homeIncludedJSON, err := encodeJSON(homeIncludedPaths)
 	if err != nil {
@@ -256,20 +252,12 @@ func (s *AuthStore) provisionHomeTx(ctx context.Context, tx *sql.Tx, accountID, 
 	if err != nil {
 		return err
 	}
-	candidateDefinitionHash := definitionHash(candidateSliceID, 1, homeIncludedPaths, "private", 0, nil)
+	homeDefinitionHash := definitionHash(homeSliceID, 1, homeIncludedPaths, "private", 0, nil)
 	if _, err := tx.ExecContext(ctx, `
 		insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, created_at, updated_at)
 		values ($1, $2, 'home', 1, $3, 'private', $4, now(), now())
 		on conflict (account_id, slug) do nothing
-	`, candidateSliceID, accountID, candidateDefinitionHash, homeIncludedJSON); err != nil {
-		return err
-	}
-	var homeSliceID, homeDefinitionHash string
-	if err := tx.QueryRowContext(ctx, `
-		select id, definition_hash
-		from slices
-		where account_id = $1 and slug = 'home' and deleted_at is null
-	`, accountID).Scan(&homeSliceID, &homeDefinitionHash); err != nil {
+	`, homeSliceID, accountID, homeDefinitionHash, homeIncludedJSON); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
@@ -308,192 +296,81 @@ func ensureAccountRootDirectoryTx(ctx context.Context, tx *sql.Tx, accountSlug, 
 	}
 
 	accountRoot := "/" + accountSlug
-	const maxAccountRootCASAttempts = 5
-	for attempt := 0; attempt < maxAccountRootCASAttempts; attempt++ {
-		var currentCommitID, rootTreeID string
-		err := tx.QueryRowContext(ctx, `
-			select r.commit_id, c.root_tree_id
-			from refs r
-			join commits c on c.id = r.commit_id
-			where r.name = $1
-		`, DefaultTargetRef).Scan(&currentCommitID, &rootTreeID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrNotFound
-		}
-		if err != nil {
-			return err
-		}
-		if _, err := trees.GetEntry(ctx, rootTreeID, accountRoot); err == nil {
-			return nil
-		} else if !errors.Is(err, treestore.ErrNotFound) {
-			return err
-		}
-
-		// Build and persist the new root tree in object storage BEFORE taking any
-		// row lock on refs so slow R2 writes cannot stall global ref publishers.
-		newRootTreeID, err := trees.ApplyEdits(ctx, rootTreeID, []treestore.FileEdit{
-			{Op: "mkdir", Path: accountRoot},
-		})
-		if err != nil {
-			return err
-		}
-		entry, err := trees.GetEntry(ctx, newRootTreeID, accountRoot)
-		if err != nil {
-			return err
-		}
-
-		if _, err := tx.ExecContext(ctx, `savepoint account_root_ref_cas`); err != nil {
-			return err
-		}
-		var lockedCommitID string
-		err = tx.QueryRowContext(ctx, `
-			select commit_id
-			from refs
-			where name = $1
-			for no key update
-		`, DefaultTargetRef).Scan(&lockedCommitID)
-		if errors.Is(err, sql.ErrNoRows) {
-			_, _ = tx.ExecContext(ctx, `rollback to savepoint account_root_ref_cas`)
-			return ErrNotFound
-		}
-		if err != nil {
-			_, _ = tx.ExecContext(ctx, `rollback to savepoint account_root_ref_cas`)
-			return err
-		}
-		if lockedCommitID != currentCommitID {
-			if _, rbErr := tx.ExecContext(ctx, `rollback to savepoint account_root_ref_cas`); rbErr != nil {
-				return rbErr
-			}
-			if _, relErr := tx.ExecContext(ctx, `release savepoint account_root_ref_cas`); relErr != nil {
-				return relErr
-			}
-			continue
-		}
-
-		now := time.Now().UTC().Truncate(time.Microsecond)
-		commitID := objectid.CommitID(objectid.CommitObject{
-			ParentIDs:    []string{currentCommitID},
-			RootTreeID:   newRootTreeID,
-			Author:       subjectID,
-			Message:      "Create account root " + accountRoot,
-			CreatedAt:    now,
-			ChangedPaths: []string{accountRoot},
-		})
-		parentJSON, err := encodeJSON([]string{currentCommitID})
-		if err != nil {
-			return err
-		}
-		changedJSON, err := encodeJSON([]string{accountRoot})
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `
-			insert into commits(id, parent_ids, root_tree_id, author_subject_id, message, created_at, changed_paths)
-			values ($1, $2, $3, $4, $5, $6, $7)
-			on conflict (id) do nothing
-		`, commitID, parentJSON, newRootTreeID, subjectID, "Create account root "+accountRoot, now, changedJSON); err != nil {
-			return err
-		}
-		res, err := tx.ExecContext(ctx, `
-			update refs
-			set commit_id = $1, version = version + 1, updated_at = $2, updated_by = $3
-			where name = $4 and commit_id = $5
-		`, commitID, now, subjectID, DefaultTargetRef, currentCommitID)
-		if err != nil {
-			return err
-		}
-		affected, err := res.RowsAffected()
-		if err != nil {
-			return err
-		}
-		if affected == 0 {
-			return ErrConflict
-		}
-		if err := insertCommitChangedPathsTx(ctx, tx, DefaultTargetRef, commitID, []string{accountRoot}, now); err != nil {
-			return err
-		}
-		if err := upsertPathHeadTx(ctx, tx, pathHeadFromTreeEntry(treeEntryFromTree(*entry)), "", ""); err != nil {
-			return err
-		}
-		if err := recordAccountRootEntityUpdateTx(ctx, tx, currentCommitID, commitID, accountRoot, now); err != nil {
-			return err
-		}
-		_, err = tx.ExecContext(ctx, `release savepoint account_root_ref_cas`)
-		return err
+	var currentCommitID string
+	err := tx.QueryRowContext(ctx, `
+		select commit_id
+		from refs
+		where name = $1
+		for update
+	`, DefaultTargetRef).Scan(&currentCommitID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrNotFound
 	}
-	return ErrConflict
-}
-
-func recordAccountRootEntityUpdateTx(ctx context.Context, tx *sql.Tx, baseCommitID, commitID, accountRoot string, committedAt time.Time) error {
-	var hasPendingOutbox bool
-	if err := tx.QueryRowContext(ctx, `
-		select exists(
-			select 1
-			from outbox
-			where processed_at is null
-			  and kind = $1
-			  and payload->>'target_ref' = $2
-		)
-	`, outboxKindCommitPublished, DefaultTargetRef).Scan(&hasPendingOutbox); err != nil {
-		return err
-	}
-	if hasPendingOutbox {
-		return insertCommitPublishedOutboxTx(ctx, tx, []commitPublishedPayload{{
-			TargetRef:    DefaultTargetRef,
-			CommitID:     commitID,
-			BaseCommitID: baseCommitID,
-			ChangedPaths: []string{accountRoot},
-			FileEdits:    []*corev1.FileEdit{{Op: "mkdir", Path: accountRoot}},
-			CommittedAt:  committedAt,
-		}})
-	}
-	accountID, err := accountIDForPathTx(ctx, tx, accountRoot)
 	if err != nil {
 		return err
 	}
-	var entityID string
-	err = tx.QueryRowContext(ctx, `
-		select entity_id
-		from current_path_entities
-		where target_ref = $1 and path = $2
-	`, DefaultTargetRef, accountRoot).Scan(&entityID)
-	if errors.Is(err, sql.ErrNoRows) {
-		entityID, err = objectid.RandomID("ent")
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, `
-			insert into fs_entities(account_id, entity_id, kind, created_commit_id)
-			values ($1, $2, 'directory', $3)
-			on conflict do nothing
-		`, accountID, entityID, commitID); err != nil {
-			return err
-		}
-	} else if err != nil {
+
+	rootTreeID, err := rootTreeIDForCommitTx(ctx, tx, currentCommitID)
+	if err != nil {
 		return err
 	}
-	entity := pathEntity{
-		Path:      accountRoot,
-		AccountID: accountID,
-		EntityID:  entityID,
-		Kind:      "directory",
-	}
-	if err := upsertCurrentPathEntityTx(ctx, tx, DefaultTargetRef, entity); err != nil {
+	if _, err := trees.GetEntry(ctx, rootTreeID, accountRoot); err == nil {
+		return nil
+	} else if !errors.Is(err, treestore.ErrNotFound) {
 		return err
 	}
-	if err := insertEntityChangeTx(ctx, tx, DefaultTargetRef, commitID, entityChange{
-		Entity:     entity,
-		Path:       accountRoot,
-		ChangeKind: "added",
-		Source:     "explicit",
-		Confidence: 100,
-	}, committedAt); err != nil {
+
+	newRootTreeID, err := trees.ApplyEdits(ctx, rootTreeID, []treestore.FileEdit{
+		{Op: "mkdir", Path: accountRoot},
+	})
+	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `
-		update ref_materialized_heads
-		set commit_id = $2, updated_at = now()
-		where target_ref = $1 and commit_id = $3
-	`, DefaultTargetRef, commitID, baseCommitID)
-	return err
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	commitID := objectid.CommitID(objectid.CommitObject{
+		ParentIDs:    []string{currentCommitID},
+		RootTreeID:   newRootTreeID,
+		Author:       subjectID,
+		Message:      "Create account root " + accountRoot,
+		CreatedAt:    now,
+		ChangedPaths: []string{accountRoot},
+	})
+	parentJSON, err := encodeJSON([]string{currentCommitID})
+	if err != nil {
+		return err
+	}
+	changedJSON, err := encodeJSON([]string{accountRoot})
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		insert into commits(id, parent_ids, root_tree_id, author_subject_id, message, created_at, changed_paths)
+		values ($1, $2, $3, $4, $5, $6, $7)
+		on conflict (id) do nothing
+	`, commitID, parentJSON, newRootTreeID, subjectID, "Create account root "+accountRoot, now, changedJSON); err != nil {
+		return err
+	}
+	res, err := tx.ExecContext(ctx, `
+		update refs
+		set commit_id = $1, version = version + 1, updated_at = $2, updated_by = $3
+		where name = $4 and commit_id = $5
+	`, commitID, now, subjectID, DefaultTargetRef, currentCommitID)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected == 0 {
+		return ErrConflict
+	}
+	if err := insertCommitChangedPathsTx(ctx, tx, DefaultTargetRef, commitID, []string{accountRoot}, now); err != nil {
+		return err
+	}
+	entry, err := trees.GetEntry(ctx, newRootTreeID, accountRoot)
+	if err != nil {
+		return err
+	}
+	return upsertPathHeadTx(ctx, tx, pathHeadFromTreeEntry(treeEntryFromTree(*entry)), "", "")
 }

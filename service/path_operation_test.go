@@ -12,8 +12,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// newPathOperationFixture has alice writing an acme/payment slice with review
-// and check requirements, and a globex/docs slice alice can't write.
+// newPathOperationFixture has alice writing acme/payment, which requires an
+// approval and a check, and a globex/docs slice alice can't write.
 func newPathOperationFixture(t *testing.T, globexVisibility string) (context.Context, *memory.Stores, *Handlers) {
 	t.Helper()
 	mem, handlers := newMemoryHandlers()
@@ -27,7 +27,6 @@ func newPathOperationFixture(t *testing.T, globexVisibility string) (context.Con
 		file("/acme/payment/lib/a.go", "a", 0o100644),
 		file("/acme/payment/lib/sub/b.sh", "b", 0o100755),
 		file("/acme/payment/main.go", "m", 0o100644),
-		file("/acme/payment/cfg/.gitslice/checks.yaml", "c", 0o100644),
 		file("/globex/docs/guide/intro.md", "g", 0o100644),
 	}, nil)
 	return authctx.WithSubjectID(context.Background(), "user_alice"), mem, handlers
@@ -128,16 +127,10 @@ func TestCopyPathReadsAnotherAccountOnlyThroughAReadableSlice(t *testing.T) {
 	globex := &corev1.SliceRef{Account: "globex", Slice: "docs"}
 
 	t.Run("public source", func(t *testing.T) {
-		ctx, mem, handlers := newPathOperationFixture(t, "public")
+		ctx, _, handlers := newPathOperationFixture(t, "public")
 		_, err := handlers.Changeset.CopyPath(ctx, &corev1.CopyPathRequest{Slice: pathOpSlice, SourcePath: "/globex/docs/guide", DestinationPath: "/acme/payment/guide"})
 		wantPathOpCode(t, err, codes.InvalidArgument) // source_slice is required
 
-		// Cross-slice copy into a protected target slice is refused (must use a changeset).
-		_, err = handlers.Changeset.CopyPath(ctx, &corev1.CopyPathRequest{Slice: pathOpSlice, SourceSlice: globex, SourcePath: "/globex/docs/guide", DestinationPath: "/acme/payment/guide"})
-		wantPathOpCode(t, err, codes.FailedPrecondition)
-
-		// Into an unprotected target slice, cross-slice copy from a readable source lands cleanly.
-		mem.PutSliceWithSubmitSettings(pathOpSlice, []string{"/acme/payment"}, "private", 0, nil)
 		if _, err := handlers.Changeset.CopyPath(ctx, &corev1.CopyPathRequest{Slice: pathOpSlice, SourceSlice: globex, SourcePath: "/globex/docs/guide", DestinationPath: "/acme/payment/guide"}); err != nil {
 			t.Fatal(err)
 		}
@@ -167,8 +160,7 @@ func TestCopyPathReadsAnotherAccountOnlyThroughAReadableSlice(t *testing.T) {
 }
 
 func TestUpdateChangesetRefusesACopyFromOutsideTheSlice(t *testing.T) {
-	ctx, mem, handlers := newPathOperationFixture(t, "public")
-	mem.PutSliceWithSubmitSettings(pathOpSlice, []string{"/acme/payment"}, "private", 1, []string{"unit"})
+	ctx, _, handlers := newPathOperationFixture(t, "public")
 	ref, err := handlers.Changeset.Repository.GetRef(ctx, storage.DefaultTargetRef)
 	if err != nil {
 		t.Fatal(err)
@@ -199,67 +191,4 @@ func TestUpdateChangesetRefusesACopyFromOutsideTheSlice(t *testing.T) {
 	if _, err := handlers.Changeset.SubmitChangeset(ctx, &corev1.SubmitChangesetRequest{ChangesetId: cs.Id, ExpectedCurrentPatchsetId: patchset.Id}); err == nil {
 		t.Fatal("a reviewed copy submitted without the slice's required approval")
 	}
-}
-
-func TestPathOperationsRefuseCrossSliceProtectedBypassAndGitslicePaths(t *testing.T) {
-	ctx, mem, handlers := newPathOperationFixture(t, "public")
-	globex := &corev1.SliceRef{Account: "globex", Slice: "docs"}
-
-	// Direct .gitslice source, destination, or nested .gitslice folder must ALWAYS fail, even on an unprotected slice.
-	mem.PutSliceWithSubmitSettings(pathOpSlice, []string{"/acme/payment"}, "private", 0, nil)
-	_, err := handlers.Changeset.CopyPath(ctx, &corev1.CopyPathRequest{
-		Slice:           pathOpSlice,
-		SourcePath:      "/acme/payment/main.go",
-		DestinationPath: "/acme/payment/.gitslice/checks.yaml",
-	})
-	wantPathOpCode(t, err, codes.FailedPrecondition)
-
-	_, err = handlers.Changeset.MovePath(ctx, &corev1.MovePathRequest{
-		Slice:           pathOpSlice,
-		SourcePath:      "/acme/payment/cfg/.gitslice/checks.yaml",
-		DestinationPath: "/acme/payment/moved-checks.yaml",
-	})
-	wantPathOpCode(t, err, codes.FailedPrecondition)
-
-	_, err = handlers.Changeset.CopyPath(ctx, &corev1.CopyPathRequest{
-		Slice:           pathOpSlice,
-		SourcePath:      "/acme/payment/cfg",
-		DestinationPath: "/acme/payment/cfg-copy",
-	})
-	wantPathOpCode(t, err, codes.FailedPrecondition)
-
-	// Cross-slice CopyPath into a slice with required approvals or required checks is rejected.
-	mem.PutSliceWithSubmitSettings(pathOpSlice, []string{"/acme/payment"}, "private", 1, nil)
-	_, err = handlers.Changeset.CopyPath(ctx, &corev1.CopyPathRequest{
-		Slice:           pathOpSlice,
-		SourceSlice:     globex,
-		SourcePath:      "/globex/docs/guide",
-		DestinationPath: "/acme/payment/guide-approvals",
-	})
-	wantPathOpCode(t, err, codes.FailedPrecondition)
-
-	mem.PutSliceWithSubmitSettings(pathOpSlice, []string{"/acme/payment"}, "private", 0, []string{"unit"})
-	_, err = handlers.Changeset.CopyPath(ctx, &corev1.CopyPathRequest{
-		Slice:           pathOpSlice,
-		SourceSlice:     globex,
-		SourcePath:      "/globex/docs/guide",
-		DestinationPath: "/acme/payment/guide-checks",
-	})
-	wantPathOpCode(t, err, codes.FailedPrecondition)
-
-	// Parent-slice CopyPath/MovePath from outside a protected sub-slice into that sub-slice is also rejected.
-	mem.PutSliceWithSubmitSettings(pathOpSlice, []string{"/acme/payment"}, "private", 0, nil)
-	mem.PutSliceWithSubmitSettings(&corev1.SliceRef{Account: "acme", Slice: "subreq"}, []string{"/acme/payment/lib"}, "private", 1, nil)
-	_, err = handlers.Changeset.CopyPath(ctx, &corev1.CopyPathRequest{
-		Slice:           pathOpSlice,
-		SourcePath:      "/acme/payment/main.go",
-		DestinationPath: "/acme/payment/lib/injected.go",
-	})
-	wantPathOpCode(t, err, codes.FailedPrecondition)
-	_, err = handlers.Changeset.MovePath(ctx, &corev1.MovePathRequest{
-		Slice:           pathOpSlice,
-		SourcePath:      "/acme/payment/main.go",
-		DestinationPath: "/acme/payment/lib/moved.go",
-	})
-	wantPathOpCode(t, err, codes.FailedPrecondition)
 }

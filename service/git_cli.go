@@ -12,14 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-)
-
-var (
-	maxGitImportBlobBytes   int64 = 64 << 20
-	maxGitImportCommitBytes int64 = 256 << 20
 )
 
 func parseGitDiffNameStatus(raw []byte) ([]string, []string, error) {
@@ -87,8 +79,6 @@ func gitFilesAtPaths(ctx context.Context, repoDir, commitID, mountPath string, g
 		return snapshot, nil
 	}
 	const chunkSize = 512
-	var totalBytes int64
-	seenNewBlobs := map[string]struct{}{}
 	for start := 0; start < len(gitPaths); start += chunkSize {
 		end := start + chunkSize
 		if end > len(gitPaths) {
@@ -107,15 +97,6 @@ func gitFilesAtPaths(ctx context.Context, repoDir, commitID, mountPath string, g
 			return nil, err
 		}
 		for p, file := range chunk {
-			if len(file.Data) > 0 {
-				if _, seen := seenNewBlobs[file.GitBlobID]; !seen {
-					seenNewBlobs[file.GitBlobID] = struct{}{}
-					totalBytes += int64(len(file.Data))
-					if totalBytes > maxGitImportCommitBytes {
-						return nil, status.Errorf(codes.ResourceExhausted, "imported commit blob bytes exceed %d byte limit", maxGitImportCommitBytes)
-					}
-				}
-			}
 			snapshot[p] = file
 		}
 	}
@@ -160,7 +141,6 @@ func gitBlobContents(ctx context.Context, repoDir string, blobIDs []string) (map
 		writeErrCh <- stdin.Close()
 	}()
 	reader := bufio.NewReader(stdout)
-	var totalBytes int64
 	for range blobIDs {
 		header, err := reader.ReadString('\n')
 		if err != nil {
@@ -189,19 +169,6 @@ func gitBlobContents(ctx context.Context, repoDir string, blobIDs []string) (map
 			_ = cmd.Wait()
 			return nil, fmt.Errorf("invalid git blob size %q", fields[2])
 		}
-		if size > maxGitImportBlobBytes {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
-			return nil, status.Errorf(codes.ResourceExhausted, "git blob %s is %d bytes, exceeds %d byte import limit", fields[0], size, maxGitImportBlobBytes)
-		}
-		if totalBytes+size > maxGitImportCommitBytes {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
-			return nil, status.Errorf(codes.ResourceExhausted, "imported commit blob bytes exceed %d byte limit", maxGitImportCommitBytes)
-		}
-		totalBytes += size
 		data := make([]byte, size)
 		if _, err := io.ReadFull(reader, data); err != nil {
 			_ = cmd.Process.Kill()

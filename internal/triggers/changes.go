@@ -1,19 +1,11 @@
 package triggers
 
 import (
-	"slices"
 	"sort"
 	"strings"
 
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
-
-// TouchesGitsliceConfig reports whether p names or lies inside a .gitslice
-// configuration directory.
-func TouchesGitsliceConfig(p string) bool {
-	normalized := strings.ReplaceAll(strings.TrimSpace(p), "\\", "/")
-	return slices.Contains(strings.Split(normalized, "/"), ".gitslice")
-}
 
 // ChangesFromPatchset says what a patchset did to each file, from its edits:
 // add and copy add, update modifies, upsert adds or modifies depending on

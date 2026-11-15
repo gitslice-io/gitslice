@@ -119,28 +119,3 @@ func DistinctNonAuthorApprovalCount(author string, subjectIDs []string) int32 {
 	}
 	return int32(len(seen))
 }
-
-// FilterApprovalSubjects removes blank subjects and any excluded authors (for
-// example both the changeset author and the current patchset author) so
-// neither author can satisfy non-author approval requirements.
-func FilterApprovalSubjects(subjectIDs []string, excludedAuthors ...string) []string {
-	excluded := make(map[string]struct{}, len(excludedAuthors))
-	for _, author := range excludedAuthors {
-		author = strings.TrimSpace(author)
-		if author != "" {
-			excluded[author] = struct{}{}
-		}
-	}
-	out := make([]string, 0, len(subjectIDs))
-	for _, subjectID := range subjectIDs {
-		subjectID = strings.TrimSpace(subjectID)
-		if subjectID == "" {
-			continue
-		}
-		if _, skip := excluded[subjectID]; skip {
-			continue
-		}
-		out = append(out, subjectID)
-	}
-	return out
-}

@@ -153,27 +153,14 @@ func attachStackEntryTx(ctx context.Context, tx *sql.Tx, changesetID, stackID, p
 }
 
 func (s *ChangesetStore) baseTreeForPatchsetTx(ctx context.Context, tx *sql.Tx, patchset *corev1.Patchset) (string, error) {
-	return s.baseTreeForPatchset(ctx, tx, patchset)
-}
-
-func (s *ChangesetStore) baseTreeForPatchset(ctx context.Context, queryer publishQueryer, patchset *corev1.Patchset) (string, error) {
 	if patchset.BaseTreeId != "" {
 		return patchset.BaseTreeId, nil
 	}
 	switch patchset.BaseKind {
 	case "", "commit":
-		var rootTreeID string
-		err := queryer.QueryRowContext(ctx, `
-			select root_tree_id
-			from commits
-			where id = $1
-		`, patchset.BaseCommitId).Scan(&rootTreeID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", ErrNotFound
-		}
-		return rootTreeID, err
+		return rootTreeIDForCommitTx(ctx, tx, patchset.BaseCommitId)
 	case "patchset":
-		basePatchset, err := getPatchset(ctx, queryer, patchset.BasePatchsetId)
+		basePatchset, err := getPatchsetTx(ctx, tx, patchset.BasePatchsetId)
 		if err != nil {
 			return "", err
 		}
@@ -245,7 +232,6 @@ func (s *ChangesetStore) listStackEntries(ctx context.Context, stackID string) (
 	}
 	defer rows.Close()
 	var entries []*corev1.ChangesetStackEntry
-	var ids []string
 	for rows.Next() {
 		entry := &corev1.ChangesetStackEntry{StackId: stackID}
 		var parentChangesetID, parentPatchsetID sql.NullString
@@ -258,28 +244,14 @@ func (s *ChangesetStore) listStackEntries(ctx context.Context, stackID string) (
 		if parentPatchsetID.Valid {
 			entry.ParentPatchsetId = parentPatchsetID.String
 		}
-		ids = append(ids, entry.ChangesetId)
-		entries = append(entries, entry)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	changesets, err := s.getManyByIDs(ctx, ids)
-	if err != nil {
-		return nil, err
-	}
-	byID := make(map[string]*corev1.Changeset, len(changesets))
-	for _, cs := range changesets {
-		byID[cs.Id] = cs
-	}
-	for _, entry := range entries {
-		cs := byID[entry.ChangesetId]
-		if cs == nil {
-			return nil, ErrNotFound
+		cs, err := s.Get(ctx, entry.ChangesetId)
+		if err != nil {
+			return nil, err
 		}
 		entry.Changeset = cs
+		entries = append(entries, entry)
 	}
-	return entries, nil
+	return entries, rows.Err()
 }
 
 type stackEntryMutationRow struct {

@@ -14,7 +14,6 @@ func (r Runner) runSchema(opts commandOptions) error {
 			{"name": "--verbose", "description": "emit additional diagnostics"},
 			{"name": "--debug", "description": "emit debug diagnostics"},
 			{"name": "--trace", "description": "emit trace diagnostics"},
-			{"name": "--insecure", "description": "allow plaintext connections to non-loopback servers"},
 		},
 		"commands":    schemaCommands(),
 		"help_topics": cliHelpTopicSchema(),

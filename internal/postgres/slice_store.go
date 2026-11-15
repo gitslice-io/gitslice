@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"gitslice.io/gitslice/internal/objectid"
 	"gitslice.io/gitslice/internal/secretbox"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -65,10 +64,7 @@ func (s *SliceStore) Create(ctx context.Context, subjectID string, ref *corev1.S
 		return nil, err
 	}
 
-	id, err := objectid.RandomID("slice")
-	if err != nil {
-		return nil, err
-	}
+	id := sliceID(ref.Account, ref.Slice)
 	includedJSON, err := encodeJSON(includedPaths)
 	if err != nil {
 		return nil, err

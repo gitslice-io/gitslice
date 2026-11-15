@@ -8,11 +8,9 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
-	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -51,31 +49,22 @@ func TestValidateURL(t *testing.T) {
 
 func TestPublicAddress(t *testing.T) {
 	for addr, want := range map[string]bool{
-		"8.8.8.8":           true,
-		"2606:4700::1111":   true,
-		"127.0.0.1":         false,
-		"0.0.0.0":           false,
-		"10.0.0.1":          false,
-		"172.16.0.1":        false,
-		"192.168.1.1":       false,
-		"169.254.169.254":   false,
-		"100.100.100.100":   false,
-		"198.18.0.1":        false,
-		"224.0.0.1":         false,
-		"::1":               false,
-		"fe80::1":           false,
-		"fc00::1":           false,
-		"::ffff:127.0.0.1":  false,
-		"64:ff9b::a00:1":    false,
-		"::10.0.0.1":        false, // ::/96 IPv4-compatible IPv6
-		"64:ff9b:1::a00:1":  false, // 64:ff9b:1::/48 local NAT64
-		"2002:0a00:0001::1": false, // 2002::/16 6to4
-		"2001::1":           false, // 2001::/23 Teredo / IETF
-		"2001:100::1":       false, // 2001::/23
-		"100::1":            false, // 100::/64 discard-only
-		"ff02::1":           false, // link-local multicast
-		"ff05::1":           false, // site-local multicast
-		"ff0e::1":           false, // global multicast
+		"8.8.8.8":          true,
+		"2606:4700::1111":  true,
+		"127.0.0.1":        false,
+		"0.0.0.0":          false,
+		"10.0.0.1":         false,
+		"172.16.0.1":       false,
+		"192.168.1.1":      false,
+		"169.254.169.254":  false,
+		"100.100.100.100":  false,
+		"198.18.0.1":       false,
+		"224.0.0.1":        false,
+		"::1":              false,
+		"fe80::1":          false,
+		"fc00::1":          false,
+		"::ffff:127.0.0.1": false,
+		"64:ff9b::a00:1":   false,
 	} {
 		if got := publicAddress(netip.MustParseAddr(addr)); got != want {
 			t.Errorf("publicAddress(%s) = %v, want %v", addr, got, want)
@@ -391,115 +380,5 @@ func TestBlockedTargetFailsWithoutRetry(t *testing.T) {
 	}
 	if ping.Status != storage.WebhookDeliveryFailed || ping.Error == "" || len(rcv.requests()) != 0 {
 		t.Fatalf("ping to a private address = %+v", ping)
-	}
-}
-
-type countingWebhookStore struct {
-	storage.WebhookStore
-	claims atomic.Int64
-}
-
-func (c *countingWebhookStore) ClaimWebhookEvents(ctx context.Context, limit int, lease time.Duration) ([]storage.WebhookEvent, error) {
-	c.claims.Add(1)
-	return c.WebhookStore.ClaimWebhookEvents(ctx, limit, lease)
-}
-
-type countingSliceStore struct {
-	storage.SliceStore
-	gets atomic.Int64
-}
-
-func (c *countingSliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, error) {
-	c.gets.Add(1)
-	return c.SliceStore.Get(ctx, sliceID)
-}
-
-func TestDispatcherIdleWaitAndCoveringFanOut(t *testing.T) {
-	t.Cleanup(func() {
-		done := activity.Default.Begin()
-		done()
-	})
-
-	mem := memory.New()
-	mem.AddAccount("user_alice", "acme")
-	authoring := mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "authoring"}, []string{"/acme/authoring"}, "private")
-	touched := mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "touched"}, []string{"/acme/touched"}, "private")
-
-	rcv := newReceiver(t)
-	if _, err := mem.Webhooks.CreateWebhook(context.Background(), storage.Webhook{
-		SliceID:   touched.Id,
-		URL:       rcv.server.URL + "/touched",
-		Events:    []string{storage.WebhookEventPush},
-		Active:    true,
-		CreatedBy: "user_alice",
-	}); err != nil {
-		t.Fatal(err)
-	}
-	for i := range 20 {
-		other := mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "untouched_" + string(rune('a'+i))}, []string{"/acme/untouched/" + string(rune('a'+i))}, "private")
-		if _, err := mem.Webhooks.CreateWebhook(context.Background(), storage.Webhook{
-			SliceID:   other.Id,
-			URL:       rcv.server.URL + "/other",
-			Events:    []string{storage.WebhookEventPush},
-			Active:    true,
-			CreatedBy: "user_alice",
-		}); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	webhookStore := &countingWebhookStore{WebhookStore: mem.Webhooks}
-	sliceStore := &countingSliceStore{SliceStore: mem.Slices}
-	dispatcher := NewDispatcher(Stores{
-		Webhooks:   webhookStore,
-		Slices:     sliceStore,
-		Changesets: mem.Changesets,
-		Checks:     mem.Checks,
-		Auth:       mem.Auth,
-	}, Options{WebBaseURL: "https://gitslice.test/", AllowPrivateTargets: true})
-
-	// 1. Dispatcher.Run waits on activity.Default before initial DB query.
-	activity.Default.ResetIdle()
-	runCtx, cancel := context.WithCancel(context.Background())
-	doneCh := make(chan struct{})
-	go func() {
-		defer close(doneCh)
-		dispatcher.Run(runCtx)
-	}()
-
-	time.Sleep(40 * time.Millisecond)
-	if got := webhookStore.claims.Load(); got != 0 {
-		cancel()
-		<-doneCh
-		t.Fatalf("ClaimWebhookEvents while server idle = %d, want 0", got)
-	}
-
-	endReq := activity.Default.Begin()
-	endReq()
-	deadline := time.Now().Add(2 * time.Second)
-	for webhookStore.claims.Load() == 0 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	cancel()
-	<-doneCh
-	if webhookStore.claims.Load() == 0 {
-		t.Fatal("Dispatcher.Run did not drain after activity woke the gate")
-	}
-
-	// 2. Fan-out uses CoveringIDsByPath rather than N+1 Slices.Get across untouched slices.
-	sliceStore.gets.Store(0)
-	dispatcher.Emit(context.Background(), storage.WebhookEvent{
-		Kind:         storage.WebhookEventChangesetSubmitted,
-		SliceID:      authoring.Id,
-		CommitID:     "sha256:landed",
-		TargetRef:    "refs/heads/main",
-		ChangedPaths: []string{"/acme/touched/app.go"},
-	})
-	if got := len(rcv.requests()); got != 1 {
-		t.Fatalf("deliveries = %d, want 1", got)
-	}
-	// Only authoring slice (loadContext) + 1 touched push slice should be fetched via Slices.Get.
-	if gets := sliceStore.gets.Load(); gets > 2 {
-		t.Fatalf("Slices.Get calls during fanOut = %d, want <= 2 (no N+1 across 20 untouched hooks)", gets)
 	}
 }

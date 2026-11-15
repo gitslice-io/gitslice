@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -156,7 +155,6 @@ func (r codexRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID, 
 	// deltas we relay live, with finalized items persisted at turn completion.
 	cmd := exec.CommandContext(ctx, binary, "app-server")
 	cmd.Dir = workdir
-	cmd.Env = sanitizedAgentRuntimeEnv(os.Environ())
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -211,7 +209,7 @@ func (r codexRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID, 
 func (c *codexClient) openThread(ctx context.Context, workdir, resumeID, instructions string, freshThreadHistory func(context.Context) (string, error)) (string, error) {
 	base := map[string]any{
 		"cwd":            workdir,
-		"sandbox":        codexSandboxMode(),
+		"sandbox":        "danger-full-access",
 		"approvalPolicy": "never",
 	}
 	// developerInstructions layers gitslice guidance on top of codex's base
@@ -263,58 +261,6 @@ func (c *codexClient) openThread(ctx context.Context, workdir, resumeID, instruc
 		return "", fmt.Errorf("codex thread/start returned no thread id")
 	}
 	return id, nil
-}
-
-func codexSandboxMode() string {
-	switch mode := strings.ToLower(strings.TrimSpace(os.Getenv("GITSLICE_CODEX_SANDBOX"))); mode {
-	case "danger-full-access", "workspace-write", "read-only":
-		return mode
-	}
-	v := strings.TrimSpace(os.Getenv("GS_CODEX_DANGER_FULL_ACCESS"))
-	if v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes") || strings.EqualFold(v, "on") {
-		return "danger-full-access"
-	}
-	return "workspace-write"
-}
-
-func sanitizedAgentRuntimeEnv(environ []string) []string {
-	allowGSToken := strings.EqualFold(strings.TrimSpace(os.Getenv("GS_AGENT_ALLOW_GS_TOKEN")), "1") ||
-		strings.EqualFold(strings.TrimSpace(os.Getenv("GS_AGENT_ALLOW_GS_TOKEN")), "true")
-	out := make([]string, 0, len(environ))
-	for _, entry := range environ {
-		key, _, ok := strings.Cut(entry, "=")
-		if !ok {
-			continue
-		}
-		if isSensitiveAgentHostEnvKey(key, allowGSToken) {
-			continue
-		}
-		out = append(out, entry)
-	}
-	return out
-}
-
-func isSensitiveAgentHostEnvKey(key string, allowGSToken bool) bool {
-	upper := strings.ToUpper(strings.TrimSpace(key))
-	if upper == "GS_TOKEN" {
-		return !allowGSToken
-	}
-	switch upper {
-	case "GS_SERVICE_PRIVATE_KEY",
-		"GS_SERVICE_PRIVATE_KEY_FILE",
-		"GITSLICE_TOKEN",
-		"GITSLICE_API_TOKEN",
-		"GITSLICE_RUNNER_TOKEN",
-		"GITSLICE_SECRETS_KEY",
-		"GITSLICE_DOORBELL_SECRET",
-		"GITSLICE_TRIGGER_SECRET",
-		"GITSLICE_WEBHOOK_SECRET",
-		"GITSLICE_INTERNAL_TOKEN",
-		"CLERK_SECRET_KEY",
-		"DATABASE_URL":
-		return true
-	}
-	return false
 }
 
 func parseThreadID(raw json.RawMessage) string {

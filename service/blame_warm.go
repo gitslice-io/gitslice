@@ -172,7 +172,7 @@ func (s *RepositoryService) warmBlame(ctx context.Context, head, p string) warmO
 		filters.entityRefs = refs
 		filters.includePrefixesWithEntities = include
 	}
-	result, err := s.blameWalk(ctx, storage.DefaultTargetRef, filters, head, p, entry, nil)
+	result, err := s.blameWalk(ctx, storage.DefaultTargetRef, filters, head, p, entry)
 	switch {
 	case err != nil:
 		return warmSkipped

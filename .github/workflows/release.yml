@@ -22,16 +22,6 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - name: Validate release tag
-        env:
-          TAG: ${{ github.event.inputs.tag || github.ref_name }}
-        run: |
-          set -euo pipefail
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "invalid release tag: $TAG" >&2
-            exit 1
-          fi
-
       - name: Check out code
         uses: actions/checkout@v6
         with:
@@ -86,10 +76,6 @@ jobs:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "invalid release tag: $TAG" >&2
-            exit 1
-          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
           else

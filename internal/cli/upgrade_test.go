@@ -137,11 +137,7 @@ func releaseServer(t *testing.T, reportVersion string, tamper bool) string {
 // oldBinary is an installed gs that reports version.
 func oldBinary(t *testing.T, version string) string {
 	t.Helper()
-	dir, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(dir, "gs")
+	path := filepath.Join(t.TempDir(), "gs")
 	if err := os.WriteFile(path, []byte(oldScript(version)), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -180,13 +180,10 @@ func TestHydrateRefusesContentThatDoesNotMatchItsID(t *testing.T) {
 
 func TestHydrateSaysWhenAFileHasNoRecord(t *testing.T) {
 	f := newLazyFixture(t)
-	// Replace the blob store with an empty one so a reachable projected blob has
-	// no backfilled Git blob record.
-	f.p.blobs = memory.New().Blobs
-	want := objectid.GitBlobID(f.contents["acme/p/a.txt"])
-	err := f.p.HydrateFor(context.Background(), f.repo, fetchBody("", 0, want))
+	missing := objectid.GitBlobID([]byte("never uploaded\n"))
+	err := f.p.HydrateFor(context.Background(), f.repo, fetchBody("", 0, missing))
 	if err == nil || !strings.Contains(err.Error(), "no record") {
-		t.Fatalf("an unrecorded reachable file must be reported, got %v", err)
+		t.Fatalf("an unknown file must be reported, got %v", err)
 	}
 }
 

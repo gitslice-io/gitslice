@@ -16,7 +16,7 @@ import (
 // into a second workspace. Nothing in a checkpoint reaches the server.
 func TestCheckpointRewindAndFork(t *testing.T) {
 	isolateClientCache(t)
-	setMountRuntimeDir(t)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("GS_MOUNTD_IDLE", "1s")
 	if _, err := os.Stat("/dev/fuse"); err != nil {
 		t.Skip("no /dev/fuse here")

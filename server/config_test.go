@@ -209,26 +209,3 @@ func TestConfigFromEnvReadsSecretsKeyConfig(t *testing.T) {
 		t.Fatal("ConfigFromEnv() RequireSecretsKey = true, want false when GITSLICE_REQUIRE_SECRETS_KEY=0")
 	}
 }
-
-func TestTrustedProxyCIDRsConfigAndValidation(t *testing.T) {
-	t.Setenv("GITSLICE_TRUSTED_PROXIES", " 10.0.0.0/8 , 198.51.100.10 , 2001:db8::/32 ")
-	cfg := ConfigFromEnv()
-	if len(cfg.TrustedProxyCIDRs) != 3 {
-		t.Fatalf("TrustedProxyCIDRs = %#v, want 3 entries", cfg.TrustedProxyCIDRs)
-	}
-
-	validCfg := baseValidConfig()
-	validCfg.TrustedProxyCIDRs = cfg.TrustedProxyCIDRs
-	if err := validCfg.Validate(); err != nil {
-		t.Fatalf("Validate() with valid TrustedProxyCIDRs = %v, want nil", err)
-	}
-
-	for _, bad := range []string{"not-a-cidr", "10.0.0.0/99"} {
-		badCfg := baseValidConfig()
-		badCfg.TrustedProxyCIDRs = []string{bad}
-		err := badCfg.Validate()
-		if err == nil || !strings.Contains(err.Error(), "GITSLICE_TRUSTED_PROXIES") {
-			t.Fatalf("Validate(%q) error = %v, want GITSLICE_TRUSTED_PROXIES error", bad, err)
-		}
-	}
-}

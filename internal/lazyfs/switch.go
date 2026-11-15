@@ -30,16 +30,14 @@ func (f *FS) Switch(newBase *Manifest, diff map[string]*BaseEntry, keep []string
 		return nil, ErrChanged
 	}
 	next := map[string]*localEntry{}
-	cleanDiff := make(map[string]*BaseEntry, len(diff))
 	for p, entry := range diff {
-		p, err := cleanWritablePath(p)
+		p, err := cleanPath(p)
 		if err != nil {
 			return nil, err
 		}
 		if p == "/" {
 			continue
 		}
-		cleanDiff[p] = entry
 		base, inBase := newBase.Lookup(p)
 		switch {
 		case entry == nil:
@@ -61,15 +59,11 @@ func (f *FS) Switch(newBase *Manifest, diff map[string]*BaseEntry, keep []string
 	}
 	used := map[string]bool{}
 	for _, p := range keep {
-		p, err := cleanWritablePath(p)
-		if err != nil {
-			return nil, err
-		}
 		entry := f.entries[p]
 		if entry == nil || entry.Kind == entryDir || entry.Kind == entryWhiteout {
 			continue
 		}
-		if _, listed := cleanDiff[p]; listed {
+		if _, listed := diff[p]; listed {
 			continue
 		}
 		if _, inBase := newBase.Lookup(p); inBase {

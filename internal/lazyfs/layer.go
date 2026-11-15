@@ -83,13 +83,11 @@ type Options struct {
 // FS is a lazy workspace: a manifest under a local layer kept in a directory.
 // It is safe for concurrent use.
 type FS struct {
-	dir       string
-	dirRoot   *os.Root
-	filesRoot *os.Root
-	content   Content
-	opts      Options
+	dir     string
+	content Content
+	opts    Options
 
-	mu       sync.RWMutex
+	mu       sync.Mutex
 	base     *Manifest
 	entries  map[string]*localEntry
 	children map[string]map[string]struct{} // directory -> names with local entries
@@ -114,76 +112,14 @@ const (
 	compactAfter = 1000
 )
 
-func verifyRealDir(dir string) error {
-	info, err := os.Lstat(dir)
-	if err != nil {
-		return err
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return fmt.Errorf("lazyfs: %s is not a real directory: %w", dir, fs.ErrInvalid)
-	}
-	return nil
-}
-
-func isValidLocalName(name string) bool {
-	if len(name) != 32 {
-		return false
-	}
-	for i := 0; i < len(name); i++ {
-		c := name[i]
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-			return false
-		}
-	}
-	return true
-}
-
 // Open opens the local layer stored in dir over base, creating it if dir is
 // empty. It replays the journal, dropping a record a crash cut short, and
 // deletes local content no entry refers to.
-func Open(dir string, base *Manifest, content Content, opts Options) (retFS *FS, retErr error) {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+func Open(dir string, base *Manifest, content Content, opts Options) (*FS, error) {
+	if err := os.MkdirAll(filepath.Join(dir, filesDir), 0o700); err != nil {
 		return nil, err
 	}
-	if err := verifyRealDir(dir); err != nil {
-		return nil, err
-	}
-	dirRoot, err := os.OpenRoot(dir)
-	if err != nil {
-		return nil, err
-	}
-	if err := dirRoot.Mkdir(filesDir, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
-		_ = dirRoot.Close()
-		return nil, err
-	}
-	info, err := dirRoot.Lstat(filesDir)
-	if err != nil {
-		_ = dirRoot.Close()
-		return nil, err
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		_ = dirRoot.Close()
-		return nil, fmt.Errorf("lazyfs: %s/%s is not a real directory: %w", dir, filesDir, fs.ErrInvalid)
-	}
-	filesRoot, err := dirRoot.OpenRoot(filesDir)
-	if err != nil {
-		_ = dirRoot.Close()
-		return nil, err
-	}
-	f := &FS{
-		dir:       dir,
-		dirRoot:   dirRoot,
-		filesRoot: filesRoot,
-		content:   content,
-		opts:      opts,
-		base:      base,
-		hashes:    map[string]hashMemo{},
-	}
-	defer func() {
-		if retErr != nil {
-			_ = f.Close()
-		}
-	}()
+	f := &FS{dir: dir, content: content, opts: opts, base: base, hashes: map[string]hashMemo{}}
 	f.reset(nil)
 	recordedBase, records, err := f.replay()
 	if err != nil {
@@ -201,7 +137,7 @@ func Open(dir string, base *Manifest, content Content, opts Options) (retFS *FS,
 		}
 	}
 	if f.journal == nil {
-		if f.journal, err = f.dirRoot.OpenFile(journalName, os.O_WRONLY|os.O_APPEND, 0o600); err != nil {
+		if f.journal, err = os.OpenFile(filepath.Join(dir, journalName), os.O_WRONLY|os.O_APPEND, 0o600); err != nil {
 			return nil, err
 		}
 	}
@@ -214,37 +150,10 @@ func Open(dir string, base *Manifest, content Content, opts Options) (retFS *FS,
 // RecordedBase returns the base commit the local layer in dir was recorded
 // against, or "" when there is none, so a caller can load that manifest.
 func RecordedBase(dir string) (string, error) {
-	info, err := os.Lstat(dir)
+	data, err := os.ReadFile(filepath.Join(dir, journalName))
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", nil
 	}
-	if err != nil {
-		return "", err
-	}
-	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return "", fmt.Errorf("lazyfs: %s is not a real directory: %w", dir, fs.ErrInvalid)
-	}
-	dirRoot, err := os.OpenRoot(dir)
-	if err != nil {
-		return "", err
-	}
-	defer dirRoot.Close()
-	jInfo, err := dirRoot.Lstat(journalName)
-	if errors.Is(err, fs.ErrNotExist) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	if !jInfo.Mode().IsRegular() {
-		return "", fmt.Errorf("lazyfs: %s/%s is not a regular file: %w", dir, journalName, fs.ErrInvalid)
-	}
-	file, err := dirRoot.Open(journalName)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	data, err := io.ReadAll(file)
 	if err != nil {
 		return "", err
 	}
@@ -261,39 +170,22 @@ func RecordedBase(dir string) (string, error) {
 	return base, nil
 }
 
-// Close closes the journal and directory roots.
+// Close closes the journal.
 func (f *FS) Close() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	var firstErr error
-	if f.journal != nil {
-		if f.opts.NoSync {
-			_ = f.journal.Sync()
-		}
-		if err := f.journal.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-		f.journal = nil
+	if f.journal == nil {
+		return nil
 	}
-	if f.filesRoot != nil {
-		if err := f.filesRoot.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-		f.filesRoot = nil
-	}
-	if f.dirRoot != nil {
-		if err := f.dirRoot.Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-		f.dirRoot = nil
-	}
-	return firstErr
+	err := f.journal.Close()
+	f.journal = nil
+	return err
 }
 
 // Base returns the manifest the workspace is over.
 func (f *FS) Base() *Manifest {
-	f.mu.RLock()
-	defer f.mu.RUnlock()
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.base
 }
 
@@ -324,35 +216,12 @@ func (f *FS) setLocked(p string, entry *localEntry) {
 	f.children[dir][name] = struct{}{}
 }
 
-func validateRecordSet(set map[string]*localEntry) error {
-	for p, entry := range set {
-		clean, err := cleanWritablePath(p)
-		if err != nil {
-			return err
-		}
-		if clean == "/" || clean != p {
-			return fmt.Errorf("lazyfs: invalid journal path %q: %w", p, fs.ErrInvalid)
-		}
-		if entry != nil && entry.Kind == entryFile && !isValidLocalName(entry.Local) {
-			return fmt.Errorf("lazyfs: invalid local content name %q for %s: %w", entry.Local, p, fs.ErrInvalid)
-		}
-	}
-	return nil
-}
-
 // replay applies the journal and truncates it after its last complete record.
 func (f *FS) replay() (string, int, error) {
-	jInfo, err := f.dirRoot.Lstat(journalName)
+	file, err := os.OpenFile(filepath.Join(f.dir, journalName), os.O_RDWR, 0o600)
 	if errors.Is(err, fs.ErrNotExist) {
 		return "", 0, nil
 	}
-	if err != nil {
-		return "", 0, err
-	}
-	if !jInfo.Mode().IsRegular() {
-		return "", 0, fmt.Errorf("lazyfs: %s/%s is not a regular file: %w", f.dir, journalName, fs.ErrInvalid)
-	}
-	file, err := f.dirRoot.OpenFile(journalName, os.O_RDWR, 0o600)
 	if err != nil {
 		return "", 0, err
 	}
@@ -369,9 +238,6 @@ func (f *FS) replay() (string, int, error) {
 		var rec record
 		if json.Unmarshal(line, &rec) != nil {
 			break
-		}
-		if err := validateRecordSet(rec.Set); err != nil {
-			return "", 0, err
 		}
 		if rec.Snapshot {
 			base = rec.Base
@@ -429,45 +295,25 @@ func (f *FS) writeSnapshot(base string) error {
 	if err != nil {
 		return err
 	}
-	tmpName := journalName + ".tmp"
-	_ = f.dirRoot.Remove(tmpName)
-	tmpFile, err := f.dirRoot.OpenFile(tmpName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
+	tmp := filepath.Join(f.dir, journalName+".tmp")
+	if err := os.WriteFile(tmp, append(line, '\n'), 0o600); err != nil {
 		return err
 	}
-	if _, err := tmpFile.Write(append(line, '\n')); err != nil {
-		_ = tmpFile.Close()
-		_ = f.dirRoot.Remove(tmpName)
-		return err
-	}
-	if !f.opts.NoSync {
-		if err := tmpFile.Sync(); err != nil {
-			_ = tmpFile.Close()
-			_ = f.dirRoot.Remove(tmpName)
-			return err
-		}
-	}
-	if err := tmpFile.Close(); err != nil {
-		_ = f.dirRoot.Remove(tmpName)
+	if err := syncFile(tmp); err != nil {
 		return err
 	}
 	if f.journal != nil {
 		_ = f.journal.Close()
 		f.journal = nil
 	}
-	if err := verifyRealDir(f.dir); err != nil {
+	if err := os.Rename(tmp, filepath.Join(f.dir, journalName)); err != nil {
 		return err
 	}
-	if err := os.Rename(filepath.Join(f.dir, tmpName), filepath.Join(f.dir, journalName)); err != nil {
+	if err := syncFile(f.dir); err != nil {
 		return err
-	}
-	if !f.opts.NoSync {
-		if err := syncFile(f.dir); err != nil {
-			return err
-		}
 	}
 	f.records = 1
-	f.journal, err = f.dirRoot.OpenFile(journalName, os.O_WRONLY|os.O_APPEND, 0o600)
+	f.journal, err = os.OpenFile(filepath.Join(f.dir, journalName), os.O_WRONLY|os.O_APPEND, 0o600)
 	return err
 }
 
@@ -489,18 +335,13 @@ func (f *FS) collectGarbage() error {
 			used[entry.Local] = true
 		}
 	}
-	dirFile, err := f.filesRoot.Open(".")
-	if err != nil {
-		return err
-	}
-	defer dirFile.Close()
-	names, err := dirFile.ReadDir(-1)
+	names, err := os.ReadDir(filepath.Join(f.dir, filesDir))
 	if err != nil {
 		return err
 	}
 	for _, name := range names {
 		if !used[name.Name()] {
-			_ = f.filesRoot.Remove(name.Name())
+			_ = os.Remove(filepath.Join(f.dir, filesDir, name.Name()))
 		}
 	}
 	return nil
@@ -550,23 +391,8 @@ func (f *FS) baseVisibleLocked(p string) bool {
 	return true
 }
 
-func (f *FS) statLocal(name string) (int64, time.Time, error) {
-	if !isValidLocalName(name) {
-		return 0, time.Time{}, fmt.Errorf("lazyfs: invalid local content name %q: %w", name, fs.ErrInvalid)
-	}
-	info, err := f.filesRoot.Lstat(name)
-	if err != nil {
-		return 0, time.Time{}, err
-	}
-	if !info.Mode().IsRegular() {
-		return 0, time.Time{}, fmt.Errorf("lazyfs: local content %q is not a regular file: %w", name, fs.ErrInvalid)
-	}
-	return info.Size(), info.ModTime(), nil
-}
-
-// lookupMetaLocked returns the merged view at p without stating local content
-// files on disk.
-func (f *FS) lookupMetaLocked(p string) (node, bool) {
+// lookupLocked returns the merged view at p.
+func (f *FS) lookupLocked(p string) (node, bool) {
 	if p == "/" {
 		return node{kind: KindDir, mode: ModeDir}, true
 	}
@@ -575,7 +401,11 @@ func (f *FS) lookupMetaLocked(p string) (node, bool) {
 		case entryWhiteout:
 			return node{}, false
 		case entryFile:
-			return node{kind: KindFile, mode: entry.Mode, local: entry.Local}, true
+			size, modTime := int64(0), time.Time{}
+			if info, err := os.Stat(f.localPath(entry.Local)); err == nil {
+				size, modTime = info.Size(), info.ModTime()
+			}
+			return node{kind: KindFile, mode: entry.Mode, size: size, modTime: modTime, local: entry.Local}, true
 		case entryRef:
 			return node{kind: KindFile, mode: entry.Mode, size: entry.Size, hash: entry.Hash}, true
 		case entryDir:
@@ -594,17 +424,6 @@ func (f *FS) lookupMetaLocked(p string) (node, bool) {
 	return node{kind: entry.Kind, mode: entry.Mode, size: entry.Size, hash: entry.ContentHash, target: entry.Target, base: true}, true
 }
 
-// lookupLocked returns the merged view at p, including local file size/mtime.
-func (f *FS) lookupLocked(p string) (node, bool) {
-	n, ok := f.lookupMetaLocked(p)
-	if ok && n.local != "" {
-		if size, modTime, err := f.statLocal(n.local); err == nil {
-			n.size, n.modTime = size, modTime
-		}
-	}
-	return n, ok
-}
-
 // childNamesLocked lists the names under the directory p in the merged view.
 func (f *FS) childNamesLocked(p string, n node) []string {
 	set := map[string]struct{}{}
@@ -618,7 +437,7 @@ func (f *FS) childNamesLocked(p string, n node) []string {
 	}
 	names := make([]string, 0, len(set))
 	for name := range set {
-		if _, ok := f.lookupMetaLocked(joinPath(p, name)); ok {
+		if _, ok := f.lookupLocked(joinPath(p, name)); ok {
 			names = append(names, name)
 		}
 	}
@@ -639,7 +458,7 @@ func (f *FS) resolveParentLocked(op, p string) error {
 		walk = append(walk, dir)
 	}
 	for i := len(walk) - 1; i >= 0; i-- {
-		n, ok := f.lookupMetaLocked(walk[i])
+		n, ok := f.lookupLocked(walk[i])
 		if !ok {
 			return &fs.PathError{Op: op, Path: p, Err: fs.ErrNotExist}
 		}
@@ -654,22 +473,15 @@ func (f *FS) resolveParentLocked(op, p string) error {
 // on the way is not a directory, ENOENT when p or a component is missing.
 func (f *FS) resolveLocked(op, p string) (node, error) {
 	if p == "/" {
-		n, _ := f.lookupMetaLocked(p)
+		n, _ := f.lookupLocked(p)
 		return n, nil
 	}
 	if err := f.resolveParentLocked(op, p); err != nil {
 		return node{}, err
 	}
-	n, ok := f.lookupMetaLocked(p)
+	n, ok := f.lookupLocked(p)
 	if !ok {
 		return node{}, &fs.PathError{Op: op, Path: p, Err: fs.ErrNotExist}
-	}
-	if n.local != "" {
-		size, modTime, err := f.statLocal(n.local)
-		if err != nil {
-			return node{}, &fs.PathError{Op: op, Path: p, Err: err}
-		}
-		n.size, n.modTime = size, modTime
 	}
 	return n, nil
 }

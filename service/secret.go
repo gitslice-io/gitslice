@@ -190,7 +190,7 @@ func (s *SecretService) RevealSliceSecrets(ctx context.Context, req *corev1.Reve
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := authorizeSliceOwnerAllowArchived(ctx, s.Auth, subjectID, slice); err != nil {
+	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, slice); err != nil {
 		return nil, err
 	}
 	values := map[string]string{}

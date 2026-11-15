@@ -11,7 +11,6 @@ package lazyfs
 
 import (
 	"fmt"
-	"io/fs"
 	"path"
 	"sort"
 	"strings"
@@ -70,7 +69,7 @@ func NewManifest(commitID string, entries []BaseEntry) (*Manifest, error) {
 	m := &Manifest{commitID: commitID, entries: map[string]BaseEntry{}, children: map[string][]string{}}
 	m.entries["/"] = BaseEntry{Path: "/", Kind: KindDir, Mode: ModeDir}
 	for _, entry := range entries {
-		p, err := cleanWritablePath(entry.Path)
+		p, err := cleanPath(entry.Path)
 		if err != nil {
 			return nil, err
 		}
@@ -159,34 +158,11 @@ func (m *Manifest) filesUnder(p string) []BaseEntry {
 // cleanPath checks an absolute repository path and returns its clean form.
 func cleanPath(p string) (string, error) {
 	if !strings.HasPrefix(p, "/") {
-		return "", fmt.Errorf("lazyfs: path %q is not absolute: %w", p, fs.ErrInvalid)
+		return "", fmt.Errorf("lazyfs: path %q is not absolute", p)
 	}
 	clean := path.Clean(p)
 	if clean != p && clean+"/" != p {
-		return "", fmt.Errorf("lazyfs: path %q is not clean: %w", p, fs.ErrInvalid)
-	}
-	return clean, nil
-}
-
-// hasReservedGsSegment reports whether clean (a clean slash path) names .gs or
-// anything beneath a .gs directory at any depth.
-func hasReservedGsSegment(clean string) bool {
-	if clean == "/.gs" || strings.HasPrefix(clean, "/.gs/") || strings.HasSuffix(clean, "/.gs") || strings.Contains(clean, "/.gs/") {
-		return true
-	}
-	return false
-}
-
-// cleanWritablePath checks an absolute repository path and rejects .gs and
-// .gs/* segments so neither manifests nor local overlay mutations can shadow
-// workspace control metadata.
-func cleanWritablePath(p string) (string, error) {
-	clean, err := cleanPath(p)
-	if err != nil {
-		return "", err
-	}
-	if hasReservedGsSegment(clean) {
-		return "", fmt.Errorf("lazyfs: path %q uses reserved .gs segment: %w", p, fs.ErrInvalid)
+		return "", fmt.Errorf("lazyfs: path %q is not clean", p)
 	}
 	return clean, nil
 }

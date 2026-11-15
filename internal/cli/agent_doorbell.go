@@ -2,11 +2,9 @@ package cli
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -19,55 +17,45 @@ import (
 // polls the server only on a wake and every safety interval, instead of
 // every half minute. While the socket is down it polls as before.
 const (
-	doorbellPingEvery        = 30 * time.Second
-	doorbellReadWithin       = 75 * time.Second
-	doorbellDialWithin       = 15 * time.Second
-	doorbellRetryMax         = time.Minute
-	doorbellInitialReadyWait = 2 * time.Second
+	doorbellPingEvery  = 30 * time.Second
+	doorbellReadWithin = 75 * time.Second
+	doorbellDialWithin = 15 * time.Second
+	doorbellRetryMax   = time.Minute
 )
 
 type doorbellListener struct {
-	mu         sync.Mutex
-	url        string
-	token      string
-	requireTLS bool
-	connected  bool
+	mu        sync.Mutex
+	url       string
+	token     string
+	connected bool
 	// say reports the socket opening and failing, once per change.
 	say      func(string)
 	lastFail string
 
 	started time.Time
 
-	ready     chan struct{}
-	readyOnce sync.Once
-	wake      chan struct{}
-	lost      chan struct{}
-	cancel    context.CancelFunc
-	done      chan struct{}
+	wake   chan struct{}
+	lost   chan struct{}
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 // listenDoorbell starts waiting on the doorbell at waitURL with token. say
 // (may be nil) hears when the socket opens and why it fails.
 func listenDoorbell(ctx context.Context, waitURL, token string, say func(string)) *doorbellListener {
-	return listenDoorbellWithTLS(ctx, waitURL, token, false, say)
-}
-
-func listenDoorbellWithTLS(ctx context.Context, waitURL, token string, requireTLS bool, say func(string)) *doorbellListener {
 	ctx, cancel := context.WithCancel(ctx)
 	if say == nil {
 		say = func(string) {}
 	}
 	l := &doorbellListener{
-		say:        say,
-		url:        waitURL,
-		token:      token,
-		requireTLS: requireTLS,
-		ready:      make(chan struct{}),
-		wake:       make(chan struct{}, 1),
-		lost:       make(chan struct{}, 1),
-		cancel:     cancel,
-		done:       make(chan struct{}),
-		started:    time.Now(),
+		say:     say,
+		url:     waitURL,
+		token:   token,
+		wake:    make(chan struct{}, 1),
+		lost:    make(chan struct{}, 1),
+		cancel:  cancel,
+		done:    make(chan struct{}),
+		started: time.Now(),
 	}
 	go l.run(ctx)
 	return l
@@ -75,35 +63,9 @@ func listenDoorbellWithTLS(ctx context.Context, waitURL, token string, requireTL
 
 // update gives the listener a fresh token (and URL) for its next dial.
 func (l *doorbellListener) update(waitURL, token string) {
-	l.updateWithTLS(waitURL, token, false)
-}
-
-func (l *doorbellListener) updateWithTLS(waitURL, token string, requireTLS bool) {
 	l.mu.Lock()
-	l.url, l.token, l.requireTLS = waitURL, token, requireTLS
+	l.url, l.token = waitURL, token
 	l.mu.Unlock()
-}
-
-func (l *doorbellListener) markReady() {
-	if l == nil {
-		return
-	}
-	l.readyOnce.Do(func() {
-		close(l.ready)
-	})
-}
-
-func (l *doorbellListener) waitReady(ctx context.Context, timeout time.Duration) {
-	if l == nil || timeout <= 0 {
-		return
-	}
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-	select {
-	case <-l.ready:
-	case <-ctx.Done():
-	case <-timer.C:
-	}
 }
 
 func (l *doorbellListener) stop() {
@@ -152,9 +114,6 @@ func (l *doorbellListener) setConnected(connected bool) {
 	was := l.connected
 	l.connected = connected
 	l.mu.Unlock()
-	if connected {
-		l.markReady()
-	}
 	if was && !connected {
 		notify(l.lost)
 	}
@@ -162,16 +121,14 @@ func (l *doorbellListener) setConnected(connected bool) {
 
 func (l *doorbellListener) run(ctx context.Context) {
 	defer close(l.done)
-	defer l.markReady()
 	retry := time.Second
 	for ctx.Err() == nil {
 		l.mu.Lock()
-		waitURL, token, requireTLS := l.url, l.token, l.requireTLS
+		waitURL, token := l.url, l.token
 		l.mu.Unlock()
 		opened := time.Now()
-		err := l.listenOnce(ctx, waitURL, token, requireTLS)
+		err := l.listenOnce(ctx, waitURL, token)
 		l.setConnected(false)
-		l.markReady()
 		if ctx.Err() != nil {
 			return
 		}
@@ -191,54 +148,16 @@ func (l *doorbellListener) run(ctx context.Context) {
 	}
 }
 
-func dialDoorbell(ctx context.Context, waitURL, token string, requireTLS bool) (*websocket.Conn, error) {
-	normalized, err := normalizeDoorbellURL(waitURL, requireTLS)
+// listenOnce holds one socket until it fails or ctx ends.
+func (l *doorbellListener) listenOnce(ctx context.Context, waitURL, token string) error {
+	cfg, err := websocket.NewConfig(waitURL, originFor(waitURL))
 	if err != nil {
-		return nil, err
-	}
-	cfg, err := websocket.NewConfig(normalized, originFor(normalized))
-	if err != nil {
-		return nil, err
-	}
-	if strings.HasPrefix(normalized, "wss://") {
-		u, _ := url.Parse(normalized)
-		cfg.TlsConfig = &tls.Config{
-			ServerName: u.Hostname(),
-			MinVersion: tls.VersionTLS12,
-		}
+		return err
 	}
 	cfg.Header = http.Header{"Authorization": {"Bearer " + token}}
 	dialCtx, cancelDial := context.WithTimeout(ctx, doorbellDialWithin)
-	defer cancelDial()
-	return cfg.DialContext(dialCtx)
-}
-
-func normalizeDoorbellURL(waitURL string, requireTLS bool) (string, error) {
-	u, err := url.Parse(strings.TrimSpace(waitURL))
-	if err != nil {
-		return "", fmt.Errorf("invalid doorbell URL: %w", err)
-	}
-	switch strings.ToLower(u.Scheme) {
-	case "wss", "https":
-		u.Scheme = "wss"
-	case "ws", "http":
-		u.Scheme = "ws"
-	default:
-		return "", fmt.Errorf("unsupported doorbell scheme %q", u.Scheme)
-	}
-	if u.Host == "" || u.Hostname() == "" {
-		return "", fmt.Errorf("doorbell URL missing host")
-	}
-	mustTLS := requireTLS || (!isLoopbackHost(u.Hostname()) && !insecureTransportRequested())
-	if mustTLS && u.Scheme != "wss" {
-		return "", fmt.Errorf("doorbell URL must use wss:// for non-loopback TLS target")
-	}
-	return u.String(), nil
-}
-
-// listenOnce holds one socket until it fails or ctx ends.
-func (l *doorbellListener) listenOnce(ctx context.Context, waitURL, token string, requireTLS bool) error {
-	conn, err := dialDoorbell(ctx, waitURL, token, requireTLS)
+	conn, err := cfg.DialContext(dialCtx)
+	cancelDial()
 	if err != nil {
 		return err
 	}

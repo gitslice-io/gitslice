@@ -102,19 +102,6 @@ func TestArchivedSliceIsHiddenAndReadOnly(t *testing.T) {
 		t.Fatalf("an archived slice stays readable: %v, %v", got, err)
 	}
 	wantCodeContaining(t, newChangeset(), codes.FailedPrecondition, "archived")
-	_, err = handlers.Slice.RenameSlice(ctx, &corev1.RenameSliceRequest{Slice: ref, NewName: "payment2"})
-	wantCodeContaining(t, err, codes.FailedPrecondition, "archived")
-	_, err = handlers.Slice.SetSliceDescription(ctx, &corev1.SetSliceDescriptionRequest{Slice: ref, Description: "edited"})
-	wantCodeContaining(t, err, codes.FailedPrecondition, "archived")
-	_, err = handlers.Slice.SetSliceMergeOnSubmit(ctx, &corev1.SetSliceMergeOnSubmitRequest{Slice: ref, Enabled: true})
-	wantCodeContaining(t, err, codes.FailedPrecondition, "archived")
-	_, err = handlers.Slice.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
-		SliceId:    archived.Id,
-		Definition: &corev1.SliceDefinition{IncludedPaths: []string{"/acme/payment"}, Visibility: "public"},
-	})
-	wantCodeContaining(t, err, codes.FailedPrecondition, "archived")
-	_, err = handlers.Slice.SetSliceSecret(ctx, &corev1.SetSliceSecretRequest{Slice: ref, Name: "TOKEN", Value: "secret"})
-	wantCodeContaining(t, err, codes.FailedPrecondition, "archived")
 
 	restored, err := handlers.Slice.SetSliceArchived(ctx, &corev1.SetSliceArchivedRequest{Slice: ref, Archived: false})
 	if err != nil || restored.Archived {

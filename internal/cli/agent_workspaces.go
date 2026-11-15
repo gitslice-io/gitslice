@@ -97,12 +97,10 @@ func (d *agentDaemon) removeOrArchiveWorkspace(workdir string, deleteWorkspace b
 		return
 	}
 	archiveDir := filepath.Join(d.workingDir, "conversations", ".archived")
-	if err := os.MkdirAll(archiveDir, 0o700); err != nil {
+	if err := os.MkdirAll(archiveDir, 0o755); err != nil {
 		fmt.Fprintf(d.runner.stderr(), "agent workspace archive mkdir failed: %v\n", err)
 		return
 	}
-	_ = os.Chmod(filepath.Dir(archiveDir), 0o700)
-	_ = os.Chmod(archiveDir, 0o700)
 	archived := filepath.Join(archiveDir, filepath.Base(workdir))
 	if err := os.Rename(workdir, archived); err != nil {
 		fmt.Fprintf(d.runner.stderr(), "agent workspace archive failed for %s: %v\n", workdir, err)
@@ -169,15 +167,9 @@ func workspaceDirExists(workdir string) bool {
 }
 
 func (d *agentDaemon) hydrateWorkspace(ctx context.Context, conv *agentConversation, sliceRef string) error {
-	conversationsDir := filepath.Dir(conv.workdir)
-	if err := os.MkdirAll(conversationsDir, 0o700); err != nil {
+	if err := os.MkdirAll(conv.workdir, 0o755); err != nil {
 		return err
 	}
-	_ = os.Chmod(conversationsDir, 0o700)
-	if err := os.MkdirAll(conv.workdir, 0o700); err != nil {
-		return err
-	}
-	_ = os.Chmod(conv.workdir, 0o700)
 	_, lazy := d.runner.lazyWorkspaceAt(conv.workdir)
 	if lazy && isMounted(conv.workdir) {
 		return nil

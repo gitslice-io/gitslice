@@ -151,64 +151,28 @@ func TestContainerRunArgsHardeningAndCacheVolume(t *testing.T) {
 }
 
 func TestContainerRunArgsEnvByNameOnly(t *testing.T) {
-	spec := checks.CheckSpec{
+	args, err := containerRunArgs("/tmp/workspace", "example:latest", testContainerName, checks.CheckSpec{
 		Run: "true",
 		Env: map[string]string{
-			"Z_SECRET":      "top-secret-token",
-			"A_TOKEN":       "alpha=secret",
-			"DOCKER_CONFIG": "/workspace/evil-docker-config",
+			"Z_SECRET": "top-secret-token",
+			"A_TOKEN":  "alpha=secret",
 		},
-	}
-	envFile, cleanup, err := writeContainerEnvFile(spec.Env, containerHome)
-	if err != nil {
-		t.Fatalf("writeContainerEnvFile() error = %v", err)
-	}
-	info, err := os.Stat(envFile)
-	if err != nil {
-		t.Fatalf("stat envFile: %v", err)
-	}
-	if got := info.Mode().Perm(); got != 0o600 {
-		t.Fatalf("envFile perm = %o, want 0600", got)
-	}
-	rawEnvFile, err := os.ReadFile(envFile)
-	if err != nil {
-		t.Fatalf("read envFile: %v", err)
-	}
-	wantContent := "HOME=" + containerHome + "\nA_TOKEN=alpha=secret\nDOCKER_CONFIG=/workspace/evil-docker-config\nZ_SECRET=top-secret-token\n"
-	if string(rawEnvFile) != wantContent {
-		t.Fatalf("envFile content = %q, want %q", string(rawEnvFile), wantContent)
-	}
-
-	args, err := containerRunArgs("/tmp/workspace", "example:latest", testContainerName, spec, containerRun{
-		home:    true,
-		envFile: envFile,
-	})
+	}, containerRun{})
 	if err != nil {
 		t.Fatalf("containerRunArgs() error = %v", err)
 	}
-	if !containsArgPair(args, "--env-file", envFile) {
-		t.Fatalf("containerRunArgs() = %#v, want --env-file %s", args, envFile)
-	}
-	if got := envFlagValues(args); len(got) != 0 {
-		t.Fatalf("env args = %#v, want none when --env-file is used", got)
+
+	wantEnvArgs := []string{"A_TOKEN", "Z_SECRET"}
+	if got := envFlagValues(args); !slices.Equal(got, wantEnvArgs) {
+		t.Fatalf("env args = %#v, want %#v", got, wantEnvArgs)
 	}
 	for _, arg := range args {
-		if strings.Contains(arg, "top-secret-token") || strings.Contains(arg, "alpha=secret") || strings.Contains(arg, "evil-docker-config") {
+		if strings.Contains(arg, "top-secret-token") || strings.Contains(arg, "alpha=secret") {
 			t.Fatalf("containerRunArgs() leaked env value in arg %q", arg)
 		}
 		if strings.Contains(arg, "A_TOKEN=") || strings.Contains(arg, "Z_SECRET=") {
 			t.Fatalf("containerRunArgs() used KEY=VALUE env arg %q", arg)
 		}
-	}
-	for _, entry := range containerClientEnv() {
-		if strings.HasPrefix(entry, "Z_SECRET=") || strings.HasPrefix(entry, "A_TOKEN=") || strings.Contains(entry, "evil-docker-config") {
-			t.Fatalf("containerClientEnv() leaked check env %q", entry)
-		}
-	}
-
-	cleanup()
-	if _, err := os.Stat(envFile); !os.IsNotExist(err) {
-		t.Fatalf("envFile still exists after cleanup: %v", err)
 	}
 }
 
@@ -345,9 +309,11 @@ func TestRunContainerCacheFolderPersists(t *testing.T) {
 }
 
 func TestRunContainerSetupBuildsAndReusesPreparedImage(t *testing.T) {
-	image := requireLocalImage(t, "busybox")
-	rt := DetectRuntime(context.Background())
-	runtime := rt.Path
+	runtime, ok := testContainerRuntime()
+	if !ok {
+		t.Skip("docker/podman not on PATH")
+	}
+	image := "busybox"
 	tag := preparedImageTag(image, []string{"true"})
 	removeTestImage(t, runtime, tag)
 	t.Cleanup(func() {

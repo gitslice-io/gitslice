@@ -19,7 +19,6 @@ import { Gitslice } from "./gitslice";
 import { errorMessage, mapLimit } from "./land";
 import { findChange, readNativeFiles, reviewNativeChange, type NativeHub } from "./native";
 import { parseFix, type FileContext } from "./fixparse";
-import { filterSlicePaths, normalizeSlicePath } from "./policy";
 import { extractText, withTimeout } from "./review";
 import type { Session } from "./types";
 
@@ -43,7 +42,6 @@ export async function fixSession(env: Env, hub: FixerHub, failingId: string): Pr
     log("forked");
     // What the author pushed, against the baseline it started from.
     const files = failing.native ? await readNativeChanges(env, failing) : await readChanges(env, failing);
-    if (files.length === 0) throw new Error(`no repairable files inside ${failing.account}/${failing.slice}/`);
     log("read", { files: files.map((f) => f.path) });
     const feedback = [failing.review?.summary, ...(failing.review?.concerns ?? [])].filter(Boolean).join("\n- ");
     const started = Date.now();
@@ -64,12 +62,12 @@ export async function fixSession(env: Env, hub: FixerHub, failingId: string): Pr
     ].join("\n");
     if (failing.native) {
       // Update the author's changeset on Gitslice, then review the new patchset.
-      await pushFix(session.remote, token, fix.files, failing.account, failing.slice, message, session.agent, `refs/changes/${failing.changesetId}`);
+      await pushFix(session.remote, token, fix.files, message, session.agent, `refs/changes/${failing.changesetId}`);
       log("pushed");
       await reviewNativeChange(env, hub, { account: failing.account, slice: failing.slice }, failing.changesetId!);
       return;
     }
-    await pushFix(session.remote, token, fix.files, failing.account, failing.slice, message, session.agent);
+    await pushFix(session.remote, token, fix.files, message, session.agent);
     log("pushed");
 
     // Artifacts also emits repo.pushed; this only saves the wait.
@@ -82,40 +80,26 @@ export async function fixSession(env: Env, hub: FixerHub, failingId: string): Pr
   }
 }
 
-// readNativeChanges reads the failing patchset of a change pushed to Gitslice,
-// restricted strictly to repairable paths inside `${account}/${slice}/`.
+// readNativeChanges reads the failing patchset of a change pushed to Gitslice.
 async function readNativeChanges(env: Env, failing: Session): Promise<FileContext[]> {
   const gitslice = new Gitslice(env.GITSLICE_API, env.GITSLICE_TOKEN);
   const slice = { account: failing.account, slice: failing.slice };
   const found = await findChange(gitslice, slice, failing.changesetId!);
   if (!found) throw new Error(`changeset ${failing.changesetId} not found`);
-  const scopedChangedPaths = filterSlicePaths(
-    found.ps.changedPaths ?? found.cs.affectedPaths ?? [],
-    failing.account,
-    failing.slice,
-    { allowDotGitslice: false, leadingSlash: true },
-  );
-  const files = await readNativeFiles(gitslice, slice, found.cs, { ...found.ps, changedPaths: scopedChangedPaths });
-  const out: FileContext[] = [];
-  for (const f of files) {
-    if (f.after === null) continue;
-    const normalized = normalizeSlicePath(f.path, failing.account, failing.slice, { allowDotGitslice: false });
-    if (normalized) out.push({ path: normalized, before: f.before, after: f.after });
-  }
-  return out;
+  const files = await readNativeFiles(gitslice, slice, found.cs, found.ps);
+  return files.filter((f) => f.after !== null).map((f) => ({ path: f.path.replace(/^\//, ""), before: f.before, after: f.after! }));
 }
 
 async function readChanges(env: Env, failing: Session): Promise<FileContext[]> {
+  const prefix = `${failing.account}/${failing.slice}/`;
   using repo = await env.ARTIFACTS.get(failing.id);
   const commit = await repo.readCommit(failing.lastCommit!);
   if (!commit) throw new Error(`commit ${failing.lastCommit} is not in ${failing.id}`);
-  const changes = (await diffTrees(repo, failing.baseline.tree, commit.treeHash)).filter(
-    (c) => c.op === "upsert" && normalizeSlicePath(c.path, failing.account, failing.slice, { allowDotGitslice: false }) !== null,
-  );
+  const changes = (await diffTrees(repo, failing.baseline.tree, commit.treeHash)).filter((c) => c.path.startsWith(prefix) && c.op === "upsert");
   const decoder = new TextDecoder();
   // Awaited here: the repo handle is disposed when this function returns.
   return await mapLimit(changes, 4, async (c) => ({
-    path: normalizeSlicePath(c.path, failing.account, failing.slice, { allowDotGitslice: false })!,
+    path: c.path,
     before: c.baseHash ? decoder.decode(await readBlob(repo, c.baseHash)) : null,
     after: decoder.decode(await readBlob(repo, c.hash!)),
   }));
@@ -148,30 +132,14 @@ async function askModel(ai: Ai, failing: Session, files: FileContext[], feedback
 
 // pushFix clones the fork (just its last commit), writes the repaired files,
 // commits and pushes, over git smart HTTP.
-async function pushFix(
-  remote: string,
-  token: string,
-  files: Array<{ path: string; content: string }>,
-  account: string,
-  slice: string,
-  message: string,
-  name: string,
-  remoteRef = "main",
-): Promise<void> {
+async function pushFix(remote: string, token: string, files: Array<{ path: string; content: string }>, message: string, name: string, remoteRef = "main"): Promise<void> {
   const fs = createFsFromVolume(new Volume());
   const headers = { Authorization: `Bearer ${token}` };
   const dir = "/work";
   await git.clone({ fs, http, dir, url: remote, ref: "main", singleBranch: true, depth: 1, headers });
   for (const f of files) {
-    const safePath = normalizeSlicePath(f.path, account, slice, { allowDotGitslice: false });
-    if (!safePath) throw new Error(`refusing to write unsafe fixer path: ${f.path}`);
-    const fullPath = `${dir}/${safePath}`;
-    const lastSlash = fullPath.lastIndexOf("/");
-    if (lastSlash > 0) {
-      await fs.promises.mkdir(fullPath.slice(0, lastSlash), { recursive: true });
-    }
-    await fs.promises.writeFile(fullPath, f.content);
-    await git.add({ fs, dir, filepath: safePath });
+    await fs.promises.writeFile(`${dir}/${f.path}`, f.content);
+    await git.add({ fs, dir, filepath: f.path });
   }
   await git.commit({ fs, dir, message, author: { name, email: `${name}@agents.gitslice.io` } });
   const result = await git.push({ fs, http, dir, remote: "origin", ref: "main", remoteRef, headers });

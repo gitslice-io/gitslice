@@ -72,9 +72,6 @@ func Run(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	if secrets == nil {
-		slog.Warn("GITSLICE_SECRETS_KEY is unset; secret storage, encrypted webhook secrets, and signed self-requests are disabled (set GITSLICE_REQUIRE_SECRETS_KEY=1 in production)")
-	}
 	if cfg.PublishBatchSize <= 0 {
 		cfg.PublishBatchSize = 128
 	}
@@ -172,11 +169,6 @@ func Run(ctx context.Context, cfg Config) error {
 		Triggers:            triggerEngine,
 		Mirrors:             gitMirrors,
 	})
-	// Start background database loops idle until real user traffic arrives, so
-	// a cold-booted instance poked only by health checks or metrics scrapes lets
-	// Neon stay scaled to zero.
-	activity.Default.ResetIdle()
-
 	gitMirrors.Nudge = dispatcher.Nudge
 	go dispatcher.Run(ctx)
 	pubNudge := newPublishNudger()
@@ -243,9 +235,8 @@ func Run(ctx context.Context, cfg Config) error {
 	if cfg.GitBlobBackfill && handlers.Blob != nil {
 		go handlers.Blob.RunGitBlobBackfill(ctx)
 	}
-	limiters := newServerLimiters(cfg)
-	grpcServer := newGRPCServer(resolveSubject, handlers, limiters)
-	apiHandler := newConnectHandler(resolveSubject, handlers, limiters)
+	grpcServer := NewGRPCServer(resolveSubject, handlers, cfg)
+	apiHandler := NewConnectHandler(resolveSubject, handlers)
 	gitCacheRoot := cfg.GitCacheRoot
 	if gitCacheRoot == "" {
 		if cfg.ObjectStoreRoot != "" {
@@ -281,10 +272,9 @@ func Run(ctx context.Context, cfg Config) error {
 	gitMirrors.SetPusher(projector.PushMirror, mirrorRequest)
 	gitcompatHandler.SetMirrorRunner(gitMirrors.Run)
 	var gitHandler http.Handler = gitcompatHandler
-	gitHandler = limiters.httpIPMiddleware()(gitHandler)
-	gatewayMux := newHTTPHandler(apiHandler, gitHandler, cfg.HTTPAllowedOrigin, cfg, true, limiters)
+	gitHandler = newHTTPRateLimitMiddleware(cfg)(gitHandler)
 	combinedServer := &http.Server{
-		Handler:           newCombinedServerHandler(grpcServer, gatewayMux, activity.Default),
+		Handler:           activity.Default.Middleware(NewCombinedGRPCGatewayHandler(grpcServer, NewHTTPHandler(apiHandler, gitHandler, cfg.HTTPAllowedOrigin, cfg))),
 		ReadHeaderTimeout: gatewayReadHeaderTimeout,
 		IdleTimeout:       gatewayIdleTimeout,
 	}
@@ -296,7 +286,7 @@ func Run(ctx context.Context, cfg Config) error {
 			return err
 		}
 		gatewayServer = &http.Server{
-			Handler:           activity.Default.Middleware(gatewayMux),
+			Handler:           activity.Default.Middleware(NewHTTPHandler(apiHandler, gitHandler, cfg.HTTPAllowedOrigin, cfg)),
 			ReadHeaderTimeout: gatewayReadHeaderTimeout,
 			ReadTimeout:       gatewayReadTimeout,
 			WriteTimeout:      gatewayWriteTimeout,
@@ -381,9 +371,6 @@ func Migrate(ctx context.Context, cfg Config) (err error) {
 	if err != nil {
 		return err
 	}
-	if secrets == nil {
-		slog.Warn("GITSLICE_SECRETS_KEY is unset; secret storage, encrypted webhook secrets, and signed self-requests are disabled (set GITSLICE_REQUIRE_SECRETS_KEY=1 in production)")
-	}
 	db, err := postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
 		return err
@@ -404,67 +391,18 @@ func Migrate(ctx context.Context, cfg Config) (err error) {
 }
 
 func NewCombinedGRPCGatewayHandler(grpcServer *grpc.Server, gateway http.Handler) http.Handler {
-	return newCombinedServerHandler(grpcServer, gateway, nil)
-}
-
-func newCombinedServerHandler(grpcServer *grpc.Server, gateway http.Handler, gate *activity.Gate) http.Handler {
-	boundedGateway := withNonStreamingDeadlines(gateway, gatewayReadTimeout, gatewayWriteTimeout)
-	inner := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return h2c.NewHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
 			grpcServer.ServeHTTP(w, r)
 			return
 		}
-		boundedGateway.ServeHTTP(w, r)
-	}))
-	// Apply activity tracking inside h2c.NewHandler so each HTTP/2 stream has
-	// its individual path/method inspected (rather than holding the connection's
-	// PRI * HTTP/2.0 upgrade request in-flight for the lifetime of the socket).
-	if gate != nil {
-		inner = gate.Middleware(inner)
-	}
-	return h2c.NewHandler(inner, &http2.Server{
+		gateway.ServeHTTP(w, r)
+	}), &http2.Server{
 		// Receive windows for uploads (UploadBlobs, blob streams); the
 		// defaults (1 MiB) cap a batch upload at a window per round trip.
 		MaxUploadBufferPerStream:     4 << 20,
 		MaxUploadBufferPerConnection: 16 << 20,
 	})
-}
-
-func withNonStreamingDeadlines(next http.Handler, readTimeout, writeTimeout time.Duration) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isStreamingHTTPRequest(r) {
-			rc := http.NewResponseController(w)
-			now := time.Now()
-			_ = rc.SetReadDeadline(now.Add(readTimeout))
-			_ = rc.SetWriteDeadline(now.Add(writeTimeout))
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func isStreamingHTTPRequest(r *http.Request) bool {
-	if strings.HasPrefix(r.URL.Path, "/git/") {
-		return true
-	}
-	ct := strings.ToLower(r.Header.Get("Content-Type"))
-	if strings.HasPrefix(ct, "application/grpc") || strings.HasPrefix(ct, "application/connect+") {
-		return true
-	}
-	if strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream") {
-		return true
-	}
-	switch r.URL.Path {
-	case "/gitslice.core.v1.RepositoryService/ImportGitRepositoryStream",
-		"/gitslice.core.v1.RepositoryService/Checkout",
-		"/gitslice.core.v1.BlobService/UploadBlobStream",
-		"/gitslice.core.v1.BlobService/ReadBlobStream",
-		"/gitslice.core.v1.AgentService/Connect",
-		"/gitslice.core.v1.AgentService/StreamConversation",
-		"/gitslice.core.v1.CheckService/StreamCheckRun":
-		return true
-	default:
-		return false
-	}
 }
 
 // subjectResolver maps a verified bearer token to an internal subject ID. It
@@ -560,10 +498,8 @@ func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, cfgs ...
 	if len(cfgs) > 0 {
 		cfg = cfgs[0]
 	}
-	return newGRPCServer(resolve, handlers, newServerLimiters(cfg))
-}
-
-func newGRPCServer(resolve subjectResolver, handlers *service.Handlers, limiters *serverLimiters) *grpc.Server {
+	grpcLimiter := newGRPCRateLimiter(cfg)
+	signupLimiter := newAgentSignupLimiter(cfg)
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
 		grpc.MaxSendMsgSize(rpclimits.MaxUnaryMessageBytes),
@@ -571,22 +507,8 @@ func newGRPCServer(resolve subjectResolver, handlers *service.Handlers, limiters
 			MinTime:             10 * time.Second,
 			PermitWithoutStream: true,
 		}),
-		grpc.ChainUnaryInterceptor(
-			requestIDUnaryInterceptor(),
-			grpcMetricsUnaryInterceptor(),
-			limiters.grpcPreAuthUnaryInterceptor(),
-			authInterceptor(resolve),
-			limiters.grpcSubjectUnaryInterceptor(),
-			limiters.agentSignupUnaryInterceptor(),
-			limiters.triggerRunFailureUnaryInterceptor(),
-		),
-		grpc.ChainStreamInterceptor(
-			requestIDStreamInterceptor(),
-			grpcMetricsStreamInterceptor(),
-			limiters.grpcPreAuthStreamInterceptor(),
-			authStreamInterceptor(resolve),
-			limiters.grpcSubjectStreamInterceptor(),
-		),
+		grpc.ChainUnaryInterceptor(requestIDUnaryInterceptor(), grpcMetricsUnaryInterceptor(), authInterceptor(resolve), grpcRateLimitUnaryInterceptor(grpcLimiter), agentSignupUnaryInterceptor(signupLimiter)),
+		grpc.ChainStreamInterceptor(requestIDStreamInterceptor(), grpcMetricsStreamInterceptor(), authStreamInterceptor(resolve), grpcRateLimitStreamInterceptor(grpcLimiter)),
 	)
 	corev1.RegisterAuthServiceServer(grpcServer, handlers.Auth)
 	corev1.RegisterRepositoryServiceServer(grpcServer, handlers.Repository)

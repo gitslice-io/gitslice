@@ -124,7 +124,7 @@ func (s *RepositoryStore) ChangesetsForCommits(ctx context.Context, commitIDs []
 	if len(commitIDs) == 0 {
 		return out, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `select commit_id, id from changesets where commit_id = any($1) and commit_id is not null`, commitIDs)
+	rows, err := s.db.QueryContext(ctx, `select commit_id, id from changesets where commit_id = any($1)`, commitIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -149,30 +149,33 @@ func (s *RepositoryStore) RecordGitImportCommit(ctx context.Context, record GitI
 		authoredAt = parsed
 	}
 	_, err := s.db.ExecContext(ctx, `
-		with upserted as (
-			insert into git_import_commits(import_id, git_commit_id, native_commit_id, message, position, changed_path_count,
-				author_name, author_email, authored_at, full_message)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-			on conflict (import_id, git_commit_id) do update
-			set native_commit_id = excluded.native_commit_id,
-			    message = excluded.message,
-			    position = excluded.position,
-			    changed_path_count = excluded.changed_path_count,
-			    author_name = excluded.author_name,
-			    author_email = excluded.author_email,
-			    authored_at = excluded.authored_at,
-			    full_message = excluded.full_message
-			returning (xmax = 0) as inserted
-		)
+		insert into git_import_commits(import_id, git_commit_id, native_commit_id, message, position, changed_path_count,
+			author_name, author_email, authored_at, full_message)
+		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+		on conflict (import_id, git_commit_id) do update
+		set native_commit_id = excluded.native_commit_id,
+		    message = excluded.message,
+		    position = excluded.position,
+		    changed_path_count = excluded.changed_path_count,
+		    author_name = excluded.author_name,
+		    author_email = excluded.author_email,
+		    authored_at = excluded.authored_at,
+		    full_message = excluded.full_message
+	`, record.ImportID, record.GitCommitID, record.NativeCommitID, record.Message, record.Position, record.ChangedPathCount,
+		record.AuthorName, record.AuthorEmail, authoredAt, record.FullMessage)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
 		update git_imports
-		set imported_count = git_imports.imported_count + case when upserted.inserted then 1 else 0 end,
+		set imported_count = (
+				select count(*) from git_import_commits where import_id = $1
+			),
 			last_git_commit_id = $2,
 			final_native_commit_id = $3,
 			updated_at = now()
-		from upserted
-		where git_imports.id = $1
-	`, record.ImportID, record.GitCommitID, record.NativeCommitID, record.Message, record.Position, record.ChangedPathCount,
-		record.AuthorName, record.AuthorEmail, authoredAt, record.FullMessage)
+		where id = $1
+	`, record.ImportID, record.GitCommitID, record.NativeCommitID)
 	return err
 }
 

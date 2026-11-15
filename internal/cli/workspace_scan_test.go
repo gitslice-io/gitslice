@@ -130,11 +130,10 @@ func TestScanWorkspaceFilesReusesStatCache(t *testing.T) {
 		t.Fatalf("a changed file kept its old hash: %s", got)
 	}
 
-	// Stat-cache hits do not stat clientcache during scans (upload falls back
-	// to reading from AbsPath on cache miss).
+	// A record whose content is not in the client cache is not used.
 	recordAs("acme/payment/b.txt", hashOf("never cached\n"))
-	if got := scanned("/acme/payment/b.txt"); got != hashOf("never cached\n") {
-		t.Fatalf("stat-cache hit unexpectedly checked clientcache: %s", got)
+	if got := scanned("/acme/payment/b.txt"); got != hashOf("bravo\n") {
+		t.Fatalf("a record without cached content was used: %s", got)
 	}
 
 	// A file modified no earlier than the record is read again, even when

@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -13,7 +12,6 @@ import (
 	"unicode/utf8"
 
 	"gitslice.io/gitslice/internal/clientcache"
-	"gitslice.io/gitslice/internal/objectid"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -65,29 +63,28 @@ func contentHashIfExists(file BaseSnapshotFile, ok bool) string {
 }
 
 func (r Runner) materializeWorkspaceConflict(ctx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, root string, ws WorkspaceConfig, oldBaseCommitID, newBaseCommitID string, base BaseSnapshot, current map[string]workingFile, remote map[string]remoteWorkspaceFile, conflict WorkspaceConflict) error {
-	rel, err := resolveConfinedWorkspaceRel(root, ws, current, conflict.Path)
-	if err != nil {
-		return err
-	}
-	data, mode, ok, err := r.workspaceConflictContentInRoot(ctx, repo, cache, root, oldBaseCommitID, newBaseCommitID, base, current, remote, conflict)
+	data, mode, ok, err := r.workspaceConflictContent(ctx, repo, cache, oldBaseCommitID, newBaseCommitID, base, current, remote, conflict)
 	if err != nil || !ok {
 		return err
 	}
-	if isSymlinkMode(mode) {
-		mode = 0o100644
+	target := current[conflict.Path].AbsPath
+	if target == "" {
+		rel, err := workspaceRelPath(ws, conflict.Path)
+		if err != nil {
+			return err
+		}
+		target = filepath.Join(root, filepath.FromSlash(rel))
 	}
-	_, _, err = writeConfinedWorkspaceFile(root, rel, mode, bytes.NewReader(data))
-	return err
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(target, data, fileModeFromSnapshot(mode))
 }
 
 // workspaceConflictContent is a conflicted path's file with conflict markers
 // around the three sides, and its mode. ok is false when a side is binary:
 // the local file then stays as it is.
 func (r Runner) workspaceConflictContent(ctx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, oldBaseCommitID, newBaseCommitID string, base BaseSnapshot, current map[string]workingFile, remote map[string]remoteWorkspaceFile, conflict WorkspaceConflict) ([]byte, uint32, bool, error) {
-	return r.workspaceConflictContentInRoot(ctx, repo, cache, "", oldBaseCommitID, newBaseCommitID, base, current, remote, conflict)
-}
-
-func (r Runner) workspaceConflictContentInRoot(ctx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, root, oldBaseCommitID, newBaseCommitID string, base BaseSnapshot, current map[string]workingFile, remote map[string]remoteWorkspaceFile, conflict WorkspaceConflict) ([]byte, uint32, bool, error) {
 	baseFile, baseOK := base.Files[conflict.Path]
 	localFile, localOK := current[conflict.Path]
 	remoteFile, remoteOK := remote[conflict.Path]
@@ -95,7 +92,7 @@ func (r Runner) workspaceConflictContentInRoot(ctx context.Context, repo corev1.
 	if err != nil {
 		return nil, 0, false, err
 	}
-	localData, localExists, err := confinedLocalWorkspaceFileBytes(root, cache, localFile, localOK)
+	localData, localExists, err := localWorkspaceFileBytes(localFile, localOK)
 	if err != nil {
 		return nil, 0, false, err
 	}
@@ -145,6 +142,10 @@ func (r Runner) materializeStackRestackConflict(ctx context.Context, blob corev1
 	if err != nil {
 		return err
 	}
+	target := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
 	baseText, err := r.stackRestackConflictSide(ctx, blob, cache, sliceRef, "base", conflict.BaseContentHash)
 	if err != nil {
 		return err
@@ -165,8 +166,7 @@ func (r Runner) materializeStackRestackConflict(ctx context.Context, blob corev1
 	b.WriteString("=======\n")
 	b.WriteString(remoteText)
 	b.WriteString(">>>>>>> gitslice update remote\n")
-	_, _, err = writeConfinedWorkspaceFile(root, rel, 0o100644, strings.NewReader(b.String()))
-	return err
+	return os.WriteFile(target, []byte(b.String()), 0o100644)
 }
 
 func (r Runner) stackRestackConflictSide(ctx context.Context, blob corev1.BlobServiceClient, cache *clientcache.ObjectCache, sliceRef *corev1.SliceRef, label, contentHash string) (string, error) {
@@ -194,13 +194,7 @@ func (r Runner) stackRestackConflictSide(ctx context.Context, blob corev1.BlobSe
 func (r Runner) readConflictContentHash(ctx context.Context, blob corev1.BlobServiceClient, cache *clientcache.ObjectCache, sliceRef *corev1.SliceRef, contentHash string) ([]byte, bool, error) {
 	if cache.Exists(contentHash) {
 		data, err := cache.Read(contentHash)
-		if err != nil {
-			return nil, false, err
-		}
-		if got := objectid.RawContentHash(data); got != contentHash {
-			return nil, false, fmt.Errorf("conflict cached content hash mismatch: got %s, want %s", got, contentHash)
-		}
-		return data, true, nil
+		return data, err == nil, err
 	}
 	data, err := readBlobStreamBytes(ctx, blob, sliceRef, contentHash, 0, 0)
 	if grpcstatus.Code(err) == codes.NotFound {
@@ -225,13 +219,7 @@ func (r Runner) remoteFileBytes(ctx context.Context, repo corev1.RepositoryServi
 	}
 	if file.ContentHash != "" && cache.Exists(file.ContentHash) {
 		data, err := cache.Read(file.ContentHash)
-		if err != nil {
-			return nil, false, err
-		}
-		if got := objectid.RawContentHash(data); got != file.ContentHash {
-			return nil, false, fmt.Errorf("cached content hash mismatch for %s: got %s, want %s", file.Path, got, file.ContentHash)
-		}
-		return data, true, nil
+		return data, true, err
 	}
 	read, err := repo.ReadFile(ctx, &corev1.ReadFileRequest{CommitId: commitID, Path: file.Path})
 	if grpcstatus.Code(err) == codes.NotFound {
@@ -240,12 +228,8 @@ func (r Runner) remoteFileBytes(ctx context.Context, repo corev1.RepositoryServi
 	if err != nil {
 		return nil, false, err
 	}
-	cached, err := cache.PutBytes(read.Data)
-	if err != nil {
+	if _, err := cache.PutBytes(read.Data); err != nil {
 		return nil, false, err
-	}
-	if file.ContentHash != "" && cached.ContentHash != file.ContentHash {
-		return nil, false, fmt.Errorf("remote content hash mismatch for %s: got %s, want %s", file.Path, cached.ContentHash, file.ContentHash)
 	}
 	return read.Data, true, nil
 }
@@ -253,88 +237,6 @@ func (r Runner) remoteFileBytes(ctx context.Context, repo corev1.RepositoryServi
 func localWorkspaceFileBytes(file workingFile, exists bool) ([]byte, bool, error) {
 	if !exists {
 		return nil, false, nil
-	}
-	if isSymlinkMode(file.Mode) && file.AbsPath != "" {
-		link, err := os.Readlink(file.AbsPath)
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, false, nil
-		}
-		if err != nil {
-			return nil, false, err
-		}
-		return []byte(link), true, nil
-	}
-	return confinedLocalWorkspaceFileBytes("", nil, file, exists)
-}
-
-func confinedLocalWorkspaceFileBytes(root string, cache *clientcache.ObjectCache, file workingFile, exists bool) ([]byte, bool, error) {
-	if !exists {
-		return nil, false, nil
-	}
-	if file.AbsPath == "" {
-		if data, ok, err := readVerifiedCachedBytes(cache, file.ContentHash); err != nil || ok {
-			return data, ok, err
-		}
-		return nil, false, nil
-	}
-	if root != "" {
-		absRoot, err := filepath.Abs(root)
-		if err != nil {
-			return nil, false, err
-		}
-		absLocal, err := filepath.Abs(file.AbsPath)
-		if err != nil {
-			return nil, false, err
-		}
-		rel, err := filepath.Rel(absRoot, absLocal)
-		if err != nil {
-			return nil, false, err
-		}
-		osRel, err := cleanConfinedRelPath(rel)
-		if err != nil {
-			return nil, false, err
-		}
-		osRoot, err := os.OpenRoot(absRoot)
-		if err != nil {
-			return nil, false, err
-		}
-		defer osRoot.Close()
-		parentRel := filepath.Dir(osRel)
-		if parentRel != "." {
-			if err := ensureNoAncestorSymlinksInRoot(osRoot, parentRel); err != nil {
-				return nil, false, err
-			}
-		}
-		info, err := osRoot.Lstat(osRel)
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, false, nil
-		}
-		if err != nil {
-			return nil, false, err
-		}
-		if info.Mode()&os.ModeSymlink != 0 || isSymlinkMode(file.Mode) {
-			link, lerr := os.Readlink(absLocal)
-			if errors.Is(lerr, os.ErrNotExist) {
-				return nil, false, nil
-			}
-			if lerr != nil {
-				return nil, false, lerr
-			}
-			return []byte(link), true, nil
-		}
-		f, err := osRoot.Open(osRel)
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, false, nil
-		}
-		if err != nil {
-			return nil, false, err
-		}
-		defer f.Close()
-		data, err := io.ReadAll(f)
-		if err != nil {
-			return nil, false, err
-		}
-		return data, true, nil
 	}
 	data, err := os.ReadFile(file.AbsPath)
 	if errors.Is(err, os.ErrNotExist) {
@@ -437,7 +339,7 @@ func (r Runner) unresolvedWorkspaceConflictPaths(ws WorkspaceConfig, state Works
 		if err != nil {
 			return nil, err
 		}
-		data, err := readConfinedWorkspaceFile(root, rel)
+		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 		if errors.Is(err, os.ErrNotExist) {
 			continue
 		}

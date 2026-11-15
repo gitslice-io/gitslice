@@ -41,7 +41,7 @@ func (s *ChangesetStore) Approve(ctx context.Context, changesetID, subjectID str
 	if patchsetID == "" {
 		return nil, fmt.Errorf("%w: changeset has no current patchset", ErrConflict)
 	}
-	if status != "draft" {
+	if status == "abandoned" || status == "submitted" {
 		return nil, ErrConflict
 	}
 	_, err = tx.ExecContext(ctx, `
@@ -99,7 +99,7 @@ func (s *ChangesetStore) ReportCheckResult(ctx context.Context, changesetID, sub
 	if patchsetID == "" {
 		return nil, fmt.Errorf("%w: changeset has no current patchset", ErrConflict)
 	}
-	if changesetStatus != "draft" {
+	if changesetStatus == "abandoned" || changesetStatus == "submitted" {
 		return nil, ErrConflict
 	}
 	_, err = tx.ExecContext(ctx, `
@@ -128,46 +128,26 @@ func submitRequirementsForSliceTx(ctx context.Context, tx *sql.Tx, sliceID strin
 }
 
 func submitRequirementsAndIncludedPathsForSliceTx(ctx context.Context, tx *sql.Tx, sliceID string) (*corev1.SubmitRequirements, []string, error) {
-	req, included, _, _, err := sliceSubmitMetadataTx(ctx, tx, sliceID)
-	return req, included, err
-}
-
-func activeSliceRequirementsAndIncludedPathsTx(ctx context.Context, tx *sql.Tx, sliceID string) (*corev1.SubmitRequirements, []string, error) {
-	req, included, archived, deleted, err := sliceSubmitMetadataTx(ctx, tx, sliceID)
+	var requiredApprovals int64
+	var includedJSON, requiredChecksJSON []byte
+	err := tx.QueryRowContext(ctx, `
+		select included_paths, required_approvals, required_checks
+		from slices
+		where id = $1
+	`, sliceID).Scan(&includedJSON, &requiredApprovals, &requiredChecksJSON)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil, ErrNotFound
+	}
 	if err != nil {
 		return nil, nil, err
 	}
-	if deleted {
-		return nil, nil, fmt.Errorf("%w: slice is deleted", ErrConflict)
-	}
-	if archived {
-		return nil, nil, fmt.Errorf("%w: slice is archived", ErrConflict)
-	}
-	return req, included, nil
-}
-
-func sliceSubmitMetadataTx(ctx context.Context, tx *sql.Tx, sliceID string) (*corev1.SubmitRequirements, []string, bool, bool, error) {
-	var requiredApprovals int64
-	var includedJSON, requiredChecksJSON []byte
-	var archivedAt, deletedAt sql.NullTime
-	err := tx.QueryRowContext(ctx, `
-		select included_paths, required_approvals, required_checks, archived_at, deleted_at
-		from slices
-		where id = $1
-	`, sliceID).Scan(&includedJSON, &requiredApprovals, &requiredChecksJSON, &archivedAt, &deletedAt)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil, false, false, ErrNotFound
-	}
-	if err != nil {
-		return nil, nil, false, false, err
-	}
 	var included []string
 	if err := decodeJSON(includedJSON, &included); err != nil {
-		return nil, nil, false, false, err
+		return nil, nil, err
 	}
 	var requiredChecks []string
 	if err := decodeJSON(requiredChecksJSON, &requiredChecks); err != nil {
-		return nil, nil, false, false, err
+		return nil, nil, err
 	}
 	return &corev1.SubmitRequirements{
 		RequiredApprovals: int32(requiredApprovals),
@@ -177,7 +157,7 @@ func sliceSubmitMetadataTx(ctx context.Context, tx *sql.Tx, sliceID string) (*co
 			int32(requiredApprovals),
 			requiredChecks,
 		),
-	}, included, archivedAt.Valid, deletedAt.Valid, nil
+	}, included, nil
 }
 
 func approvalSubjectsTx(ctx context.Context, tx *sql.Tx, changesetID, patchsetID string) ([]string, error) {

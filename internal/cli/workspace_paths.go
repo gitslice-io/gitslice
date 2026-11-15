@@ -25,9 +25,6 @@ func workspaceInputToGlobalPath(ws WorkspaceConfig, value string) (string, error
 		if err != nil {
 			return "", err
 		}
-		if err := ensureNotReservedGsPath(globalPath); err != nil {
-			return "", err
-		}
 		if !paths.InAnyPrefix(ws.IncludedPaths, globalPath) {
 			return "", userError("outside_slice", "path is outside the workspace slice: "+globalPath, "Use a path under the workspace's bound slice.")
 		}
@@ -41,21 +38,12 @@ func workspaceRelativePathToGlobalPath(ws WorkspaceConfig, value string) (string
 	if len(ws.IncludedPaths) == 0 {
 		return "", fmt.Errorf("workspace has no included paths")
 	}
-	if err := ensureNotReservedGsPath(value); err != nil {
-		return "", err
-	}
 	canonicalRel, err := cleanShellGlobalPath(value)
 	if err == nil && paths.InAnyPrefix(ws.IncludedPaths, canonicalRel) {
-		if err := ensureNotReservedGsPath(canonicalRel); err != nil {
-			return "", err
-		}
 		return canonicalRel, nil
 	}
 	globalPath, err := paths.FromWorkspacePath(ws.IncludedPaths[0], value)
 	if err != nil {
-		return "", err
-	}
-	if err := ensureNotReservedGsPath(globalPath); err != nil {
 		return "", err
 	}
 	if !paths.InAnyPrefix(ws.IncludedPaths, globalPath) {
@@ -69,15 +57,8 @@ func workspaceRelPath(ws WorkspaceConfig, globalPath string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := ensureNotReservedGsPath(cleaned); err != nil {
-		return "", err
-	}
 	if paths.InAnyPrefix(ws.IncludedPaths, cleaned) {
-		rel := strings.TrimPrefix(cleaned, "/")
-		if rel == "" {
-			return "", userError("outside_slice", "path is outside the workspace slice: "+globalPath, "Use a file path under the workspace's bound slice.")
-		}
-		return rel, nil
+		return strings.TrimPrefix(cleaned, "/"), nil
 	}
 	return "", userError("outside_slice", "path is outside the workspace slice: "+globalPath, "Use a path under the workspace's bound slice.")
 }

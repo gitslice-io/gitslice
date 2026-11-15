@@ -132,14 +132,14 @@ func (c *importCloneCache) startLocked(e *importClone, source string, local, fet
 		defer cancel()
 		var err error
 		if fetch {
-			err = c.run(ctx, e.dir, allowProtocol, "-c", "http.followRedirects=false", "fetch", "--quiet", "--prune", "--force", "--", source, "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*")
+			err = c.run(ctx, e.dir, allowProtocol, "fetch", "--quiet", "--prune", "--force", source, "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*")
 		} else {
 			_ = os.RemoveAll(e.dir)
-			args := []string{"-c", "http.followRedirects=false", "clone", "--quiet", "--bare"}
+			args := []string{"clone", "--quiet", "--bare"}
 			if !local {
 				args = append(args, "--no-local")
 			}
-			err = c.run(ctx, "", allowProtocol, append(args, "--", source, e.dir)...)
+			err = c.run(ctx, "", allowProtocol, append(args, source, e.dir)...)
 			if err != nil {
 				_ = os.RemoveAll(e.dir)
 			}

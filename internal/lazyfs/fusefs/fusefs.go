@@ -312,11 +312,7 @@ func typeBits(kind lazyfs.Kind) uint32 {
 }
 
 func (m *mount) fill(attr lazyfs.Attr, p string, out *fuse.Attr) {
-	m.fillWithIno(attr, inodeFor(p), out)
-}
-
-func (m *mount) fillWithIno(attr lazyfs.Attr, ino uint64, out *fuse.Attr) {
-	out.Ino = ino
+	out.Ino = inodeFor(p)
 	switch attr.Kind {
 	case lazyfs.KindDir:
 		out.Mode = syscall.S_IFDIR | 0o755
@@ -347,8 +343,6 @@ func errno(err error) syscall.Errno {
 	switch {
 	case err == nil:
 		return 0
-	case errors.Is(err, context.Canceled):
-		return syscall.EINTR
 	case errors.Is(err, fs.ErrNotExist):
 		return syscall.ENOENT
 	case errors.Is(err, lazyfs.ErrNotDir):
@@ -381,33 +375,22 @@ func (n *node) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (*go
 	if err != nil {
 		return nil, errno(err)
 	}
-	modeBits := typeBits(attr.Kind)
-	ino := inodeFor(p)
-	if existing := n.GetChild(name); existing != nil && existing.StableAttr().Mode == modeBits && existing.StableAttr().Ino != 0 {
-		ino = existing.StableAttr().Ino
-	}
-	n.m.fillWithIno(attr, ino, &out.Attr)
-	child := n.NewInode(ctx, &node{m: n.m}, gofs.StableAttr{Mode: modeBits, Ino: ino})
+	n.m.fill(attr, p, &out.Attr)
+	child := n.NewInode(ctx, &node{m: n.m}, gofs.StableAttr{Mode: typeBits(attr.Kind), Ino: inodeFor(p)})
 	return child, 0
 }
 
 func (n *node) Getattr(ctx context.Context, fh gofs.FileHandle, out *fuse.AttrOut) syscall.Errno {
-	p := n.fullPath()
-	attr, err := n.m.layer.Stat(p)
+	attr, err := n.m.layer.Stat(n.fullPath())
 	if err != nil {
 		return errno(err)
 	}
-	ino := n.EmbeddedInode().StableAttr().Ino
-	if ino == 0 {
-		ino = inodeFor(p)
-	}
-	n.m.fillWithIno(attr, ino, &out.Attr)
+	n.m.fill(attr, n.fullPath(), &out.Attr)
 	return 0
 }
 
 func (n *node) Readdir(ctx context.Context) (gofs.DirStream, syscall.Errno) {
-	dirPath := n.fullPath()
-	entries, err := n.m.layer.ReadDir(dirPath)
+	entries, err := n.m.layer.ReadDir(n.fullPath())
 	if err != nil {
 		return nil, errno(err)
 	}
@@ -416,12 +399,7 @@ func (n *node) Readdir(ctx context.Context) (gofs.DirStream, syscall.Errno) {
 		list = append(list, fuse.DirEntry{Name: gsName, Mode: syscall.S_IFDIR})
 	}
 	for _, entry := range entries {
-		modeBits := typeBits(entry.Kind)
-		ino := inodeFor(childPath(dirPath, entry.Name))
-		if child := n.GetChild(entry.Name); child != nil && child.StableAttr().Mode == modeBits && child.StableAttr().Ino != 0 {
-			ino = child.StableAttr().Ino
-		}
-		list = append(list, fuse.DirEntry{Name: entry.Name, Mode: modeBits, Ino: ino})
+		list = append(list, fuse.DirEntry{Name: entry.Name, Mode: typeBits(entry.Kind), Ino: inodeFor(childPath(n.fullPath(), entry.Name))})
 	}
 	return gofs.NewListDirStream(list), 0
 }
@@ -484,8 +462,7 @@ func (n *node) Open(ctx context.Context, flags uint32) (gofs.FileHandle, uint32,
 	return &handle{file: file}, fuse.FOPEN_KEEP_CACHE, 0
 }
 
-// openLocal opens a local layer file for reading or writing without following
-// symlinks.
+// openLocal opens a local layer file for reading or writing.
 func (n *node) openLocal(local string, flags uint32) (gofs.FileHandle, uint32, syscall.Errno) {
 	mode := os.O_RDONLY
 	switch flags & syscall.O_ACCMODE {
@@ -494,18 +471,9 @@ func (n *node) openLocal(local string, flags uint32) (gofs.FileHandle, uint32, s
 	case syscall.O_RDWR:
 		mode = os.O_RDWR
 	}
-	file, err := os.OpenFile(local, mode|syscall.O_NOFOLLOW, 0)
+	file, err := os.OpenFile(local, mode, 0)
 	if err != nil {
 		return nil, 0, gofs.ToErrno(err)
-	}
-	info, err := file.Stat()
-	if err != nil {
-		_ = file.Close()
-		return nil, 0, gofs.ToErrno(err)
-	}
-	if !info.Mode().IsRegular() {
-		_ = file.Close()
-		return nil, 0, syscall.EINVAL
 	}
 	return &handle{file: file, local: true}, 0, 0
 }
@@ -536,22 +504,23 @@ func (n *node) Create(ctx context.Context, name string, flags uint32, mode uint3
 		return nil, nil, 0, syscall.EEXIST
 	}
 	p := childPath(n.fullPath(), name)
-	attr, err := n.m.layer.CreateEmptyWritable(ctx, p, createMode(mode), flags&syscall.O_EXCL != 0, flags&syscall.O_TRUNC != 0)
+	if _, err := n.m.layer.Stat(p); err == nil {
+		if flags&syscall.O_EXCL != 0 {
+			return nil, nil, 0, syscall.EEXIST
+		}
+	} else if err := n.m.layer.WriteFile(p, nil, createMode(mode)); err != nil {
+		return nil, nil, 0, errno(err)
+	}
+	local, err := n.m.layer.OpenWritable(ctx, p, flags&syscall.O_TRUNC != 0)
 	if err != nil {
 		return nil, nil, 0, errno(err)
 	}
-	fh, fuseFlags, e := n.openLocal(attr.LocalPath, flags)
+	child, e := n.newChild(ctx, name, out)
 	if e != 0 {
 		return nil, nil, 0, e
 	}
-	modeBits := typeBits(attr.Kind)
-	ino := inodeFor(p)
-	if existing := n.GetChild(name); existing != nil && existing.StableAttr().Mode == modeBits && existing.StableAttr().Ino != 0 {
-		ino = existing.StableAttr().Ino
-	}
-	n.m.fillWithIno(attr, ino, &out.Attr)
-	child := n.NewInode(ctx, &node{m: n.m}, gofs.StableAttr{Mode: modeBits, Ino: ino})
-	return child, fh, fuseFlags, 0
+	fh, fuseFlags, e := n.openLocal(local, flags)
+	return child, fh, fuseFlags, e
 }
 
 // createMode is the native mode of a file created with the given permissions.

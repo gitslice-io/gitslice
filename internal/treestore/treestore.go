@@ -19,11 +19,9 @@ type ObjectStore interface {
 
 type Store struct {
 	objects ObjectStore
-	// nodes keeps decoded nodes for readers and flushed writers.
+	// nodes keeps decoded nodes for readers; nil in the buffered stores
+	// that build a tree.
 	nodes *nodeCache
-	// staged holds decoded/written nodes within an in-progress buffered edit
-	// batch before flush commits them to objects and nodes.
-	staged map[string]Node
 }
 
 type FileEntry struct {

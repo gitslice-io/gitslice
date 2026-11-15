@@ -7,7 +7,7 @@
     "deploy": "wrangler deploy",
     "types": "wrangler types",
     "check": "wrangler types && tsc --noEmit",
-    "test": "node --experimental-strip-types --test test/*.test.ts"
+    "test": "node --test test/*.test.ts"
   },
   "devDependencies": {
     "@types/node": "^26.6.4",

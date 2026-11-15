@@ -17,10 +17,10 @@ func (r Runner) runGenServiceKey(opts commandOptions, outDir string) error {
 	if outDir != "" {
 		privPath := filepath.Join(outDir, "service-key.pem")
 		pubPath := filepath.Join(outDir, "service-key.pub.pem")
-		if err := writeServicePrivateKey(privPath, []byte(priv)); err != nil {
+		if err := os.WriteFile(privPath, []byte(priv), 0o600); err != nil {
 			return err
 		}
-		if err := writeAtomicFile(pubPath, []byte(pub), 0o644); err != nil {
+		if err := os.WriteFile(pubPath, []byte(pub), 0o644); err != nil {
 			return err
 		}
 		if opts.jsonOutput() {
@@ -58,8 +58,4 @@ func (r Runner) runMintServiceToken(opts commandOptions, keyPath, subject, email
 	}
 	fmt.Fprintln(r.Stdout, token)
 	return nil
-}
-
-func writeServicePrivateKey(path string, pemData []byte) error {
-	return writeAtomicFile(path, pemData, 0o600)
 }

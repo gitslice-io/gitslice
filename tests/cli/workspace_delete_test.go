@@ -89,7 +89,7 @@ func TestWorkspaceDeleteCheckout(t *testing.T) {
 // directory removed; edits in its local layer stop it, mounted or not.
 func TestWorkspaceDeleteLazy(t *testing.T) {
 	isolateClientCache(t)
-	setMountRuntimeDir(t)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	if _, err := os.Stat("/dev/fuse"); err != nil {
 		t.Skip("no /dev/fuse here")
 	}

@@ -127,11 +127,9 @@ func (r Runner) readPartialUserConfig() (UserConfig, error) {
 }
 
 func (r Runner) writeUserConfig(cfg UserConfig) error {
-	dir := filepath.Dir(r.userConfigPath())
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(r.userConfigPath()), 0o700); err != nil {
 		return err
 	}
-	_ = os.Chmod(dir, 0o700)
 	return writeJSONFile(r.userConfigPath(), cfg, 0o600)
 }
 
@@ -213,7 +211,7 @@ func (r Runner) writeBaseSnapshot(snapshot BaseSnapshot) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return writeCompactJSONFile(filepath.Join(dir, "base_snapshot.json"), snapshot, 0o644)
+	return writeJSONFile(filepath.Join(dir, "base_snapshot.json"), snapshot, 0o644)
 }
 
 func (r Runner) writeWorkspaceState(state WorkspaceState) error {
@@ -314,55 +312,5 @@ func writeJSONFile(path string, v any, mode fs.FileMode) error {
 		return err
 	}
 	data = append(data, '\n')
-	return writeAtomicFile(path, data, mode)
-}
-
-func writeCompactJSONFile(path string, v any, mode fs.FileMode) error {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	return writeAtomicFile(path, data, mode)
-}
-
-func writeAtomicFile(path string, data []byte, mode fs.FileMode) error {
-	dir := filepath.Dir(path)
-	dirMode := fs.FileMode(0o755)
-	if mode&0o077 == 0 {
-		dirMode = 0o700
-	}
-	if err := os.MkdirAll(dir, dirMode); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpPath, mode); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return err
-	}
-	cleanup = false
-	return nil
+	return os.WriteFile(path, data, mode)
 }

@@ -13,12 +13,10 @@
 package gitmirror
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"sort"
@@ -36,9 +34,6 @@ const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
 // maxMirrorWalk bounds how far back the exporter looks for the sync point.
 const maxMirrorWalk = 2000
-
-// tagPushBatchSize bounds how many tag refspecs a single git push sends.
-const tagPushBatchSize = 128
 
 // ErrDiverged is wrapped by errors about a mirror that has commits or
 // contents that did not come from Gitslice.
@@ -81,17 +76,10 @@ type Result struct {
 	SourceHead string
 }
 
-type commitMeta struct {
-	SHA    string
-	Native string
-	Git    string
-}
-
-func matchesMirrorEntry(proj, mir commitMeta) bool {
-	if mir.Native != "" && proj.Native == mir.Native {
-		return true
-	}
-	return proj.Git != "" && proj.Git == mir.SHA
+type logEntry struct {
+	SHA     string
+	Parents []string
+	Body    string
 }
 
 // Run exports Dir's source refs to the mirror.
@@ -118,65 +106,45 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		_, _ = g.run(ctx, nil, "update-ref", "-d", targetRef)
 	}
 
-	var mirror []commitMeta
-	if remoteBranch != "" {
-		if mirror, err = g.streamFirstParentLog(ctx, targetRef, maxMirrorWalk, nil); err != nil {
-			return nil, err
-		}
-		if len(mirror) == 0 {
-			return nil, fmt.Errorf("%w: mirror branch %s has no commits", ErrDiverged, cfg.Branch)
-		}
-	}
-
-	// Stream projected commits newest-first. When the remote tip matches a
-	// projected commit (the normal incremental case), stop reading immediately
-	// instead of loading full repository history into memory.
-	tipMatched := false
-	projected, err := g.streamFirstParentLog(ctx, SourceBranchRef, 0, func(entry commitMeta) bool {
-		if len(mirror) > 0 && matchesMirrorEntry(entry, mirror[0]) {
-			tipMatched = true
-			return true
-		}
-		return false
-	})
+	projected, err := g.firstParentLog(ctx, SourceBranchRef, 0)
 	if err != nil {
 		return nil, err
 	}
+	byNative := map[string]int{}
+	byGit := map[string]int{}
+	for i, entry := range projected {
+		if native := trailer(entry.Body, "Gitslice-Commit"); native != "" {
+			byNative[native] = i
+		}
+		if original := trailer(entry.Body, "Git-Commit"); original != "" {
+			byGit[original] = i
+		}
+	}
 
+	var mirror []logEntry
 	head, headTree := "", ""
 	syncIndex := len(projected) // an empty mirror: replay everything
 	if remoteBranch != "" {
-		if tipMatched {
-			syncIndex = len(projected) - 1
-		} else {
-			byNative := make(map[string]int, len(projected))
-			byGit := make(map[string]int, len(projected))
-			for i, entry := range projected {
-				if entry.Native != "" {
-					byNative[entry.Native] = i
-				}
-				if entry.Git != "" {
-					byGit[entry.Git] = i
-				}
+		if mirror, err = g.firstParentLog(ctx, targetRef, maxMirrorWalk); err != nil {
+			return nil, err
+		}
+		syncIndex = -1
+		for walked, entry := range mirror {
+			index, ok := byNative[trailer(entry.Body, "Gitslice-Commit")]
+			if !ok {
+				index, ok = byGit[entry.SHA]
 			}
-			syncIndex = -1
-			for walked, entry := range mirror {
-				index, ok := byNative[entry.Native]
-				if !ok || entry.Native == "" {
-					index, ok = byGit[entry.SHA]
-				}
-				if !ok {
-					continue
-				}
-				if walked > 0 {
-					return nil, fmt.Errorf("%w: %s has %d commit(s) after %s that did not come from Gitslice; land them in Gitslice and reset the mirror instead of exporting over them", ErrDiverged, cfg.Branch, walked, short(entry.SHA))
-				}
-				syncIndex = index
-				break
+			if !ok {
+				continue
 			}
-			if syncIndex < 0 {
-				return nil, fmt.Errorf("%w: no commit on %s came from this slice (no Gitslice-Commit or Git-Commit match); mirror to an empty repository or branch", ErrDiverged, cfg.Branch)
+			if walked > 0 {
+				return nil, fmt.Errorf("%w: %s has %d commit(s) after %s that did not come from Gitslice; land them in Gitslice and reset the mirror instead of exporting over them", ErrDiverged, cfg.Branch, walked, short(entry.SHA))
 			}
+			syncIndex = index
+			break
+		}
+		if syncIndex < 0 {
+			return nil, fmt.Errorf("%w: no commit on %s came from this slice (no Gitslice-Commit or Git-Commit match); mirror to an empty repository or branch", ErrDiverged, cfg.Branch)
 		}
 		head = mirror[0].SHA
 		if headTree, err = g.output(ctx, "rev-parse", head+"^{tree}"); err != nil {
@@ -191,17 +159,13 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		}
 	}
 
-	mirrorByNative := make(map[string]string, len(mirror))
+	mirrorByNative := map[string]string{}
 	for _, entry := range mirror {
-		if entry.Native != "" {
-			if _, seen := mirrorByNative[entry.Native]; !seen {
-				mirrorByNative[entry.Native] = entry.SHA
+		if native := trailer(entry.Body, "Gitslice-Commit"); native != "" {
+			if _, seen := mirrorByNative[native]; !seen {
+				mirrorByNative[native] = entry.SHA
 			}
 		}
-	}
-	projectedBySHA := make(map[string]commitMeta, len(projected))
-	for _, entry := range projected {
-		projectedBySHA[entry.SHA] = entry
 	}
 
 	res := &Result{}
@@ -226,15 +190,14 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 			}
 			continue
 		}
-		rawCommit, err := g.run(ctx, nil, "log", "-1", "--format=%an%x00%ae%x00%ad%x00%cn%x00%ce%x00%cd%x00%B", "--date=raw", entry.SHA)
+		identity, err := g.output(ctx, "log", "-1", "--format=%an%x00%ae%x00%ad%x00%cn%x00%ce%x00%cd", "--date=raw", entry.SHA)
 		if err != nil {
 			return nil, err
 		}
-		parts := strings.SplitN(rawCommit, "\x00", 7)
-		if len(parts) != 7 {
-			return nil, fmt.Errorf("unexpected commit metadata for %s", short(entry.SHA))
+		parts := strings.Split(identity, "\x00")
+		if len(parts) != 6 {
+			return nil, fmt.Errorf("unexpected identity for %s", short(entry.SHA))
 		}
-		body := strings.TrimSuffix(parts[6], "\n")
 		env := []string{
 			"GIT_AUTHOR_NAME=" + parts[0], "GIT_AUTHOR_EMAIL=" + parts[1], "GIT_AUTHOR_DATE=" + parts[2],
 			"GIT_COMMITTER_NAME=" + parts[3], "GIT_COMMITTER_EMAIL=" + parts[4], "GIT_COMMITTER_DATE=" + parts[5],
@@ -243,7 +206,7 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		if current != "" {
 			args = append(args, "-p", current)
 		}
-		sha, err := g.runInput(ctx, env, []byte(body), append(args, "-F", "-")...)
+		sha, err := g.runInput(ctx, env, []byte(entry.Body), append(args, "-F", "-")...)
 		if err != nil {
 			return nil, err
 		}
@@ -272,24 +235,20 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		if _, ok := remoteTags[name]; ok {
 			continue // tags are immutable
 		}
-		tagSHA := tags[name]
-		target, ok := exported[tagSHA]
+		target, ok := exported[tags[name]]
 		if !ok {
 			// A tag on an older commit: map it through the trailers, to the
 			// mirror commit exported earlier or the original imported commit.
-			meta, found := projectedBySHA[tagSHA]
-			if !found && g.isAncestor(ctx, tagSHA, SourceBranchRef) {
-				if loaded, loadErr := g.commitMetaFor(ctx, tagSHA); loadErr == nil {
-					meta, found = loaded, true
-					projectedBySHA[tagSHA] = loaded
+			for _, entry := range projected {
+				if entry.SHA != tags[name] {
+					continue
 				}
-			}
-			if found {
-				if mirrored := mirrorByNative[meta.Native]; mirrored != "" {
+				if mirrored := mirrorByNative[trailer(entry.Body, "Gitslice-Commit")]; mirrored != "" {
 					target, ok = mirrored, true
-				} else if meta.Git != "" && remoteBranch != "" {
-					target, ok = meta.Git, true
+				} else if original := trailer(entry.Body, "Git-Commit"); original != "" && remoteBranch != "" {
+					target, ok = original, true
 				}
+				break
 			}
 		}
 		if !ok || target == "" {
@@ -317,24 +276,16 @@ func Run(ctx context.Context, cfg Config) (*Result, error) {
 		}
 	}
 	if cfg.Push && current != head {
-		if _, err := remote.run(ctx, nil, "push", "--quiet", cfg.Remote, "--", current+":refs/heads/"+cfg.Branch); err != nil {
+		if _, err := remote.run(ctx, nil, "push", "--quiet", cfg.Remote, current+":refs/heads/"+cfg.Branch); err != nil {
 			return nil, fmt.Errorf("push mirror branch: %w", err)
 		}
 	}
-	if cfg.Push && len(newTags) > 0 {
-		for start := 0; start < len(newTags); start += tagPushBatchSize {
-			end := min(start+tagPushBatchSize, len(newTags))
-			args := make([]string, 0, 4+(end-start))
-			args = append(args, "push", "--quiet", cfg.Remote, "--")
-			for _, tag := range newTags[start:end] {
-				args = append(args, tag.target+":refs/tags/"+tag.name)
-			}
-			if _, err := remote.run(ctx, nil, args...); err != nil {
-				return nil, fmt.Errorf("push tags: %w", err)
+	for _, tag := range newTags {
+		if cfg.Push {
+			if _, err := remote.run(ctx, nil, "push", "--quiet", cfg.Remote, tag.target+":refs/tags/"+tag.name); err != nil {
+				return nil, fmt.Errorf("push tag %s: %w", tag.name, err)
 			}
 		}
-	}
-	for _, tag := range newTags {
 		res.NewTags = append(res.NewTags, tag.name)
 	}
 	return res, nil
@@ -414,95 +365,29 @@ func (g runner) subtree(ctx context.Context, commit, dir string) (string, error)
 	return strings.TrimSpace(out), nil
 }
 
-// streamFirstParentLog streams commits newest first along first parents,
-// retaining only commit SHAs and trailers rather than full commit bodies, and
-// stopping early as soon as stop(entry) returns true.
-func (g runner) streamFirstParentLog(ctx context.Context, ref string, limit int, stop func(commitMeta) bool) ([]commitMeta, error) {
-	logCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	args := []string{"log", "--first-parent", "--format=%H%x00%B%x1e"}
+// firstParentLog lists commits newest first along first parents.
+func (g runner) firstParentLog(ctx context.Context, ref string, limit int) ([]logEntry, error) {
+	args := []string{"log", "--first-parent", "--format=%H%x00%P%x00%B%x1e"}
 	if limit > 0 {
 		args = append(args, fmt.Sprintf("--max-count=%d", limit))
 	}
-	args = append(args, ref)
-
-	cmd := exec.CommandContext(logCtx, "git", args...)
-	cmd.Dir = g.dir
-	cmd.Env = append(os.Environ(), g.env...)
-	stdout, err := cmd.StdoutPipe()
+	out, err := g.run(ctx, nil, append(args, ref)...)
 	if err != nil {
 		return nil, err
 	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		return nil, err
-	}
-
-	reader := bufio.NewReaderSize(stdout, 64<<10)
-	var entries []commitMeta
-	stoppedEarly := false
-	for {
-		rawRecord, readErr := reader.ReadBytes('\x1e')
-		if len(rawRecord) > 0 {
-			record := strings.TrimSuffix(string(rawRecord), "\x1e")
-			record = strings.TrimLeft(record, "\n")
-			if record != "" {
-				sha, body, ok := strings.Cut(record, "\x00")
-				if !ok {
-					cancel()
-					_ = cmd.Wait()
-					return nil, fmt.Errorf("malformed git log record")
-				}
-				meta := commitMeta{
-					SHA:    sha,
-					Native: trailer(body, "Gitslice-Commit"),
-					Git:    trailer(body, "Git-Commit"),
-				}
-				entries = append(entries, meta)
-				if stop != nil && stop(meta) {
-					stoppedEarly = true
-					cancel()
-					break
-				}
-			}
+	var entries []logEntry
+	for _, record := range strings.Split(out, "\x1e") {
+		record = strings.TrimLeft(record, "\n")
+		if record == "" {
+			continue
 		}
-		if readErr != nil {
-			if errors.Is(readErr, io.EOF) {
-				break
-			}
-			cancel()
-			_ = cmd.Wait()
-			return nil, readErr
+		parts := strings.SplitN(record, "\x00", 3)
+		if len(parts) != 3 {
+			return nil, fmt.Errorf("malformed git log record")
 		}
-	}
-	waitErr := cmd.Wait()
-	if waitErr != nil && !stoppedEarly {
-		msg := fmt.Sprintf("git %s: %v\n%s", strings.Join(redactArgs(args), " "), waitErr, strings.TrimSpace(stderr.String()))
-		if g.redact != nil {
-			msg = g.redact(msg)
-		}
-		return nil, errors.New(msg)
+		entries = append(entries, logEntry{SHA: parts[0], Parents: strings.Fields(parts[1]), Body: parts[2]})
 	}
 	return entries, nil
-}
-
-func (g runner) isAncestor(ctx context.Context, ancestor, descendant string) bool {
-	_, err := g.run(ctx, nil, "merge-base", "--is-ancestor", ancestor, descendant)
-	return err == nil
-}
-
-func (g runner) commitMetaFor(ctx context.Context, sha string) (commitMeta, error) {
-	body, err := g.run(ctx, nil, "log", "-1", "--format=%B", sha)
-	if err != nil {
-		return commitMeta{}, err
-	}
-	return commitMeta{
-		SHA:    sha,
-		Native: trailer(body, "Gitslice-Commit"),
-		Git:    trailer(body, "Git-Commit"),
-	}, nil
 }
 
 // tagTargets maps each source tag to the commit it names.
@@ -552,25 +437,11 @@ func (g runner) lsRemote(ctx context.Context, remote, branch string) (string, ma
 // missingObjects lists the objects reachable from wants, and not from have,
 // that the repository cannot read.
 func (g runner) missingObjects(ctx context.Context, wants []string, have string) ([]string, error) {
-	var stdin strings.Builder
-	seen := make(map[string]struct{}, len(wants))
-	for _, w := range wants {
-		if _, dup := seen[w]; dup || w == "" {
-			continue
-		}
-		seen[w] = struct{}{}
-		stdin.WriteString(w)
-		stdin.WriteByte('\n')
-	}
-	if stdin.Len() == 0 {
-		return nil, nil
-	}
+	args := append([]string{"rev-list", "--objects", "--missing=print"}, wants...)
 	if have != "" {
-		stdin.WriteByte('^')
-		stdin.WriteString(have)
-		stdin.WriteByte('\n')
+		args = append(args, "--not", have)
 	}
-	out, err := g.runInput(ctx, nil, []byte(stdin.String()), "rev-list", "--objects", "--missing=print", "--stdin")
+	out, err := g.output(ctx, args...)
 	if err != nil {
 		return nil, err
 	}

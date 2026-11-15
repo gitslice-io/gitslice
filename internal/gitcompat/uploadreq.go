@@ -5,19 +5,13 @@ import (
 	"strings"
 )
 
-const (
-	maxUploadWants = 16_384
-	maxUploadHaves = 16_384
-)
-
 // uploadRequest is what a Git client asked for in a git-upload-pack POST. The
 // lazy projection reads it to learn which file contents the fetch would need.
 type uploadRequest struct {
 	// fetch is false for requests that transfer no objects (ls-refs).
-	fetch    bool
-	wants    []string
-	wantRefs []string
-	haves    []string
+	fetch bool
+	wants []string
+	haves []string
 	// filter is the partial-clone filter spec ("blob:none"), or "".
 	filter string
 	// depth is the shallow depth asked for, or 0.
@@ -25,7 +19,8 @@ type uploadRequest struct {
 }
 
 // parseUploadRequest reads a protocol v2 or v0/v1 upload-pack request body. ok
-// is false when the body is malformed or exceeds negotiation bounds.
+// is false when the body is not one it understands; the caller then plans for
+// the worst case.
 func parseUploadRequest(body []byte) (req uploadRequest, ok bool) {
 	lines, ok := pktLines(body)
 	if !ok || len(lines) == 0 {
@@ -33,95 +28,31 @@ func parseUploadRequest(body []byte) (req uploadRequest, ok bool) {
 	}
 	if strings.HasPrefix(lines[0], "command=") {
 		// Protocol v2: the command, its capabilities, then the arguments.
-		switch strings.TrimSpace(strings.TrimPrefix(lines[0], "command=")) {
-		case "fetch":
-		case "ls-refs", "object-info":
+		if strings.TrimSpace(strings.TrimPrefix(lines[0], "command=")) != "fetch" {
 			return req, true
-		default:
-			return req, false
 		}
-	} else if !strings.HasPrefix(lines[0], "want ") {
-		return req, false
 	}
 	req.fetch = true
-	var wantSeen, haveSeen, refSeen map[string]struct{}
 	for _, line := range lines {
 		field, rest, _ := strings.Cut(line, " ")
 		switch field {
 		case "want":
-			oid, _, _ := strings.Cut(strings.TrimSpace(rest), " ")
-			if !validOID(oid) {
-				return uploadRequest{}, false
-			}
-			if wantSeen == nil {
-				wantSeen = map[string]struct{}{}
-			}
-			if _, dup := wantSeen[oid]; !dup {
-				if len(req.wants) >= maxUploadWants {
-					return uploadRequest{}, false
-				}
-				wantSeen[oid] = struct{}{}
+			if oid, _, _ := strings.Cut(rest, " "); validOID(oid) {
 				req.wants = append(req.wants, oid)
 			}
-		case "want-ref":
-			ref := strings.TrimSpace(rest)
-			if !validUploadRef(ref) {
-				return uploadRequest{}, false
-			}
-			if refSeen == nil {
-				refSeen = map[string]struct{}{}
-			}
-			if _, dup := refSeen[ref]; !dup {
-				if len(req.wantRefs) >= maxUploadWants {
-					return uploadRequest{}, false
-				}
-				refSeen[ref] = struct{}{}
-				req.wantRefs = append(req.wantRefs, ref)
-			}
 		case "have":
-			oid, _, _ := strings.Cut(strings.TrimSpace(rest), " ")
-			if !validOID(oid) {
-				return uploadRequest{}, false
-			}
-			if haveSeen == nil {
-				haveSeen = map[string]struct{}{}
-			}
-			if _, dup := haveSeen[oid]; !dup {
-				if len(req.haves) >= maxUploadHaves {
-					return uploadRequest{}, false
-				}
-				haveSeen[oid] = struct{}{}
+			if oid, _, _ := strings.Cut(rest, " "); validOID(oid) {
 				req.haves = append(req.haves, oid)
 			}
 		case "filter":
 			req.filter = strings.TrimSpace(rest)
 		case "deepen":
-			n, err := strconv.Atoi(strings.TrimSpace(rest))
-			if err != nil || n < 0 {
-				return uploadRequest{}, false
-			}
-			if n > 0 {
+			if n, err := strconv.Atoi(strings.TrimSpace(rest)); err == nil && n > 0 {
 				req.depth = n
 			}
 		}
 	}
-	if len(req.wants) == 0 && len(req.wantRefs) == 0 {
-		return uploadRequest{}, false
-	}
 	return req, true
-}
-
-func validUploadRef(ref string) bool {
-	if !strings.HasPrefix(ref, "refs/") || len(ref) > 256 || strings.Contains(ref, "..") || strings.Contains(ref, "//") || strings.HasSuffix(ref, "/") {
-		return false
-	}
-	for i := 0; i < len(ref); i++ {
-		b := ref[i]
-		if b <= ' ' || b >= 0x7f || b == '\\' || b == '~' || b == '^' || b == ':' || b == '?' || b == '*' || b == '[' {
-			return false
-		}
-	}
-	return true
 }
 
 // excludesBlobs reports whether the filter leaves file contents out.

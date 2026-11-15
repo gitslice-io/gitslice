@@ -1,8 +1,6 @@
 package cli_test
 
 import (
-	"os"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -57,14 +55,9 @@ func TestCLISliceCRUD(t *testing.T) {
 	}
 
 	info := runCLI(t, home, workspace, "slice", "info", "acme/docs")
-	for _, want := range []string{"ref: acme:docs", "id: slice_", "definition_hash:"} {
+	for _, want := range []string{"ref: acme:docs", "id: slice_acme_docs", "definition_hash:"} {
 		if !strings.Contains(info, want) {
 			t.Fatalf("slice info output missing %q:\n%s", want, info)
-		}
-	}
-	if os.Getenv("GITSLICE_TEST_DATABASE_URL") != "" {
-		if !regexp.MustCompile(`(?m)^id: slice_[0-9a-f]{32}$`).MatchString(info) {
-			t.Fatalf("expected random hex slice id in postgres mode:\n%s", info)
 		}
 	}
 

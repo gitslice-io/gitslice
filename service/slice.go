@@ -334,7 +334,7 @@ func (s *SliceService) ListSliceSecrets(ctx context.Context, req *corev1.ListSli
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := authorizeAllowArchived(ctx, s.Auth, subjectID, current, authz.ActionWrite); err != nil {
+	if err := authorize(ctx, s.Auth, subjectID, current, authz.ActionWrite); err != nil {
 		return nil, err
 	}
 	secrets, err := s.Slices.ListSliceSecrets(ctx, current.Id)
@@ -368,7 +368,7 @@ func (s *SliceService) DeleteSlice(ctx context.Context, req *corev1.DeleteSliceR
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := authorizeSliceOwnerAllowArchived(ctx, s.Auth, subjectID, slice); err != nil {
+	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, slice); err != nil {
 		return nil, err
 	}
 	total, _, err := s.Slices.ChangesetCounts(ctx, req.SliceId)

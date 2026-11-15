@@ -495,7 +495,7 @@ func (r Runner) runRestore(ctx context.Context, opts commandOptions, args []stri
 				abs = filepath.Join(r.cwd(), arg)
 			}
 			rel, err := filepath.Rel(root, filepath.Clean(abs))
-			if err != nil || strings.HasPrefix(rel, "..") || rel == ".gs" || strings.HasPrefix(rel, ".gs"+string(filepath.Separator)) || (rel != "." && ensureNotReservedGsPath("/"+filepath.ToSlash(rel)) != nil) {
+			if err != nil || strings.HasPrefix(rel, "..") || rel == ".gs" || strings.HasPrefix(rel, ".gs"+string(filepath.Separator)) {
 				return userError("outside_workspace", arg+" is not a path of this workspace", "Name paths inside "+root+".")
 			}
 			if rel == "." {

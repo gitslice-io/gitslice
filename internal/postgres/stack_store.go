@@ -213,7 +213,7 @@ func (s *ChangesetStore) MoveStackEntry(ctx context.Context, req *corev1.MoveSta
 	if err != nil {
 		return nil, err
 	}
-	if status == "submitted" || status == "pending_publish" {
+	if status == "submitted" {
 		return nil, ErrConflict
 	}
 	if err := reorderStackSiblingsTx(ctx, tx, req.StackId, entry.ParentChangesetID.String, entry.ChangesetID, req.SiblingOrder); err != nil {
@@ -241,7 +241,7 @@ func (s *ChangesetStore) ReparentStackEntry(ctx context.Context, req *corev1.Rep
 	if err != nil {
 		return nil, err
 	}
-	if status == "submitted" || status == "pending_publish" {
+	if status == "submitted" {
 		return nil, ErrConflict
 	}
 	entries, err := stackEntriesForMutationTx(ctx, tx, req.StackId)
@@ -414,7 +414,7 @@ func (s *ChangesetStore) DetachStackEntry(ctx context.Context, subjectID string,
 		if err != nil {
 			return nil, err
 		}
-		if status == "submitted" || status == "pending_publish" {
+		if status == "submitted" {
 			return nil, ErrConflict
 		}
 		if id == changesetID {

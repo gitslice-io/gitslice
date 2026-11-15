@@ -16,7 +16,6 @@ import type { Env } from "./env";
 import { Hub, type OpenSessionInput } from "./hub";
 import { landPush, type HubPort } from "./land";
 import { findChange, reviewNativeChange, type NativeHub } from "./native";
-import { authorized, corsHeaders, readAuthRequired, redactSession, redactSignals } from "./policy";
 import { restoreSeed } from "./restore";
 import { extractText, withTimeout } from "./review";
 import type { Baseline, Session, Stats } from "./types";
@@ -24,7 +23,7 @@ import type { Baseline, Session, Stats } from "./types";
 // HubApi is the Hub's RPC surface as the Worker uses it. Typing the stub
 // through it keeps TypeScript from expanding the recursive RPC types.
 interface HubApi extends HubPort, NativeHub {
-  watchNative(account: string, slice: string, active?: boolean): Promise<void>;
+  watchNative(account: string, slice: string): Promise<void>;
   sessionForChange(idOrHandle: string): Promise<Session | null>;
   fetch(request: Request): Promise<Response>;
   openSession(input: OpenSessionInput): Promise<{ session: Session; token: string }>;
@@ -46,7 +45,7 @@ export default {
       return await route(request, env, ctx);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      return json({ error: message }, 500, request, env);
+      return json({ error: message }, 500);
     }
   },
 
@@ -99,16 +98,6 @@ export default {
 } satisfies ExportedHandler<Env, unknown>;
 
 async function route(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-  if (request.method === "OPTIONS") {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        ...corsHeaders(request, env),
-        "access-control-allow-methods": "GET, POST, OPTIONS",
-        "access-control-allow-headers": "authorization, content-type",
-      },
-    });
-  }
   const url = new URL(request.url);
   const parts = url.pathname.split("/").filter(Boolean);
   const defaultSlice = allowedSlices(env)[0] ?? "demo/storefront";
@@ -117,82 +106,54 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     return Response.redirect(`${url.origin}/slices/${defaultSlice}`, 302);
   }
   if (request.method === "GET" && parts[0] === "slices" && parts.length === 3) {
-    if (!isAllowed(env, parts[1], parts[2])) return json({ error: "unknown slice" }, 404, request, env);
-    if (readAuthRequired(env) && !(await authorized(request, env))) {
-      return json({ error: "unauthorized" }, 401, request, env);
-    }
     return html(dashboardHtml({ account: parts[1], slice: parts[2], gitsliceWeb: env.GITSLICE_WEB, gitsliceGit: env.GITSLICE_GIT }));
   }
-  if (parts[0] !== "v1") return json({ error: "not found" }, 404, request, env);
+  if (parts[0] !== "v1") return json({ error: "not found" }, 404);
 
   // GET /v1/slices/:account/:slice[/stream]
   if (parts[1] === "slices" && parts.length >= 4) {
     const [account, slice] = [parts[2], parts[3]];
-    if (!isAllowed(env, account, slice)) return json({ error: "unknown slice" }, 404, request, env);
+    if (!isAllowed(env, account, slice)) return json({ error: "unknown slice" }, 404);
     const hub = hubStub(env, account, slice);
-    const activeNativeRequest = parts[4] === "changes";
-    if (nativeOn(env, account, slice)) {
-      ctx.waitUntil(hub.watchNative(account, slice, activeNativeRequest).catch(() => {}));
-    }
+    if (nativeOn(env, account, slice)) ctx.waitUntil(hub.watchNative(account, slice).catch(() => {}));
     // Agents that push straight to Gitslice (refs/changes/new) ask here how
     // their change fared, and nudge when they have pushed a new patchset.
     if (parts[4] === "changes" && parts[5]) {
       if (request.method === "GET" && parts.length === 6) {
-        const authed = await authorized(request, env);
-        if (readAuthRequired(env) && !authed) return json({ error: "unauthorized" }, 401, request, env);
         const found = await hub.sessionForChange(parts[5]);
-        if (!found) return json({ status: "pending", message: "not reviewed yet" }, 202, request, env);
-        const rawSignals = found.signals.slice(-6);
-        return json(
-          {
-            id: found.id,
-            agent: found.agent,
-            status: found.status,
-            patchsetId: found.patchsetId,
-            review: found.review ?? null,
-            signals: authed ? rawSignals : redactSignals(rawSignals),
-            fixer: found.fixedBy ?? null,
-          },
-          200,
-          request,
-          env,
-        );
+        if (!found) return json({ status: "pending", message: "not reviewed yet" }, 202);
+        return json({ id: found.id, agent: found.agent, status: found.status, patchsetId: found.patchsetId, review: found.review ?? null, signals: found.signals.slice(-6), fixer: found.fixedBy ?? null });
       }
       if (request.method === "POST" && parts[6] === "pushed") {
-        if (!(await authorized(request, env))) return json({ error: "unauthorized" }, 401, request, env);
+        if (!authorized(request, env)) return json({ error: "unauthorized" }, 401);
         ctx.waitUntil(
           reviewNativeChange(env, hub, { account, slice }, parts[5]).catch((err) => console.error(JSON.stringify({ msg: "native nudge failed", changeset: parts[5], error: String(err) }))),
         );
-        return json({ reviewing: parts[5] }, 202, request, env);
+        return json({ reviewing: parts[5] }, 202);
       }
     }
-    if (parts[4] === "stream") {
-      if (readAuthRequired(env) && !(await authorized(request, env))) {
-        return json({ error: "unauthorized" }, 401, request, env);
-      }
-      return hub.fetch(request);
-    }
+    if (parts[4] === "stream") return hub.fetch(request);
     if (parts[4] === "baseline" && request.method === "POST") {
-      if (!(await authorized(request, env))) return json({ error: "unauthorized" }, 401, request, env);
+      if (!authorized(request, env)) return json({ error: "unauthorized" }, 401);
       const body = (await request.json().catch(() => ({}))) as { action?: string; repo?: string };
       if (body.action === "create") {
         // An empty repo the caller pushes the slice's projection to.
         const created = await env.ARTIFACTS.create(`base.${account}.${slice}.${Date.now().toString(36)}`, {
           description: `Baseline of ${account}/${slice}`,
         });
-        return json({ repo: created.name, remote: created.remote, token: created.token }, 201, request, env);
+        return json({ repo: created.name, remote: created.remote, token: created.token }, 201);
       }
-      if (body.action === "adopt" && body.repo) return json(await hub.adoptBaseline(body.repo), 200, request, env);
-      if (body.action === "import") return json(await hub.importNow(account, slice), 200, request, env);
-      return json({ error: 'action must be "create", "adopt" or "import"' }, 400, request, env);
+      if (body.action === "adopt" && body.repo) return json(await hub.adoptBaseline(body.repo));
+      if (body.action === "import") return json(await hub.importNow(account, slice));
+      return json({ error: 'action must be "create", "adopt" or "import"' }, 400);
     }
     if (parts[4] === "reset" && request.method === "POST") {
-      if (!(await authorized(request, env))) return json({ error: "unauthorized" }, 401, request, env);
-      return json(await hub.reset(), 200, request, env);
+      if (!authorized(request, env)) return json({ error: "unauthorized" }, 401);
+      return json(await hub.reset());
     }
     // A new run on a clean codebase: restore the seed, then clear the board.
     if (parts[4] === "restore" && request.method === "POST") {
-      if (!(await authorized(request, env))) return json({ error: "unauthorized" }, 401, request, env);
+      if (!authorized(request, env)) return json({ error: "unauthorized" }, 401);
       const restored = await restoreSeed(env, { account, slice });
       const cleared = await hub.reset();
       // Import the restored codebase now, so the first agent does not wait.
@@ -200,27 +161,20 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
         (b) => ({ baseline: b.repo }),
         (err) => ({ baselineError: String(err instanceof Error ? err.message : err) }),
       );
-      return json({ ...restored, ...cleared, ...baseline }, 200, request, env);
+      return json({ ...restored, ...cleared, ...baseline });
     }
     if (request.method === "GET" && parts.length === 4) {
-      const authed = await authorized(request, env);
-      if (readAuthRequired(env) && !authed) return json({ error: "unauthorized" }, 401, request, env);
       const [stats, sessions] = await Promise.all([hub.stats(), hub.listSessions()]);
-      return json(
-        { account, slice, stats, sessions: authed ? sessions : sessions.map(redactSession) },
-        200,
-        request,
-        env,
-      );
+      return json({ account, slice, stats, sessions });
     }
   }
 
   // POST /v1/assist: a Workers AI completion for agents that write their
   // changes with a model (the demo's docs agents).
   if (parts[1] === "assist" && request.method === "POST") {
-    if (!(await authorized(request, env))) return json({ error: "unauthorized" }, 401, request, env);
+    if (!authorized(request, env)) return json({ error: "unauthorized" }, 401);
     const body = (await request.json().catch(() => ({}))) as { instructions?: string; input?: string };
-    if (!body.input) return json({ error: "input is required" }, 400, request, env);
+    if (!body.input) return json({ error: "input is required" }, 400);
     const started = Date.now();
     const raw = await withTimeout(
       env.AI.run("@cf/openai/gpt-oss-120b" as keyof AiModels, {
@@ -231,12 +185,12 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
       45_000,
       "model",
     );
-    return json({ text: extractText(raw), model: "openai/gpt-oss-120b", ms: Date.now() - started }, 200, request, env);
+    return json({ text: extractText(raw), model: "openai/gpt-oss-120b", ms: Date.now() - started });
   }
 
   // POST /v1/sessions
   if (parts[1] === "sessions" && parts.length === 2 && request.method === "POST") {
-    if (!(await authorized(request, env))) return json({ error: "unauthorized" }, 401, request, env);
+    if (!authorized(request, env)) return json({ error: "unauthorized" }, 401);
     const body = (await request.json().catch(() => ({}))) as {
       slice?: string;
       agent?: string;
@@ -245,8 +199,8 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
       resume?: string;
     };
     const [account, slice] = (body.slice ?? defaultSlice).split("/");
-    if (!account || !slice || !isAllowed(env, account, slice)) return json({ error: "unknown slice" }, 404, request, env);
-    if (!body.agent || !body.task) return json({ error: "agent and task are required" }, 400, request, env);
+    if (!account || !slice || !isAllowed(env, account, slice)) return json({ error: "unknown slice" }, 404);
+    if (!body.agent || !body.task) return json({ error: "agent and task are required" }, 400);
     const { session, token } = await hubStub(env, account, slice).openSession({
       account,
       slice,
@@ -270,8 +224,6 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
         status: `${new URL(request.url).origin}/v1/sessions/${session.id}`,
       },
       201,
-      request,
-      env,
     );
   }
 
@@ -279,23 +231,20 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
   if (parts[1] === "sessions" && parts.length >= 3) {
     const id = parts[2];
     const where = parseSessionRepo(id);
-    if (!where || !isAllowed(env, where.account, where.slice)) return json({ error: "unknown session" }, 404, request, env);
+    if (!where || !isAllowed(env, where.account, where.slice)) return json({ error: "unknown session" }, 404);
     const hub = hubStub(env, where.account, where.slice);
     if (request.method === "GET" && parts.length === 3) {
-      const authed = await authorized(request, env);
-      if (readAuthRequired(env) && !authed) return json({ error: "unauthorized" }, 401, request, env);
       const session = await hub.getSession(id);
-      if (!session) return json({ error: "unknown session" }, 404, request, env);
-      const visible = authed ? session : redactSession(session);
-      return json({ ...visible, changesetUrl: visible.handle ? `${env.GITSLICE_WEB}/cs/${visible.handle}` : undefined }, 200, request, env);
+      if (!session) return json({ error: "unknown session" }, 404);
+      return json({ ...session, changesetUrl: session.handle ? `${env.GITSLICE_WEB}/cs/${session.handle}` : undefined });
     }
     if (request.method === "POST" && parts[3] === "pushed") {
-      if (!(await authorized(request, env))) return json({ error: "unauthorized" }, 401, request, env);
+      if (!authorized(request, env)) return json({ error: "unauthorized" }, 401);
       // Artifacts sends repo.pushed events on its own; this only saves the
       // wait. Landing dedupes by commit, so both paths are safe.
       using repo = await env.ARTIFACTS.get(id);
       const [head] = await repo.log({ limit: 1 });
-      if (!head) return json({ error: "nothing pushed yet" }, 409, request, env);
+      if (!head) return json({ error: "nothing pushed yet" }, 409);
       await hub.expectPush(id);
       // Land it right here instead of waiting for a queue consumer: the queue
       // scales its consumers up gradually, and a burst of pushes waited up to
@@ -306,10 +255,10 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
           console.error(JSON.stringify({ msg: "direct landing failed", session: id, error: String(err) })),
         ),
       );
-      return json({ landing: head.hash }, 202, request, env);
+      return json({ landing: head.hash }, 202);
     }
   }
-  return json({ error: "not found" }, 404, request, env);
+  return json({ error: "not found" }, 404);
 }
 
 interface LandingTarget {
@@ -370,19 +319,25 @@ function isAllowed(env: Env, account: string, slice: string): boolean {
   return allowedSlices(env).includes(`${account}/${slice}`);
 }
 
-function json(body: unknown, status = 200, request?: Request, env?: Env): Response {
-  const cors = request && env ? corsHeaders(request, env) : {};
+// authorized accepts any of the comma-separated keys in AGENTS_API_KEY, so a
+// key handed to one group of agents can be revoked on its own.
+function authorized(request: Request, env: Env): boolean {
+  const header = request.headers.get("authorization") ?? "";
+  if (!header.startsWith("Bearer ")) return false;
+  const presented = header.slice("Bearer ".length).trim();
+  return (env.AGENTS_API_KEY || "")
+    .split(",")
+    .map((k) => k.trim())
+    .some((k) => k.length >= 16 && k === presented);
+}
+
+function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body, null, 2), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8", ...cors },
+    headers: { "content-type": "application/json; charset=utf-8", "access-control-allow-origin": "*" },
   });
 }
 
 function html(body: string): Response {
-  return new Response(body, {
-    headers: {
-      "content-type": "text/html; charset=utf-8",
-      "x-content-type-options": "nosniff",
-    },
-  });
+  return new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } });
 }

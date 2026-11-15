@@ -7,21 +7,17 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"crypto/ed25519"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"os/exec"
 	"path"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -38,15 +34,6 @@ import (
 const (
 	defaultReleasesBase = "https://gitslice.io/releases"
 	maxReleaseAsset     = 200 << 20
-	maxReleaseSigBytes  = 4096
-)
-
-var (
-	maxReleaseAssetBytes int64 = maxReleaseAsset
-	releaseTagPattern          = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$`)
-	// ReleasePublicKey is an optional hex- or base64-encoded Ed25519 public key
-	// compiled into release builds (overridable via GS_RELEASE_PUBLIC_KEY).
-	ReleasePublicKey string
 )
 
 type upgradeOutput struct {
@@ -89,18 +76,8 @@ type upgradeRequest struct {
 func (r Runner) runUpgrade(ctx context.Context, opts commandOptions, req upgradeRequest) error {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	requestedTag := strings.TrimSpace(req.version)
-	if requestedTag != "" {
-		if err := validateReleaseTag(requestedTag); err != nil {
-			return userError("invalid_version", fmt.Sprintf("invalid release version %q: %v", requestedTag, err), "Pass a release tag such as v0.4.0.")
-		}
-	}
 	base := strings.TrimRight(firstNonEmpty(os.Getenv("GS_DOWNLOAD_BASE"), defaultReleasesBase), "/")
-	baseURL, err := validateReleaseBaseURL(base)
-	if err != nil {
-		return userError("invalid_download_base", fmt.Sprintf("invalid release download base %q: %v", base, err), "Use an https:// release base URL.")
-	}
-	client := newReleaseHTTPClient(2*time.Minute, baseURL)
+	client := &http.Client{Timeout: 2 * time.Minute}
 
 	binary, err := r.upgradeTarget(req.path)
 	if err != nil {
@@ -117,13 +94,10 @@ func (r Runner) runUpgrade(ctx context.Context, opts commandOptions, req upgrade
 		return userError("release_lookup_failed", fmt.Sprintf("could not find the latest release: %v", err), "Check your network, or pass --version <tag>.")
 	}
 	out.Latest = latest
-	out.Target = firstNonEmpty(requestedTag, latest)
-	if err := validateReleaseTag(out.Target); err != nil {
-		return userError("invalid_version", fmt.Sprintf("invalid target release tag %q: %v", out.Target, err), "")
-	}
+	out.Target = firstNonEmpty(strings.TrimSpace(req.version), latest)
 	// A build newer than the latest release (a source build) counts as up to
 	// date unless a version was asked for.
-	out.UpToDate = sameVersion(out.Current, out.Target) || (requestedTag == "" && newerVersion(out.Current, latest))
+	out.UpToDate = sameVersion(out.Current, out.Target) || (req.version == "" && newerVersion(out.Current, latest))
 
 	if req.check || (out.UpToDate && !req.force) {
 		return r.writeUpgrade(opts, out, req.check)
@@ -203,65 +177,6 @@ func binaryVersion(ctx context.Context, binary string) string {
 	return info.Version
 }
 
-func validateReleaseTag(tag string) error {
-	if !releaseTagPattern.MatchString(tag) {
-		return fmt.Errorf("tag %q must match vMAJOR.MINOR.PATCH", tag)
-	}
-	return nil
-}
-
-func validateReleaseBaseURL(raw string) (*url.URL, error) {
-	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return nil, err
-	}
-	if u.User != nil {
-		return nil, errors.New("credentials are not allowed in release URL")
-	}
-	if u.Host == "" || u.Hostname() == "" {
-		return nil, errors.New("missing host")
-	}
-	switch strings.ToLower(u.Scheme) {
-	case "https":
-		return u, nil
-	case "http":
-		if isLoopbackHost(u.Hostname()) {
-			return u, nil
-		}
-		return nil, errors.New("https is required for non-loopback release hosts")
-	default:
-		return nil, fmt.Errorf("unsupported scheme %q", u.Scheme)
-	}
-}
-
-func newReleaseHTTPClient(timeout time.Duration, base *url.URL) *http.Client {
-	return &http.Client{
-		Timeout: timeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 10 {
-				return errors.New("stopped after 10 redirects")
-			}
-			if req.URL == nil || req.URL.Host == "" || req.URL.Hostname() == "" {
-				return errors.New("redirect target missing host")
-			}
-			scheme := strings.ToLower(req.URL.Scheme)
-			if scheme != "https" && scheme != "http" {
-				return fmt.Errorf("unsupported redirect scheme %q", req.URL.Scheme)
-			}
-			if len(via) > 0 && strings.EqualFold(via[len(via)-1].URL.Scheme, "https") && scheme != "https" {
-				return errors.New("refusing HTTPS to HTTP redirect downgrade")
-			}
-			if base != nil && strings.EqualFold(base.Scheme, "https") && scheme != "https" {
-				return errors.New("refusing non-HTTPS redirect from HTTPS release base")
-			}
-			if scheme == "http" && !isLoopbackHost(req.URL.Hostname()) {
-				return errors.New("refusing plaintext HTTP redirect to non-loopback host")
-			}
-			return nil
-		},
-	}
-}
-
 // latestReleaseTag follows <base>/latest, which redirects to the newest
 // release's page (…/releases/tag/<tag>), and reads the tag from where it ends.
 func latestReleaseTag(ctx context.Context, client *http.Client, base string) (string, error) {
@@ -281,9 +196,6 @@ func latestReleaseTag(ctx context.Context, client *http.Client, base string) (st
 	dir, tag := path.Split(strings.TrimRight(final, "/"))
 	if !strings.HasSuffix(dir, "/tag/") || tag == "" {
 		return "", fmt.Errorf("%s/latest did not lead to a release (ended at %s)", base, res.Request.URL)
-	}
-	if err := validateReleaseTag(tag); err != nil {
-		return "", fmt.Errorf("%s/latest returned invalid release tag %q: %w", base, tag, err)
 	}
 	return tag, nil
 }
@@ -309,34 +221,18 @@ func releaseAsset(goos, goarch string) (string, error) {
 }
 
 func installRelease(ctx context.Context, client *http.Client, base, tag, binary string) error {
-	if err := validateReleaseTag(tag); err != nil {
-		return userError("invalid_version", fmt.Sprintf("invalid release tag %q: %v", tag, err), "")
-	}
-	pubKey, requireSig, err := configuredReleasePublicKey()
-	if err != nil {
-		return userError("invalid_release_key", fmt.Sprintf("invalid release public key: %v", err), "")
-	}
 	asset, err := releaseAsset(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		return userError("unsupported_platform", err.Error(), "Build gs from source: go install gitslice.io/gitslice/cmd/gs@latest")
 	}
 	dir := base + "/download/" + tag
-	sums, err := download(ctx, client, dir+"/checksums.txt")
-	if err != nil {
-		return userError("download_failed", fmt.Sprintf("download %s checksums: %v", tag, err), "")
-	}
-	if requireSig {
-		rawSig, err := downloadBounded(ctx, client, dir+"/checksums.txt.sig", maxReleaseSigBytes)
-		if err != nil {
-			return userError("signature_mismatch", fmt.Sprintf("download %s checksums signature: %v", tag, err), "The release checksums signature could not be verified; nothing was installed.")
-		}
-		if err := verifyReleaseChecksumsSignature(pubKey, sums, rawSig); err != nil {
-			return userError("signature_mismatch", err.Error(), "The release checksums signature could not be verified; nothing was installed.")
-		}
-	}
 	archive, err := download(ctx, client, dir+"/"+asset)
 	if err != nil {
 		return userError("download_failed", fmt.Sprintf("download %s %s: %v", tag, asset, err), "Check the version with gs upgrade --check.")
+	}
+	sums, err := download(ctx, client, dir+"/checksums.txt")
+	if err != nil {
+		return userError("download_failed", fmt.Sprintf("download %s checksums: %v", tag, err), "")
 	}
 	if err := verifyChecksum(sums, asset, archive); err != nil {
 		return userError("checksum_mismatch", err.Error(), "The download was damaged or tampered with; nothing was installed.")
@@ -348,68 +244,7 @@ func installRelease(ctx context.Context, client *http.Client, base, tag, binary 
 	return replaceBinary(binary, exe, tag)
 }
 
-func configuredReleasePublicKey() (ed25519.PublicKey, bool, error) {
-	raw := firstNonEmpty(strings.TrimSpace(os.Getenv("GS_RELEASE_PUBLIC_KEY")), strings.TrimSpace(ReleasePublicKey))
-	if raw == "" {
-		return nil, false, nil
-	}
-	decoded, err := decodeHexOrBase64(raw)
-	if err != nil {
-		return nil, false, err
-	}
-	if len(decoded) != ed25519.PublicKeySize {
-		return nil, false, fmt.Errorf("expected %d-byte Ed25519 public key, got %d bytes", ed25519.PublicKeySize, len(decoded))
-	}
-	return ed25519.PublicKey(decoded), true, nil
-}
-
-func verifyReleaseChecksumsSignature(pubKey ed25519.PublicKey, sums, rawSig []byte) error {
-	sig, err := parseReleaseSignature(rawSig)
-	if err != nil {
-		return fmt.Errorf("invalid checksums.txt.sig: %w", err)
-	}
-	if !ed25519.Verify(pubKey, sums, sig) {
-		return errors.New("checksums.txt signature verification failed")
-	}
-	return nil
-}
-
-func parseReleaseSignature(raw []byte) ([]byte, error) {
-	if len(raw) == ed25519.SignatureSize {
-		return raw, nil
-	}
-	trimmed := strings.TrimSpace(string(raw))
-	if trimmed == "" {
-		return nil, errors.New("empty signature")
-	}
-	decoded, err := decodeHexOrBase64(trimmed)
-	if err != nil {
-		return nil, err
-	}
-	if len(decoded) != ed25519.SignatureSize {
-		return nil, fmt.Errorf("expected %d-byte Ed25519 signature, got %d bytes", ed25519.SignatureSize, len(decoded))
-	}
-	return decoded, nil
-}
-
-func decodeHexOrBase64(s string) ([]byte, error) {
-	if decoded, err := hex.DecodeString(s); err == nil {
-		return decoded, nil
-	}
-	if decoded, err := base64.StdEncoding.DecodeString(s); err == nil {
-		return decoded, nil
-	}
-	if decoded, err := base64.RawStdEncoding.DecodeString(s); err == nil {
-		return decoded, nil
-	}
-	return nil, errors.New("must be hex or base64 encoded")
-}
-
 func download(ctx context.Context, client *http.Client, url string) ([]byte, error) {
-	return downloadBounded(ctx, client, url, maxReleaseAssetBytes)
-}
-
-func downloadBounded(ctx context.Context, client *http.Client, url string, maxBytes int64) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -422,11 +257,11 @@ func downloadBounded(ctx context.Context, client *http.Client, url string, maxBy
 	if res.StatusCode != http.StatusOK {
 		return nil, errors.New(res.Status)
 	}
-	data, err := io.ReadAll(io.LimitReader(res.Body, maxBytes+1))
+	data, err := io.ReadAll(io.LimitReader(res.Body, maxReleaseAsset+1))
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(data)) > maxBytes {
+	if len(data) > maxReleaseAsset {
 		return nil, errors.New("download is too large")
 	}
 	return data, nil
@@ -451,7 +286,6 @@ func verifyChecksum(sums []byte, asset string, data []byte) error {
 
 // extractGS returns the gs (or gs.exe) executable from a release archive.
 func extractGS(asset string, archive []byte) ([]byte, error) {
-	limit := maxReleaseAssetBytes
 	if strings.HasSuffix(asset, ".zip") {
 		zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
 		if err != nil {
@@ -464,14 +298,7 @@ func extractGS(asset string, archive []byte) ([]byte, error) {
 					return nil, err
 				}
 				defer rc.Close()
-				data, err := io.ReadAll(io.LimitReader(rc, limit+1))
-				if err != nil {
-					return nil, err
-				}
-				if int64(len(data)) > limit {
-					return nil, fmt.Errorf("release binary in %s exceeds maximum size", asset)
-				}
-				return data, nil
+				return io.ReadAll(io.LimitReader(rc, maxReleaseAsset))
 			}
 		}
 		return nil, fmt.Errorf("%s has no gs.exe", asset)
@@ -480,7 +307,6 @@ func extractGS(asset string, archive []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer gz.Close()
 	tr := tar.NewReader(gz)
 	for {
 		header, err := tr.Next()
@@ -491,14 +317,7 @@ func extractGS(asset string, archive []byte) ([]byte, error) {
 			return nil, err
 		}
 		if header.Typeflag == tar.TypeReg && path.Base(header.Name) == "gs" {
-			data, err := io.ReadAll(io.LimitReader(tr, limit+1))
-			if err != nil {
-				return nil, err
-			}
-			if int64(len(data)) > limit {
-				return nil, fmt.Errorf("release binary in %s exceeds maximum size", asset)
-			}
-			return data, nil
+			return io.ReadAll(io.LimitReader(tr, maxReleaseAsset))
 		}
 	}
 }

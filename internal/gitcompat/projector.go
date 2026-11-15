@@ -35,7 +35,7 @@ type Projector struct {
 	blobs       storage.BlobStore
 
 	mu    sync.Mutex
-	locks map[string]*refMutex
+	locks map[string]*sync.Mutex
 
 	// mirror keeps a copy of every slice's projection outside this instance.
 	// published records the native head last handed to it.
@@ -47,21 +47,9 @@ type Projector struct {
 
 	// Covers (cover.go).
 	compactRequester CompactRequester
-	serveLocks       map[string]*refRWMutex
+	serveLocks       map[string]*sync.RWMutex
 	coverAsked       map[string]time.Time
 	fullFetches      map[string]bool
-}
-
-const maxTrackedRepos = 4096
-
-type refMutex struct {
-	mu   sync.Mutex
-	refs int
-}
-
-type refRWMutex struct {
-	mu   sync.RWMutex
-	refs int
 }
 
 type ProjectorStores struct {
@@ -106,8 +94,8 @@ func NewProjector(stores ProjectorStores, objectStore ObjectStore, cacheRoot str
 		slices:      stores.Slices,
 		blobs:       stores.Blobs,
 		objectStore: objectStore,
-		cacheRoot:   filepath.Clean(cacheRoot),
-		locks:       map[string]*refMutex{},
+		cacheRoot:   cacheRoot,
+		locks:       map[string]*sync.Mutex{},
 		mirror:      NewPackMirror(objectStore),
 		published:   map[string]string{},
 	}, nil
@@ -117,65 +105,7 @@ func (p *Projector) CacheRoot() string {
 	return p.cacheRoot
 }
 
-// validGitSlug reports whether s is a safe account or slice identifier that
-// cannot traverse paths or address hidden cache directories.
-func validGitSlug(s string) bool {
-	if len(s) == 0 || len(s) > 63 || strings.Contains(s, "..") {
-		return false
-	}
-	isAlphaNum := func(b byte) bool {
-		return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z') || (b >= '0' && b <= '9')
-	}
-	if !isAlphaNum(s[0]) || !isAlphaNum(s[len(s)-1]) {
-		return false
-	}
-	for i := 0; i < len(s); i++ {
-		b := s[i]
-		if isAlphaNum(b) || b == '-' || b == '_' || b == '.' {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func (p *Projector) projectedRepoPath(account, sliceSlug string) (string, error) {
-	if !validGitSlug(account) || !validGitSlug(sliceSlug) {
-		return "", storage.ErrNotFound
-	}
-	repoPath := filepath.Join(p.cacheRoot, account, sliceSlug+".git")
-	return p.verifyRepoPath(repoPath)
-}
-
-func (p *Projector) verifyRepoPath(repoPath string) (string, error) {
-	if repoPath == "" {
-		return "", errors.New("empty repository path")
-	}
-	cleanRepo := filepath.Clean(repoPath)
-	if p.cacheRoot == "" {
-		return cleanRepo, nil
-	}
-	cleanRoot := filepath.Clean(p.cacheRoot)
-	rel, err := filepath.Rel(cleanRoot, cleanRepo)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", fmt.Errorf("repository path %q escapes cache root", repoPath)
-	}
-	parts := strings.Split(rel, string(filepath.Separator))
-	if len(parts) != 2 || strings.HasPrefix(parts[0], ".") || strings.HasPrefix(parts[1], ".") || !strings.HasSuffix(parts[1], ".git") {
-		return "", fmt.Errorf("invalid projected repository path %q", repoPath)
-	}
-	account := parts[0]
-	sliceSlug := strings.TrimSuffix(parts[1], ".git")
-	if !validGitSlug(account) || !validGitSlug(sliceSlug) {
-		return "", fmt.Errorf("invalid projected repository slug in %q", repoPath)
-	}
-	return cleanRepo, nil
-}
-
 func (p *Projector) AuthorizeSlice(ctx context.Context, subjectID, account, sliceSlug string) error {
-	if !validGitSlug(account) || !validGitSlug(sliceSlug) {
-		return storage.ErrNotFound
-	}
 	slice, err := p.slices.Resolve(ctx, &corev1.SliceRef{Account: account, Slice: sliceSlug})
 	if err != nil {
 		return err
@@ -184,9 +114,6 @@ func (p *Projector) AuthorizeSlice(ctx context.Context, subjectID, account, slic
 }
 
 func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account, sliceSlug string) (string, *Projection, error) {
-	if !validGitSlug(account) || !validGitSlug(sliceSlug) {
-		return "", nil, storage.ErrNotFound
-	}
 	slice, err := p.slices.Resolve(ctx, &corev1.SliceRef{Account: account, Slice: sliceSlug})
 	if err != nil {
 		return "", nil, err
@@ -200,9 +127,6 @@ func (p *Projector) EnsureProjectedRepo(ctx context.Context, subjectID, account,
 // ensureProjected brings a slice's projection up to date for the server's own
 // use (Compact), without a subject to authorize.
 func (p *Projector) ensureProjected(ctx context.Context, account, sliceSlug string) (string, error) {
-	if !validGitSlug(account) || !validGitSlug(sliceSlug) {
-		return "", storage.ErrNotFound
-	}
 	slice, err := p.slices.Resolve(ctx, &corev1.SliceRef{Account: account, Slice: sliceSlug})
 	if err != nil {
 		return "", err
@@ -212,10 +136,7 @@ func (p *Projector) ensureProjected(ctx context.Context, account, sliceSlug stri
 }
 
 func (p *Projector) ensureResolved(ctx context.Context, account, sliceSlug string, slice *corev1.Slice) (string, *Projection, error) {
-	repoPath, err := p.projectedRepoPath(account, sliceSlug)
-	if err != nil {
-		return "", nil, err
-	}
+	repoPath := filepath.Join(p.cacheRoot, account, sliceSlug+".git")
 	// Registered first, so it runs after the lock is released: a request that
 	// changed the head stays open while the mirror catches up, because Cloud Run
 	// only gives CPU to a container that is serving one.
@@ -229,8 +150,9 @@ func (p *Projector) ensureResolved(ctx context.Context, account, sliceSlug strin
 			p.setPublished(repoPath, "")
 		}
 	}()
-	unlock := p.acquireLock(repoPath)
-	defer unlock()
+	lock := p.lockFor(repoPath)
+	lock.Lock()
+	defer lock.Unlock()
 
 	if _, err := os.Stat(filepath.Join(repoPath, "HEAD")); errors.Is(err, os.ErrNotExist) {
 		// A cold instance: restore what an earlier one mirrored before
@@ -273,18 +195,8 @@ func (p *Projector) ensureResolved(ctx context.Context, account, sliceSlug strin
 func (p *Projector) setPublished(repoPath, head string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if head == "" {
-		delete(p.published, repoPath)
-		return
-	}
 	if p.published == nil {
 		p.published = map[string]string{}
-	}
-	if _, exists := p.published[repoPath]; !exists && len(p.published) >= maxTrackedRepos {
-		for k := range p.published {
-			delete(p.published, k)
-			break
-		}
 	}
 	p.published[repoPath] = head
 }
@@ -295,29 +207,18 @@ func (p *Projector) publishedHead(repoPath string) string {
 	return p.published[repoPath]
 }
 
-func (p *Projector) acquireLock(key string) func() {
+func (p *Projector) lockFor(key string) *sync.Mutex {
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	if p.locks == nil {
-		p.locks = map[string]*refMutex{}
+		p.locks = map[string]*sync.Mutex{}
 	}
-	entry := p.locks[key]
-	if entry == nil {
-		entry = &refMutex{}
-		p.locks[key] = entry
+	lock := p.locks[key]
+	if lock == nil {
+		lock = &sync.Mutex{}
+		p.locks[key] = lock
 	}
-	entry.refs++
-	p.mu.Unlock()
-
-	entry.mu.Lock()
-	return func() {
-		entry.mu.Unlock()
-		p.mu.Lock()
-		entry.refs--
-		if entry.refs == 0 && p.locks[key] == entry {
-			delete(p.locks, key)
-		}
-		p.mu.Unlock()
-	}
+	return lock
 }
 
 func runGit(ctx context.Context, dir string, env []string, args ...string) error {

@@ -23,11 +23,12 @@ import (
 // (connections wait until served). The returned func closes and removes it. A
 // workspace still works without one, only its commands cannot reach it.
 func listenMountControl(id string) (net.Listener, func()) {
-	if err := validateMountID(id); err != nil {
+	socket := mountControlPath(id)
+	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
 		return nil, func() {}
 	}
-	socket := mountControlPath(id)
-	listener, err := listenUnixControlSocket(socket)
+	_ = os.Remove(socket)
+	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		return nil, func() {}
 	}
@@ -83,9 +84,6 @@ func serveMountControl(listener net.Listener, handle func(mountControlRequest) m
 		}
 		go func(conn net.Conn) {
 			defer conn.Close()
-			if err := verifyUnixPeerUID(conn); err != nil {
-				return
-			}
 			_ = conn.SetDeadline(time.Now().Add(5 * time.Minute))
 			var req mountControlRequest
 			if err := json.NewDecoder(conn).Decode(&req); err != nil {
@@ -139,9 +137,6 @@ func (r Runner) startMountSupervisor(socket string) error {
 	cmd.Env = os.Environ()
 	if r.Home != "" {
 		cmd.Env = append(cmd.Env, "HOME="+r.Home)
-		if os.Getenv("XDG_RUNTIME_DIR") == "" {
-			cmd.Env = append(cmd.Env, "XDG_RUNTIME_DIR="+filepath.Dir(socket))
-		}
 	}
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

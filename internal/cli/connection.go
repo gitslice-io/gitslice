@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"gitslice.io/gitslice/internal/rpclimits"
@@ -15,6 +14,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/metadata"
 )
 
 func (r Runner) resolveSlice(ctx context.Context, sliceRef string) (*corev1.Slice, error) {
@@ -78,37 +78,8 @@ func (r Runner) activeAccount(ctx context.Context, cfg UserConfig, conn *grpc.Cl
 	return "", nil
 }
 
-type bearerTokenContextKey struct{}
-
-var cliInsecureFlag atomic.Bool
-
-func insecureTransportRequested() bool {
-	if cliInsecureFlag.Load() {
-		return true
-	}
-	v := strings.TrimSpace(os.Getenv("GS_INSECURE"))
-	return v == "1" || strings.EqualFold(v, "true")
-}
-
-type bearerTokenCreds struct {
-	requireTLS bool
-}
-
-func (c bearerTokenCreds) GetRequestMetadata(ctx context.Context, _ ...string) (map[string]string, error) {
-	token, _ := ctx.Value(bearerTokenContextKey{}).(string)
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return nil, nil
-	}
-	return map[string]string{"authorization": "Bearer " + token}, nil
-}
-
-func (c bearerTokenCreds) RequireTransportSecurity() bool {
-	return c.requireTLS
-}
-
 func authContext(ctx context.Context, cfg UserConfig) context.Context {
-	return context.WithValue(ctx, bearerTokenContextKey{}, cfg.Token)
+	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+cfg.Token)
 }
 
 func dial(ctx context.Context, addr string) (*grpc.ClientConn, error) {
@@ -160,19 +131,17 @@ func dialWithOptions(ctx context.Context, addr string, extraOptions ...grpc.Dial
 // dialOptions returns the target and the options every connection to the
 // server uses, except whether to wait for it.
 func dialOptions(addr string) (string, []grpc.DialOption) {
-	target, useTLS, explicitPlain := resolveDialTargetPolicy(addr)
-	host := extractDialHost(target)
+	target, useTLS := resolveDialTarget(addr)
 	creds := insecure.NewCredentials()
 	if useTLS {
-		creds = credentials.NewTLS(&tls.Config{
-			ServerName: host,
-			MinVersion: tls.VersionTLS12,
-		})
+		host := target
+		if h, _, err := net.SplitHostPort(target); err == nil {
+			host = h
+		}
+		creds = credentials.NewTLS(&tls.Config{ServerName: host})
 	}
-	requireBearerTLS := useTLS || (!explicitPlain && !isLoopbackHost(host))
 	options := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
-		grpc.WithPerRPCCredentials(bearerTokenCreds{requireTLS: requireBearerTLS}),
 		grpc.WithDefaultCallOptions(
 			grpc.MaxCallRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
 			grpc.MaxCallSendMsgSize(rpclimits.MaxUnaryMessageBytes),
@@ -189,94 +158,32 @@ func dialOptions(addr string) (string, []grpc.DialOption) {
 }
 
 // resolveDialTarget strips any scheme from a server address and decides whether
-// to use TLS. TLS is enabled by default for all non-loopback hosts unless an
-// explicit plaintext scheme (grpc://, http://), --insecure, or GS_TLS=0/false
-// is set; loopback hosts remain plaintext by default unless port 443, an https/
-// grpcs scheme, or GS_TLS=1/true is set.
+// to use TLS. TLS is used when the address has an https/grpcs scheme, targets
+// port 443, or GS_TLS is set. This lets the CLI reach TLS endpoints such as
+// api.gitslice.io:443 while defaulting to plaintext for local servers.
 func resolveDialTarget(addr string) (string, bool) {
-	target, useTLS, _ := resolveDialTargetPolicy(addr)
-	return target, useTLS
-}
-
-func resolveDialTargetPolicy(addr string) (target string, useTLS bool, explicitPlain bool) {
 	addr = strings.TrimSpace(addr)
-	explicitTLS := false
+	useTLS := false
 	switch {
 	case strings.HasPrefix(addr, "grpcs://"):
-		addr, explicitTLS = strings.TrimPrefix(addr, "grpcs://"), true
+		addr, useTLS = strings.TrimPrefix(addr, "grpcs://"), true
 	case strings.HasPrefix(addr, "https://"):
-		addr, explicitTLS = strings.TrimPrefix(addr, "https://"), true
+		addr, useTLS = strings.TrimPrefix(addr, "https://"), true
 	case strings.HasPrefix(addr, "grpc://"):
-		addr, explicitPlain = strings.TrimPrefix(addr, "grpc://"), true
+		addr = strings.TrimPrefix(addr, "grpc://")
 	case strings.HasPrefix(addr, "http://"):
-		addr, explicitPlain = strings.TrimPrefix(addr, "http://"), true
+		addr = strings.TrimPrefix(addr, "http://")
 	}
 	addr = strings.TrimSuffix(addr, "/")
-	if v := strings.TrimSpace(os.Getenv("GS_TLS")); v != "" {
-		switch {
-		case v == "1" || strings.EqualFold(v, "true"):
-			explicitTLS = true
-			explicitPlain = false
-		case v == "0" || strings.EqualFold(v, "false"):
-			explicitPlain = true
-			explicitTLS = false
+	if !useTLS {
+		if _, port, err := net.SplitHostPort(addr); err == nil && port == "443" {
+			useTLS = true
 		}
 	}
-	if insecureTransportRequested() && !explicitTLS {
-		explicitPlain = true
-	}
-	host := extractDialHost(addr)
-	_, port, splitErr := net.SplitHostPort(addr)
-	switch {
-	case explicitTLS:
+	if v := os.Getenv("GS_TLS"); v == "1" || strings.EqualFold(v, "true") {
 		useTLS = true
-	case explicitPlain:
-		useTLS = false
-	case splitErr == nil && port == "443":
-		useTLS = true
-	case addr != "" && !isLoopbackHost(host):
-		useTLS = true
-	default:
-		useTLS = false
 	}
-	return addr, useTLS, explicitPlain
-}
-
-func extractDialHost(addr string) string {
-	addr = strings.TrimSpace(addr)
-	if h, _, err := net.SplitHostPort(addr); err == nil {
-		return strings.Trim(h, "[]")
-	}
-	return strings.Trim(addr, "[]")
-}
-
-func isLoopbackHost(host string) bool {
-	host = strings.TrimSpace(strings.Trim(host, "[]"))
-	if zone := strings.IndexByte(host, '%'); zone >= 0 {
-		host = host[:zone]
-	}
-	if host == "" {
-		return false
-	}
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
-}
-
-func isLoopbackDialAddr(addr string) bool {
-	target, _, _ := resolveDialTargetPolicy(addr)
-	return isLoopbackHost(extractDialHost(target))
-}
-
-func serverUsesNonLoopbackTLS(addr string) bool {
-	addr = strings.TrimSpace(addr)
-	if addr == "" {
-		return false
-	}
-	target, useTLS := resolveDialTarget(addr)
-	return useTLS && !isLoopbackHost(extractDialHost(target))
+	return addr, useTLS
 }
 
 func defaultServerAddr() string {

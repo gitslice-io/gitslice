@@ -59,7 +59,7 @@ func (s *SliceService) SetSliceArchived(ctx context.Context, req *corev1.SetSlic
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := authorizeSliceOwnerAllowArchived(ctx, s.Auth, subjectID, current); err != nil {
+	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, current); err != nil {
 		return nil, err
 	}
 	if isHomeSlice(current.Ref) {

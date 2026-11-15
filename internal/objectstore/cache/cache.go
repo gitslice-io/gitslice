@@ -32,10 +32,6 @@ type ObjectStore interface {
 	Delete(context.Context, string) error
 }
 
-type objectCopier interface {
-	Copy(ctx context.Context, dstKey, srcKey string) error
-}
-
 type Store struct {
 	inner          ObjectStore
 	maxBytes       int64
@@ -75,76 +71,19 @@ func (s *Store) Put(ctx context.Context, key string, r io.Reader) error {
 	if r == nil {
 		return fmt.Errorf("object reader is required")
 	}
-
-	// If the caller supplied a seekable reader (e.g. a staged *os.File) whose
-	// size exceeds maxObjectBytes, pass it straight through to the inner store
-	// so neither cache.Store nor r2.Store buffers it in heap memory.
-	if rs, ok := r.(io.ReadSeeker); ok {
-		if size, ok := seekableRemainingSize(rs); ok && size > s.maxObjectBytes {
-			if err := s.inner.Put(ctx, key, rs); err != nil {
-				return err
-			}
-			s.remove(key)
-			return nil
-		}
-	}
-
-	head, err := io.ReadAll(io.LimitReader(r, s.maxObjectBytes+1))
+	data, err := io.ReadAll(r)
 	if err != nil {
 		return err
 	}
-	if int64(len(head)) > s.maxObjectBytes {
-		if err := s.inner.Put(ctx, key, io.MultiReader(bytes.NewReader(head), r)); err != nil {
-			return err
-		}
+	if err := s.inner.Put(ctx, key, bytes.NewReader(data)); err != nil {
+		return err
+	}
+	if int64(len(data)) > s.maxObjectBytes {
 		s.remove(key)
 		return nil
 	}
-	if err := s.inner.Put(ctx, key, bytes.NewReader(head)); err != nil {
-		return err
-	}
-	s.insert(key, head)
+	s.insert(key, data)
 	return nil
-}
-
-// Copy copies srcKey to dstKey, delegating to inner.Copy when supported so
-// remote object stores can promote objects server-side without re-uploading.
-func (s *Store) Copy(ctx context.Context, dstKey, srcKey string) error {
-	if copier, ok := s.inner.(objectCopier); ok {
-		if err := copier.Copy(ctx, dstKey, srcKey); err != nil {
-			return err
-		}
-		if data, ok, err := s.cachedRange(srcKey, 0, 0); err == nil && ok {
-			s.insert(dstKey, append([]byte(nil), data...))
-		} else {
-			s.remove(dstKey)
-		}
-		return nil
-	}
-	rc, err := s.Get(ctx, srcKey, 0, 0)
-	if err != nil {
-		return err
-	}
-	defer rc.Close()
-	return s.Put(ctx, dstKey, rc)
-}
-
-func seekableRemainingSize(rs io.ReadSeeker) (int64, bool) {
-	cur, err := rs.Seek(0, io.SeekCurrent)
-	if err != nil {
-		return 0, false
-	}
-	end, err := rs.Seek(0, io.SeekEnd)
-	if err != nil {
-		return 0, false
-	}
-	if _, err := rs.Seek(cur, io.SeekStart); err != nil {
-		return 0, false
-	}
-	if end < cur {
-		return 0, false
-	}
-	return end - cur, true
 }
 
 func (s *Store) Get(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {

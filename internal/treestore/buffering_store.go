@@ -3,7 +3,6 @@ package treestore
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"io"
 	"sync"
 
@@ -13,17 +12,15 @@ import (
 const treeFlushConcurrency = 16
 
 type bufferingObjectStore struct {
-	base      ObjectStore
-	mu        sync.Mutex
-	writes    map[string][]byte
-	writtenID map[string]string // object key -> treeID
+	base   ObjectStore
+	mu     sync.Mutex
+	writes map[string][]byte
 }
 
 func newBufferingObjectStore(base ObjectStore) *bufferingObjectStore {
 	return &bufferingObjectStore{
-		base:      base,
-		writes:    map[string][]byte{},
-		writtenID: map[string]string{},
+		base:   base,
+		writes: map[string][]byte{},
 	}
 }
 
@@ -36,12 +33,6 @@ func (b *bufferingObjectStore) Put(_ context.Context, key string, r io.Reader) e
 	defer b.mu.Unlock()
 	b.writes[key] = data
 	return nil
-}
-
-func (b *bufferingObjectStore) recordTreeWrite(treeID string) {
-	b.mu.Lock()
-	b.writtenID[Key(treeID)] = treeID
-	b.mu.Unlock()
 }
 
 func (b *bufferingObjectStore) Get(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error) {
@@ -63,71 +54,6 @@ func (b *bufferingObjectStore) Get(ctx context.Context, key string, offset, leng
 		end = start + length
 	}
 	return io.NopCloser(bytes.NewReader(data[int(start):int(end)])), nil
-}
-
-// pruneToRoots discards buffered intermediate tree nodes that are no longer
-// reachable from any of roots, avoiding orphan uploads during sequential edits
-// (such as rename, copy, or multi-step chains).
-func (b *bufferingObjectStore) pruneToRoots(roots []string, staged map[string]Node) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if len(b.writes) == 0 {
-		return
-	}
-
-	reachableKeys := make(map[string]struct{}, len(b.writes))
-	visitedIDs := make(map[string]struct{}, len(b.writes))
-
-	var walk func(treeID string)
-	walk = func(treeID string) {
-		if treeID == "" {
-			return
-		}
-		if _, seen := visitedIDs[treeID]; seen {
-			return
-		}
-		key := Key(treeID)
-		data, pending := b.writes[key]
-		if !pending {
-			return
-		}
-		visitedIDs[treeID] = struct{}{}
-		reachableKeys[key] = struct{}{}
-
-		if staged != nil {
-			if node, ok := staged[treeID]; ok {
-				for _, entry := range node.Entries {
-					if entry.Kind == "directory" {
-						walk(entry.TreeID)
-					}
-				}
-				return
-			}
-		}
-		var node Node
-		if err := json.Unmarshal(data, &node); err == nil {
-			for _, entry := range node.Entries {
-				if entry.Kind == "directory" {
-					walk(entry.TreeID)
-				}
-			}
-		}
-	}
-
-	for _, root := range roots {
-		walk(root)
-	}
-	for key := range b.writes {
-		if _, ok := reachableKeys[key]; !ok {
-			delete(b.writes, key)
-			if staged != nil {
-				if id, hasID := b.writtenID[key]; hasID {
-					delete(staged, id)
-				}
-			}
-			delete(b.writtenID, key)
-		}
-	}
 }
 
 func (b *bufferingObjectStore) flush(ctx context.Context) error {
@@ -154,7 +80,6 @@ func (b *bufferingObjectStore) flush(ctx context.Context) error {
 	}
 	b.mu.Lock()
 	b.writes = map[string][]byte{}
-	b.writtenID = map[string]string{}
 	b.mu.Unlock()
 	return nil
 }

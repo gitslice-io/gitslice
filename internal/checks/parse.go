@@ -220,27 +220,6 @@ func parseDefaults(raw rawDefaults) (Defaults, error) {
 	if raw.Image != "" && raw.Build != nil {
 		return Defaults{}, fmt.Errorf("defaults: set image or build, not both")
 	}
-	if raw.Image != "" {
-		if err := ValidateImageRef(raw.Image); err != nil {
-			return Defaults{}, fmt.Errorf("defaults image: %w", err)
-		}
-	}
-	if err := ValidateSetupCommands(raw.Setup); err != nil {
-		return Defaults{}, fmt.Errorf("defaults %w", err)
-	}
-	if err := ValidateEnvMap(raw.Env); err != nil {
-		return Defaults{}, fmt.Errorf("defaults env: %w", err)
-	}
-	if raw.Memory != "" {
-		if _, err := ParseMemoryBytes(raw.Memory); err != nil {
-			return Defaults{}, fmt.Errorf("defaults memory: %w", err)
-		}
-	}
-	if raw.CPUs != "" {
-		if _, err := ParseCPUs(raw.CPUs); err != nil {
-			return Defaults{}, fmt.Errorf("defaults cpus: %w", err)
-		}
-	}
 	build, err := parseBuild("defaults", raw.Build)
 	if err != nil {
 		return Defaults{}, err
@@ -266,9 +245,6 @@ func parseDefaults(raw rawDefaults) (Defaults, error) {
 func parseCheck(name string, raw rawCheck, defaults Defaults, services map[string]Service) (Check, error) {
 	if strings.TrimSpace(raw.Run) == "" {
 		return Check{}, fmt.Errorf("check %q run is required", name)
-	}
-	if strings.ContainsRune(raw.Run, '\x00') {
-		return Check{}, fmt.Errorf("check %q run must not contain NUL", name)
 	}
 	if err := validatePathList(name, "paths", raw.Paths, true); err != nil {
 		return Check{}, err
@@ -304,9 +280,6 @@ func parseCheck(name string, raw rawCheck, defaults Defaults, services map[strin
 	}
 	image, build := defaults.Image, defaults.Build
 	if raw.Image != "" {
-		if err := ValidateImageRef(raw.Image); err != nil {
-			return Check{}, fmt.Errorf("check %q image: %w", name, err)
-		}
 		image, build = raw.Image, nil
 	}
 	if raw.Build != nil {
@@ -328,9 +301,6 @@ func parseCheck(name string, raw rawCheck, defaults Defaults, services map[strin
 
 	setup := defaults.Setup
 	if raw.Setup != nil {
-		if err := ValidateSetupCommands(raw.Setup); err != nil {
-			return Check{}, fmt.Errorf("check %q %w", name, err)
-		}
 		setup = raw.Setup
 	}
 
@@ -346,22 +316,12 @@ func parseCheck(name string, raw rawCheck, defaults Defaults, services map[strin
 
 	memory := defaults.Memory
 	if raw.Memory != "" {
-		if _, err := ParseMemoryBytes(raw.Memory); err != nil {
-			return Check{}, fmt.Errorf("check %q memory: %w", name, err)
-		}
 		memory = raw.Memory
 	}
 
 	cpus := defaults.CPUs
 	if raw.CPUs != "" {
-		if _, err := ParseCPUs(raw.CPUs); err != nil {
-			return Check{}, fmt.Errorf("check %q cpus: %w", name, err)
-		}
 		cpus = raw.CPUs
-	}
-
-	if err := ValidateEnvMap(raw.Env); err != nil {
-		return Check{}, fmt.Errorf("check %q env: %w", name, err)
 	}
 
 	startedBy, err := parseStartedBy(fmt.Sprintf("check %q", name), raw.StartedBy, defaults.StartedBy)
@@ -448,9 +408,6 @@ func parseBuild(owner string, raw *rawBuild) (*Build, error) {
 // validateBuildPath keeps a build's paths inside its context: relative, with
 // no .. segment. Only the context itself may be "/"-absolute.
 func validateBuildPath(owner, field, value string, absoluteOK bool) error {
-	if strings.ContainsAny(value, "\r\n\x00") {
-		return fmt.Errorf("%s: %s %q contains control characters", owner, field, value)
-	}
 	normalized := normalizePathValue(strings.TrimSpace(value))
 	if normalized == "" {
 		return fmt.Errorf("%s: %s is empty", owner, field)
@@ -486,29 +443,15 @@ func parseServices(raw map[string]rawService) (map[string]Service, error) {
 		if !serviceNamePattern.MatchString(name) {
 			return nil, fmt.Errorf("service %q: name must be a host name (lowercase letters, digits and -)", name)
 		}
-		if service.Image == "" {
+		if strings.TrimSpace(service.Image) == "" {
 			return nil, fmt.Errorf("service %q: image is required", name)
-		}
-		if err := ValidateImageRef(service.Image); err != nil {
-			return nil, fmt.Errorf("service %q image: %w", name, err)
-		}
-		if err := ValidateEnvMap(service.Env); err != nil {
-			return nil, fmt.Errorf("service %q env: %w", name, err)
-		}
-		if strings.ContainsRune(service.Ready, '\x00') {
-			return nil, fmt.Errorf("service %q ready must not contain NUL", name)
-		}
-		if service.Memory != "" {
-			if _, err := ParseMemoryBytes(service.Memory); err != nil {
-				return nil, fmt.Errorf("service %q memory: %w", name, err)
-			}
 		}
 		readyTimeout, err := parseOptionalDuration(fmt.Sprintf("service %q ready_timeout", name), service.ReadyTimeout)
 		if err != nil {
 			return nil, err
 		}
 		out[name] = Service{
-			Image:        service.Image,
+			Image:        strings.TrimSpace(service.Image),
 			Env:          copyEnv(service.Env),
 			Ready:        service.Ready,
 			ReadyTimeout: readyTimeout,
@@ -543,9 +486,6 @@ func validateCacheList(owner string, values []string) error {
 		if value == "" {
 			return fmt.Errorf("%s cache contains empty path", owner)
 		}
-		if strings.ContainsAny(value, "\r\n\x00") {
-			return fmt.Errorf("%s cache %q contains control characters", owner, value)
-		}
 		normalized := normalizePathValue(value)
 		if !strings.HasPrefix(normalized, "/") {
 			return fmt.Errorf("%s cache %q must be an absolute container path", owner, value)
@@ -565,9 +505,6 @@ func validateCacheList(owner string, values []string) error {
 func validatePathValue(checkName, field, value string, glob bool) error {
 	if value == "" {
 		return fmt.Errorf("check %q %s contains empty path", checkName, field)
-	}
-	if strings.ContainsAny(value, "\r\n\x00") {
-		return fmt.Errorf("check %q %s %q contains control characters", checkName, field, value)
 	}
 	normalized := normalizePathValue(value)
 	for _, segment := range strings.Split(normalized, "/") {

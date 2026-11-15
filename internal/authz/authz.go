@@ -27,14 +27,6 @@ func New(auth storage.AuthStore) Authorizer {
 }
 
 func (a Authorizer) Authorize(ctx context.Context, subjectID string, slice *corev1.Slice, action Action) error {
-	return a.authorize(ctx, subjectID, slice, action, false)
-}
-
-func (a Authorizer) AuthorizeAllowArchived(ctx context.Context, subjectID string, slice *corev1.Slice, action Action) error {
-	return a.authorize(ctx, subjectID, slice, action, true)
-}
-
-func (a Authorizer) authorize(ctx context.Context, subjectID string, slice *corev1.Slice, action Action, allowArchived bool) error {
 	if slice == nil || slice.Ref == nil || slice.Ref.Account == "" || slice.Definition == nil {
 		return storage.ErrInvalid
 	}
@@ -53,32 +45,26 @@ func (a Authorizer) authorize(ctx context.Context, subjectID string, slice *core
 	default:
 		return storage.ErrInvalid
 	}
+	if action == ActionWrite && slice.Archived {
+		return fmt.Errorf("%w: slice %s/%s is archived and read-only; unarchive it to change it", storage.ErrConflict, slice.Ref.Account, slice.Ref.Slice)
+	}
 	// The account's role decides first; a role on the slice itself
 	// (design/26_slice_members.md) can only add to it.
-	allowed := false
 	role, ok, err := a.accountRole(ctx, subjectID, slice.Ref.Account)
 	if err != nil {
 		return err
 	}
 	if ok && roleAllows(role, action) {
-		allowed = true
+		return nil
 	}
-	if !allowed {
-		sliceRole, ok, err := a.SliceRole(ctx, subjectID, slice)
-		if err != nil {
-			return err
-		}
-		if ok && roleAllows(sliceRole, action) {
-			allowed = true
-		}
+	sliceRole, ok, err := a.SliceRole(ctx, subjectID, slice)
+	if err != nil {
+		return err
 	}
-	if !allowed {
-		return storage.ErrUnauthorized
+	if ok && roleAllows(sliceRole, action) {
+		return nil
 	}
-	if !allowArchived && (action == ActionWrite || action == ActionAdmin) && slice.Archived {
-		return fmt.Errorf("%w: slice %s/%s is archived and read-only; unarchive it to change it", storage.ErrConflict, slice.Ref.Account, slice.Ref.Slice)
-	}
-	return nil
+	return storage.ErrUnauthorized
 }
 
 // SliceRole returns the role the subject was given on the slice itself, if

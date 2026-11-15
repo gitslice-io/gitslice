@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -93,7 +94,7 @@ func NewVerifier(cfg Config) (*Verifier, error) {
 
 	return newVerifier(&remoteKeySource{
 		url:    jwksURL,
-		client: defaultJWKSClient,
+		client: http.DefaultClient,
 	}, issuer, authorizedParties), nil
 }
 
@@ -135,17 +136,15 @@ func (v *Verifier) Verify(ctx context.Context, token string) (*Claims, error) {
 	}
 
 	issuer, _ := mapClaims.GetIssuer()
-	if len(v.authorizedParties) > 0 {
-		rawAuthorizedParty, ok := mapClaims["azp"]
-		if !ok || rawAuthorizedParty == nil {
-			return nil, errors.New("clerk: token missing authorized party")
-		}
+	if rawAuthorizedParty, ok := mapClaims["azp"]; ok && rawAuthorizedParty != nil {
 		authorizedParty, ok := rawAuthorizedParty.(string)
-		if !ok || strings.TrimSpace(authorizedParty) == "" {
+		if !ok {
 			return nil, errors.New("clerk: token has invalid authorized party")
 		}
-		if _, ok := v.authorizedParties[authorizedParty]; !ok {
-			return nil, fmt.Errorf("clerk: token authorized party %q is not allowed", authorizedParty)
+		if authorizedParty != "" {
+			if _, ok := v.authorizedParties[authorizedParty]; !ok {
+				return nil, fmt.Errorf("clerk: token authorized party %q is not allowed", authorizedParty)
+			}
 		}
 	}
 	email, _ := mapClaims["email"].(string)

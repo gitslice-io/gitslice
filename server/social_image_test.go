@@ -5,7 +5,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"sync/atomic"
 	"testing"
 
 	"gitslice.io/gitslice/internal/socialcard"
@@ -77,52 +76,5 @@ func TestSocialImageDrawsPublicSlicesOnly(t *testing.T) {
 	}
 	if code := get(http.MethodPost, "/og/default.png").Code; code != http.StatusMethodNotAllowed {
 		t.Fatalf("POST: code %d", code)
-	}
-}
-
-func TestSocialImageSkipsRenderOnHeadAndCachesCards(t *testing.T) {
-	slices := fakeSlices{
-		"sunny/neo": testSlice("sunny", "neo", "public", "v1 description"),
-	}
-	var defaultRenders atomic.Int32
-	var sliceRenders atomic.Int32
-
-	handler := newSocialImageHandlerWithRenderer(
-		slices,
-		func() ([]byte, error) {
-			defaultRenders.Add(1)
-			return []byte("default-png"), nil
-		},
-		func(c socialcard.Card) ([]byte, error) {
-			sliceRenders.Add(1)
-			return []byte("slice-png:" + c.Description), nil
-		},
-	)
-
-	// HEAD must not invoke default or slice renderer.
-	rec := httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodHead, "/og/slices/sunny/neo.png", nil))
-	if rec.Code != http.StatusOK || sliceRenders.Load() != 0 || defaultRenders.Load() != 0 {
-		t.Fatalf("HEAD rendered unexpectedly: code=%d sliceRenders=%d defaultRenders=%d", rec.Code, sliceRenders.Load(), defaultRenders.Load())
-	}
-
-	// Repeated GETs for the same slice & description hit the LRU cache.
-	for range 5 {
-		rec = httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/og/slices/sunny/neo.png", nil))
-		if rec.Code != http.StatusOK || rec.Body.String() != "slice-png:v1 description" {
-			t.Fatalf("GET slice = %d %q", rec.Code, rec.Body.String())
-		}
-	}
-	if got := sliceRenders.Load(); got != 1 {
-		t.Fatalf("sliceRenders = %d, want 1", got)
-	}
-
-	// Updating description re-renders cleanly.
-	slices["sunny/neo"] = testSlice("sunny", "neo", "public", "v2 description")
-	rec = httptest.NewRecorder()
-	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/og/slices/sunny/neo.png", nil))
-	if rec.Body.String() != "slice-png:v2 description" || sliceRenders.Load() != 2 {
-		t.Fatalf("after description change: body=%q sliceRenders=%d", rec.Body.String(), sliceRenders.Load())
 	}
 }

@@ -10,10 +10,7 @@ import (
 	"strings"
 )
 
-const (
-	sealedPrefix   = "enc:v1:"
-	sealedV2Prefix = "enc:v2:"
-)
+const sealedPrefix = "enc:v1:"
 
 // Box seals and opens secret values with AES-256-GCM.
 type Box struct {
@@ -43,45 +40,21 @@ func New(base64Key string) (*Box, error) {
 
 // Seal encrypts plaintext in the enc:v1 storage format.
 func (b *Box) Seal(plaintext string) (string, error) {
-	return b.seal(sealedPrefix, plaintext, nil)
-}
-
-// SealWithAAD encrypts plaintext in the enc:v2 storage format, binding aad to
-// the authenticated ciphertext so values cannot be transplanted across rows.
-func (b *Box) SealWithAAD(plaintext string, aad []byte) (string, error) {
-	return b.seal(sealedV2Prefix, plaintext, aad)
-}
-
-func (b *Box) seal(prefix, plaintext string, aad []byte) (string, error) {
 	nonce := make([]byte, b.aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return "", fmt.Errorf("generate nonce: %w", err)
 	}
-	sealed := b.aead.Seal(nonce, nonce, []byte(plaintext), aad)
-	return prefix + base64.StdEncoding.EncodeToString(sealed), nil
+	sealed := b.aead.Seal(nonce, nonce, []byte(plaintext), nil)
+	return sealedPrefix + base64.StdEncoding.EncodeToString(sealed), nil
 }
 
-// Open decrypts an enc:v1 value (or an enc:v2 value sealed with empty AAD).
-// Unprefixed legacy plaintext is returned unchanged.
+// Open decrypts an enc:v1 value. Unprefixed legacy plaintext is returned
+// unchanged.
 func (b *Box) Open(stored string) (string, error) {
-	return b.OpenWithAAD(stored, nil)
-}
-
-// OpenWithAAD decrypts an enc:v2 value verifying aad, while keeping backward
-// compatibility for pre-AAD enc:v1 values and unprefixed legacy plaintext.
-func (b *Box) OpenWithAAD(stored string, aad []byte) (string, error) {
-	switch {
-	case strings.HasPrefix(stored, sealedV2Prefix):
-		return b.openPayload(strings.TrimPrefix(stored, sealedV2Prefix), aad)
-	case strings.HasPrefix(stored, sealedPrefix):
-		return b.openPayload(strings.TrimPrefix(stored, sealedPrefix), nil)
-	default:
+	if !IsSealed(stored) {
 		return stored, nil
 	}
-}
-
-func (b *Box) openPayload(encoded string, aad []byte) (string, error) {
-	payload, err := base64.StdEncoding.DecodeString(encoded)
+	payload, err := base64.StdEncoding.DecodeString(strings.TrimPrefix(stored, sealedPrefix))
 	if err != nil {
 		return "", fmt.Errorf("decode sealed value: %w", err)
 	}
@@ -89,16 +62,16 @@ func (b *Box) openPayload(encoded string, aad []byte) (string, error) {
 	if len(payload) < nonceSize {
 		return "", fmt.Errorf("sealed value is too short")
 	}
-	plaintext, err := b.aead.Open(nil, payload[:nonceSize], payload[nonceSize:], aad)
+	plaintext, err := b.aead.Open(nil, payload[:nonceSize], payload[nonceSize:], nil)
 	if err != nil {
 		return "", fmt.Errorf("open sealed value: %w", err)
 	}
 	return string(plaintext), nil
 }
 
-// IsSealed reports whether stored carries a known sealed envelope prefix.
+// IsSealed reports whether stored carries the enc:v1 prefix.
 func IsSealed(stored string) bool {
-	return strings.HasPrefix(stored, sealedPrefix) || strings.HasPrefix(stored, sealedV2Prefix)
+	return strings.HasPrefix(stored, sealedPrefix)
 }
 
 func decodeBase64(value string) ([]byte, error) {

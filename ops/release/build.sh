@@ -15,31 +15,21 @@ cd /workspace
 touch published.txt
 : > built.txt
 
-TAG_RE='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
-if [ -n "${TAG:-}" ] && [[ ! "$TAG" =~ $TAG_RE ]]; then
-  echo "invalid release tag: $TAG" >&2
-  exit 1
-fi
-if [[ ! "${SINCE:-}" =~ $TAG_RE ]]; then
-  echo "invalid SINCE tag: ${SINCE:-}" >&2
-  exit 1
-fi
-
 tags_file="$(mktemp)"
 list_tags() {
-  git ls-remote --tags -- "$GIT_URL" 'refs/tags/v*' | awk '{ sub("refs/tags/", "", $2); print $2 }' | grep -v '\^{}$' | sort -u > "$tags_file"
+  git ls-remote --tags "$GIT_URL" 'refs/tags/v*' | awk '{ sub("refs/tags/", "", $2); print $2 }' | grep -v '\^{}$' | sort -u > "$tags_file"
 }
 list_tags
 # A webhook fires as the tag is created; give the Git endpoint a moment to
 # list it rather than miss the release.
 if [ -n "${TAG:-}" ]; then
   for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
-    grep -Fxq -- "$TAG" "$tags_file" && break
+    grep -qx "$TAG" "$tags_file" && break
     echo "waiting for $TAG at $GIT_URL"
     sleep 10
     list_tags
   done
-  grep -Fxq -- "$TAG" "$tags_file" || { echo "no tag $TAG at $GIT_URL" >&2; exit 1; }
+  grep -qx "$TAG" "$tags_file" || { echo "no tag $TAG at $GIT_URL" >&2; exit 1; }
 fi
 
 # semver_gt A B: true when release tag A is newer than B (vMAJOR.MINOR.PATCH).
@@ -56,11 +46,11 @@ else
   # A webhook names one tag; the daily reconcile names none. Either way only
   # release tags (vX.Y.Z) newer than SINCE that are not published are built,
   # so a repeated or stray event builds nothing.
-  while IFS= read -r tag; do
+  while read -r tag; do
     [ -n "${TAG:-}" ] && [ "$tag" != "$TAG" ] && continue
-    [[ "$tag" =~ $TAG_RE ]] || continue
+    [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
     semver_gt "$tag" "$SINCE" || continue
-    grep -Fxq -- "$tag" published.txt && continue
+    grep -qx "$tag" published.txt && continue
     pending+=("$tag")
   done < "$tags_file"
   if [ -n "${TAG:-}" ] && [ "${#pending[@]}" -eq 0 ]; then
@@ -70,12 +60,8 @@ fi
 
 # latest.json names the newest tag that is (or will be) published.
 latest=""
-published_tags=()
-while IFS= read -r ptag; do
-  [ -n "$ptag" ] && published_tags+=("$ptag")
-done < published.txt
-for tag in "${published_tags[@]+"${published_tags[@]}"}" "${pending[@]+"${pending[@]}"}"; do
-  [[ "$tag" =~ $TAG_RE ]] || continue
+for tag in $(cat published.txt) "${pending[@]}"; do
+  [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
   if [ -z "$latest" ] || semver_gt "$tag" "$latest"; then latest="$tag"; fi
 done
 printf '{"tag":"%s"}\n' "$latest" > latest.json
@@ -90,7 +76,7 @@ apt-get update -qq && apt-get install -y -qq zip >/dev/null
 for tag in "${pending[@]}"; do
   echo "== building $tag"
   src="$(mktemp -d)"
-  git clone -q --depth 1 --branch "$tag" -- "$GIT_URL" "$src"
+  git clone -q --depth 1 --branch "$tag" "$GIT_URL" "$src"
   commit="$(git -C "$src" rev-parse HEAD)"
   date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   pkg="gitslice.io/gitslice/internal/cli"

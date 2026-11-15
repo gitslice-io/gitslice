@@ -32,9 +32,6 @@ const (
 
 	containerNamePrefix     = "gitslice-run-"
 	containerCleanupTimeout = 15 * time.Second
-
-	setupImageLabelKey = "io.gitslice.ci.setup"
-	keptSetupImages    = 8
 )
 
 type Result struct {
@@ -49,6 +46,15 @@ type Result struct {
 	// needs a container runtime and has none), as opposed to the check
 	// failing. Such a result says nothing about the change.
 	Unrunnable bool
+}
+
+// requireContainerChecks reports whether host-mode execution is disabled for
+// this daemon. Shared / multi-tenant daemons set GITSLICE_CHECKS_REQUIRE_CONTAINER
+// so an untrusted check cannot run directly on the host; single-tenant self-host
+// leaves it unset and keeps host mode.
+func requireContainerChecks() bool {
+	v := strings.TrimSpace(os.Getenv("GITSLICE_CHECKS_REQUIRE_CONTAINER"))
+	return v == "1" || strings.EqualFold(v, "true")
 }
 
 // Run executes one resolved check against workspaceRoot.
@@ -67,33 +73,26 @@ func Run(ctx context.Context, workspaceRoot string, spec checks.CheckSpec) (Resu
 			Summary:  "services need a containerized check (image or build)",
 		}, nil
 	}
-	if RequireContainerChecks() {
+	if requireContainerChecks() {
 		return Result{}, fmt.Errorf("check %q must declare an image or setup: host-mode execution is disabled on this daemon", spec.Name)
 	}
 	return runHost(ctx, workspaceRoot, spec, timeout)
 }
 
 func containerized(spec checks.CheckSpec) bool {
-	return spec.Image != "" || spec.Build != nil || len(spec.Setup) > 0
+	return strings.TrimSpace(spec.Image) != "" || spec.Build != nil || len(spec.Setup) > 0
 }
 
 func runHost(ctx context.Context, workspaceRoot string, spec checks.CheckSpec, timeout time.Duration) (Result, error) {
 	// Host execution intentionally ignores container-only cache and resource
 	// settings; there is no isolation boundary to mount persistent volumes into.
-	if strings.ContainsRune(spec.Run, '\x00') {
-		return Result{}, fmt.Errorf("check %q run command contains NUL", spec.Name)
-	}
 	dir, err := workspaceDir(workspaceRoot, spec.WorkingDir)
-	if err != nil {
-		return Result{}, err
-	}
-	env, err := hostEnv(spec.Env)
 	if err != nil {
 		return Result{}, err
 	}
 	cmd := exec.CommandContext(ctx, "sh", "-c", spec.Run)
 	cmd.Dir = dir
-	cmd.Env = env
+	cmd.Env = hostEnv(spec.Env)
 	return runCommand(ctx, cmd, timeout, nil)
 }
 
@@ -101,28 +100,12 @@ func runHost(ctx context.Context, workspaceRoot string, spec checks.CheckSpec, t
 type containerRun struct {
 	user      []string          // --user / --userns arguments
 	home      bool              // give the check a HOME it can write
-	envFile   string            // 0600 temporary --env-file path, if any
 	network   string            // the run's services network, if any
 	hosts     []string          // names that resolve to 127.0.0.1 (services, on the host network)
 	cacheDirs map[string]string // container cache path -> host folder
 }
 
 func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSpec, timeout time.Duration) (Result, error) {
-	if spec.Image != "" {
-		if err := checks.ValidateImageRef(spec.Image); err != nil {
-			return Result{}, fmt.Errorf("invalid check image: %w", err)
-		}
-	}
-	if err := checks.ValidateSetupCommands(spec.Setup); err != nil {
-		return Result{}, fmt.Errorf("invalid check setup: %w", err)
-	}
-	if err := checks.ValidateEnvMap(spec.Env); err != nil {
-		return Result{}, fmt.Errorf("invalid check env: %w", err)
-	}
-	if strings.ContainsRune(spec.Run, '\x00') {
-		return Result{}, fmt.Errorf("check %q run command contains NUL", spec.Name)
-	}
-
 	rt := DetectRuntime(ctx)
 	if !rt.OK() {
 		return Result{
@@ -132,18 +115,15 @@ func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSp
 			Unrunnable: true,
 		}, nil
 	}
-	root, err := workspaceDir(workspaceRoot, ".")
+	root, err := filepath.Abs(workspaceRoot)
 	if err != nil {
-		return Result{}, err
-	}
-	if _, err := workspaceDir(root, spec.WorkingDir); err != nil {
-		return Result{}, err
+		return Result{}, fmt.Errorf("resolve workspace root: %w", err)
 	}
 
 	var notes []string
 	var setupMs int64
 	cached := false
-	image := spec.Image
+	image := strings.TrimSpace(spec.Image)
 	if spec.Build != nil {
 		built, err := resolveBuiltImage(root, spec.Scope, spec.Build)
 		if err != nil {
@@ -154,7 +134,7 @@ func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSp
 				Log:      err.Error(),
 			}, nil
 		}
-		buildMs, buildCached, note, result, err := ensureBuiltImage(ctx, rt, built, spec.Network, spec.Build.Timeout)
+		buildMs, buildCached, note, result, err := ensureBuiltImage(ctx, rt, built, spec.Build.Timeout)
 		if err != nil {
 			return Result{}, err
 		}
@@ -172,7 +152,7 @@ func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSp
 		}, nil
 	}
 	if len(spec.Setup) > 0 {
-		preparedImage, preparedSetupMs, preparedCached, result, err := prepareContainerImage(ctx, rt.Path, image, spec.Setup, spec.Network, timeout)
+		preparedImage, preparedSetupMs, preparedCached, result, err := prepareContainerImage(ctx, rt.Path, image, spec.Setup, timeout)
 		if err != nil {
 			return Result{}, err
 		}
@@ -207,17 +187,6 @@ func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSp
 		notes = append(notes, note)
 	}
 
-	defaultHome := ""
-	if run.home {
-		defaultHome = containerHome
-	}
-	envFile, cleanupEnv, err := writeContainerEnvFile(spec.Env, defaultHome)
-	if err != nil {
-		return Result{}, err
-	}
-	defer cleanupEnv()
-	run.envFile = envFile
-
 	containerName, err := newContainerName()
 	if err != nil {
 		return Result{}, err
@@ -228,9 +197,8 @@ func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSp
 	}
 
 	cmd := exec.CommandContext(ctx, rt.Path, args...)
-	cmd.Env = containerClientEnv()
+	cmd.Env = containerClientEnv(spec.Env)
 	cleanup := func() {
-		cleanupEnv()
 		removeContainer(rt.Path, containerName)
 	}
 	result, err := runCommand(ctx, cmd, timeout, cleanup)
@@ -341,24 +309,9 @@ func runCommand(ctx context.Context, cmd *exec.Cmd, timeout time.Duration, clean
 	}, nil
 }
 
-func prepareContainerImage(ctx context.Context, runtime, image string, setup []string, network bool, timeout time.Duration) (string, int64, bool, *Result, error) {
-	dockerfile, err := setupDockerfile(image, setup)
-	if err != nil {
-		return "", 0, false, nil, err
-	}
+func prepareContainerImage(ctx context.Context, runtime, image string, setup []string, timeout time.Duration) (string, int64, bool, *Result, error) {
 	tag := preparedImageTag(image, setup)
-	if err := checks.ValidateImageRef(tag); err != nil {
-		return "", 0, false, nil, err
-	}
-
-	unlock, err := lockBuild(ctx, tag)
-	if err != nil {
-		return "", 0, false, nil, err
-	}
-	defer unlock()
-
-	inspect := exec.CommandContext(ctx, runtime, "image", "inspect", "--", tag)
-	inspect.Env = containerClientEnv()
+	inspect := exec.CommandContext(ctx, runtime, "image", "inspect", tag)
 	if err := inspect.Run(); err == nil {
 		return tag, 0, true, nil, nil
 	}
@@ -374,18 +327,8 @@ func prepareContainerImage(ctx context.Context, runtime, image string, setup []s
 
 	buildCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	buildArgs := []string{
-		"build",
-		"--label", setupImageLabelKey + "=1",
-		"-t", tag,
-		"-f", "-",
-	}
-	buildArgs = append(buildArgs, containerBuildNetworkArgs(network)...)
-	buildArgs = append(buildArgs, contextDir)
-
-	cmd := exec.CommandContext(buildCtx, runtime, buildArgs...)
-	cmd.Env = containerClientEnv()
-	cmd.Stdin = strings.NewReader(dockerfile)
+	cmd := exec.CommandContext(buildCtx, runtime, "build", "-t", tag, "-f", "-", contextDir)
+	cmd.Stdin = strings.NewReader(setupDockerfile(image, setup))
 	configureProcessGroup(cmd)
 	var output cappedBuffer
 	cmd.Stdout = &output
@@ -423,22 +366,7 @@ func prepareContainerImage(ctx context.Context, runtime, image string, setup []s
 			SetupMs:  setupMs,
 		}, nil
 	}
-	pruneSetupImages(runtime)
 	return tag, setupMs, false, nil, nil
-}
-
-func pruneSetupImages(runtime string) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	lsCmd := exec.CommandContext(ctx, runtime, "image", "ls",
-		"--filter", "label="+setupImageLabelKey+"=1",
-		"--format", "{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}")
-	lsCmd.Env = containerClientEnv()
-	out, err := lsCmd.Output()
-	if err != nil {
-		return
-	}
-	pruneImageListing(ctx, runtime, string(out), keptSetupImages)
 }
 
 func preparedImageTag(image string, setup []string) string {
@@ -464,40 +392,17 @@ func randomSuffix() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-func setupDockerfile(image string, setup []string) (string, error) {
-	if err := checks.ValidateImageRef(image); err != nil {
-		return "", fmt.Errorf("setup base image: %w", err)
-	}
-	if err := checks.ValidateSetupCommands(setup); err != nil {
-		return "", fmt.Errorf("setup commands: %w", err)
-	}
+func setupDockerfile(image string, setup []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "FROM %s\n", image)
 	for _, command := range setup {
 		fmt.Fprintf(&b, "RUN %s\n", command)
 	}
-	return b.String(), nil
+	return b.String()
 }
 
 func containerRunArgs(root, image, containerName string, spec checks.CheckSpec, run containerRun) ([]string, error) {
-	if err := checks.ValidateImageRef(image); err != nil {
-		return nil, fmt.Errorf("invalid container image: %w", err)
-	}
-	if containerName == "" || strings.HasPrefix(containerName, "-") || strings.ContainsAny(containerName, " \t\r\n\x00") {
-		return nil, fmt.Errorf("invalid container name %q", containerName)
-	}
-	if err := checks.ValidateEnvMap(spec.Env); err != nil {
-		return nil, err
-	}
 	cachePaths, err := normalizedContainerCachePaths(spec.Cache)
-	if err != nil {
-		return nil, err
-	}
-	memLimit, err := cappedMemoryLimit(spec.Memory, DefaultContainerMemory)
-	if err != nil {
-		return nil, err
-	}
-	cpuLimit, err := cappedCPULimit(spec.CPUs, DefaultContainerCPUs)
 	if err != nil {
 		return nil, err
 	}
@@ -509,8 +414,8 @@ func containerRunArgs(root, image, containerName string, spec checks.CheckSpec, 
 		"--security-opt=no-new-privileges",
 		"--cap-drop=ALL",
 		"--pids-limit=" + defaultContainerPIDsLimit,
-		"--memory=" + memLimit,
-		"--cpus=" + cpuLimit,
+		"--memory=" + containerLimitValue(spec.Memory, DefaultContainerMemory),
+		"--cpus=" + containerLimitValue(spec.CPUs, DefaultContainerCPUs),
 	}
 	args = append(args, run.user...)
 	args = append(args, "-v", root+":"+containerWorkspacePath)
@@ -533,16 +438,20 @@ func containerRunArgs(root, image, containerName string, spec checks.CheckSpec, 
 	for _, host := range run.hosts {
 		args = append(args, "--add-host", host+":127.0.0.1")
 	}
-	if run.envFile != "" {
-		args = append(args, "--env-file", run.envFile)
-	} else if _, ok := spec.Env["HOME"]; run.home && !ok {
+	if _, ok := spec.Env["HOME"]; run.home && !ok {
 		args = append(args, "-e", "HOME="+containerHome)
 	}
-	args = append(args, "--", image, "sh", "-c", spec.Run)
+	for _, key := range sortedEnvKeys(spec.Env) {
+		args = append(args, "-e", key)
+	}
+	args = append(args, image, "sh", "-c", spec.Run)
 	return args, nil
 }
 
 // checkCacheDirs creates the host folders behind a check's cache paths.
+// They are folders the daemon's user owns rather than named volumes, so a
+// check running as that user can write them, and whoever frees disk can
+// see them.
 func checkCacheDirs(spec checks.CheckSpec) (map[string]string, error) {
 	cachePaths, err := normalizedContainerCachePaths(spec.Cache)
 	if err != nil || len(cachePaths) == 0 {
@@ -563,16 +472,21 @@ func checkCacheDirs(spec checks.CheckSpec) (map[string]string, error) {
 	return out, nil
 }
 
-// removeContainer removes a container and its anonymous volumes.
+// removeContainer removes a container and its anonymous volumes. An image
+// such as postgres declares a VOLUME for its data, so a service container
+// removed without -v left a volume behind on every run.
 func removeContainer(runtime, name string) {
-	if name == "" || strings.HasPrefix(name, "-") || strings.ContainsAny(name, " \t\r\n\x00") {
-		return
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), containerCleanupTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, runtime, "rm", "-f", "-v", "--", name)
-	cmd.Env = containerClientEnv()
-	_ = cmd.Run()
+	_ = exec.CommandContext(ctx, runtime, "rm", "-f", "-v", name).Run()
+}
+
+func containerLimitValue(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 func normalizedContainerCachePaths(values []string) ([]string, error) {
@@ -582,9 +496,6 @@ func normalizedContainerCachePaths(values []string) ([]string, error) {
 	out := make([]string, 0, len(values))
 	seen := map[string]struct{}{}
 	for _, value := range values {
-		if strings.ContainsAny(value, "\r\n\x00") {
-			return nil, fmt.Errorf("cache path %q contains control characters", value)
-		}
 		normalized := strings.ReplaceAll(strings.TrimSpace(value), "\\", "/")
 		if normalized == "" {
 			return nil, fmt.Errorf("cache path is empty")
@@ -610,9 +521,29 @@ func normalizedContainerCachePaths(values []string) ([]string, error) {
 	return out, nil
 }
 
+// checkCacheDirName names the folder behind one cache path. Checks of one
+// slice that cache the same path share it (a Go build cache serves vet,
+// test and build alike, and is safe to share); two slices on one daemon
+// never do.
 func checkCacheDirName(scope, cachePath string) string {
 	sum := sha256.Sum256([]byte(scope + "\x00" + cachePath))
 	return hex.EncodeToString(sum[:])[:24]
+}
+
+func workspaceDir(workspaceRoot, logicalDir string) (string, error) {
+	if strings.TrimSpace(workspaceRoot) == "" {
+		return "", fmt.Errorf("workspace root is required")
+	}
+	root, err := filepath.Abs(workspaceRoot)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace root: %w", err)
+	}
+	rel := logicalPathRel(logicalDir)
+	dir := filepath.Join(root, filepath.FromSlash(rel))
+	if err := ensureInside(root, dir); err != nil {
+		return "", err
+	}
+	return dir, nil
 }
 
 func containerWorkingDir(logicalDir string) string {
@@ -631,6 +562,27 @@ func logicalPathRel(value string) string {
 		return "."
 	}
 	return strings.TrimPrefix(cleaned, "/")
+}
+
+func ensureInside(root, target string) error {
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return fmt.Errorf("resolve workspace-relative path: %w", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return fmt.Errorf("working directory escapes workspace: %s", target)
+	}
+	return nil
+}
+
+func hostEnv(overrides map[string]string) []string {
+	env := os.Environ()
+	return append(env, envPairs(overrides)...)
+}
+
+func containerClientEnv(overrides map[string]string) []string {
+	env := os.Environ()
+	return append(env, envPairs(overrides)...)
 }
 
 func envPairs(overrides map[string]string) []string {
@@ -654,6 +606,11 @@ func sortedEnvKeys(env map[string]string) []string {
 // rest of MaxLogBytes holds the most recent output.
 const logHeadBytes = 32 * 1024
 
+// cappedBuffer bounds a check's output to MaxLogBytes, keeping the first
+// logHeadBytes and the latest remainder. Test failures and summaries print
+// last, so a log that only kept its start lost exactly what a failed check
+// needs to show. Stdout and stderr share one buffer, so os/exec never calls
+// Write concurrently.
 type cappedBuffer struct {
 	head        bytes.Buffer
 	tail        []byte // ring holding the latest output once head is full

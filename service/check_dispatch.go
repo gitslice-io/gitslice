@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"gitslice.io/gitslice/internal/activity"
-	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/checks"
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
 	"gitslice.io/gitslice/internal/secretmask"
@@ -26,7 +25,6 @@ import (
 const (
 	checkDispatchSweepInterval = 10 * time.Second
 	checkDispatchSweepMinAge   = 15 * time.Second
-	maxCheckTreeReadFileBytes  = 64 << 20
 )
 
 type checkTreeReader struct {
@@ -46,20 +44,14 @@ func (r checkTreeReader) ReadFile(ctx context.Context, rootTreeID, logicalPath s
 	if err != nil {
 		return nil, err
 	}
-	if entry.Size > maxCheckTreeReadFileBytes {
-		return nil, status.Errorf(codes.ResourceExhausted, "check file %s exceeds %d byte limit", logicalPath, maxCheckTreeReadFileBytes)
-	}
 	rc, err := r.objects.Get(ctx, filesystem.BlobKey(entry.ContentHash), 0, 0)
 	if err != nil {
 		return nil, err
 	}
 	defer rc.Close()
-	data, err := io.ReadAll(io.LimitReader(rc, maxCheckTreeReadFileBytes+1))
+	data, err := io.ReadAll(rc)
 	if err != nil {
 		return nil, err
-	}
-	if int64(len(data)) > maxCheckTreeReadFileBytes {
-		return nil, status.Errorf(codes.ResourceExhausted, "check file %s exceeds %d byte limit", logicalPath, maxCheckTreeReadFileBytes)
 	}
 	return data, nil
 }
@@ -73,7 +65,6 @@ func (r checkTreeReader) storagePath(logicalPath string) string {
 }
 
 type checkDispatcher struct {
-	Auth        storage.AuthStore
 	Checks      storage.CheckStore
 	Changesets  storage.ChangesetStore
 	Repository  storage.RepositoryStore
@@ -146,12 +137,6 @@ func (d *checkDispatcher) dispatchCIChecks(ctx context.Context, cs *corev1.Chang
 	var runnable []checks.CheckSpec
 	for _, spec := range plan.Runnable {
 		if spec.OutOfSlice {
-			runnable = append(runnable, spec)
-			continue
-		}
-		// Never let client-supplied bundled check runs suppress required CI checks
-		// on a slice configured with a CI daemon.
-		if hasDaemon && isRequiredSliceCheck(slice, spec.Name) {
 			runnable = append(runnable, spec)
 			continue
 		}
@@ -516,10 +501,8 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 		}
 		return nil, status.Errorf(codes.FailedPrecondition, "check %q has no runnable CI definition in this revision", checkName)
 	}
-	if d.patchsetApprovedForGitsliceSecrets(ctx, cs, slice.GetRef().GetAccount(), patchset) {
-		if _, err := d.secretsForChecks(ctx, slice.GetRef().GetAccount(), []checks.CheckSpec{spec}); err != nil {
-			return nil, status.Errorf(codes.FailedPrecondition, "CI secrets could not be loaded: %v", err)
-		}
+	if _, err := d.secretsForChecks(ctx, slice.GetRef().GetAccount(), []checks.CheckSpec{spec}); err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "CI secrets could not be loaded: %v", err)
 	}
 
 	run, err := d.Checks.CreateCheckRun(ctx, storage.CheckRunInput{
@@ -846,12 +829,9 @@ func (d *checkDispatcher) rebuildRunChecksMessage(ctx context.Context, runs []*c
 			queued = append(queued, spec)
 		}
 	}
-	var secrets map[string]map[string]string
-	if d.patchsetApprovedForGitsliceSecrets(ctx, cs, slice.GetRef().GetAccount(), patchset) {
-		secrets, err = d.secretsForChecks(ctx, slice.GetRef().GetAccount(), queued)
-		if err != nil {
-			return nil, err
-		}
+	secrets, err := d.secretsForChecks(ctx, slice.GetRef().GetAccount(), queued)
+	if err != nil {
+		return nil, err
 	}
 	specs := make([]*corev1.CheckRunSpec, 0, len(runs))
 	for _, run := range runs {
@@ -1021,56 +1001,6 @@ func (d *checkDispatcher) secretsForChecks(ctx context.Context, account string, 
 		out[spec.Name] = values
 	}
 	return out, nil
-}
-
-// patchsetApprovedForGitsliceSecrets reports whether CI checks running for
-// patchset may receive folder/account secrets. Unapproved draft edits under
-// .gitslice/ could alter checks.yaml to exfiltrate secrets, so secrets are
-// withheld unless patchset.Author is an account admin or an account admin has
-// approved this specific patchset.
-func (d *checkDispatcher) patchsetApprovedForGitsliceSecrets(ctx context.Context, cs *corev1.Changeset, account string, patchset *corev1.Patchset) bool {
-	if patchsetTouchedGitslicePath(ctx, d.Repository, patchset) == "" {
-		return true
-	}
-	if d == nil || d.Auth == nil {
-		return false
-	}
-	patchsetAuthor := strings.TrimSpace(patchset.GetAuthor())
-	if patchsetAuthor != "" {
-		if ok, err := canAuthorizeAccount(ctx, d.Auth, patchsetAuthor, account, authz.ActionAdmin); err == nil && ok {
-			return true
-		}
-	}
-	if d.Changesets == nil || cs == nil {
-		return false
-	}
-	approvers, err := d.Changesets.ApprovalSubjects(ctx, cs.GetId(), patchset.GetId())
-	if err != nil {
-		return false
-	}
-	for _, subjectID := range approvers {
-		subjectID = strings.TrimSpace(subjectID)
-		if subjectID == "" || subjectID == patchsetAuthor || (patchsetAuthor == "" && subjectID == strings.TrimSpace(cs.GetAuthor())) {
-			continue
-		}
-		if ok, err := canAuthorizeAccount(ctx, d.Auth, subjectID, account, authz.ActionAdmin); err == nil && ok {
-			return true
-		}
-	}
-	return false
-}
-
-func isRequiredSliceCheck(slice *corev1.Slice, checkName string) bool {
-	checkName = strings.TrimSpace(checkName)
-	if checkName == "" || slice == nil || slice.Definition == nil {
-		return false
-	}
-	for _, req := range slice.Definition.RequiredChecks {
-		if strings.TrimSpace(req) == checkName {
-			return true
-		}
-	}
-	return false
 }
 
 // checkSecretFolder is the folder whose secrets a check gets: the folder of

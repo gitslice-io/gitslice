@@ -1,28 +1,15 @@
 package service
 
 import (
-	"context"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
-
-	"gitslice.io/gitslice/internal/webhooks"
 )
 
-var (
-	importSourceSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
-	resolvePublicImportHost    = webhooks.ResolvePublic
-)
-
-var defaultImportAllowedHosts = map[string]struct{}{
-	"github.com":    {},
-	"gitlab.com":    {},
-	"bitbucket.org": {},
-}
+var importSourceSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 // validateImportSource normalizes and validates a user-supplied git import
 // source. It returns the canonical clone target, whether that target is a local
@@ -38,9 +25,6 @@ func validateImportSource(source string) (string, bool, error) {
 	source = strings.TrimSpace(source)
 	if source == "" {
 		return "", false, fmt.Errorf("git import source is required; use owner/repo or an HTTPS URL on an allowed host")
-	}
-	if strings.HasPrefix(source, "-") {
-		return "", false, fmt.Errorf("git import source must not start with '-'")
 	}
 
 	if strings.Count(source, "/") == 1 &&
@@ -77,14 +61,6 @@ func validateImportSource(source string) (string, bool, error) {
 	hostname := strings.ToLower(parsed.Hostname())
 	if _, ok := allowedImportHosts()[hostname]; !ok {
 		return "", false, fmt.Errorf("git import source host is not allowed; use owner/repo or an HTTPS URL on an allowed host")
-	}
-	if _, builtin := defaultImportAllowedHosts[hostname]; !builtin && !localImportAllowed() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		addr, err := resolvePublicImportHost(ctx, hostname, false)
-		if err != nil || !addr.IsValid() {
-			return "", false, fmt.Errorf("git import source host %q is not a public host", hostname)
-		}
 	}
 
 	return parsed.String(), false, nil

@@ -221,7 +221,6 @@ func (d *DB) markGCPendingPublishRoots(ctx context.Context, reachable *gcReachab
 	rows, err := d.db.QueryContext(ctx, `
 		select id, changeset_id, patchset_id, base_ref_commit_id, coalesce(commit_id, '')
 		from pending_publish
-		where status <> 'failed'
 		order by sequence, id
 	`)
 	if err != nil {
@@ -255,7 +254,6 @@ func (d *DB) markGCPendingPublishRoots(ctx context.Context, reachable *gcReachab
 		       p.conflicts, p.base_tree_id, p.result_tree_id
 		from patchsets p
 		join pending_publish pending on pending.changeset_id = p.changeset_id
-		where pending.status <> 'failed'
 		order by p.changeset_id, p.id
 	`); err != nil {
 		return 0, err

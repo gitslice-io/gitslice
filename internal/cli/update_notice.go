@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,23 +66,16 @@ func (r Runner) lookUpLatestRelease(ctx context.Context, timeout time.Duration) 
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	base := strings.TrimRight(firstNonEmpty(os.Getenv("GS_DOWNLOAD_BASE"), defaultReleasesBase), "/")
-	latest := ""
-	if baseURL, err := validateReleaseBaseURL(base); err == nil {
-		if resolved, err := latestReleaseTag(ctx, newReleaseHTTPClient(timeout, baseURL), base); err == nil {
-			latest = resolved
-		}
+	latest, err := latestReleaseTag(ctx, &http.Client{Timeout: timeout}, base)
+	if err != nil {
+		latest = ""
 	}
 	// A failed lookup is recorded too, so an offline machine tries once a
 	// day rather than on every command.
-	_ = r.writeUpdateCheckState(updateCheckState{CheckedAt: time.Now().UTC(), Latest: latest})
-	return latest
-}
-
-func (r Runner) writeUpdateCheckState(state updateCheckState) error {
-	if err := os.MkdirAll(filepath.Dir(r.updateCheckPath()), 0o700); err != nil {
-		return err
+	if err := os.MkdirAll(filepath.Dir(r.updateCheckPath()), 0o700); err == nil {
+		_ = writeJSONFile(r.updateCheckPath(), updateCheckState{CheckedAt: time.Now().UTC(), Latest: latest}, 0o600)
 	}
-	return writeJSONFile(r.updateCheckPath(), state, 0o600)
+	return latest
 }
 
 // latestKnownRelease is the latest release for gs version: the daily
@@ -93,9 +87,6 @@ func (r Runner) latestKnownRelease(ctx context.Context) string {
 	}
 	var state updateCheckState
 	if err := readJSONFile(r.updateCheckPath(), &state); err == nil && time.Since(state.CheckedAt) < updateCheckInterval {
-		if state.Latest != "" && validateReleaseTag(state.Latest) != nil {
-			return ""
-		}
 		return state.Latest
 	}
 	return r.lookUpLatestRelease(ctx, versionLookupTimeout)

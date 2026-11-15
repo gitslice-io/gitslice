@@ -97,7 +97,7 @@ func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.C
 	cs, _, err := scanChangesetRow(s.db.QueryRowContext(ctx, `
 			select `+changesetRowColumns+`, null::jsonb
 			from changesets c
-			left join pending_publish p on p.changeset_id = c.id and p.status <> 'failed'
+			left join pending_publish p on p.changeset_id = c.id
 			where c.id = $1
 		`, changesetID))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -168,7 +168,7 @@ func (s *ChangesetStore) listSummaries(ctx context.Context, ids []string) ([]*co
 	rows, err := s.db.QueryContext(ctx, `
 		select `+changesetRowColumns+`, cp.submit_requirements
 		from changesets c
-		left join pending_publish p on p.changeset_id = c.id and p.status <> 'failed'
+		left join pending_publish p on p.changeset_id = c.id
 		left join patchsets cp on cp.id = c.current_patchset_id
 		where c.id = any($1)
 	`, ids)
@@ -271,55 +271,15 @@ func (s *ChangesetStore) List(ctx context.Context, filter storage.ChangesetListF
 		out, err := s.listSummaries(ctx, ids)
 		return out, nextToken, err
 	}
-	out, err := s.getManyByIDs(ctx, ids)
-	return out, nextToken, err
-}
-
-func (s *ChangesetStore) getManyByIDs(ctx context.Context, ids []string) ([]*corev1.Changeset, error) {
-	if len(ids) == 0 {
-		return []*corev1.Changeset{}, nil
-	}
-	rows, err := s.db.QueryContext(ctx, `
-		select `+changesetRowColumns+`, null::jsonb
-		from changesets c
-		left join pending_publish p on p.changeset_id = c.id and p.status <> 'failed'
-		where c.id = any($1)
-	`, ids)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	byID := make(map[string]*corev1.Changeset, len(ids))
-	for rows.Next() {
-		cs, _, err := scanChangesetRow(rows)
-		if err != nil {
-			return nil, err
-		}
-		byID[cs.Id] = cs
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	patchsetsByCS, err := s.listPatchsetsForChangesets(ctx, ids)
-	if err != nil {
-		return nil, err
-	}
 	out := make([]*corev1.Changeset, 0, len(ids))
 	for _, id := range ids {
-		cs := byID[id]
-		if cs == nil {
-			continue
-		}
-		cs.Patchsets = patchsetsByCS[id]
-		storage.PopulateChangesetHandles(cs)
-		if current := currentPatchset(cs); current != nil {
-			cs.SubmitRequirements = current.SubmitRequirements
-		} else {
-			cs.SubmitRequirements = &corev1.SubmitRequirements{}
+		cs, err := s.Get(ctx, id)
+		if err != nil {
+			return nil, "", err
 		}
 		out = append(out, cs)
 	}
-	return out, nil
+	return out, nextToken, nil
 }
 
 func encodeChangesetPageToken(updatedAt time.Time, id string) string {
@@ -346,17 +306,7 @@ func (s *ChangesetStore) resolveChangesetSelector(ctx context.Context, selector 
 		return selector, nil
 	}
 	if isChangeset {
-		var (
-			matches []string
-			err     error
-		)
-		if len(prefix) == len("cs_")+32 {
-			matches, err = s.selectChangesetIDs(ctx, `select id from changesets where id = $1`, prefix)
-		} else if upper, ok := hexPrefixUpperBound(prefix); ok {
-			matches, err = s.selectChangesetIDs(ctx, `select id from changesets where id >= $1 and id < $2 and starts_with(id, $1) order by id limit 2`, prefix, upper)
-		} else {
-			matches, err = s.selectChangesetIDs(ctx, `select id from changesets where starts_with(id, $1) order by id limit 2`, prefix)
-		}
+		matches, err := s.selectChangesetIDs(ctx, `select id from changesets where left(id, $2) = $1 order by id limit 2`, prefix, len(prefix))
 		if err != nil {
 			return "", err
 		}
@@ -369,15 +319,7 @@ func (s *ChangesetStore) resolveChangesetSelector(ctx context.Context, selector 
 	}
 	if isCommit {
 		// Not a changeset: maybe the id of the commit a changeset landed as.
-		var (
-			matches []string
-			err     error
-		)
-		if len(commitPrefix) == len("sha256:")+64 {
-			matches, err = s.selectChangesetIDs(ctx, `select id from changesets where commit_id = $1 order by id limit 2`, commitPrefix)
-		} else {
-			matches, err = s.selectChangesetIDs(ctx, `select id from changesets where commit_id like $1 || '%' order by id limit 2`, commitPrefix)
-		}
+		matches, err := s.selectChangesetIDs(ctx, `select id from changesets where commit_id like $1 || '%' order by id limit 2`, commitPrefix)
 		if err != nil {
 			return "", err
 		}
@@ -392,30 +334,6 @@ func (s *ChangesetStore) resolveChangesetSelector(ctx context.Context, selector 
 		return selector, nil
 	}
 	return "", ErrNotFound
-}
-
-// hexPrefixUpperBound returns an exclusive upper bound for a lowercase hex
-// prefix (such as "cs_<hex>") whose ordering holds under both C and Unicode
-// collations (mapping '9' -> 'a' rather than ASCII ':' and 'f' -> 'g').
-func hexPrefixUpperBound(prefix string) (string, bool) {
-	if prefix == "" {
-		return "", false
-	}
-	last := prefix[len(prefix)-1]
-	var next byte
-	switch {
-	case last >= '0' && last <= '8':
-		next = last + 1
-	case last == '9':
-		next = 'a'
-	case last >= 'a' && last <= 'e':
-		next = last + 1
-	case last == 'f':
-		next = 'g'
-	default:
-		return "", false
-	}
-	return prefix[:len(prefix)-1] + string(next), true
 }
 
 func (s *ChangesetStore) selectChangesetIDs(ctx context.Context, query string, args ...any) ([]string, error) {
@@ -514,22 +432,6 @@ func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error 
 		return err
 	}
 	defer tx.Rollback()
-	var status, stackID string
-	err = tx.QueryRowContext(ctx, `
-		select status, coalesce(stack_id, '')
-		from changesets
-		where id = $1
-		for update
-	`, changesetID).Scan(&status, &stackID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if status != "draft" {
-		return ErrConflict
-	}
 	var activeChildren int
 	err = tx.QueryRowContext(ctx, `
 		select count(*)
@@ -544,20 +446,18 @@ func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error 
 	if activeChildren > 0 {
 		return ErrConflict
 	}
-	res, err := tx.ExecContext(ctx, `
+	var stackID string
+	err = tx.QueryRowContext(ctx, `
 		update changesets
 		set status = 'abandoned', updated_at = now()
-		where id = $1 and status = 'draft'
-	`, changesetID)
-	if err != nil {
-		return err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
+		where id = $1 and status <> 'submitted'
+		returning coalesce(stack_id, '')
+	`, changesetID).Scan(&stackID)
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrConflict
+	}
+	if err != nil {
+		return err
 	}
 	if err := refreshClosedStackStatusTx(ctx, tx, stackID); err != nil {
 		return err

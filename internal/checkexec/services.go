@@ -3,8 +3,8 @@ package checkexec
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
-	"regexp"
 	"strings"
 	"time"
 
@@ -16,12 +16,9 @@ const (
 	serviceNamePrefix          = "gitslice-svc-"
 	defaultServiceReadyTimeout = 60 * time.Second
 	defaultServiceMemory       = "1g"
-	defaultServiceCPUs         = "1"
 	serviceReadyPoll           = 500 * time.Millisecond
 	serviceLogTailLines        = "40"
 )
-
-var validServiceHostPattern = regexp.MustCompile(`\A[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\z`)
 
 // runServices are the service containers of one check run and the network
 // they share with it.
@@ -37,15 +34,6 @@ type runServices struct {
 // unless the check may use the network. On failure everything started is
 // removed and the result says which service failed and why.
 func startServices(ctx context.Context, rt RuntimeInfo, spec checks.CheckSpec) (*runServices, string, *Result, error) {
-	if len(spec.Services) == 0 {
-		return nil, "", nil, nil
-	}
-	for _, service := range spec.Services {
-		if err := validateServiceSpec(service); err != nil {
-			return nil, "", nil, err
-		}
-	}
-
 	suffix, err := randomSuffix()
 	if err != nil {
 		return nil, "", nil, err
@@ -63,10 +51,8 @@ func startServices(ctx context.Context, rt RuntimeInfo, spec checks.CheckSpec) (
 		if !spec.Network {
 			args = append(args, "--internal")
 		}
-		args = append(args, "--", s.network)
-		netCmd := exec.CommandContext(ctx, rt.Path, args...)
-		netCmd.Env = containerClientEnv()
-		if out, err := netCmd.CombinedOutput(); err != nil {
+		args = append(args, s.network)
+		if out, err := exec.CommandContext(ctx, rt.Path, args...).CombinedOutput(); err != nil {
 			return nil, "", nil, fmt.Errorf("create the run's network: %s", strings.TrimSpace(firstNonEmptyString(string(out), err.Error())))
 		}
 	}
@@ -88,78 +74,30 @@ func startServices(ctx context.Context, rt RuntimeInfo, spec checks.CheckSpec) (
 	return s, note, nil, nil
 }
 
-func validateServiceSpec(service checks.ServiceSpec) error {
-	if !validServiceHostPattern.MatchString(service.Name) {
-		return fmt.Errorf("invalid service name %q", service.Name)
-	}
-	if err := checks.ValidateImageRef(service.Image); err != nil {
-		return fmt.Errorf("service %q image: %w", service.Name, err)
-	}
-	if err := checks.ValidateEnvMap(service.Env); err != nil {
-		return fmt.Errorf("service %q env: %w", service.Name, err)
-	}
-	if strings.ContainsRune(service.Ready, '\x00') {
-		return fmt.Errorf("service %q ready command contains NUL", service.Name)
-	}
-	return nil
-}
-
-func serviceRunArgs(name, network string, service checks.ServiceSpec, envFile string) ([]string, error) {
-	if err := validateServiceSpec(service); err != nil {
-		return nil, err
-	}
-	if name == "" || strings.HasPrefix(name, "-") || strings.ContainsAny(name, " \t\r\n\x00") {
-		return nil, fmt.Errorf("invalid service container name %q", name)
-	}
-	memLimit, err := cappedMemoryLimit(service.Memory, defaultServiceMemory)
-	if err != nil {
-		return nil, fmt.Errorf("service %q memory: %w", service.Name, err)
-	}
-	cpuLimit, err := cappedCPULimit("", defaultServiceCPUs)
-	if err != nil {
-		return nil, fmt.Errorf("service %q cpus: %w", service.Name, err)
-	}
-
-	args := []string{
-		"run", "-d",
-		"--name", name,
-		"--network", network,
-		"--security-opt=no-new-privileges",
-		"--cap-drop=ALL",
-		"--pids-limit=" + defaultContainerPIDsLimit,
-		"--memory=" + memLimit,
-		"--cpus=" + cpuLimit,
-	}
-	if network != hostNetwork {
-		args = append(args, "--network-alias", service.Name)
-	}
-	if envFile != "" {
-		args = append(args, "--env-file", envFile)
-	}
-	args = append(args, "--", service.Image)
-	return args, nil
-}
-
 func (s *runServices) start(ctx context.Context, service checks.ServiceSpec) (*Result, error) {
 	suffix, err := randomSuffix()
 	if err != nil {
 		return nil, err
 	}
 	name := serviceNamePrefix + suffix
-	envFile, cleanupEnv, err := writeContainerEnvFile(service.Env, "")
-	if err != nil {
-		return nil, err
+	args := []string{
+		"run", "-d",
+		"--name", name,
+		"--network", s.network,
+		"--security-opt=no-new-privileges",
+		"--pids-limit=" + defaultContainerPIDsLimit,
+		"--memory=" + containerLimitValue(service.Memory, defaultServiceMemory),
 	}
-	defer cleanupEnv()
-
-	args, err := serviceRunArgs(name, s.network, service, envFile)
-	if err != nil {
-		return nil, err
+	if s.network != hostNetwork {
+		args = append(args, "--network-alias", service.Name)
 	}
+	for _, key := range sortedEnvKeys(service.Env) {
+		args = append(args, "-e", key)
+	}
+	args = append(args, service.Image)
 	cmd := exec.CommandContext(ctx, s.rt.Path, args...)
-	cmd.Env = containerClientEnv()
+	cmd.Env = append(os.Environ(), envPairs(service.Env)...)
 	out, err := cmd.CombinedOutput()
-	cleanupEnv()
 	s.containers = append(s.containers, name)
 	if err != nil {
 		return &Result{
@@ -182,14 +120,10 @@ func (s *runServices) start(ctx context.Context, service checks.ServiceSpec) (*R
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		execCmd := exec.CommandContext(ctx, s.rt.Path, "exec", "--", name, "sh", "-c", service.Ready)
-		execCmd.Env = containerClientEnv()
-		if execCmd.Run() == nil {
+		if exec.CommandContext(ctx, s.rt.Path, "exec", name, "sh", "-c", service.Ready).Run() == nil {
 			return nil, nil
 		}
-		inspectCmd := exec.CommandContext(ctx, s.rt.Path, "inspect", "--format", "{{.State.Running}}", "--", name)
-		inspectCmd.Env = containerClientEnv()
-		state, _ := inspectCmd.Output()
+		state, _ := exec.CommandContext(ctx, s.rt.Path, "inspect", "--format", "{{.State.Running}}", name).Output()
 		if strings.TrimSpace(string(state)) == "false" {
 			return s.failed(service, "exited before it was ready", name), nil
 		}
@@ -207,9 +141,7 @@ func (s *runServices) start(ctx context.Context, service checks.ServiceSpec) (*R
 func (s *runServices) failed(service checks.ServiceSpec, why, container string) *Result {
 	ctx, cancel := context.WithTimeout(context.Background(), containerCleanupTimeout)
 	defer cancel()
-	logCmd := exec.CommandContext(ctx, s.rt.Path, "logs", "--tail", serviceLogTailLines, "--", container)
-	logCmd.Env = containerClientEnv()
-	logs, _ := logCmd.CombinedOutput()
+	logs, _ := exec.CommandContext(ctx, s.rt.Path, "logs", "--tail", serviceLogTailLines, container).CombinedOutput()
 	return &Result{
 		Status:   "errored",
 		ExitCode: -1,
@@ -226,14 +158,12 @@ func (s *runServices) stop() {
 	for _, name := range s.containers {
 		removeContainer(s.rt.Path, name)
 	}
-	if s.network == "" || s.network == hostNetwork {
+	if s.network == hostNetwork {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), containerCleanupTimeout)
 	defer cancel()
-	rmCmd := exec.CommandContext(ctx, s.rt.Path, "network", "rm", "--", s.network)
-	rmCmd.Env = containerClientEnv()
-	_ = rmCmd.Run()
+	_ = exec.CommandContext(ctx, s.rt.Path, "network", "rm", s.network).Run()
 }
 
 func firstNonEmptyString(values ...string) string {

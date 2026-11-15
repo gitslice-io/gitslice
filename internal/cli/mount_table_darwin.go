@@ -1,10 +1,7 @@
 package cli
 
 import (
-	"fmt"
-	"os"
 	"path/filepath"
-	"syscall"
 
 	"golang.org/x/sys/unix"
 )
@@ -35,24 +32,4 @@ func isMounted(dir string) bool {
 		}
 	}
 	return false
-}
-
-func fileOwnerUID(info os.FileInfo) (int, bool) {
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return 0, false
-	}
-	return int(st.Uid), true
-}
-
-func socketPeerUID(fd int) (int, error) {
-	const darwinXucredVersion = 0
-	cred, err := unix.GetsockoptXucred(fd, unix.SOL_LOCAL, unix.LOCAL_PEERCRED)
-	if err != nil {
-		return -1, err
-	}
-	if cred.Version != darwinXucredVersion {
-		return -1, fmt.Errorf("unexpected xucred version %d", cred.Version)
-	}
-	return int(cred.Uid), nil
 }

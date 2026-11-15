@@ -36,9 +36,6 @@ func (s *RepositoryService) ListDirectory(ctx context.Context, req *corev1.ListD
 	if err := s.ensureRepositoryPathRead(ctx, subjectID, p); err != nil {
 		return nil, err
 	}
-	if err := s.ensureAuthorizedRootTree(ctx, subjectID, req.GetRootTreeId()); err != nil {
-		return nil, err
-	}
 	// The root mixes accounts with different readers, so it is listed a level
 	// at a time.
 	if req.Recursive && accountSlugForRepositoryPath(p) != "" {
@@ -77,9 +74,6 @@ func (s *RepositoryService) listSliceDirectory(ctx context.Context, subjectID st
 	}
 	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionRead)
 	if err != nil {
-		return nil, err
-	}
-	if err := s.ensureAuthorizedRootTree(ctx, subjectID, req.GetRootTreeId()); err != nil {
 		return nil, err
 	}
 	p, err := repositoryReadPath(req.Path)

@@ -277,32 +277,13 @@ func (s *TriggerStore) SetTriggerRunState(ctx context.Context, id string, state 
 }
 
 func (s *TriggerStore) AppendTriggerRunLog(ctx context.Context, id, stream, chunk string) (int64, error) {
-	id = strings.TrimSpace(id)
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, fmt.Errorf("append trigger run log: %w", err)
-	}
-	defer tx.Rollback()
-
-	var lockedID string
-	if err := tx.QueryRowContext(ctx, `
-		select id from trigger_runs where id = $1 for no key update
-	`, id).Scan(&lockedID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, fmt.Errorf("append trigger run log: %w", storage.ErrNotFound)
-		}
-		return 0, fmt.Errorf("append trigger run log: %w", err)
-	}
-
 	var seq int64
-	if err := tx.QueryRowContext(ctx, `
+	err := s.db.QueryRowContext(ctx, `
 		insert into trigger_run_logs(run_id, seq, stream, chunk)
 		select $1, coalesce(max(seq), 0) + 1, $2, $3 from trigger_run_logs where run_id = $1
 		returning seq
-	`, id, stream, chunk).Scan(&seq); err != nil {
-		return 0, fmt.Errorf("append trigger run log: %w", err)
-	}
-	if err := tx.Commit(); err != nil {
+	`, strings.TrimSpace(id), stream, chunk).Scan(&seq)
+	if err != nil {
 		return 0, fmt.Errorf("append trigger run log: %w", err)
 	}
 	return seq, nil

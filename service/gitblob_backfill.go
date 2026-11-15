@@ -70,9 +70,6 @@ func (s *BlobService) BackfillGitBlobIDs(ctx context.Context, limit, concurrency
 func (s *BlobService) RunGitBlobBackfill(ctx context.Context) {
 	total := 0
 	for ctx.Err() == nil {
-		if activity.Default.Wait(ctx) != nil {
-			return
-		}
 		done, failed, err := s.BackfillGitBlobIDs(ctx, gitBlobBackfillBatch, gitBlobBackfillConcurrency)
 		total += done
 		if err != nil {
@@ -86,6 +83,9 @@ func (s *BlobService) RunGitBlobBackfill(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(gitBlobBackfillIdle):
+		}
+		if activity.Default.Wait(ctx) != nil {
+			return
 		}
 	}
 }

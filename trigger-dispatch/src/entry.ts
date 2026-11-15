@@ -5,28 +5,6 @@
 // onCallback.
 
 export const ENTRY_MODULE = "__gitslice_entry.js";
-export const MAX_RUN_LOG_LINES = 500;
-export const MAX_RUN_LOG_LINE_CHARS = 4096;
-export const MAX_RUN_LOG_TOTAL_CHARS = 256 * 1024;
-
-export interface LogBuffer {
-  lines: { stream: string; text: string }[];
-  chars: number;
-  truncated: boolean;
-}
-
-export function appendLogLine(buf: LogBuffer, stream: string, rawText: string): void {
-  if (buf.truncated) return;
-  const text =
-    rawText.length > MAX_RUN_LOG_LINE_CHARS ? rawText.slice(0, MAX_RUN_LOG_LINE_CHARS - 1) + "…" : rawText;
-  if (buf.lines.length >= MAX_RUN_LOG_LINES || buf.chars + text.length > MAX_RUN_LOG_TOTAL_CHARS) {
-    buf.truncated = true;
-    buf.lines.push({ stream: "stderr", text: "[gitslice: trigger console output truncated]" });
-    return;
-  }
-  buf.lines.push({ stream, text });
-  buf.chars += text.length;
-}
 
 export function entrySource(mainModule: string): string {
   return `
@@ -36,9 +14,6 @@ import * as loaded from ${JSON.stringify("./" + mainModule)};
 
 const script = loaded.default ?? loaded;
 const runLogs = new AsyncLocalStorage();
-const MAX_LINES = ${MAX_RUN_LOG_LINES};
-const MAX_LINE_CHARS = ${MAX_RUN_LOG_LINE_CHARS};
-const MAX_TOTAL_CHARS = ${MAX_RUN_LOG_TOTAL_CHARS};
 
 function format(value) {
   if (typeof value === "string") return value;
@@ -48,18 +23,9 @@ function format(value) {
 for (const [name, stream] of [["log", "stdout"], ["info", "stdout"], ["debug", "stdout"], ["warn", "stderr"], ["error", "stderr"]]) {
   const original = console[name].bind(console);
   console[name] = (...args) => {
-    const store = runLogs.getStore();
-    if (!store) return original(...args);
-    if (store.truncated) return;
-    const raw = args.map(format).join(" ");
-    const text = raw.length > MAX_LINE_CHARS ? raw.slice(0, MAX_LINE_CHARS - 1) + "…" : raw;
-    if (store.lines.length >= MAX_LINES || store.chars + text.length > MAX_TOTAL_CHARS) {
-      store.truncated = true;
-      store.lines.push({ stream: "stderr", text: "[gitslice: trigger console output truncated]" });
-      return;
-    }
-    store.lines.push({ stream, text });
-    store.chars += text.length;
+    const lines = runLogs.getStore();
+    if (!lines) return original(...args);
+    lines.push({ stream, text: args.map(format).join(" ") });
   };
 }
 
@@ -96,9 +62,9 @@ function api(gs, run) {
 
 export default class extends WorkerEntrypoint {
   async run(kind, eventJson, gs, run, request) {
-    const store = { lines: [], chars: 0, truncated: false };
+    const lines = [];
     try {
-      return await runLogs.run(store, async () => {
+      return await runLogs.run(lines, async () => {
         const event = JSON.parse(eventJson);
         if (kind === "event") {
           if (typeof script.onEvent !== "function") throw new Error("the script exports no onEvent");
@@ -112,13 +78,7 @@ export default class extends WorkerEntrypoint {
         return null;
       });
     } finally {
-      if (store.lines.length > 0) {
-        try {
-          await gs.log(store.lines);
-        } catch {
-          // Best-effort log shipping; never prevent FinishRun from settling the run.
-        }
-      }
+      if (lines.length > 0) await gs.log(lines);
     }
   }
 }

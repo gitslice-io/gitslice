@@ -80,21 +80,15 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 	if len(ws.IncludedPaths) == 0 {
 		return nil, stats, fmt.Errorf("workspace has no included paths")
 	}
-	var trackedSnapshots []map[string]BaseSnapshotFile
-	if len(tracked) == 0 {
-		base, err := r.readBaseSnapshot()
-		if err != nil {
-			return nil, stats, err
-		}
-		trackedSnapshots = []map[string]BaseSnapshotFile{base.Files}
-	} else {
-		trackedSnapshots = tracked
+	base, err := r.readBaseSnapshot()
+	if err != nil {
+		return nil, stats, err
 	}
-	ignore := newWorkspaceIgnore(root, ws, trackedSnapshots...)
+	ignore := newWorkspaceIgnore(root, ws, append([]map[string]BaseSnapshotFile{base.Files}, tracked...)...)
 	candidates := []workspaceScanCandidate{}
 	walkStarted := time.Now()
 	known := readStatCache(root)
-	trackedDirs := trackedDirectories(trackedSnapshots...)
+	trackedDirs := trackedDirectories(append([]map[string]BaseSnapshotFile{base.Files}, tracked...)...)
 	var nested []string
 	err = filepath.WalkDir(root, func(p string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -118,16 +112,12 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 			return nil
 		}
 		if entry.IsDir() {
-			if !trackedDirs[rel] {
-				if gsInfo, err := os.Lstat(filepath.Join(p, ".gs")); err == nil && gsInfo.IsDir() {
-					if _, err := os.Stat(filepath.Join(p, ".gs", "slice.json")); err == nil {
-						// Another workspace's files belong to that workspace;
-						// adding them here would put a second copy of its slice
-						// under this one.
-						nested = append(nested, rel)
-						return filepath.SkipDir
-					}
-				}
+			if _, err := os.Stat(filepath.Join(p, ".gs", "slice.json")); err == nil && !trackedDirs[rel] {
+				// Another workspace's files belong to that workspace;
+				// adding them here would put a second copy of its slice
+				// under this one.
+				nested = append(nested, rel)
+				return filepath.SkipDir
 			}
 			return nil
 		}
@@ -184,7 +174,7 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 	var toHash []int
 	for i, candidate := range candidates {
 		if candidate.linkTarget == nil {
-			if hash, ok := known.hash(candidate.relPath, candidate.size, candidate.modTime, candidate.mode); ok {
+			if hash, ok := known.hash(candidate.relPath, candidate.size, candidate.modTime, candidate.mode); ok && cache.Exists(hash) {
 				objects[i] = clientcache.Object{ContentHash: hash, Size: candidate.size}
 				continue
 			}

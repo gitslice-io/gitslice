@@ -35,9 +35,6 @@ func (s *RepositoryService) ReadFile(ctx context.Context, req *corev1.ReadFileRe
 			return nil, err
 		}
 	}
-	if err := s.ensureAuthorizedRootTree(ctx, subjectID, req.GetRootTreeId()); err != nil {
-		return nil, err
-	}
 	req = cloneReadFileRequest(req)
 	req.Path = p
 	return readFile(ctx, s.Repository, s.ObjectStore, req)
@@ -89,11 +86,7 @@ func (s *RepositoryService) ReadFiles(ctx context.Context, req *corev1.ReadFiles
 	// Resolve the root tree once, then walk it (its nodes are cached) for
 	// each path, rather than looking each path up in the database.
 	rootTreeID := strings.TrimSpace(req.GetRootTreeId())
-	if rootTreeID != "" {
-		if err := s.ensureAuthorizedRootTree(ctx, subjectID, rootTreeID); err != nil {
-			return nil, err
-		}
-	} else {
+	if rootTreeID == "" {
 		var err error
 		if rootTreeID, err = s.Repository.RootTreeForCommit(ctx, req.GetCommitId()); err != nil {
 			return nil, grpcError(err)
@@ -144,8 +137,6 @@ func cloneReadFileRequest(req *corev1.ReadFileRequest) *corev1.ReadFileRequest {
 	return proto.Clone(req).(*corev1.ReadFileRequest)
 }
 
-const maxUnaryReadFileBytes = 64 << 20
-
 func readFile(ctx context.Context, repository storage.RepositoryStore, objectStore ObjectStore, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
 	p, err := paths.Canonical(req.Path)
 	if err != nil {
@@ -157,27 +148,18 @@ func readFile(ctx context.Context, repository storage.RepositoryStore, objectSto
 	if req.Length < 0 {
 		return nil, status.Error(codes.InvalidArgument, "length must be non-negative")
 	}
-	if req.Length > maxUnaryReadFileBytes {
-		return nil, status.Errorf(codes.ResourceExhausted, "read length %d exceeds %d byte unary limit", req.Length, maxUnaryReadFileBytes)
-	}
 	entry, err := repositoryGetFileAtSource(ctx, repository, req.CommitId, req.RootTreeId, p)
 	if err != nil {
 		return nil, grpcError(err)
-	}
-	if req.Length == 0 && entry.Size-req.Offset > maxUnaryReadFileBytes {
-		return nil, status.Errorf(codes.ResourceExhausted, "file %s (%d bytes from offset) exceeds %d byte unary read limit", p, entry.Size-req.Offset, maxUnaryReadFileBytes)
 	}
 	rc, err := objectStore.Get(ctx, filesystem.BlobKey(entry.ContentHash), req.Offset, req.Length)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	defer rc.Close()
-	data, err := io.ReadAll(io.LimitReader(rc, maxUnaryReadFileBytes+1))
+	data, err := io.ReadAll(rc)
 	if err != nil {
 		return nil, grpcError(err)
-	}
-	if int64(len(data)) > maxUnaryReadFileBytes {
-		return nil, status.Errorf(codes.ResourceExhausted, "file %s exceeds %d byte unary read limit", p, maxUnaryReadFileBytes)
 	}
 	return &corev1.ReadFileResponse{Data: data, Offset: req.Offset, ContentHash: entry.ContentHash}, nil
 }

@@ -248,15 +248,11 @@ func (h *workspaceHydrator) addListed(entries []*corev1.TreeEntry) error {
 }
 
 func (h *workspaceHydrator) makeDirectory(globalPath string) error {
-	if strings.TrimSpace(globalPath) == "/" {
-		return nil
-	}
 	rel, err := workspaceRelPath(h.ws, globalPath)
 	if err != nil {
 		return err
 	}
-	_, err = ensureConfinedDir(h.root, rel)
-	return err
+	return os.MkdirAll(filepath.Join(h.root, filepath.FromSlash(rel)), 0o755)
 }
 
 // queueFile adds a file for materialize to write.
@@ -287,7 +283,11 @@ func (h *workspaceHydrator) materialize(ctx context.Context) error {
 			}
 			continue
 		}
-		if data, ok, err := readVerifiedCachedBytes(h.cache, entry.ContentHash); err == nil && ok {
+		if h.cache.Exists(entry.ContentHash) {
+			data, err := h.cache.Read(entry.ContentHash)
+			if err != nil {
+				return err
+			}
 			// Content Checkout just brought is a miss, once per content, as
 			// a batch counts it.
 			if first, fetched := h.fetched[entry.ContentHash]; !fetched {
@@ -372,14 +372,10 @@ func (h *workspaceHydrator) fileTarget(entry *corev1.TreeEntry) (string, string,
 	if err != nil {
 		return "", "", 0, err
 	}
-	if err := ensureNotReservedGsPath(rel); err != nil {
-		return "", "", 0, err
-	}
-	parentRel := filepath.ToSlash(filepath.Dir(filepath.FromSlash(rel)))
-	if _, err := ensureConfinedDir(h.root, parentRel); err != nil {
-		return "", "", 0, err
-	}
 	target := filepath.Join(h.root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		return "", "", 0, err
+	}
 	mode := uint32(entry.Mode)
 	if mode == 0 {
 		mode = 0o100644
@@ -388,12 +384,11 @@ func (h *workspaceHydrator) fileTarget(entry *corev1.TreeEntry) (string, string,
 }
 
 func (h *workspaceHydrator) writeFile(entry *corev1.TreeEntry, data []byte) error {
-	rel, _, mode, err := h.fileTarget(entry)
+	rel, target, mode, err := h.fileTarget(entry)
 	if err != nil {
 		return err
 	}
-	target, _, err := writeConfinedWorkspaceFile(h.root, rel, mode, bytes.NewReader(data))
-	if err != nil {
+	if _, err := writeWorkspaceFile(target, mode, bytes.NewReader(data)); err != nil {
 		return err
 	}
 	h.recordFile(entry, rel, target, mode, int64(len(data)))
@@ -405,7 +400,7 @@ func (h *workspaceHydrator) writeLargeFile(ctx context.Context, entry *corev1.Tr
 	if err != nil {
 		return err
 	}
-	size, err := h.hydrateLargeFile(ctx, entry, rel, mode)
+	size, err := h.hydrateLargeFile(ctx, entry, target, mode)
 	if err != nil {
 		return err
 	}
@@ -436,10 +431,10 @@ func (h *workspaceHydrator) recordFile(entry *corev1.TreeEntry, rel, target stri
 	h.progress.Add(1)
 }
 
-func (h *workspaceHydrator) hydrateLargeFile(ctx context.Context, entry *corev1.TreeEntry, rel string, mode uint32) (int64, error) {
+func (h *workspaceHydrator) hydrateLargeFile(ctx context.Context, entry *corev1.TreeEntry, target string, mode uint32) (int64, error) {
 	if h.cache.Exists(entry.ContentHash) {
 		h.result.CacheHits++
-		return h.copyCachedFileToWorkspace(entry.ContentHash, rel, mode)
+		return h.copyCachedFileToWorkspace(entry.ContentHash, target, mode)
 	}
 	stream, err := h.blob.ReadBlobStream(ctx, &corev1.ReadBlobStreamRequest{
 		Slice:       &corev1.SliceRef{Account: h.ws.Account, Slice: h.ws.Slice},
@@ -448,90 +443,24 @@ func (h *workspaceHydrator) hydrateLargeFile(ctx context.Context, entry *corev1.
 	if err != nil {
 		return 0, err
 	}
-	if isSymlinkMode(mode) {
-		cached, err := h.cache.PutReader(newBlobStreamReader(stream))
-		if err != nil {
-			return 0, err
-		}
-		if cached.ContentHash != entry.ContentHash {
-			return 0, fmt.Errorf("hydrated content hash mismatch for %s: got %s, want %s", entry.Path, cached.ContentHash, entry.ContentHash)
-		}
-		h.result.CacheMisses++
-		return h.copyCachedFileToWorkspace(entry.ContentHash, rel, mode)
-	}
-
-	absRoot, err := filepath.Abs(h.root)
+	cached, err := h.cache.PutReader(newBlobStreamReader(stream))
 	if err != nil {
 		return 0, err
-	}
-	osRel, err := cleanConfinedRelPath(rel)
-	if err != nil {
-		return 0, err
-	}
-	osRoot, err := os.OpenRoot(absRoot)
-	if err != nil {
-		return 0, err
-	}
-	defer osRoot.Close()
-
-	parentRel := filepath.Dir(osRel)
-	if parentRel != "." {
-		if err := mkdirAllNoSymlinksInRoot(osRoot, parentRel); err != nil {
-			return 0, err
-		}
-	}
-	if info, lerr := osRoot.Lstat(osRel); lerr == nil {
-		if info.IsDir() && info.Mode()&fs.ModeSymlink == 0 {
-			return 0, fmt.Errorf("cannot overwrite directory %q with file", rel)
-		}
-		if info.Mode()&fs.ModeSymlink != 0 {
-			if err := osRoot.Remove(osRel); err != nil && !errors.Is(err, os.ErrNotExist) {
-				return 0, err
-			}
-		}
-	} else if !errors.Is(lerr, os.ErrNotExist) {
-		return 0, lerr
-	}
-
-	fileMode := fs.FileMode(0o644)
-	if mode&0o111 != 0 {
-		fileMode = 0o755
-	}
-	wsFile, err := osRoot.OpenFile(osRel, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, fileMode)
-	if err != nil {
-		return 0, err
-	}
-	cached, putErr := h.cache.PutReader(io.TeeReader(newBlobStreamReader(stream), wsFile))
-	chmodErr := wsFile.Chmod(fileMode)
-	closeErr := wsFile.Close()
-	if putErr != nil {
-		_ = osRoot.Remove(osRel)
-		return 0, putErr
-	}
-	if chmodErr != nil {
-		_ = osRoot.Remove(osRel)
-		return 0, chmodErr
-	}
-	if closeErr != nil {
-		_ = osRoot.Remove(osRel)
-		return 0, closeErr
 	}
 	if cached.ContentHash != entry.ContentHash {
-		_ = osRoot.Remove(osRel)
 		return 0, fmt.Errorf("hydrated content hash mismatch for %s: got %s, want %s", entry.Path, cached.ContentHash, entry.ContentHash)
 	}
 	h.result.CacheMisses++
-	return cached.Size, nil
+	return h.copyCachedFileToWorkspace(entry.ContentHash, target, mode)
 }
 
-func (h *workspaceHydrator) copyCachedFileToWorkspace(contentHash, rel string, mode uint32) (int64, error) {
+func (h *workspaceHydrator) copyCachedFileToWorkspace(contentHash, target string, mode uint32) (int64, error) {
 	f, err := h.cache.Open(contentHash)
 	if err != nil {
 		return 0, err
 	}
 	defer f.Close()
-	_, n, err := writeConfinedWorkspaceFile(h.root, rel, mode, f)
-	return n, err
+	return writeWorkspaceFile(target, mode, f)
 }
 
 // isSymlinkMode reports whether a native file mode is a symbolic link.
@@ -540,15 +469,51 @@ func isSymlinkMode(mode uint32) bool {
 }
 
 // writeWorkspaceFile materializes one file. A symlink whose target is a
-// safe relative path inside the workspace becomes a real symlink (its content
-// is the link target, as in Git). Other symlinks are written as regular files
-// containing the target; the workspace scan treats that fallback as unchanged.
-// A regular file never writes through an existing symlink at the same path.
+// relative path becomes a real symlink (its content is the link target, as in
+// Git). Other symlinks are written as regular files containing the target; the
+// workspace scan treats that fallback as unchanged. A regular file never writes
+// through an existing symlink at the same path.
 func writeWorkspaceFile(target string, mode uint32, r io.Reader) (int64, error) {
-	root, rel, err := inferConfiningRootForTarget(target)
+	if info, err := os.Lstat(target); err == nil && info.Mode()&fs.ModeSymlink != 0 {
+		if err := os.Remove(target); err != nil {
+			return 0, err
+		}
+	}
+	if isSymlinkMode(mode) {
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return 0, err
+		}
+		link := string(data)
+		if link != "" && !filepath.IsAbs(link) && !strings.ContainsRune(link, 0) {
+			if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
+				return 0, err
+			}
+			if err := os.Symlink(link, target); err == nil {
+				return int64(len(data)), nil
+			}
+		}
+		r = bytes.NewReader(data)
+		mode = 0o100644
+	}
+	fileMode := fs.FileMode(0o644)
+	if mode&0o111 != 0 {
+		fileMode = 0o755
+	}
+	f, err := os.OpenFile(target, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, fileMode)
 	if err != nil {
 		return 0, err
 	}
-	_, n, err := writeConfinedWorkspaceFile(root, rel, mode, r)
-	return n, err
+	n, copyErr := io.Copy(f, r)
+	closeErr := f.Close()
+	if copyErr != nil {
+		return n, copyErr
+	}
+	if closeErr != nil {
+		return n, closeErr
+	}
+	if err := os.Chmod(target, fileMode); err != nil {
+		return n, err
+	}
+	return n, nil
 }

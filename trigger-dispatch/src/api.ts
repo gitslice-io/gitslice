@@ -2,41 +2,20 @@
 // (proto/core/v1/trigger.proto).
 
 export class ApiError extends Error {
-  readonly code: string;
-  readonly status: number;
-
-  constructor(code: string, message: string, status: number) {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly status: number,
+  ) {
     super(message);
-    this.code = code;
-    this.status = status;
   }
 }
 
 export interface TriggerRun {
   id: string;
-  account?: string;
   triggerId: string;
-  folder?: string;
   status: string;
   eventKind?: string;
-}
-
-const scopeEncoder = new TextEncoder();
-
-// triggerScope binds isolate reuse and sealed secret placeholders to a single
-// tenant account, folder, and script code hash.
-export function triggerScope(start: Pick<StartResponse, "codeHash"> & { run?: Pick<TriggerRun, "account" | "folder"> }): string {
-  return `${start.run?.account ?? ""}:${start.run?.folder ?? ""}:${start.codeHash}`;
-}
-
-// loaderIsolateKey hashes the tenant scope and sorted network allowlist into a
-// safe WorkerLoader key so isolates never cross account/folder boundaries or
-// retain stale Gate network rules.
-export async function loaderIsolateKey(scope: string, network: readonly string[] = []): Promise<string> {
-  const normalizedNet = [...network].map((entry) => entry.trim().toLowerCase()).sort().join(",");
-  const digest = await crypto.subtle.digest("SHA-256", scopeEncoder.encode(`${scope}\0${normalizedNet}`));
-  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  return `trigger-${hex}`;
 }
 
 export interface StartResponse {
@@ -71,11 +50,7 @@ export interface CheckRun {
 }
 
 export class Api {
-  private readonly base: string;
-
-  constructor(base: string) {
-    this.base = base;
-  }
+  constructor(private readonly base: string) {}
 
   async call<T>(method: string, body: unknown): Promise<T> {
     const res = await fetch(`${this.base.replace(/\/$/, "")}/gitslice.core.v1.TriggerRunService/${method}`, {

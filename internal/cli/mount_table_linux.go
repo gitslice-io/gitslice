@@ -3,9 +3,6 @@ package cli
 import (
 	"os"
 	"strings"
-	"syscall"
-
-	"golang.org/x/sys/unix"
 )
 
 // isMounted reports whether a file system is mounted at dir. It reads the
@@ -26,20 +23,4 @@ func isMounted(dir string) bool {
 
 func unescapeMountPath(p string) string {
 	return strings.NewReplacer(`\040`, " ", `\011`, "\t", `\012`, "\n", `\134`, `\`).Replace(p)
-}
-
-func fileOwnerUID(info os.FileInfo) (int, bool) {
-	st, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return 0, false
-	}
-	return int(st.Uid), true
-}
-
-func socketPeerUID(fd int) (int, error) {
-	cred, err := unix.GetsockoptUcred(fd, unix.SOL_SOCKET, unix.SO_PEERCRED)
-	if err != nil {
-		return -1, err
-	}
-	return int(cred.Uid), nil
 }

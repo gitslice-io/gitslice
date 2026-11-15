@@ -1,11 +1,6 @@
 package service
 
-import (
-	"context"
-	"errors"
-	"net/netip"
-	"testing"
-)
+import "testing"
 
 func TestValidateImportSource(t *testing.T) {
 	t.Setenv("GITSLICE_IMPORT_ALLOWED_HOSTS", "")
@@ -41,7 +36,6 @@ func TestValidateImportSource(t *testing.T) {
 		{name: "unlisted host", source: "https://evil.com/o/r", wantErr: true},
 		{name: "URL user info", source: "https://user@github.com/o/r", wantErr: true},
 		{name: "non-HTTPS port", source: "https://github.com:8443/o/r", wantErr: true},
-		{name: "dash option prefix", source: "-u/repo", wantErr: true},
 		{name: "empty", source: "", wantErr: true},
 	}
 
@@ -70,14 +64,6 @@ func TestValidateImportSource(t *testing.T) {
 func TestValidateImportSourceAllowsConfiguredHost(t *testing.T) {
 	t.Setenv("GITSLICE_IMPORT_ALLOWED_HOSTS", " Git.Example.COM ")
 	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "")
-	prevResolve := resolvePublicImportHost
-	resolvePublicImportHost = func(_ context.Context, host string, allowPrivate bool) (netip.Addr, error) {
-		if host == "git.example.com" && !allowPrivate {
-			return netip.MustParseAddr("93.184.216.34"), nil
-		}
-		return netip.Addr{}, errors.New("unexpected host")
-	}
-	t.Cleanup(func() { resolvePublicImportHost = prevResolve })
 
 	const source = "https://git.example.com/owner/repo.git"
 	got, local, err := validateImportSource(source)
@@ -89,31 +75,6 @@ func TestValidateImportSourceAllowsConfiguredHost(t *testing.T) {
 	}
 	if local {
 		t.Fatalf("validateImportSource(%q) reported local for a remote source", source)
-	}
-}
-
-func TestValidateImportSourceRejectsNonPublicConfiguredHosts(t *testing.T) {
-	t.Setenv("GITSLICE_IMPORT_ALLOWED_HOSTS", "127.0.0.1,localhost,169.254.169.254,[::1],internal.corp")
-	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "")
-	prevResolve := resolvePublicImportHost
-	resolvePublicImportHost = func(ctx context.Context, host string, allowPrivate bool) (netip.Addr, error) {
-		if host == "internal.corp" {
-			return netip.Addr{}, errors.New("webhook target resolves to non-public address 10.0.0.5")
-		}
-		return prevResolve(ctx, host, allowPrivate)
-	}
-	t.Cleanup(func() { resolvePublicImportHost = prevResolve })
-
-	for _, source := range []string{
-		"https://127.0.0.1/o/r.git",
-		"https://localhost/o/r.git",
-		"https://169.254.169.254/o/r.git",
-		"https://[::1]/o/r.git",
-		"https://internal.corp/o/r.git",
-	} {
-		if _, _, err := validateImportSource(source); err == nil {
-			t.Fatalf("validateImportSource(%q) succeeded, want rejection for non-public host", source)
-		}
 	}
 }
 

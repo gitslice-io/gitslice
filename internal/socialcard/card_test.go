@@ -72,23 +72,3 @@ func TestWrapKeepsToTheLineLimitWithAnEllipsis(t *testing.T) {
 		t.Fatalf("an unbreakable word wraps to %q", long)
 	}
 }
-
-func TestRenderClampsHugeInputsFast(t *testing.T) {
-	huge := strings.Repeat("W", 250_000)
-	data, err := Render(Card{
-		Account:     huge,
-		Slice:       huge,
-		Description: huge,
-		Facts:       []string{huge, huge, huge},
-	})
-	if err != nil {
-		t.Fatalf("Render() error = %v", err)
-	}
-	img, err := png.Decode(bytes.NewReader(data))
-	if err != nil {
-		t.Fatalf("png.Decode() error = %v", err)
-	}
-	if b := img.Bounds(); b.Dx() != Width || b.Dy() != Height {
-		t.Fatalf("size %v, want %dx%d", b, Width, Height)
-	}
-}

@@ -5,7 +5,6 @@ package triggers
 import (
 	"bytes"
 	"fmt"
-	"net/netip"
 	"path"
 	"regexp"
 	"sort"
@@ -255,8 +254,8 @@ func parseTrigger(raw rawTrigger) (Trigger, error) {
 	}
 	for _, host := range raw.Network {
 		host = strings.ToLower(strings.TrimSpace(host))
-		if !validNetworkHostPattern(host) {
-			return t, fmt.Errorf("network host %q must be a public host name such as api.example.com or *.example.com", host)
+		if !hostPattern.MatchString(host) {
+			return t, fmt.Errorf("network host %q must be a host name such as api.example.com or *.example.com", host)
 		}
 		t.Network = appendUnique(t.Network, host)
 	}
@@ -440,23 +439,4 @@ func contains(values []string, value string) bool {
 		}
 	}
 	return false
-}
-
-func validNetworkHostPattern(host string) bool {
-	if host == "" || strings.ContainsAny(host, "[]") {
-		return false
-	}
-	base := strings.TrimPrefix(host, "*.")
-	if _, err := netip.ParseAddr(base); err == nil {
-		return false
-	}
-	if !hostPattern.MatchString(host) {
-		return false
-	}
-	if base == "localhost" || strings.HasSuffix(base, ".localhost") ||
-		base == "internal" || strings.HasSuffix(base, ".internal") ||
-		base == "local" || strings.HasSuffix(base, ".local") {
-		return false
-	}
-	return true
 }

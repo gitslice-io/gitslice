@@ -33,14 +33,13 @@ func isRetryableSerializationError(err error) bool {
 }
 
 type commitPublishedPayload struct {
-	TargetRef    string             `json:"target_ref"`
-	CommitID     string             `json:"commit_id"`
-	BaseCommitID string             `json:"base_commit_id"`
-	ChangesetID  string             `json:"changeset_id"`
-	PatchsetID   string             `json:"patchset_id"`
-	ChangedPaths []string           `json:"changed_paths"`
-	FileEdits    []*corev1.FileEdit `json:"file_edits,omitempty"`
-	CommittedAt  time.Time          `json:"committed_at"`
+	TargetRef    string    `json:"target_ref"`
+	CommitID     string    `json:"commit_id"`
+	BaseCommitID string    `json:"base_commit_id"`
+	ChangesetID  string    `json:"changeset_id"`
+	PatchsetID   string    `json:"patchset_id"`
+	ChangedPaths []string  `json:"changed_paths"`
+	CommittedAt  time.Time `json:"committed_at"`
 }
 
 type publishCommitInsert struct {
@@ -72,17 +71,6 @@ type pendingPublishClaim struct {
 	RootTreeID       string
 }
 
-type failedPendingUpdate struct {
-	PendingID   string
-	ChangesetID string
-	Error       string
-}
-
-type failedPathHeadReconcile struct {
-	ChangesetID string
-	Head        PathHead
-}
-
 type pendingPublishBuild struct {
 	CurrentCommitID   string
 	UpdatedBy         string
@@ -91,8 +79,6 @@ type pendingPublishBuild struct {
 	OutboxPayloads    []commitPublishedPayload
 	PendingUpdates    []publishedPendingUpdate
 	ChangesetUpdates  []submittedChangesetUpdate
-	FailedPending     []failedPendingUpdate
-	FailedPathHeads   []failedPathHeadReconcile
 	SkippedPendingIDs []string
 	PublishLatencies  []time.Duration
 }
@@ -294,11 +280,7 @@ func (s *ChangesetStore) buildPendingPublishBatch(ctx context.Context, claim *pe
 			return nil, err
 		}
 		if cs.Status != "pending_publish" {
-			build.FailedPending = append(build.FailedPending, failedPendingUpdate{
-				PendingID:   row.ID,
-				ChangesetID: row.ChangesetID,
-				Error:       fmt.Sprintf("changeset status is %s, want pending_publish", cs.Status),
-			})
+			build.SkippedPendingIDs = append(build.SkippedPendingIDs, row.ID)
 			continue
 		}
 		patchset, err := getPatchset(ctx, s.db, row.PatchsetID)
@@ -380,67 +362,7 @@ func (s *ChangesetStore) buildPendingPublishBatch(ctx context.Context, claim *pe
 		build.UpdatedBy = cs.Author
 		build.PublishLatencies = append(build.PublishLatencies, time.Since(row.CreatedAt))
 	}
-	if len(build.FailedPending) > 0 {
-		finalRootTreeID := claim.RootTreeID
-		if len(roots) > 0 {
-			finalRootTreeID = roots[len(roots)-1]
-		}
-		reconciles, err := s.buildFailedPathHeadReconciles(ctx, finalRootTreeID, build.FailedPending)
-		if err != nil {
-			return nil, err
-		}
-		build.FailedPathHeads = reconciles
-	}
 	return build, nil
-}
-
-func (s *ChangesetStore) buildFailedPathHeadReconciles(ctx context.Context, rootTreeID string, failed []failedPendingUpdate) ([]failedPathHeadReconcile, error) {
-	var out []failedPathHeadReconcile
-	for _, item := range failed {
-		rows, err := s.db.QueryContext(ctx, `
-			select path
-			from path_heads
-			where accepted_changeset_id = $1
-			order by path
-		`, item.ChangesetID)
-		if err != nil {
-			return nil, err
-		}
-		var paths []string
-		for rows.Next() {
-			var p string
-			if err := rows.Scan(&p); err != nil {
-				_ = rows.Close()
-				return nil, err
-			}
-			paths = append(paths, p)
-		}
-		if err := rows.Close(); err != nil {
-			return nil, err
-		}
-		for _, p := range paths {
-			entry, err := s.repository.getEntryFromTree(ctx, rootTreeID, p)
-			if errors.Is(err, ErrNotFound) {
-				out = append(out, failedPathHeadReconcile{
-					ChangesetID: item.ChangesetID,
-					Head: PathHead{
-						Path:             p,
-						Exists:           false,
-						EntryFingerprint: MissingEntryFingerprint(),
-					},
-				})
-				continue
-			}
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, failedPathHeadReconcile{
-				ChangesetID: item.ChangesetID,
-				Head:        pathHeadFromTreeEntry(*entry),
-			})
-		}
-	}
-	return out, nil
 }
 
 func (s *ChangesetStore) finalizePendingPublishBatch(ctx context.Context, claim *pendingPublishClaim, build *pendingPublishBuild) error {
@@ -453,7 +375,7 @@ func (s *ChangesetStore) finalizePendingPublishBatch(ctx context.Context, claim 
 	for _, row := range claim.Rows {
 		claimedIDs = append(claimedIDs, row.ID)
 	}
-	if len(build.PendingUpdates) == 0 && len(build.FailedPending) == 0 {
+	if len(build.PendingUpdates) == 0 {
 		if err := resetPendingPublishClaimsTx(ctx, tx, claimedIDs); err != nil {
 			return err
 		}
@@ -491,18 +413,6 @@ func (s *ChangesetStore) finalizePendingPublishBatch(ctx context.Context, claim 
 		storage.RecordRefCASFailure()
 		return ErrConflict
 	}
-	if len(build.PendingUpdates) == 0 {
-		if err := reconcileFailedPathHeadsTx(ctx, tx, build.FailedPathHeads); err != nil {
-			return err
-		}
-		if err := markPendingFailedTx(ctx, tx, build.FailedPending); err != nil {
-			return err
-		}
-		if err := resetPendingPublishClaimsTx(ctx, tx, build.SkippedPendingIDs); err != nil {
-			return err
-		}
-		return tx.Commit()
-	}
 	if err := lockPendingPublishChangesetsTx(ctx, tx, build.ChangesetUpdates); err != nil {
 		if errors.Is(err, ErrConflict) {
 			if resetErr := resetPendingPublishClaimsTx(ctx, tx, claimedIDs); resetErr != nil {
@@ -520,13 +430,7 @@ func (s *ChangesetStore) finalizePendingPublishBatch(ctx context.Context, claim 
 	if err := applyPublishPathHeadMutationsTx(ctx, tx, build.PathHeadMutations); err != nil {
 		return err
 	}
-	if err := reconcileFailedPathHeadsTx(ctx, tx, build.FailedPathHeads); err != nil {
-		return err
-	}
 	if err := markPendingPublishedTx(ctx, tx, build.PendingUpdates); err != nil {
-		return err
-	}
-	if err := markPendingFailedTx(ctx, tx, build.FailedPending); err != nil {
 		return err
 	}
 	if err := resetPendingPublishClaimsTx(ctx, tx, build.SkippedPendingIDs); err != nil {

@@ -31,9 +31,9 @@ func (s *AgentService) StandbyPoll(ctx context.Context, req *corev1.StandbyPollR
 	if req.GetRuntime() != ciDaemonRuntime {
 		return nil, status.Error(codes.FailedPrecondition, "only a checks-only daemon (gs agent start --ci) can wait on standby; stay connected instead")
 	}
-	account, err := s.daemonAccountForSubject(ctx, subjectID)
-	if err != nil {
-		return nil, err
+	account := ""
+	if accounts, err := s.Auth.ListSubjectAccountSlugs(ctx, subjectID); err == nil && len(accounts) > 0 {
+		account = accounts[0]
 	}
 	daemon, err := s.Agents.RegisterDaemon(ctx, storage.AgentDaemonInput{
 		SubjectID: subjectID,

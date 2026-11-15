@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -354,7 +356,8 @@ func (r Runner) writeSnapshotFile(ctx context.Context, blob corev1.BlobServiceCl
 			return err
 		}
 	}
-	if err := ensureNotReservedGsPath(rel); err != nil {
+	target := filepath.Join(root, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return err
 	}
 	if cache.Exists(file.ContentHash) {
@@ -363,7 +366,7 @@ func (r Runner) writeSnapshotFile(ctx context.Context, blob corev1.BlobServiceCl
 			return err
 		}
 		defer f.Close()
-		_, _, err = writeConfinedWorkspaceFile(root, rel, file.Mode, f)
+		_, err = writeWorkspaceFile(target, file.Mode, f)
 		return err
 	}
 	data, err := readBlobStreamBytes(authContext(ctx, cfg), blob, &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, file.ContentHash, 0, 0)
@@ -377,6 +380,6 @@ func (r Runner) writeSnapshotFile(ctx context.Context, blob corev1.BlobServiceCl
 	if cached.ContentHash != file.ContentHash {
 		return fmt.Errorf("snapshot content hash mismatch for %s: got %s, want %s", file.Path, cached.ContentHash, file.ContentHash)
 	}
-	_, _, err = writeConfinedWorkspaceFile(root, rel, file.Mode, bytes.NewReader(data))
+	_, err = writeWorkspaceFile(target, file.Mode, bytes.NewReader(data))
 	return err
 }

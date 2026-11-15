@@ -8,7 +8,6 @@
 import type { Env } from "./env";
 import { Gitslice, type Changeset, type PatchsetInfo, type SliceRef } from "./gitslice";
 import { errorMessage, mapLimit, protectedPatterns } from "./land";
-import { filterSlicePaths } from "./policy";
 import { review, type ReviewFile } from "./review";
 import type { Session, Signal } from "./types";
 
@@ -66,13 +65,10 @@ export async function reviewNativeChange(env: Env, hub: NativeHub, slice: SliceR
   }
 }
 
-// readNativeFiles reads what a patchset changes inside the target slice: each
-// file's content in the base commit and in the patchset's result tree.
+// readNativeFiles reads what a patchset changes: each file's content in the
+// base commit and in the patchset's result tree.
 export async function readNativeFiles(gitslice: Gitslice, slice: SliceRef, cs: Changeset, ps: PatchsetInfo): Promise<ReviewFile[]> {
-  const paths = filterSlicePaths(ps.changedPaths ?? cs.affectedPaths ?? [], slice.account, slice.slice, {
-    allowDotGitslice: true,
-    leadingSlash: true,
-  }).slice(0, MAX_FILES);
+  const paths = (ps.changedPaths ?? cs.affectedPaths ?? []).slice(0, MAX_FILES);
   // A patchset can sit on a newer base than its changeset (an agent rebased).
   // Compare against the patchset's own base, or the diff would include other
   // agents' landed work.
@@ -89,14 +85,7 @@ export async function readNativeFiles(gitslice: Gitslice, slice: SliceRef, cs: C
 
 async function reviewRegistered(env: Env, hub: NativeHub, gitslice: Gitslice, slice: SliceRef, session: Session, cs: Changeset, ps: PatchsetInfo): Promise<void> {
   const files = await readNativeFiles(gitslice, slice, cs, ps);
-  if (files.length === 0) {
-    await hub.patch(session.id, { status: "forked" }, { kind: "info", message: "That patchset changed nothing inside the slice." });
-    return;
-  }
-  await hub.touch(
-    session.id,
-    files.map((f) => f.path),
-  );
+  await hub.touch(session.id, ps.changedPaths ?? []);
   await hub.patch(session.id, { status: "reviewing" }, { kind: "info", message: `Reviewing patchset ${ps.number ?? ""} of ${cs.handle ?? cs.id} (${files.length} file(s)).` }, `reviewing ${cs.handle ?? cs.id}`);
   const verdict = await review(env.AI, {
     agent: session.agent,

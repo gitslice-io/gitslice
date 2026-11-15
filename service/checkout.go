@@ -126,9 +126,6 @@ func (s *RepositoryService) checkoutTree(ctx context.Context, req *corev1.Checko
 		}
 		wanted = append(wanted, p)
 	}
-	if err := s.ensureAuthorizedRootTree(ctx, subjectID, rootTreeID); err != nil {
-		return err
-	}
 	if err := stream.Send(&corev1.CheckoutResponse{Part: &corev1.CheckoutResponse_Header{Header: &corev1.CheckoutHeader{}}}); err != nil {
 		return err
 	}

@@ -121,7 +121,7 @@ func (r Runner) snapshotEditsAgainstBaseWithStats(ctx context.Context, conn *grp
 		if err != nil {
 			return nil, nil, stats, err
 		}
-		blobStats, err := attachBlobIDsFromFilesWithStats(authContext(ctx, cfg), corev1.NewBlobServiceClient(conn), &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, cache, edits, found.files, uploadConcurrency)
+		blobStats, err := attachBlobIDsWithStats(authContext(ctx, cfg), corev1.NewBlobServiceClient(conn), &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, cache, edits, uploadConcurrency)
 		stats.Blobs = blobStats
 		if err != nil {
 			return edits, found.files, stats, err

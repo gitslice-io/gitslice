@@ -136,69 +136,6 @@ func markPendingPublishedTx(ctx context.Context, tx *sql.Tx, rows []publishedPen
 	return err
 }
 
-func markPendingFailedTx(ctx context.Context, tx *sql.Tx, rows []failedPendingUpdate) error {
-	if len(rows) == 0 {
-		return nil
-	}
-	var b strings.Builder
-	b.WriteString(`
-		update pending_publish as pending
-		set status = 'failed',
-		    error = failed.error,
-		    updated_at = now()
-		from (values `)
-	args := make([]any, 0, len(rows)*2)
-	for i, row := range rows {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		base := len(args) + 1
-		b.WriteString(fmt.Sprintf("($%d, $%d)", base, base+1))
-		args = append(args, row.PendingID, row.Error)
-	}
-	b.WriteString(`
-		) as failed(id, error)
-		where pending.id = failed.id and pending.status = 'publishing'`)
-	_, err := tx.ExecContext(ctx, b.String(), args...)
-	return err
-}
-
-func reconcileFailedPathHeadsTx(ctx context.Context, tx *sql.Tx, rows []failedPathHeadReconcile) error {
-	for _, row := range rows {
-		var blobID, contentHash, mode, size any
-		if row.Head.Exists {
-			if row.Head.BlobID != "" {
-				blobID = row.Head.BlobID
-			}
-			if row.Head.ContentHash != "" {
-				contentHash = row.Head.ContentHash
-			}
-			if row.Head.Mode != 0 {
-				mode = int64(row.Head.Mode)
-			}
-			if row.Head.Size != 0 || row.Head.BlobID != "" {
-				size = row.Head.Size
-			}
-		}
-		if _, err := tx.ExecContext(ctx, `
-			update path_heads
-			set exists = $3,
-			    entry_fingerprint = $4,
-			    blob_id = $5,
-			    content_hash = $6,
-			    mode = $7,
-			    size = $8,
-			    accepted_changeset_id = null,
-			    accepted_patchset_id = null,
-			    updated_at = now()
-			where path = $1 and accepted_changeset_id = $2
-		`, row.Head.Path, row.ChangesetID, row.Head.Exists, row.Head.EntryFingerprint, blobID, contentHash, mode, size); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func markChangesetsSubmittedTx(ctx context.Context, tx *sql.Tx, rows []submittedChangesetUpdate) error {
 	if len(rows) == 0 {
 		return nil

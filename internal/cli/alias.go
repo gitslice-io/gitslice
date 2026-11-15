@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"sync"
 )
 
 type aliasEntryOutput struct {
@@ -18,7 +17,7 @@ func (r Runner) expandAliasArgs(args []string) ([]string, error) {
 		return args, nil
 	}
 	name := args[idx]
-	if reservedAliasNames()[name] {
+	if name == "alias" || name == "help" || name == "completion" {
 		return args, nil
 	}
 	cfg, err := r.readPartialUserConfig()
@@ -58,8 +57,8 @@ func aliasExpansionIndex(args []string) int {
 		switch {
 		case arg == "--format" || arg == "--json" || arg == "--jq" || arg == "--template":
 			i++
-		case strings.HasPrefix(arg, "--format=") || strings.HasPrefix(arg, "--json=") || strings.HasPrefix(arg, "--jq=") || strings.HasPrefix(arg, "--template=") || strings.HasPrefix(arg, "--insecure="):
-		case arg == "--quiet" || arg == "--non-interactive" || arg == "--no-color" || arg == "--verbose" || arg == "--debug" || arg == "--trace" || arg == "--insecure":
+		case strings.HasPrefix(arg, "--format=") || strings.HasPrefix(arg, "--json=") || strings.HasPrefix(arg, "--jq=") || strings.HasPrefix(arg, "--template="):
+		case arg == "--quiet" || arg == "--non-interactive" || arg == "--no-color" || arg == "--verbose" || arg == "--debug" || arg == "--trace":
 		default:
 			return i
 		}
@@ -181,37 +180,17 @@ func validateAliasName(name string) error {
 	return nil
 }
 
-var (
-	reservedAliasNamesOnce sync.Once
-	reservedAliasNamesMap  map[string]bool
-)
-
 func reservedAliasNames() map[string]bool {
-	reservedAliasNamesOnce.Do(func() {
-		names := []string{
-			"alias", "auth", "browse", "ci", "completion", "config", "cfg", "context", "ctx", "init",
-			"cs", "changeset", "diff", "file", "fs", "help", "log", "mount", "mountd", "unmount",
-			"repo", "repository", "rpc", "schema", "show", "shell", "slice", "slices", "st", "status",
-			"version", "workspace", "ws", "__complete", "__completeNoDesc",
-		}
-		reserved := make(map[string]bool, len(names)+32)
-		for _, name := range names {
-			reserved[name] = true
-		}
-		root := (Runner{}).rootCommand()
-		for _, cmd := range root.Commands() {
-			if n := strings.TrimSpace(cmd.Name()); n != "" {
-				reserved[n] = true
-			}
-			for _, alias := range cmd.Aliases {
-				if a := strings.TrimSpace(alias); a != "" {
-					reserved[a] = true
-				}
-			}
-		}
-		reservedAliasNamesMap = reserved
-	})
-	return reservedAliasNamesMap
+	names := []string{
+		"alias", "auth", "browse", "ci", "completion", "config", "cfg", "context", "ctx", "init",
+		"cs", "changeset", "diff", "file", "fs", "help", "log", "repo", "repository", "rpc", "schema", "show",
+		"shell", "slice", "slices", "st", "status", "version", "workspace", "ws",
+	}
+	reserved := make(map[string]bool, len(names))
+	for _, name := range names {
+		reserved[name] = true
+	}
+	return reserved
 }
 
 func splitAliasExpansion(value string) ([]string, error) {

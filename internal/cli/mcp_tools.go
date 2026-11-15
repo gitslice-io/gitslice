@@ -17,7 +17,6 @@ import (
 	grpcstatus "google.golang.org/grpc/status"
 
 	"gitslice.io/gitslice/internal/clientcache"
-	"gitslice.io/gitslice/internal/objectid"
 	"gitslice.io/gitslice/internal/postgres"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -253,15 +252,11 @@ func (b *mcpBackend) readFile(ctx context.Context, raw json.RawMessage) (any, er
 	if err != nil {
 		return nil, err
 	}
-	repoClient := corev1.NewRepositoryServiceClient(b.conn)
-	blobClient := corev1.NewBlobServiceClient(b.conn)
-	data, ok, err := fetchSingleRemoteTarget(b.ctx(ctx), repoClient, blobClient, s.ref, b.cache, commit, remoteReadTarget{Path: p})
+	file, err := corev1.NewRepositoryServiceClient(b.conn).ReadFile(b.ctx(ctx), &corev1.ReadFileRequest{CommitId: commit, Path: p, Slice: s.ref})
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
-		return nil, grpcstatus.Errorf(codes.NotFound, "file not found: %s", p)
-	}
+	data := file.GetData()
 	out := map[string]any{"path": p, "size": len(data), "commit": commit}
 	if isBinary(data) {
 		out["binary"] = true
@@ -469,56 +464,29 @@ func (b *mcpBackend) search(ctx context.Context, raw json.RawMessage) (any, erro
 }
 
 // contents reads files from the local cache, fetching the ones it lacks in
-// bounded compressed batches (falling back to ReadBlobStream for large files)
-// and verifying every file's content hash.
+// one call and keeping them there.
 func (b *mcpBackend) contents(ctx context.Context, s mcpSlice, commit string, entries []*corev1.TreeEntry) (map[string][]byte, error) {
-	out := make(map[string][]byte, len(entries))
-	var missing []remoteReadTarget
-	var missingEntries []*corev1.TreeEntry
+	out := map[string][]byte{}
+	var missing []string
 	for _, entry := range entries {
-		hash := entry.GetContentHash()
-		if hash != "" && b.cache != nil && b.cache.Exists(hash) {
-			data, ok, err := readVerifiedCachedBytes(b.cache, hash)
-			if err != nil {
-				return nil, err
-			}
-			if ok {
+		if hash := entry.GetContentHash(); hash != "" && b.cache.Exists(hash) {
+			if data, err := b.cache.Read(hash); err == nil {
 				out[entry.GetPath()] = data
 				continue
 			}
 		}
-		missing = append(missing, remoteReadTarget{
-			Path:        entry.GetPath(),
-			ContentHash: hash,
-			Size:        entry.GetSize(),
-		})
-		missingEntries = append(missingEntries, entry)
+		missing = append(missing, entry.GetPath())
 	}
 	if len(missing) == 0 {
 		return out, nil
 	}
-	repoClient := corev1.NewRepositoryServiceClient(b.conn)
-	blobClient := corev1.NewBlobServiceClient(b.conn)
-	unhashed, err := prefetchRemoteFilesToCache(b.ctx(ctx), repoClient, blobClient, s.ref, b.cache, commit, missing)
+	resp, err := corev1.NewRepositoryServiceClient(b.conn).ReadFiles(b.ctx(ctx), &corev1.ReadFilesRequest{CommitId: commit, Paths: missing, Slice: s.ref})
 	if err != nil {
 		return nil, err
 	}
-	for _, entry := range missingEntries {
-		hash := entry.GetContentHash()
-		if hash == "" {
-			if data, ok := unhashed[entry.GetPath()]; ok {
-				out[entry.GetPath()] = data
-			}
-			continue
-		}
-		data, ok, err := readVerifiedCachedBytes(b.cache, hash)
-		if err != nil {
-			return nil, err
-		}
-		if !ok {
-			return nil, fmt.Errorf("missing fetched content for %s (%s)", entry.GetPath(), hash)
-		}
-		out[entry.GetPath()] = data
+	for _, file := range resp.GetFiles() {
+		out[file.GetPath()] = file.GetData()
+		_, _ = b.cache.PutBytes(file.GetData())
 	}
 	return out, nil
 }
@@ -659,7 +627,6 @@ func (b *mcpBackend) createChangeset(ctx context.Context, raw json.RawMessage) (
 
 func (b *mcpBackend) fileEdits(ctx context.Context, s mcpSlice, edits []mcpEdit) ([]*corev1.FileEdit, error) {
 	out := make([]*corev1.FileEdit, 0, len(edits))
-	writeDataByHash := map[string][]byte{}
 	for i, edit := range edits {
 		p, err := s.repoPath(edit.Path)
 		if err != nil {
@@ -670,15 +637,11 @@ func (b *mcpBackend) fileEdits(ctx context.Context, s mcpSlice, edits []mcpEdit)
 			if edit.Content == nil {
 				return nil, userError("content_required", fmt.Sprintf("edit %d writes %s without content", i+1, p), "Pass the whole new file as content.")
 			}
-			data := []byte(*edit.Content)
-			hash := objectid.RawContentHash(data)
-			if _, seen := writeDataByHash[hash]; !seen {
-				writeDataByHash[hash] = data
-				if b.cache != nil {
-					_, _ = b.cache.PutBytes(data)
-				}
+			uploaded, err := corev1.NewBlobServiceClient(b.conn).UploadBlob(b.ctx(ctx), &corev1.UploadBlobRequest{Data: []byte(*edit.Content), Slice: s.ref})
+			if err != nil {
+				return nil, err
 			}
-			out = append(out, &corev1.FileEdit{Op: "upsert", Path: p, ContentHash: hash, Mode: 0o100644})
+			out = append(out, &corev1.FileEdit{Op: "upsert", Path: p, BlobId: uploaded.GetBlobId(), ContentHash: uploaded.GetContentHash(), Mode: 0o100644})
 		case "delete", "mkdir":
 			out = append(out, &corev1.FileEdit{Op: edit.Op, Path: p})
 		case "move", "copy":
@@ -694,74 +657,6 @@ func (b *mcpBackend) fileEdits(ctx context.Context, s mcpSlice, edits []mcpEdit)
 		default:
 			return nil, userError("invalid_op", fmt.Sprintf("edit %d has op %q", i+1, edit.Op), "Use write, delete, move, copy or mkdir.")
 		}
-	}
-	if len(writeDataByHash) == 0 {
-		return out, nil
-	}
-
-	callCtx := b.ctx(ctx)
-	blobClient := corev1.NewBlobServiceClient(b.conn)
-	hashes := make([]string, 0, len(writeDataByHash))
-	for hash := range writeDataByHash {
-		hashes = append(hashes, hash)
-	}
-	blobIDs := map[string]string{}
-	const statusBatchSize = 512
-	for start := 0; start < len(hashes); start += statusBatchSize {
-		end := min(start+statusBatchSize, len(hashes))
-		status, err := blobClient.GetBlobStatus(callCtx, &corev1.GetBlobStatusRequest{
-			ContentHashes: hashes[start:end],
-			Slice:         s.ref,
-		})
-		if err != nil {
-			if grpcstatus.Code(err) == codes.Unimplemented {
-				break
-			}
-			return nil, err
-		}
-		for _, rec := range status.GetBlobs() {
-			if rec.GetId() != "" && rec.GetState() == "available" {
-				blobIDs[rec.GetContentHash()] = rec.GetId()
-			}
-		}
-	}
-
-	var pending []pendingBlobUpload
-	for _, hash := range hashes {
-		if blobIDs[hash] != "" {
-			continue
-		}
-		data := writeDataByHash[hash]
-		h := hash
-		pending = append(pending, pendingBlobUpload{
-			hash: h,
-			size: int64(len(data)),
-			read: func() ([]byte, error) { return data, nil },
-			uploadOne: func() (*corev1.UploadBlobResponse, error) {
-				return uploadBlobBytes(callCtx, blobClient, s.ref, h, data)
-			},
-		})
-	}
-	if len(pending) > 0 {
-		uploaded, err := uploadBlobsInBatches(callCtx, blobClient, s.ref, pending, defaultUploadConcurrency())
-		if err != nil {
-			return nil, err
-		}
-		for hash, resp := range uploaded {
-			if resp != nil && resp.GetBlobId() != "" {
-				blobIDs[hash] = resp.GetBlobId()
-			}
-		}
-	}
-	for _, edit := range out {
-		if edit.Op != "upsert" || edit.BlobId != "" {
-			continue
-		}
-		id := blobIDs[edit.ContentHash]
-		if id == "" {
-			return nil, fmt.Errorf("blob upload did not return blob id for %s", edit.Path)
-		}
-		edit.BlobId = id
 	}
 	return out, nil
 }

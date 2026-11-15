@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"strings"
 	"time"
 
 	"gitslice.io/gitslice/internal/authz"
@@ -67,9 +66,9 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 		return status.Error(codes.InvalidArgument, "first message must be register")
 	}
 
-	account, err := s.daemonAccountForSubject(ctx, subjectID)
-	if err != nil {
-		return err
+	account := ""
+	if accounts, err := s.Auth.ListSubjectAccountSlugs(ctx, subjectID); err == nil && len(accounts) > 0 {
+		account = accounts[0]
 	}
 	daemon, err := s.Agents.RegisterDaemon(ctx, storage.AgentDaemonInput{
 		SubjectID: subjectID,
@@ -169,10 +168,6 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 		case *corev1.DaemonMessage_Event:
 			ev := p.Event
 			if ev.ConversationId == "" {
-				continue
-			}
-			conv, err := s.Agents.GetConversation(ctx, ev.ConversationId)
-			if err != nil || conv.GetDaemonId() != daemon.Id {
 				continue
 			}
 			role := ev.Role
@@ -587,45 +582,4 @@ func (s *AgentService) ownedDaemon(ctx context.Context, subjectID, daemonID stri
 		}
 	}
 	return nil, status.Error(codes.NotFound, "daemon not found")
-}
-
-// daemonAccountForSubject attributes a connecting daemon to the caller's
-// personal account when they have one, or to the single account they
-// administer when they do not. Non-admin organization members cannot claim an
-// organization's daemon namespace.
-func (s *AgentService) daemonAccountForSubject(ctx context.Context, subjectID string) (string, error) {
-	if s.Auth == nil {
-		return "", nil
-	}
-	if usernames, err := s.Auth.UsernamesForSubjects(ctx, []string{subjectID}); err == nil {
-		if personal := strings.TrimSpace(usernames[subjectID]); personal != "" {
-			return personal, nil
-		}
-	}
-	accounts, err := s.Auth.ListSubjectAccountSlugs(ctx, subjectID)
-	if err != nil {
-		return "", grpcError(err)
-	}
-	var adminAccounts []string
-	for _, raw := range accounts {
-		acct := strings.TrimSpace(raw)
-		if acct == "" {
-			continue
-		}
-		ok, err := canAuthorizeAccount(ctx, s.Auth, subjectID, acct, authz.ActionAdmin)
-		if err != nil {
-			return "", err
-		}
-		if !ok {
-			continue
-		}
-		if kind, err := s.Auth.AccountKind(ctx, acct); err == nil && kind == "personal" {
-			return acct, nil
-		}
-		adminAccounts = append(adminAccounts, acct)
-	}
-	if len(adminAccounts) == 1 {
-		return adminAccounts[0], nil
-	}
-	return "", status.Error(codes.PermissionDenied, "daemon registration requires a personal account or an unambiguous administered account")
 }

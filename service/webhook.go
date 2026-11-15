@@ -42,19 +42,16 @@ func (s *WebhookService) available() error {
 }
 
 // adminSlice resolves a slice the caller administers.
-func (s *WebhookService) adminSlice(ctx context.Context, subjectID string, ref *corev1.SliceRef, allowArchived bool) (*corev1.Slice, error) {
+func (s *WebhookService) adminSlice(ctx context.Context, subjectID string, ref *corev1.SliceRef) (*corev1.Slice, error) {
 	ref, err := normalizeServiceSliceRef(ref)
 	if err != nil {
 		return nil, err
-	}
-	if allowArchived {
-		return resolveAuthorizedSliceAllowArchived(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionAdmin)
 	}
 	return resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionAdmin)
 }
 
 // adminWebhook loads a webhook whose slice the caller administers.
-func (s *WebhookService) adminWebhook(ctx context.Context, subjectID, webhookID string, allowArchived bool) (*storage.Webhook, *corev1.Slice, error) {
+func (s *WebhookService) adminWebhook(ctx context.Context, subjectID, webhookID string) (*storage.Webhook, *corev1.Slice, error) {
 	webhookID = strings.TrimSpace(webhookID)
 	if webhookID == "" {
 		return nil, nil, status.Error(codes.InvalidArgument, "webhook_id is required")
@@ -67,14 +64,8 @@ func (s *WebhookService) adminWebhook(ctx context.Context, subjectID, webhookID 
 	if err != nil {
 		return nil, nil, grpcError(err)
 	}
-	if allowArchived {
-		if err := authorizeAllowArchived(ctx, s.Auth, subjectID, slice, authz.ActionAdmin); err != nil {
-			return nil, nil, err
-		}
-	} else {
-		if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionAdmin); err != nil {
-			return nil, nil, err
-		}
+	if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionAdmin); err != nil {
+		return nil, nil, err
 	}
 	return hook, slice, nil
 }
@@ -130,7 +121,7 @@ func (s *WebhookService) CreateWebhook(ctx context.Context, req *corev1.CreateWe
 	if err != nil {
 		return nil, err
 	}
-	slice, err := s.adminSlice(ctx, subjectID, req.GetSlice(), false)
+	slice, err := s.adminSlice(ctx, subjectID, req.GetSlice())
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +171,7 @@ func (s *WebhookService) ListWebhooks(ctx context.Context, req *corev1.ListWebho
 	if err != nil {
 		return nil, err
 	}
-	slice, err := s.adminSlice(ctx, subjectID, req.GetSlice(), true)
+	slice, err := s.adminSlice(ctx, subjectID, req.GetSlice())
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +209,7 @@ func (s *WebhookService) UpdateWebhook(ctx context.Context, req *corev1.UpdateWe
 	if err != nil {
 		return nil, err
 	}
-	hook, slice, err := s.adminWebhook(ctx, subjectID, req.GetWebhookId(), false)
+	hook, slice, err := s.adminWebhook(ctx, subjectID, req.GetWebhookId())
 	if err != nil {
 		return nil, err
 	}
@@ -259,7 +250,7 @@ func (s *WebhookService) DeleteWebhook(ctx context.Context, req *corev1.DeleteWe
 	if err != nil {
 		return nil, err
 	}
-	hook, _, err := s.adminWebhook(ctx, subjectID, req.GetWebhookId(), true)
+	hook, _, err := s.adminWebhook(ctx, subjectID, req.GetWebhookId())
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +269,7 @@ func (s *WebhookService) PingWebhook(ctx context.Context, req *corev1.PingWebhoo
 	if err != nil {
 		return nil, err
 	}
-	hook, _, err := s.adminWebhook(ctx, subjectID, req.GetWebhookId(), false)
+	hook, _, err := s.adminWebhook(ctx, subjectID, req.GetWebhookId())
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +288,7 @@ func (s *WebhookService) ListWebhookDeliveries(ctx context.Context, req *corev1.
 	if err != nil {
 		return nil, err
 	}
-	hook, _, err := s.adminWebhook(ctx, subjectID, req.GetWebhookId(), true)
+	hook, _, err := s.adminWebhook(ctx, subjectID, req.GetWebhookId())
 	if err != nil {
 		return nil, err
 	}
@@ -333,7 +324,7 @@ func (s *WebhookService) RedeliverWebhookDelivery(ctx context.Context, req *core
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if _, _, err := s.adminWebhook(ctx, subjectID, delivery.WebhookID, false); err != nil {
+	if _, _, err := s.adminWebhook(ctx, subjectID, delivery.WebhookID); err != nil {
 		return nil, err
 	}
 	again, err := s.Dispatcher.Redeliver(ctx, delivery)
