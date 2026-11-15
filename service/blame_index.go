@@ -41,10 +41,11 @@ func newBlameChanges(list []storage.FileChange) blameChanges {
 	return out
 }
 
-// blameIndexStep is a step planned from the index: the file was created, or
-// the version before it was parentHash at parentPath.
+// BlameIndexStep is one planned step from the index: created, or parentHash at
+// parentPath. redacted is true when a move came from an unreadable path.
 type blameIndexStep struct {
 	created    bool
+	redacted   bool
 	parentPath string
 	parentHash string
 }
@@ -60,7 +61,7 @@ func (c blameChanges) one(commitID, path string) (storage.FileChange, bool) {
 }
 
 // step plans commits[index], which left the file at path with content hash.
-func (c blameChanges) step(commits []*corev1.Commit, index int, path, hash string) (blameIndexStep, bool) {
+func (c blameChanges) step(commits []*corev1.Commit, index int, path, hash string, canReadPath func(string) bool) (blameIndexStep, bool) {
 	change, ok := c.one(commits[index].Id, path)
 	if !ok || change.ContentHash != hash {
 		return blameIndexStep{}, false
@@ -79,6 +80,9 @@ func (c blameChanges) step(commits []*corev1.Commit, index int, path, hash strin
 	case "moved":
 		if change.OldPath == "" {
 			return blameIndexStep{}, false
+		}
+		if canReadPath != nil && !canReadPath(change.OldPath) {
+			return blameIndexStep{created: true, redacted: true}, true
 		}
 		prevPath = change.OldPath
 	default:
@@ -104,17 +108,19 @@ func (c blameChanges) step(commits []*corev1.Commit, index int, path, hash strin
 // content hash, as far as the index is certain, so their contents can be read
 // ahead. It stops where the walk would (a stored blame of the version it is
 // tracking) and where the index cannot answer.
-func (c blameChanges) chain(commits []*corev1.Commit, index int, path, hash string, snapshots map[string]map[string]*storage.BlameSnapshot, limit int) []blameIndexStep {
+func (c blameChanges) chain(commits []*corev1.Commit, index int, path, hash string, snapshots map[string]map[string]*storage.BlameSnapshot, limit int, canReadPath func(string) bool) []blameIndexStep {
 	var out []blameIndexStep
 	for i := index; i < len(commits) && len(out) < limit; i++ {
-		if snapshot := snapshots[commits[i].Id][path]; snapshot != nil && snapshot.ContentHash == hash {
-			break
+		if canReadPath == nil {
+			if snapshot := snapshots[commits[i].Id][path]; snapshot != nil && snapshot.ContentHash == hash {
+				break
+			}
 		}
 		if len(commits[i].ParentIds) == 0 {
 			out = append(out, blameIndexStep{created: true})
 			break
 		}
-		step, ok := c.step(commits, i, path, hash)
+		step, ok := c.step(commits, i, path, hash, canReadPath)
 		if !ok {
 			break
 		}

@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 // Blame (design/27_blame.md): which commit last changed each line of a file.
@@ -100,6 +101,7 @@ func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFile
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
+	var authorizedSlice *corev1.Slice
 	if req.Slice != nil {
 		slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionRead)
 		if err != nil {
@@ -108,8 +110,27 @@ func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFile
 		if err := ensureRepositoryPathInSlice(slice, p); err != nil {
 			return nil, err
 		}
+		authorizedSlice = slice
 	} else if err := s.ensureRepositoryPathRead(ctx, subjectID, p); err != nil {
 		return nil, err
+	}
+	pathAllowedCache := map[string]bool{p: true}
+	canReadPath := func(candidate string) bool {
+		canonical, err := repositoryReadPath(candidate)
+		if err != nil || canonical == "/" {
+			return false
+		}
+		if allowed, seen := pathAllowedCache[canonical]; seen {
+			return allowed
+		}
+		allowed := false
+		if authorizedSlice != nil && ensureRepositoryPathInSlice(authorizedSlice, canonical) == nil {
+			allowed = true
+		} else if s.ensureRepositoryPathRead(ctx, subjectID, canonical) == nil {
+			allowed = true
+		}
+		pathAllowedCache[canonical] = allowed
+		return allowed
 	}
 	refName := strings.TrimSpace(req.GetRefName())
 	if err := requireDefaultTargetRef(refName); err != nil {
@@ -148,7 +169,7 @@ func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFile
 	}
 	trace.mark("head")
 
-	result, err := s.blameWalk(ctx, refName, filters, head.CommitId, p, headEntry)
+	result, err := s.blameWalk(ctx, refName, filters, head.CommitId, p, headEntry, canReadPath)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +212,15 @@ func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFile
 		}
 	}
 	for _, id := range ids {
-		out.Commits = append(out.Commits, result.commits[id])
+		cloned := proto.Clone(result.commits[id]).(*corev1.Commit)
+		filtered := cloned.ChangedPaths[:0]
+		for _, changed := range cloned.ChangedPaths {
+			if canReadPath(changed) {
+				filtered = append(filtered, changed)
+			}
+		}
+		cloned.ChangedPaths = filtered
+		out.Commits = append(out.Commits, cloned)
 	}
 	trace.mark("commits")
 	if err := s.resolveCommitAuthors(ctx, out.Commits...); err != nil {
@@ -225,7 +254,7 @@ type blameStep struct {
 	parent  *blameVersion
 }
 
-func (s *RepositoryService) blameWalk(ctx context.Context, refName string, filters listCommitFilters, headCommitID, p string, headEntry *storage.FileEntry) (blameResult, error) {
+func (s *RepositoryService) blameWalk(ctx context.Context, refName string, filters listCommitFilters, headCommitID, p string, headEntry *storage.FileEntry, canReadPath func(string) bool) (blameResult, error) {
 	result := blameResult{commits: map[string]*corev1.Commit{}}
 	trackedPath, trackedHash := p, headEntry.ContentHash
 	var trackedLines []string
@@ -233,6 +262,7 @@ func (s *RepositoryService) blameWalk(ctx context.Context, refName string, filte
 	var steps []blameStep
 	var base *storage.BlameSnapshot
 	created := false
+	redactedMove := false
 	seen, token := 0, ""
 	first := true
 	capped := false
@@ -295,10 +325,13 @@ walk:
 		defer prefetch.stop()
 		for index, commit := range commits {
 			result.commits[commit.Id] = commit
-			// A stored blame of exactly the version being tracked ends the walk.
+			// A stored blame of exactly the version being tracked ends the walk
+			// when every commit it credits is readable by the caller.
 			if snapshot := snapshots[commit.Id][trackedPath]; snapshot != nil && snapshot.ContentHash == trackedHash {
-				base = snapshot
-				break walk
+				if s.blameSnapshotReadable(ctx, snapshot, result.commits, canReadPath) {
+					base = snapshot
+					break walk
+				}
 			}
 			if seen++; seen > blameMaxCommits {
 				result.truncated = true
@@ -318,7 +351,7 @@ walk:
 			var planned *blameIndexStep
 			if len(commit.ParentIds) > 0 && len(changes) > 0 && blameFromIndex.Load() {
 				if planFrom < 0 || index < planFrom || index-planFrom >= len(plan) {
-					plan = changes.chain(commits, index, trackedPath, trackedHash, snapshots, blameBlobReadAhead)
+					plan = changes.chain(commits, index, trackedPath, trackedHash, snapshots, blameBlobReadAhead, canReadPath)
 					planFrom = index
 					blobs.prefetch(plan, headEntry.Size)
 				}
@@ -327,6 +360,9 @@ walk:
 				}
 			}
 			if planned != nil && planned.created {
+				if planned.redacted {
+					redactedMove = true
+				}
 				if t := blameTraceOf(ctx); t != nil {
 					t.indexSteps.Add(1)
 				}
@@ -351,8 +387,12 @@ walk:
 				}
 				if !found {
 					// Moved in this commit? Read it where it was.
-					if parentPath, err = s.blameMovedFrom(ctx, commit, trackedPath, step.version); err != nil {
+					var moveRedacted bool
+					if parentPath, moveRedacted, err = s.blameMovedFrom(ctx, commit, trackedPath, step.version, canReadPath); err != nil {
 						return result, err
+					}
+					if moveRedacted {
+						redactedMove = true
 					}
 					if parentPath != "" {
 						if parent, found, err = s.blameVersion(ctx, commit.ParentIds[0], parentPath); err != nil {
@@ -366,6 +406,12 @@ walk:
 			}
 			steps = append(steps, step)
 			if step.parent == nil {
+				created = true
+				break walk
+			}
+			if parentPath != trackedPath && canReadPath != nil && !canReadPath(parentPath) {
+				redactedMove = true
+				steps[len(steps)-1].parent = nil
 				created = true
 				break walk
 			}
@@ -424,7 +470,7 @@ walk:
 	// after a commit lands, and storing it would keep it wrong for good.
 	guessed := base == nil && !created && !capped
 	result.guessed = guessed && len(steps) > 0
-	if s.Blames != nil && len(steps) > 0 && !guessed {
+	if s.Blames != nil && len(steps) > 0 && !guessed && !redactedMove {
 		newest := steps[0]
 		if entry, found, err := s.blameEntry(ctx, newest.commit.Id, newest.path); err == nil && found && entry.ContentHash == newest.version.hash {
 			if err := s.Blames.PutBlameSnapshot(ctx, storage.BlameSnapshot{
@@ -680,9 +726,9 @@ func (s *RepositoryService) blameVersion(ctx context.Context, commitID, p string
 // blameMovedFrom finds where a file was before a commit that moved it: among
 // the paths the commit changed, one that had a file in the parent and none
 // after, choosing the one sharing the most lines with the file.
-func (s *RepositoryService) blameMovedFrom(ctx context.Context, commit *corev1.Commit, movedTo string, moved blameVersion) (string, error) {
+func (s *RepositoryService) blameMovedFrom(ctx context.Context, commit *corev1.Commit, movedTo string, moved blameVersion, canReadPath func(string) bool) (string, bool, error) {
 	if len(commit.ParentIds) == 0 {
-		return "", nil
+		return "", false, nil
 	}
 	have := map[string]int{}
 	for _, line := range moved.lines {
@@ -693,8 +739,13 @@ func (s *RepositoryService) blameMovedFrom(ctx context.Context, commit *corev1.C
 	// parent. Looking in the parent first makes those one lookup, not two,
 	// and the lookups run several at a time.
 	var candidates []string
+	redacted := false
 	for _, changed := range commit.ChangedPaths {
 		if candidate, err := paths.Canonical(changed); err == nil && candidate != movedTo {
+			if canReadPath != nil && !canReadPath(candidate) {
+				redacted = true
+				continue
+			}
 			candidates = append(candidates, candidate)
 		}
 	}
@@ -739,7 +790,53 @@ func (s *RepositoryService) blameMovedFrom(ctx context.Context, commit *corev1.C
 			best, bestShared = candidate, shared[i]
 		}
 	}
-	return best, nil
+	return best, redacted && best == "", nil
+}
+
+func (s *RepositoryService) blameSnapshotReadable(ctx context.Context, snapshot *storage.BlameSnapshot, known map[string]*corev1.Commit, canReadPath func(string) bool) bool {
+	if canReadPath == nil || snapshot == nil {
+		return true
+	}
+	seen := map[string]bool{}
+	var missing []string
+	for _, owner := range snapshot.Owners {
+		if seen[owner] {
+			continue
+		}
+		seen[owner] = true
+		if known[owner] == nil {
+			missing = append(missing, owner)
+		}
+	}
+	if len(missing) > 0 {
+		read, err := s.Repository.GetCommits(ctx, missing)
+		if err != nil {
+			return false
+		}
+		for _, id := range missing {
+			if read[id] == nil {
+				return false
+			}
+			known[id] = read[id]
+		}
+	}
+	for owner := range seen {
+		commit := known[owner]
+		if commit == nil {
+			return false
+		}
+		hasReadable := false
+		for _, changed := range commit.ChangedPaths {
+			if canReadPath(changed) {
+				hasReadable = true
+				break
+			}
+		}
+		if !hasReadable {
+			return false
+		}
+	}
+	return true
 }
 
 func splitBlameLines(data []byte) []string {

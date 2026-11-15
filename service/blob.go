@@ -24,6 +24,8 @@ type BlobService struct {
 	ObjectStore ObjectStore
 }
 
+const getBlobStatusMaxHashes = 1000
+
 func (s *BlobService) GetBlobStatus(ctx context.Context, req *corev1.GetBlobStatusRequest) (*corev1.GetBlobStatusResponse, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
@@ -31,6 +33,9 @@ func (s *BlobService) GetBlobStatus(ctx context.Context, req *corev1.GetBlobStat
 	}
 	if req.Slice == nil {
 		return nil, status.Error(codes.InvalidArgument, "slice is required")
+	}
+	if len(req.GetContentHashes()) > getBlobStatusMaxHashes {
+		return nil, status.Errorf(codes.InvalidArgument, "check at most %d blob hashes per call", getBlobStatusMaxHashes)
 	}
 	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionRead)
 	if err != nil {

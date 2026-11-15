@@ -54,6 +54,30 @@ func TestAuthorizeRoleCapabilities(t *testing.T) {
 	}
 }
 
+func TestAuthorizeArchivedBlocksMutations(t *testing.T) {
+	mem := memory.New()
+	mem.AddAccountRole("user_admin", "acme", "admin")
+	authorizer := New(mem.Auth)
+	slice := authzTestSlice("private")
+	slice.Archived = true
+
+	if err := authorizer.Authorize(context.Background(), "user_admin", slice, ActionRead); err != nil {
+		t.Fatalf("archived read for admin = %v, want nil", err)
+	}
+	if err := authorizer.Authorize(context.Background(), "user_admin", slice, ActionWrite); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("archived write for admin = %v, want ErrConflict", err)
+	}
+	if err := authorizer.Authorize(context.Background(), "user_admin", slice, ActionAdmin); !errors.Is(err, storage.ErrConflict) {
+		t.Fatalf("archived admin for admin = %v, want ErrConflict", err)
+	}
+	if err := authorizer.AuthorizeAllowArchived(context.Background(), "user_admin", slice, ActionAdmin); err != nil {
+		t.Fatalf("AuthorizeAllowArchived for admin = %v, want nil", err)
+	}
+	if err := authorizer.Authorize(context.Background(), "user_outsider", slice, ActionAdmin); !errors.Is(err, storage.ErrUnauthorized) {
+		t.Fatalf("archived admin for outsider = %v, want ErrUnauthorized", err)
+	}
+}
+
 func authzTestSlice(visibility string) *corev1.Slice {
 	return &corev1.Slice{
 		Ref: &corev1.SliceRef{Account: "acme", Slice: "payment"},

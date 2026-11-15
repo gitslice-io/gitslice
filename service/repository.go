@@ -32,6 +32,9 @@ type RepositoryService struct {
 	importClones     *importCloneCache
 	// importFlights serializes imports of one source into one place.
 	importFlights importFlights
+
+	publishedTreesMu   sync.Mutex
+	publishedRootTrees map[string]struct{}
 }
 
 func (s *RepositoryService) importCloneCache() *importCloneCache {
@@ -61,6 +64,9 @@ func (s *RepositoryService) ResolvePath(ctx context.Context, req *corev1.Resolve
 		if err := s.ensureRepositoryPathRead(ctx, subjectID, p); err != nil {
 			return nil, err
 		}
+	}
+	if err := s.ensureAuthorizedRootTree(ctx, subjectID, req.GetRootTreeId()); err != nil {
+		return nil, err
 	}
 	req = cloneResolvePathRequest(req)
 	req.Path = p
@@ -151,7 +157,10 @@ func cloneResolvePathRequest(req *corev1.ResolvePathRequest) *corev1.ResolvePath
 }
 
 func (s *RepositoryService) GetRef(ctx context.Context, req *corev1.GetRefRequest) (*corev1.Ref, error) {
-	refName := req.RefName
+	refName := strings.TrimSpace(req.GetRefName())
+	if err := requireDefaultTargetRef(refName); err != nil {
+		return nil, err
+	}
 	if refName == "" {
 		refName = storage.DefaultTargetRef
 	}

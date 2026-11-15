@@ -78,7 +78,37 @@ func (s *RepositoryService) readableAccountPrefixes(ctx context.Context, subject
 }
 
 func (s *RepositoryService) ensureCommitRead(ctx context.Context, subjectID string, commit *corev1.Commit) error {
-	if commit == nil || len(commit.ChangedPaths) == 0 {
+	if commit == nil {
+		return status.Error(codes.NotFound, "commit not found")
+	}
+	if len(commit.ChangedPaths) == 0 {
+		changesetID := strings.TrimSpace(commit.GetChangesetId())
+		if changesetID == "" && s.Repository != nil && commit.GetId() != "" {
+			if landed, err := s.Repository.ChangesetsForCommits(ctx, []string{commit.GetId()}); err == nil {
+				changesetID = strings.TrimSpace(landed[commit.GetId()])
+			}
+		}
+		if changesetID != "" && s.Changesets != nil {
+			cs, err := s.Changesets.Get(ctx, changesetID)
+			if err != nil {
+				return grpcError(err)
+			}
+			if cs.GetAuthoringSlice() == nil {
+				return status.Error(codes.PermissionDenied, "commit is not readable")
+			}
+			_, err = resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, cs.GetAuthoringSlice(), authz.ActionRead)
+			return err
+		}
+		if strings.TrimSpace(subjectID) == "" {
+			return status.Error(codes.PermissionDenied, "commit is not readable")
+		}
+		prefixes, err := s.readableAccountPrefixes(ctx, subjectID)
+		if err != nil {
+			return err
+		}
+		if len(prefixes) == 0 {
+			return status.Error(codes.PermissionDenied, "commit is not readable")
+		}
 		return nil
 	}
 	accounts := map[string][]string{}
@@ -143,4 +173,128 @@ func ensureRepositoryPathInSlice(slice *corev1.Slice, p string) error {
 		return nil
 	}
 	return status.Errorf(codes.PermissionDenied, "path %s is outside slice %s/%s", p, slice.Ref.GetAccount(), slice.Ref.GetSlice())
+}
+
+const maxPublishedRootTreeCache = 4096
+
+func (s *RepositoryService) hasCachedPublishedRootTree(rootTreeID string) bool {
+	s.publishedTreesMu.Lock()
+	defer s.publishedTreesMu.Unlock()
+	_, ok := s.publishedRootTrees[rootTreeID]
+	return ok
+}
+
+func (s *RepositoryService) cachePublishedRootTree(rootTreeID string) {
+	if rootTreeID == "" {
+		return
+	}
+	s.publishedTreesMu.Lock()
+	defer s.publishedTreesMu.Unlock()
+	if s.publishedRootTrees == nil {
+		s.publishedRootTrees = map[string]struct{}{}
+	} else if len(s.publishedRootTrees) >= maxPublishedRootTreeCache {
+		clear(s.publishedRootTrees)
+	}
+	s.publishedRootTrees[rootTreeID] = struct{}{}
+}
+
+// ensureAuthorizedRootTree verifies that a caller-supplied root_tree_id belongs
+// either to a published commit on DefaultTargetRef or to a changeset whose
+// authoring slice the caller is authorized to read.
+func (s *RepositoryService) ensureAuthorizedRootTree(ctx context.Context, subjectID, rootTreeID string) error {
+	rootTreeID = strings.TrimSpace(rootTreeID)
+	if rootTreeID == "" {
+		return nil
+	}
+	if s.hasCachedPublishedRootTree(rootTreeID) {
+		return nil
+	}
+	if s.Repository != nil {
+		if head, err := s.Repository.GetRef(ctx, storage.DefaultTargetRef); err == nil && head.GetCommitId() != "" {
+			if headTree, err := s.Repository.RootTreeForCommit(ctx, head.GetCommitId()); err == nil && headTree != "" {
+				s.cachePublishedRootTree(headTree)
+				if headTree == rootTreeID {
+					return nil
+				}
+			}
+		}
+		token := ""
+		for {
+			page, err := s.Repository.ListCommitPage(ctx, storage.DefaultTargetRef, 200, token)
+			if err != nil {
+				break
+			}
+			for _, commit := range page.Commits {
+				if commit == nil {
+					continue
+				}
+				treeID := strings.TrimSpace(commit.GetRootTreeId())
+				if treeID == "" && commit.GetId() != "" {
+					if loaded, err := s.Repository.RootTreeForCommit(ctx, commit.GetId()); err == nil {
+						treeID = strings.TrimSpace(loaded)
+					}
+				}
+				if treeID != "" {
+					s.cachePublishedRootTree(treeID)
+					if treeID == rootTreeID {
+						return nil
+					}
+				}
+			}
+			if page.NextPageToken == "" {
+				break
+			}
+			token = page.NextPageToken
+		}
+	}
+	if s.Changesets != nil {
+		matchedChangeset := false
+		var firstAuthErr error
+		token := ""
+		for {
+			list, nextToken, err := s.Changesets.List(ctx, storage.ChangesetListFilter{
+				Limit:     200,
+				PageToken: token,
+				Summary:   false,
+			})
+			if err != nil {
+				return grpcError(err)
+			}
+			for _, cs := range list {
+				if cs == nil {
+					continue
+				}
+				hasTree := false
+				for _, ps := range cs.GetPatchsets() {
+					if ps != nil && (strings.TrimSpace(ps.GetResultTreeId()) == rootTreeID || strings.TrimSpace(ps.GetBaseTreeId()) == rootTreeID) {
+						hasTree = true
+						break
+					}
+				}
+				if !hasTree {
+					continue
+				}
+				matchedChangeset = true
+				if cs.GetAuthoringSlice() == nil {
+					continue
+				}
+				if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, cs.GetAuthoringSlice(), authz.ActionRead); err == nil {
+					return nil
+				} else if firstAuthErr == nil {
+					firstAuthErr = err
+				}
+			}
+			if nextToken == "" {
+				break
+			}
+			token = nextToken
+		}
+		if matchedChangeset {
+			if firstAuthErr != nil {
+				return firstAuthErr
+			}
+			return status.Error(codes.PermissionDenied, "root tree is not readable")
+		}
+	}
+	return status.Error(codes.NotFound, "root tree not found")
 }
