@@ -191,8 +191,23 @@ func TestGitImportDeepListAndInspectCommits(t *testing.T) {
 		if err := json.Unmarshal([]byte(thirdPageRaw), &thirdPage); err != nil {
 			t.Fatal(err)
 		}
-		if len(thirdPage.Commits) != 1 || thirdPage.Commits[0].Message != "bootstrap acme test slices" || thirdPage.NextPageToken != "" {
+		if len(thirdPage.Commits) != 1 || thirdPage.Commits[0].Message != "bootstrap acme test slices" {
 			t.Fatalf("unexpected third commit page: %#v raw=%s", thirdPage, thirdPageRaw)
+		}
+		if thirdPage.NextPageToken != "" {
+			fourthPageRaw := runCLI(t, home, workspace, "log", "--all", "--limit", "1", "--page-token", thirdPage.NextPageToken, "--json", "--", "/acme/payment/imported/deep/README.md")
+			var fourthPage struct {
+				Commits []struct {
+					Message string `json:"message"`
+				} `json:"commits"`
+				NextPageToken string `json:"next_page_token"`
+			}
+			if err := json.Unmarshal([]byte(fourthPageRaw), &fourthPage); err != nil {
+				t.Fatal(err)
+			}
+			if len(fourthPage.Commits) != 1 || fourthPage.Commits[0].Message != "Create account root /acme" || fourthPage.NextPageToken != "" {
+				t.Fatalf("unexpected fourth commit page: %#v raw=%s", fourthPage, fourthPageRaw)
+			}
 		}
 	}
 	show := runCLI(t, home, workspace, "show", secondShort)

@@ -41,7 +41,7 @@ func cloneForImport(ctx context.Context, source, mode string, maxCommits int, lo
 	repoDir := path.Join(parent, "repo")
 	// Bare: the import reads objects (ls-tree, cat-file), never a checkout,
 	// and on Cloud Run /tmp is memory.
-	args := []string{"clone", "--quiet", "--bare"}
+	args := []string{"-c", "http.followRedirects=false", "clone", "--quiet", "--bare"}
 	// Remote clones are pinned to the git transport (no local optimization) and
 	// the https protocol so a source that slipped past validation still cannot
 	// reach file/ext/ssh. A local clone is an explicit operator opt-in, so it
@@ -57,7 +57,7 @@ func cloneForImport(ctx context.Context, source, mode string, maxCommits int, lo
 	} else if maxCommits > 0 {
 		args = append(args, "--depth", strconv.Itoa(maxCommits))
 	}
-	args = append(args, source, repoDir)
+	args = append(args, "--", source, repoDir)
 	if err := runGitImport(ctx, "", allowProtocol, args...); err != nil {
 		cleanup()
 		return "", nil, err
