@@ -34,19 +34,24 @@ func TestRenderRemovesWhatCouldRunScript(t *testing.T) {
 		`<base href="https://evil/">`,
 		`<meta http-equiv="refresh" content="0;url=https://evil">`,
 		`<img src="data:text/html;base64,PHNjcmlwdD5hbGVydCg5KTwvc2NyaXB0Pg==">`,
+		`<img src="data:image/svg+xml;base64,PHN2ZyBvbmxvYWQ9YWxlcnQoMSk+PC9zdmc+">`,
+		`<img src="data:image/svg+xml,<svg onload=alert(1)>">`,
 		`<a href="data:text/html,<script>alert(10)</script>">d</a>`,
 		`<noscript><p title="</noscript><img src=x onerror=alert(11)>"></noscript>`,
 		"<details open ontoggle=\"alert(12)\"><summary>s</summary>b</details>",
 		`<img src="logo.png" data-repo-image="javascript:alert(13)">`,
 		`<a href="https://e.com" target="_top" rel="opener">t</a>`,
 		`<source srcset="x.png" onerror="alert(14)">`,
+		`<source srcset="https://e.com/ok.png 1x, javascript:alert(18) 2x">`,
+		`<img src="https://e.com/ok.png" srcset="https://e.com/ok.png 1x, javascript:alert(19) 2x">`,
+		`<img srcset="data:image/svg+xml;base64,PHN2Zy8+ 1x">`,
 		`<input type="text" autofocus onfocus="alert(15)">`,
 		`[link](  JaVaScRiPt:alert(16))`,
 		`<a href="vbscript:msgbox(17)">v</a>`,
 	}
 	for _, attack := range attacks {
 		out := strings.ToLower(render(t, attack, Options{Directory: "/acme/app", Root: "/acme/app"}))
-		for _, bad := range []string{"<script", "onerror", "onclick", "onload", "onfocus", "ontoggle", "javascript:", "vbscript:", "<iframe", "<form", "<object", "<embed", "<style", "style=", "<base", "<meta", "data:text/html", "target=\"_top\"", "opener\""} {
+		for _, bad := range []string{"<script", "onerror", "onclick", "onload", "onfocus", "ontoggle", "javascript:", "vbscript:", "<iframe", "<form", "<object", "<embed", "<style", "style=", "<base", "<meta", "data:text/html", "image/svg+xml", "target=\"_top\"", "opener\""} {
 			if strings.Contains(out, bad) {
 				t.Errorf("%q rendered as %q, which contains %q", attack, out, bad)
 			}
@@ -54,6 +59,36 @@ func TestRenderRemovesWhatCouldRunScript(t *testing.T) {
 		if strings.Contains(out, `<input`) && !strings.Contains(out, `type="checkbox"`) {
 			t.Errorf("%q kept an input that is not a task-list checkbox: %q", attack, out)
 		}
+	}
+}
+
+func TestRenderSanitizesSrcsetAndRasterDataURIs(t *testing.T) {
+	opts := Options{Directory: "/acme/app", Root: "/acme/app"}
+	tinyPNG := "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+
+	// Valid raster data URI in img[src] and multi-candidate srcset survives.
+	out := render(t, `<img src="`+tinyPNG+`" srcset="`+tinyPNG+` 1x, https://cdn.example.com/2x.webp 2x">`, opts)
+	if !strings.Contains(out, `src="`+tinyPNG+`"`) {
+		t.Fatalf("expected raster data URI in src, got: %s", out)
+	}
+	wantSrcset := `srcset="` + tinyPNG + ` 1x, https://cdn.example.com/2x.webp 2x"`
+	if !strings.Contains(out, wantSrcset) {
+		t.Fatalf("expected sanitized srcset %q, got: %s", wantSrcset, out)
+	}
+
+	// Malicious second candidate and bogus descriptors are stripped from srcset.
+	mixed := render(t, `<picture><source srcset="https://cdn.example.com/a.png 800w, javascript:alert(1) 1600w, https://cdn.example.com/bad.png bogus"><img src="https://cdn.example.com/a.png"></picture>`, opts)
+	if !strings.Contains(mixed, `srcset="https://cdn.example.com/a.png 800w"`) {
+		t.Fatalf("expected only valid candidate in srcset, got: %s", mixed)
+	}
+	if strings.Contains(mixed, "javascript:") || strings.Contains(mixed, "bad.png") {
+		t.Fatalf("unexpected unsafe candidate survived: %s", mixed)
+	}
+
+	// Img without src whose srcset points into the repo gets data-repo-image.
+	repoImg := render(t, `<img srcset="hero.png 1x, hero@2x.png 2x" alt="Hero">`, opts)
+	if !strings.Contains(repoImg, `data-repo-image="/acme/app/hero.png"`) || strings.Contains(repoImg, "srcset=") {
+		t.Fatalf("expected repo srcset rewritten to data-repo-image, got: %s", repoImg)
 	}
 }
 
