@@ -346,6 +346,67 @@ func TestSecretPathsMigration(t *testing.T) {
 	}
 }
 
+func TestSecretsAADPreventsTransplantAndSupportsV1Fallback(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	box := postgresTestSecretBox(t)
+	slices := store.Slices()
+	slices.Secrets = box
+
+	secA, err := slices.CreateSecret(ctx, "acme", "TOKEN_A", "value-a", []string{"/acme/payment", "/acme/web"}, "user_alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secB, err := slices.CreateSecret(ctx, "acme", "TOKEN_B", "value-b", []string{"/acme/payment"}, "user_alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	storedA := storedSecretValue(t, ctx, store, "/acme/payment", "TOKEN_A")
+	if !strings.HasPrefix(storedA, "enc:v2:") {
+		t.Fatalf("storedA = %q, want enc:v2: envelope", storedA)
+	}
+
+	// Path-only rescope via UpdateSecret(value == nil) and DeleteSliceSecret must
+	// re-seal with updated AAD so SecretValuesAt keeps working.
+	if _, err := slices.UpdateSecret(ctx, secA.ID, nil, []string{"/acme/payment", "/acme/web", "/acme/backend"}, "user_alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := slices.DeleteSliceSecret(ctx, "slice_acme_payment", "TOKEN_A", "user_alice"); err != nil {
+		t.Fatal(err)
+	}
+	valsWeb, err := slices.SecretValuesAt(ctx, "/acme/web")
+	if err != nil {
+		t.Fatalf("SecretValuesAt(/acme/web) after rescope = %v", err)
+	}
+	if valsWeb["TOKEN_A"] != "value-a" {
+		t.Fatalf("TOKEN_A after rescope = %q, want value-a", valsWeb["TOKEN_A"])
+	}
+
+	// Legacy enc:v1: ciphertext remains readable via fallback.
+	v1Sealed, err := box.Seal("legacy-v1-value")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `update secrets set value = $1 where id = $2`, v1Sealed, secB.ID); err != nil {
+		t.Fatal(err)
+	}
+	valsPayment, err := slices.SecretValuesAt(ctx, "/acme/payment")
+	if err != nil {
+		t.Fatalf("SecretValuesAt(/acme/payment) with v1 fallback = %v", err)
+	}
+	if valsPayment["TOKEN_B"] != "legacy-v1-value" {
+		t.Fatalf("TOKEN_B v1 fallback = %q, want legacy-v1-value", valsPayment["TOKEN_B"])
+	}
+
+	// Transplanting TOKEN_A's v2 ciphertext onto TOKEN_B must fail AAD check.
+	currentStoredA := storedSecretValue(t, ctx, store, "/acme/web", "TOKEN_A")
+	if _, err := store.db.ExecContext(ctx, `update secrets set value = $1 where id = $2`, currentStoredA, secB.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := slices.SecretValuesAt(ctx, "/acme/payment"); err == nil {
+		t.Fatal("SecretValuesAt succeeded after cross-secret v2 ciphertext transplant, want AAD error")
+	}
+}
+
 func storedSecretValue(t *testing.T, ctx context.Context, store *DB, path, name string) string {
 	t.Helper()
 	var stored string
