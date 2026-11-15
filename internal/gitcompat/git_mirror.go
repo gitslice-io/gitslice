@@ -71,6 +71,9 @@ func MirrorSubdir(slice *corev1.Slice) (string, error) {
 // PushMirror brings the slice's projection up to date and pushes its new
 // commits and tags to the target.
 func (p *Projector) PushMirror(ctx context.Context, account, sliceSlug string, target MirrorTarget) (*MirrorResult, error) {
+	if !validGitSlug(account) || !validGitSlug(sliceSlug) {
+		return nil, fmt.Errorf("invalid slice %q/%q", account, sliceSlug)
+	}
 	slice, err := p.slices.Resolve(ctx, &corev1.SliceRef{Account: account, Slice: sliceSlug})
 	if err != nil {
 		return nil, err
@@ -97,9 +100,8 @@ func (p *Projector) PushMirror(ctx context.Context, account, sliceSlug string, t
 // pushMirrorRepo pushes the projection at repoPath through the work
 // repository, and returns the projected commit the mirror head reflects.
 func (p *Projector) pushMirrorRepo(ctx context.Context, repoPath, work, subdir string, target MirrorTarget) (*MirrorResult, string, error) {
-	lock := p.lockFor(work)
-	lock.Lock()
-	defer lock.Unlock()
+	unlockWork := p.acquireLock(work)
+	defer unlockWork()
 	if err := prepareMirrorWork(ctx, work, repoPath); err != nil {
 		_ = os.RemoveAll(work)
 		return nil, "", err
@@ -118,9 +120,8 @@ func (p *Projector) pushMirrorRepo(ctx context.Context, repoPath, work, subdir s
 				return fmt.Errorf("%d file(s) are missing and the server has no blob store", len(ids))
 			}
 			// Hydration writes into the projection, as a fetch's would.
-			hydrate := p.hydrateLock(repoPath)
-			hydrate.Lock()
-			defer hydrate.Unlock()
+			unlockHydrate := p.lockHydrate(repoPath)
+			defer unlockHydrate()
 			return p.hydrate(ctx, repoPath, ids)
 		},
 	})

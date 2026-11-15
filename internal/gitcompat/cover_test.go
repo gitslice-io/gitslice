@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 )
@@ -23,7 +22,7 @@ func (failingReads) Get(context.Context, string, int64, int64) (io.ReadCloser, e
 func TestCompactBuildsAMirroredCoverThatServesWithoutReads(t *testing.T) {
 	f := newLazyFixture(t)
 	ctx := context.Background()
-	f.p.locks = map[string]*sync.Mutex{}
+	f.p.locks = map[string]*refMutex{}
 	f.p.published = map[string]string{}
 	f.p.mirror = NewPackMirror(f.store)
 	if f.p.needsCover(f.repo) {
@@ -68,7 +67,7 @@ func TestCompactBuildsAMirroredCoverThatServesWithoutReads(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(other, "objects", "pack", names[0]+".bitmap")); err != nil {
 		t.Fatalf("the restored cover has no bitmap: %v", err)
 	}
-	reader := &Projector{blobs: f.mem.Blobs, objectStore: failingReads{f.store}, locks: map[string]*sync.Mutex{}}
+	reader := &Projector{blobs: f.mem.Blobs, objectStore: failingReads{f.store}, locks: map[string]*refMutex{}}
 	reader.setComplete(other, loadProjectionState(other).CompleteAt)
 	if err := reader.HydrateFor(ctx, other, fetchBody("", 0, f.head)); err != nil {
 		t.Fatalf("a full clone of a restored cover: %v", err)
@@ -85,7 +84,7 @@ func TestCompactBuildsAMirroredCoverThatServesWithoutReads(t *testing.T) {
 
 func TestNeedsCoverAfterManyPacks(t *testing.T) {
 	f := newLazyFixture(t)
-	f.p.locks = map[string]*sync.Mutex{}
+	f.p.locks = map[string]*refMutex{}
 	f.p.published = map[string]string{}
 	f.p.mirror = NewPackMirror(f.store)
 	if err := f.p.compactRepo(context.Background(), "acme", "p", f.repo, time.Now()); err != nil {

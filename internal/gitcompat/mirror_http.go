@@ -49,7 +49,7 @@ func (h *Handler) serveMirror(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	account, slice, ts := q.Get("account"), q.Get("slice"), q.Get("ts")
 	sent, err := strconv.ParseInt(ts, 10, 64)
-	if err != nil || account == "" || slice == "" || time.Since(time.Unix(sent, 0)).Abs() > compactMaxSkew ||
+	if err != nil || !validGitSlug(account) || !validGitSlug(slice) || time.Since(time.Unix(sent, 0)).Abs() > compactMaxSkew ||
 		!hmac.Equal([]byte(mirrorSignature(h.internalKey, account, slice, ts)), []byte(r.Header.Get(compactSignatureHdr))) {
 		http.Error(w, "bad internal request", http.StatusUnauthorized)
 		return

@@ -22,10 +22,19 @@ import (
 	"gitslice.io/gitslice/proto/core/v1"
 )
 
-// maxGitRequestBytes caps the in-memory buffering of Git smart-HTTP request
-// bodies (upload-pack negotiation and receive-pack packfiles) so a single
-// request cannot exhaust server memory. It matches the unary gRPC message limit.
+// maxGitRequestBytes caps the in-memory buffering of Git receive-pack packfiles
+// so a single push cannot exhaust server memory. It matches the unary gRPC limit.
 const maxGitRequestBytes = 128 * 1024 * 1024
+
+// maxGitUploadPackBodyBytes caps raw and gzip-decoded upload-pack negotiation
+// bodies so compressed request bodies cannot expand into unbounded memory.
+const maxGitUploadPackBodyBytes = 32 * 1024 * 1024
+
+var (
+	errInvalidContentEncoding = errors.New("invalid git request content encoding")
+	errRequestBodyTooLarge    = errors.New("git request exceeds maximum size")
+	errUnsupportedGitEndpoint = errors.New("unsupported git HTTP endpoint")
+)
 
 // SubjectResolver maps a verified bearer/basic-auth token to an internal subject
 // ID. It is supplied by the caller so the Git layer authenticates through the same
@@ -71,6 +80,10 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		recordGitHTTPRequest(operation, recorder.status)
 	}()
 	w = recorder
+	if hasEncodedPathTraversal(r.URL.RawPath) {
+		http.NotFound(w, r)
+		return
+	}
 	if compactURLPath(r.URL.Path) {
 		h.serveCompact(w, r)
 		return
@@ -79,11 +92,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h.serveMirror(w, r)
 		return
 	}
-	account, slice, pathInfo, err := parseGitPath(r.URL.Path)
+	account, slice, suffix, err := parseGitPath(r.URL.Path)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
+	receivePack := isReceivePackEndpoint(suffix, r)
 	// Reads may be anonymous: the projector's slice authorization lets anyone
 	// read a public slice. Pushes always need credentials, and credentials that
 	// are present but invalid are rejected rather than downgraded to anonymous.
@@ -94,12 +108,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			writeAuthChallenge(w)
 			return
 		}
-	} else if isReceivePack(r) {
+	} else if receivePack {
 		writeAuthChallenge(w)
 		return
 	}
-	if isReceivePack(r) {
-		h.handleReceivePack(w, r, subjectID, account, slice)
+	if receivePack {
+		h.handleReceivePack(w, r, subjectID, account, slice, suffix)
+		return
+	}
+	if err := validateReadGitRequest(r, suffix); err != nil {
+		if errors.Is(err, errUnsupportedGitEndpoint) {
+			http.Error(w, err.Error(), http.StatusForbidden)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusMethodNotAllowed)
 		return
 	}
 	repoPath, _, err := h.projector.EnsureProjectedRepo(r.Context(), subjectID, account, slice)
@@ -114,14 +136,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeGitError(w, err)
 		return
 	}
-	if r.Method == http.MethodPost && strings.HasSuffix(pathInfo, "/git-upload-pack") {
+	if r.Method == http.MethodPost && suffix == "/git-upload-pack" {
 		// Once the response is over, ask for a cover if the next clone needs
 		// one: also when this one failed, as a cold clone of a large slice cut
 		// off at the CDN's time limit does, or no clone would ever be cheap.
 		defer h.projector.MaybeRequestCover(account, slice)
 	}
-	if err := h.serveBackend(w, r, repoPath, pathInfo); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := h.serveBackend(w, r, repoPath, suffix); err != nil {
+		writeServeBackendError(w, err)
 	}
 }
 
@@ -162,51 +184,107 @@ func writeAuthChallenge(w http.ResponseWriter) {
 	http.Error(w, "authentication required", http.StatusUnauthorized)
 }
 
-func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, repoPath, pathInfo string) error {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxGitRequestBytes))
+func validateReadGitRequest(r *http.Request, suffix string) error {
+	switch suffix {
+	case "/info/refs":
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			return errors.New("git info/refs requires GET or HEAD")
+		}
+		if service := r.URL.Query().Get("service"); service != "" && service != "git-upload-pack" {
+			return errUnsupportedGitEndpoint
+		}
+		return nil
+	case "/HEAD":
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			return errors.New("git HEAD requires GET or HEAD")
+		}
+		return nil
+	case "/git-upload-pack":
+		if r.Method != http.MethodPost {
+			return errors.New("git upload-pack requires POST")
+		}
+		return nil
+	default:
+		return errUnsupportedGitEndpoint
+	}
+}
+
+func writeServeBackendError(w http.ResponseWriter, err error) {
+	var tooLarge *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooLarge) || errors.Is(err, errRequestBodyTooLarge):
+		http.Error(w, "git request exceeds maximum size", http.StatusRequestEntityTooLarge)
+	case errors.Is(err, errInvalidUploadRequest) || errors.Is(err, errInvalidContentEncoding):
+		http.Error(w, err.Error(), http.StatusBadRequest)
+	case errors.Is(err, errUnsupportedGitEndpoint):
+		http.Error(w, err.Error(), http.StatusForbidden)
+	default:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func sanitizeHeaderEnv(value string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\r' || r == '\n' || r == 0 {
+			return -1
+		}
+		return r
+	}, value)
+}
+
+func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, repoPath, suffix string) error {
+	if err := validateReadGitRequest(r, suffix); err != nil {
+		return err
+	}
+	cleanRepoPath, err := h.projector.verifyRepoPath(repoPath)
 	if err != nil {
 		return err
 	}
-	if r.Method == http.MethodPost && strings.HasSuffix(pathInfo, "/git-upload-pack") {
+	rawBody, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxGitUploadPackBodyBytes))
+	if err != nil {
+		return err
+	}
+	body, err := decodeRequestBody(r, rawBody, maxGitUploadPackBodyBytes)
+	if err != nil {
+		return err
+	}
+	if r.Method == http.MethodPost && suffix == "/git-upload-pack" {
 		// On a lazily built projection the repository may lack the files this
 		// fetch would send; put them there first.
-		if err := h.projector.HydrateFor(r.Context(), repoPath, decodedBody(r, body)); err != nil {
+		if err := h.projector.HydrateFor(r.Context(), cleanRepoPath, body); err != nil {
 			return fmt.Errorf("hydrating file contents: %w", err)
 		}
 	}
 	// A compaction does not replace the packs while git reads them.
-	serve := h.projector.serveLock(repoPath)
-	serve.RLock()
-	defer serve.RUnlock()
+	unlockServe := h.projector.rLockServe(cleanRepoPath)
+	defer unlockServe()
 	cmd := exec.CommandContext(r.Context(), "git", "http-backend")
 	cmd.Stdin = bytes.NewReader(body)
 	cmd.Env = append(os.Environ(),
-		"GIT_PROJECT_ROOT="+h.projector.CacheRoot(),
+		"GIT_PROJECT_ROOT="+cleanRepoPath,
 		"GIT_HTTP_EXPORT_ALL=1",
-		"PATH_INFO="+pathInfo,
+		"PATH_INFO="+suffix,
 		"REQUEST_METHOD="+r.Method,
 		"QUERY_STRING="+r.URL.RawQuery,
-		"CONTENT_TYPE="+r.Header.Get("Content-Type"),
+		"CONTENT_TYPE="+sanitizeHeaderEnv(r.Header.Get("Content-Type")),
 		"CONTENT_LENGTH="+strconv.Itoa(len(body)),
 		"REMOTE_USER=gitslice",
 		// Partial clones (--filter=blob:none, --filter=tree:0): a client on a
 		// large slice can start with history and fetch file contents as it
 		// reads them. Set here, not in each repository's config, so caches
 		// built before this change get it too.
-		// A lazy checkout asks for single files by id.
-		"GIT_CONFIG_COUNT=2",
+		// Only blobs reachable from the slice's projected refs may be fetched
+		// by SHA-1, and receive-pack is never served through http-backend.
+		"GIT_CONFIG_COUNT=3",
 		"GIT_CONFIG_KEY_0=uploadpack.allowFilter",
 		"GIT_CONFIG_VALUE_0=true",
-		"GIT_CONFIG_KEY_1=uploadpack.allowAnySHA1InWant",
+		"GIT_CONFIG_KEY_1=uploadpack.allowReachableSHA1InWant",
 		"GIT_CONFIG_VALUE_1=true",
+		"GIT_CONFIG_KEY_2=http.receivepack",
+		"GIT_CONFIG_VALUE_2=false",
 	)
-	if protocol := r.Header.Get("Git-Protocol"); protocol != "" {
+	if protocol := sanitizeHeaderEnv(r.Header.Get("Git-Protocol")); protocol != "" {
 		cmd.Env = append(cmd.Env, "HTTP_GIT_PROTOCOL="+protocol)
-	}
-	// Git gzips large fetch negotiations (many "have" lines). http-backend
-	// inflates the body itself, but only when it is told the encoding.
-	if encoding := r.Header.Get("Content-Encoding"); encoding != "" {
-		cmd.Env = append(cmd.Env, "HTTP_CONTENT_ENCODING="+encoding)
 	}
 	// Only stdout is the CGI response. Git writes pack progress to stderr
 	// when a client negotiates neither side-band nor no-progress (minimal
@@ -252,23 +330,33 @@ func (h *Handler) serveBackend(w http.ResponseWriter, r *http.Request, repoPath,
 	return nil
 }
 
-// decodedBody returns the request body with any content encoding removed, for
-// reading what a client asked for. On failure it returns the bytes as they are,
-// and the caller plans for a request it does not understand.
-func decodedBody(r *http.Request, body []byte) []byte {
-	if !strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip") {
-		return body
+// decodeRequestBody inflates Content-Encoding: gzip once with a hard byte
+// ceiling so neither HydrateFor nor git http-backend re-inflates or buffers an
+// unbounded gzip bomb.
+func decodeRequestBody(r *http.Request, body []byte, maxBytes int64) ([]byte, error) {
+	encoding := strings.TrimSpace(r.Header.Get("Content-Encoding"))
+	if encoding == "" || strings.EqualFold(encoding, "identity") {
+		return body, nil
+	}
+	if !strings.EqualFold(encoding, "gzip") {
+		return nil, fmt.Errorf("%w: unsupported Content-Encoding %q", errInvalidContentEncoding, encoding)
 	}
 	zr, err := gzip.NewReader(bytes.NewReader(body))
 	if err != nil {
-		return body
+		return nil, fmt.Errorf("%w: %v", errInvalidContentEncoding, err)
 	}
-	defer zr.Close()
-	out, err := io.ReadAll(io.LimitReader(zr, maxGitRequestBytes))
+	out, err := io.ReadAll(io.LimitReader(zr, maxBytes+1))
+	closeErr := zr.Close()
 	if err != nil {
-		return body
+		return nil, fmt.Errorf("%w: %v", errInvalidContentEncoding, err)
 	}
-	return out
+	if int64(len(out)) > maxBytes {
+		return nil, errRequestBodyTooLarge
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("%w: %v", errInvalidContentEncoding, closeErr)
+	}
+	return out, nil
 }
 
 // limitedBuffer keeps the first bytes written to it: enough of git's stderr to
@@ -323,7 +411,7 @@ func readCGIHeader(r *bufio.Reader) (int, http.Header, error) {
 	}
 }
 
-func (h *Handler) handleReceivePack(w http.ResponseWriter, r *http.Request, subjectID, account, slice string) {
+func (h *Handler) handleReceivePack(w http.ResponseWriter, r *http.Request, subjectID, account, slice, suffix string) {
 	if h.blobs == nil || h.changesets == nil {
 		http.Error(w, "git push is not configured", http.StatusInternalServerError)
 		return
@@ -337,15 +425,15 @@ func (h *Handler) handleReceivePack(w http.ResponseWriter, r *http.Request, subj
 		writeGitError(w, err)
 		return
 	}
-	if isReceivePackDiscovery(r) {
+	if suffix == "/info/refs" && isReceivePackDiscovery(r) {
 		writeReceivePackAdvertisement(w, projection)
 		return
 	}
-	if r.Method != http.MethodPost {
+	if suffix != "/git-receive-pack" || r.Method != http.MethodPost {
 		http.Error(w, "git receive-pack requires POST", http.StatusMethodNotAllowed)
 		return
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxGitRequestBytes))
+	rawBody, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxGitRequestBytes))
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
@@ -353,6 +441,11 @@ func (h *Handler) handleReceivePack(w http.ResponseWriter, r *http.Request, subj
 			return
 		}
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	body, err := decodeRequestBody(r, rawBody, maxGitRequestBytes)
+	if err != nil {
+		writeServeBackendError(w, err)
 		return
 	}
 	req, err := parseReceivePackRequest(body)
@@ -368,39 +461,65 @@ func isReceivePackDiscovery(r *http.Request) bool {
 	return r.Method == http.MethodGet && r.URL.Query().Get("service") == "git-receive-pack"
 }
 
+func hasEncodedPathTraversal(rawPath string) bool {
+	if rawPath == "" {
+		return false
+	}
+	lower := strings.ToLower(rawPath)
+	return strings.Contains(lower, "%2f") || strings.Contains(lower, "%5c") || strings.Contains(lower, "%00")
+}
+
 func parseGitPath(path string) (string, string, string, error) {
+	if strings.Contains(path, "\\") || strings.Contains(path, "\x00") || strings.Contains(path, "//") || strings.HasSuffix(path, "/") {
+		return "", "", "", errors.New("invalid git path")
+	}
 	trimmed := strings.TrimPrefix(path, "/git/")
 	if trimmed == path || trimmed == "" {
 		return "", "", "", errors.New("not a git path")
 	}
+	for _, seg := range strings.Split(trimmed, "/") {
+		if seg == "" || seg == "." || seg == ".." {
+			return "", "", "", errors.New("invalid git path segment")
+		}
+	}
 	account, rest, ok := strings.Cut(trimmed, "/")
-	if !ok || account == "" {
-		return "", "", "", errors.New("git path missing account")
+	if !ok || !validGitSlug(account) {
+		return "", "", "", errors.New("invalid git account")
 	}
 	// The repository is the next path segment, with or without ".git": the go
 	// command drops the suffix from a gitslice.io/git/<account>/<slice>.git
 	// module path and asks for /git/<account>/<slice>/info/refs (as GitHub
 	// allows).
 	name, suffix, hasSuffix := strings.Cut(rest, "/")
-	if hasSuffix {
-		suffix = "/" + suffix
+	if !hasSuffix {
+		return "", "", "", errors.New("missing git endpoint")
 	}
+	suffix = "/" + suffix
 	slice := strings.TrimSuffix(name, ".git")
-	if slice == "" || slice == "." || slice == ".." {
+	if strings.HasSuffix(slice, ".git") || !validGitSlug(slice) {
 		return "", "", "", errors.New("invalid slice")
 	}
-	return account, slice, "/" + account + "/" + slice + ".git" + suffix, nil
+	switch suffix {
+	case "/info/refs", "/git-upload-pack", "/git-receive-pack", "/HEAD":
+	default:
+		return "", "", "", errors.New("unsupported git endpoint")
+	}
+	return account, slice, suffix, nil
 }
 
-func isReceivePack(r *http.Request) bool {
-	return strings.Contains(r.URL.Path, "git-receive-pack") || r.URL.Query().Get("service") == "git-receive-pack"
+func isReceivePackEndpoint(suffix string, r *http.Request) bool {
+	return suffix == "/git-receive-pack" || (suffix == "/info/refs" && r.URL.Query().Get("service") == "git-receive-pack")
 }
 
 func gitHTTPOperation(r *http.Request) string {
+	account, slice, suffix, err := parseGitPath(r.URL.Path)
+	if err != nil || account == "" || slice == "" {
+		return "unknown"
+	}
 	switch {
-	case isReceivePack(r):
+	case isReceivePackEndpoint(suffix, r):
 		return "receive-pack"
-	case strings.Contains(r.URL.Path, "git-upload-pack") || r.URL.Query().Get("service") == "git-upload-pack":
+	case suffix == "/git-upload-pack" || (suffix == "/info/refs" && r.URL.Query().Get("service") == "git-upload-pack") || suffix == "/HEAD":
 		return "upload-pack"
 	default:
 		return "unknown"

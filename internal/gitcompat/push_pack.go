@@ -17,6 +17,13 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
+const (
+	// maxPushBlobBytes caps a single decompressed pushed Git blob at 64 MiB.
+	maxPushBlobBytes int64 = 64 << 20
+	// maxPushTotalBytes caps cumulative decompressed bytes read across a push.
+	maxPushTotalBytes int64 = 256 << 20
+)
+
 func indexPushPack(ctx context.Context, projectedRepoPath string, packfile []byte) (string, func(), error) {
 	tempRoot, err := os.MkdirTemp(filepath.Dir(projectedRepoPath), ".push-*")
 	if err != nil {
@@ -39,7 +46,8 @@ func indexPushPack(ctx context.Context, projectedRepoPath string, packfile []byt
 		return "", nil, err
 	}
 	if len(packfile) > 0 {
-		if _, err := gitOutputInput(ctx, repoPath, nil, packfile, "index-pack", "--stdin", "--fix-thin"); err != nil {
+		maxInput := "--max-input-size=" + strconv.FormatInt(maxGitRequestBytes, 10)
+		if _, err := gitOutputInput(ctx, repoPath, nil, packfile, "index-pack", "--stdin", "--fix-thin", maxInput); err != nil {
 			cleanup()
 			return "", nil, err
 		}
@@ -64,7 +72,8 @@ func pushedCommitFileEdits(ctx, serviceCtx context.Context, repoDir, baseCommitI
 	if err != nil {
 		return nil, "", err
 	}
-	snapshot, err := gitFilesAtPaths(ctx, repoDir, newCommitID, upsertGitPaths)
+	remainingBytes := maxPushTotalBytes
+	snapshot, err := gitFilesAtPathsWithLimits(ctx, repoDir, newCommitID, upsertGitPaths, &remainingBytes, maxPushBlobBytes)
 	if err != nil {
 		return nil, "", err
 	}
@@ -80,6 +89,7 @@ func pushedCommitFileEdits(ctx, serviceCtx context.Context, repoDir, baseCommitI
 		}
 		edits = append(edits, &corev1.FileEdit{Op: "delete", Path: globalPath})
 	}
+	uploadedByGitBlob := map[string]*corev1.UploadBlobResponse{}
 	for _, gitPath := range upsertGitPaths {
 		file, ok := snapshot[gitPath]
 		if !ok {
@@ -93,12 +103,16 @@ func pushedCommitFileEdits(ctx, serviceCtx context.Context, repoDir, baseCommitI
 			edits = append(edits, &corev1.FileEdit{Op: "delete", Path: globalPath})
 			continue
 		}
-		upload, err := blobs.UploadBlob(serviceCtx, &corev1.UploadBlobRequest{
-			Data:  file.Data,
-			Slice: sliceRef,
-		})
-		if err != nil {
-			return nil, "", err
+		upload, cached := uploadedByGitBlob[file.GitBlobID]
+		if !cached {
+			upload, err = blobs.UploadBlob(serviceCtx, &corev1.UploadBlobRequest{
+				Data:  file.Data,
+				Slice: sliceRef,
+			})
+			if err != nil {
+				return nil, "", err
+			}
+			uploadedByGitBlob[file.GitBlobID] = upload
 		}
 		edits = append(edits, &corev1.FileEdit{
 			Op:          "upsert",
@@ -152,6 +166,11 @@ func resolvePushBase(ctx context.Context, repoDir string, projection *Projection
 }
 
 func gitFilesAtPaths(ctx context.Context, repoDir, commitID string, gitPaths []string) (map[string]pushedGitFile, error) {
+	remaining := maxPushTotalBytes
+	return gitFilesAtPathsWithLimits(ctx, repoDir, commitID, gitPaths, &remaining, maxPushBlobBytes)
+}
+
+func gitFilesAtPathsWithLimits(ctx context.Context, repoDir, commitID string, gitPaths []string, remainingBytes *int64, maxBlobBytes int64) (map[string]pushedGitFile, error) {
 	snapshot := map[string]pushedGitFile{}
 	if len(gitPaths) == 0 {
 		return snapshot, nil
@@ -170,7 +189,7 @@ func gitFilesAtPaths(ctx context.Context, repoDir, commitID string, gitPaths []s
 		if err != nil {
 			return nil, err
 		}
-		chunk, err := gitSnapshotFromTreeRecords(ctx, repoDir, raw)
+		chunk, err := gitSnapshotFromTreeRecords(ctx, repoDir, raw, remainingBytes, maxBlobBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -181,9 +200,10 @@ func gitFilesAtPaths(ctx context.Context, repoDir, commitID string, gitPaths []s
 	return snapshot, nil
 }
 
-func gitSnapshotFromTreeRecords(ctx context.Context, repoDir string, raw []byte) (map[string]pushedGitFile, error) {
+func gitSnapshotFromTreeRecords(ctx context.Context, repoDir string, raw []byte, remainingBytes *int64, maxBlobBytes int64) (map[string]pushedGitFile, error) {
 	snapshot := map[string]pushedGitFile{}
 	blobIDs := make([]string, 0)
+	seenBlob := map[string]int{}
 	for _, record := range bytes.Split(raw, []byte{0}) {
 		if len(record) == 0 {
 			continue
@@ -214,11 +234,23 @@ func gitSnapshotFromTreeRecords(ctx context.Context, repoDir string, raw []byte)
 			GitBlobID: fields[2],
 			Mode:      uint32(modeValue),
 		}
-		blobIDs = append(blobIDs, fields[2])
+		if seenBlob[fields[2]] == 0 {
+			blobIDs = append(blobIDs, fields[2])
+		}
+		seenBlob[fields[2]]++
 	}
-	blobs, err := gitBlobContents(ctx, repoDir, blobIDs)
+	blobs, err := gitBlobContentsWithLimits(ctx, repoDir, blobIDs, remainingBytes, maxBlobBytes)
 	if err != nil {
 		return nil, err
+	}
+	for blobID, count := range seenBlob {
+		if count > 1 && remainingBytes != nil {
+			extra := int64(count-1) * int64(len(blobs[blobID]))
+			if extra > *remainingBytes {
+				return nil, fmt.Errorf("pushed files exceed maximum cumulative decompressed size (%d bytes)", maxPushTotalBytes)
+			}
+			*remainingBytes -= extra
+		}
 	}
 	for gitPath, file := range snapshot {
 		data, ok := blobs[file.GitBlobID]
@@ -291,9 +323,26 @@ func parseGitDiffNameStatus(raw []byte) ([]string, []string, error) {
 }
 
 func gitBlobContents(ctx context.Context, repoDir string, blobIDs []string) (map[string][]byte, error) {
+	remaining := maxPushTotalBytes
+	return gitBlobContentsWithLimits(ctx, repoDir, blobIDs, &remaining, maxPushBlobBytes)
+}
+
+func gitBlobContentsWithLimits(ctx context.Context, repoDir string, blobIDs []string, remainingBytes *int64, maxBlobBytes int64) (map[string][]byte, error) {
 	contents := make(map[string][]byte, len(blobIDs))
 	if len(blobIDs) == 0 {
 		return contents, nil
+	}
+	if maxBlobBytes <= 0 {
+		maxBlobBytes = maxPushBlobBytes
+	}
+	unique := make([]string, 0, len(blobIDs))
+	seen := make(map[string]struct{}, len(blobIDs))
+	for _, id := range blobIDs {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
 	}
 	cmd := exec.CommandContext(ctx, "git", "cat-file", "--batch")
 	cmd.Dir = repoDir
@@ -313,7 +362,7 @@ func gitBlobContents(ctx context.Context, repoDir string, blobIDs []string) (map
 	writeErrCh := make(chan error, 1)
 	go func() {
 		w := bufio.NewWriter(stdin)
-		for _, blobID := range blobIDs {
+		for _, blobID := range unique {
 			if _, err := fmt.Fprintln(w, blobID); err != nil {
 				_ = stdin.Close()
 				writeErrCh <- err
@@ -327,53 +376,55 @@ func gitBlobContents(ctx context.Context, repoDir string, blobIDs []string) (map
 		}
 		writeErrCh <- stdin.Close()
 	}()
+	abort := func() {
+		_ = cmd.Process.Kill()
+		_ = <-writeErrCh
+		_ = cmd.Wait()
+	}
 	reader := bufio.NewReader(stdout)
-	for range blobIDs {
+	for range unique {
 		header, err := reader.ReadString('\n')
 		if err != nil {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
+			abort()
 			return nil, err
 		}
 		fields := strings.Fields(header)
 		if len(fields) != 3 {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
+			abort()
 			return nil, fmt.Errorf("malformed git cat-file header %q", strings.TrimSpace(header))
 		}
 		if fields[1] != "blob" {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
+			abort()
 			return nil, fmt.Errorf("git object %s is %s, want blob", fields[0], fields[1])
 		}
 		size, err := strconv.ParseInt(fields[2], 10, 64)
 		if err != nil || size < 0 {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
+			abort()
 			return nil, fmt.Errorf("invalid git blob size %q", fields[2])
 		}
-		data := make([]byte, size)
+		if size > maxBlobBytes {
+			abort()
+			return nil, fmt.Errorf("pushed file blob %s (%d bytes) exceeds maximum blob size (%d bytes)", shortGitOID(fields[0]), size, maxBlobBytes)
+		}
+		if remainingBytes != nil {
+			if size > *remainingBytes {
+				abort()
+				return nil, fmt.Errorf("pushed files exceed maximum cumulative decompressed size (%d bytes)", maxPushTotalBytes)
+			}
+			*remainingBytes -= size
+		}
+		data := make([]byte, int(size))
 		if _, err := io.ReadFull(reader, data); err != nil {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
+			abort()
 			return nil, err
 		}
 		trailing, err := reader.ReadByte()
 		if err != nil {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
+			abort()
 			return nil, err
 		}
 		if trailing != '\n' {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
+			abort()
 			return nil, fmt.Errorf("malformed git cat-file payload for %s", fields[0])
 		}
 		contents[fields[0]] = data
