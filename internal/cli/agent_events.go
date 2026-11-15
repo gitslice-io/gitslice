@@ -325,7 +325,7 @@ func registerDaemonMessage(name, runtimeName, instanceID string, concurrency int
 			Runtime:           runtimeName,
 			Version:           version,
 			ContainerRuntimes: detectContainerRuntimes(),
-			AllowHostExec:     true,
+			AllowHostExec:     !requireContainerChecks(),
 			InstanceId:        instanceID,
 			CheckConcurrency:  int32(concurrency),
 		}},
