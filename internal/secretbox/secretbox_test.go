@@ -119,10 +119,46 @@ func TestOpenRejectsMalformedSealedValues(t *testing.T) {
 	for _, stored := range []string{
 		sealedPrefix + "not base64!",
 		sealedPrefix + base64.StdEncoding.EncodeToString([]byte("short")),
+		sealedV2Prefix + "not base64!",
+		sealedV2Prefix + base64.StdEncoding.EncodeToString([]byte("short")),
 	} {
 		if _, err := box.Open(stored); err == nil {
 			t.Fatalf("Open(%q) = nil error, want rejection", stored)
 		}
+	}
+}
+
+func TestSealWithAADRejectsTransplantAndReadsV1Fallback(t *testing.T) {
+	box := newTestBox(t, strings.Repeat("a", 32))
+	aadA := []byte("acme\x00API_TOKEN\x00/acme/payment")
+	aadB := []byte("other\x00API_TOKEN\x00/other/payment")
+
+	sealedV2, err := box.SealWithAAD("top secret", aadA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(sealedV2, sealedV2Prefix) || !IsSealed(sealedV2) {
+		t.Fatalf("SealWithAAD() = %q, want enc:v2 envelope", sealedV2)
+	}
+	opened, err := box.OpenWithAAD(sealedV2, aadA)
+	if err != nil || opened != "top secret" {
+		t.Fatalf("OpenWithAAD(matching AAD) = %q, %v; want top secret", opened, err)
+	}
+	if _, err := box.OpenWithAAD(sealedV2, aadB); err == nil {
+		t.Fatal("OpenWithAAD(wrong AAD) = nil error, want authentication failure")
+	}
+	if _, err := box.Open(sealedV2); err == nil {
+		t.Fatal("Open(enc:v2 with non-empty AAD) = nil error, want authentication failure")
+	}
+
+	// Pre-AAD enc:v1 ciphertexts remain readable via OpenWithAAD.
+	sealedV1, err := box.Seal("legacy v1 secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	openedV1, err := box.OpenWithAAD(sealedV1, aadA)
+	if err != nil || openedV1 != "legacy v1 secret" {
+		t.Fatalf("OpenWithAAD(enc:v1) = %q, %v; want legacy v1 secret", openedV1, err)
 	}
 }
 
