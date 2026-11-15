@@ -7,10 +7,18 @@
 
 import { RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 
-import { Api, ApiError, type Annotation, type CheckRun, type StartResponse } from "./api.ts";
-import { openPlaceholders, PlaceholderError, seal, sealKey, verifyDispatch } from "./crypto.ts";
-import { ENTRY_MODULE, entrySource } from "./entry.ts";
-import { hostAllowed, textual } from "./gate.ts";
+import {
+  Api,
+  ApiError,
+  loaderIsolateKey,
+  triggerScope,
+  type Annotation,
+  type CheckRun,
+  type StartResponse,
+} from "./api.ts";
+import { PlaceholderError, seal, sealKey, verifyDispatch } from "./crypto.ts";
+import { ENTRY_MODULE, entrySource, MAX_RUN_LOG_LINE_CHARS, MAX_RUN_LOG_LINES } from "./entry.ts";
+import { GatePolicyError, prepareGateRequest } from "./gate.ts";
 
 export interface Env {
   LOADER: WorkerLoader;
@@ -26,38 +34,24 @@ const COMPATIBILITY_DATE = "2026-10-01";
 
 interface GateProps {
   network: string[];
-  codeHash: string;
+  scope: string;
 }
 
 // Gate is every dynamic Worker's globalOutbound.
 export class Gate extends WorkerEntrypoint<Env, GateProps> {
   async fetch(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const { network, codeHash } = this.ctx.props;
-    if (url.protocol !== "https:") {
-      return new Response(`trigger scripts may only use https (${url.protocol})`, { status: 403 });
-    }
-    if (!hostAllowed(url.hostname, network)) {
-      return new Response(`${url.hostname} is not in the trigger's network`, { status: 403 });
-    }
+    const { network, scope } = this.ctx.props;
     const key = await sealKey(this.env.DISPATCH_SECRET);
     try {
-      const target = await openPlaceholders(key, request.url, codeHash);
-      const headers = new Headers();
-      for (const [name, value] of request.headers) {
-        headers.set(name, await openPlaceholders(key, value, codeHash));
-      }
-      let body: BodyInit | null = null;
-      if (request.body && !["GET", "HEAD"].includes(request.method)) {
-        if (textual(request.headers.get("content-type"))) {
-          body = await openPlaceholders(key, await request.text(), codeHash);
-        } else {
-          body = request.body;
-        }
-      }
-      return await fetch(target, { method: request.method, headers, body, redirect: "manual" });
+      const prepared = await prepareGateRequest(request, key, scope, network);
+      return await fetch(prepared.target, {
+        method: prepared.method,
+        headers: prepared.headers,
+        body: prepared.body,
+        redirect: "manual",
+      });
     } catch (err) {
-      if (err instanceof PlaceholderError) {
+      if (err instanceof GatePolicyError || err instanceof PlaceholderError) {
         return new Response(err.message, { status: 403 });
       }
       throw err;
@@ -138,8 +132,12 @@ class Gs extends RpcTarget {
   }
 
   async log(lines: { stream: string; text: string }[]): Promise<void> {
-    for (let i = 0; i < lines.length; i += 200) {
-      await this.call("AppendRunLog", { lines: lines.slice(i, i + 200) });
+    const capped = lines.slice(0, MAX_RUN_LOG_LINES + 1).map((line) => ({
+      stream: line.stream === "stderr" ? "stderr" : "stdout",
+      text: String(line.text ?? "").slice(0, MAX_RUN_LOG_LINE_CHARS),
+    }));
+    for (let i = 0; i < capped.length; i += 200) {
+      await this.call("AppendRunLog", { lines: capped.slice(i, i + 200) });
     }
   }
 
@@ -152,26 +150,28 @@ class Gs extends RpcTarget {
   }
 }
 
-// placeholders seals each listed secret for this script, until the run's
-// deadline.
-async function placeholders(env: Env, start: StartResponse): Promise<Record<string, string>> {
+// placeholders seals each listed secret for this tenant/folder/script scope,
+// until the run's deadline.
+async function placeholders(env: Env, start: StartResponse, scope: string): Promise<Record<string, string>> {
   const key = await sealKey(env.DISPATCH_SECRET);
   const exp = Number(start.deadlineUnixMs) || Date.now() + 3_600_000;
   const out: Record<string, string> = {};
   for (const [name, value] of Object.entries(start.secrets ?? {})) {
-    out[name] = await seal(key, { v: value, code: start.codeHash, exp });
+    out[name] = await seal(key, { v: value, code: scope, exp });
   }
   return out;
 }
 
-function loadScript(env: Env, ctx: ExecutionContext, start: StartResponse) {
+async function loadScript(env: Env, ctx: ExecutionContext, start: StartResponse, scope: string) {
   const exports = (ctx as unknown as { exports: { Gate: (opts: { props: GateProps }) => Fetcher } }).exports;
-  return env.LOADER.get(`trigger-${start.codeHash}`, async () => ({
+  const network = start.network ?? [];
+  const key = await loaderIsolateKey(scope, network);
+  return env.LOADER.get(key, async () => ({
     compatibilityDate: COMPATIBILITY_DATE,
     compatibilityFlags: ["nodejs_als"],
     mainModule: ENTRY_MODULE,
     modules: { ...start.modules, [ENTRY_MODULE]: entrySource(start.mainModule) },
-    globalOutbound: exports.Gate({ props: { network: start.network ?? [], codeHash: start.codeHash } }),
+    globalOutbound: exports.Gate({ props: { network, scope } }),
   }));
 }
 
@@ -185,12 +185,14 @@ interface CallbackRequest {
 // execute calls the script once and tells the server how the call ended.
 async function execute(env: Env, ctx: ExecutionContext, api: Api, start: StartResponse, kind: "event" | "callback", request?: CallbackRequest): Promise<{ status: number; body: string } | null> {
   const gs = new Gs(api, start);
-  const run: RunContext = { runId: start.run.id, secrets: await placeholders(env, start), callbackUrl: start.callbackUrl ?? "" };
+  const scope = triggerScope(start);
+  const run: RunContext = { runId: start.run.id, secrets: await placeholders(env, start, scope), callbackUrl: start.callbackUrl ?? "" };
   let outcome = "succeeded";
   let error = "";
   let result: { status: number; body: string } | null = null;
   try {
-    const entrypoint = loadScript(env, ctx, start).getEntrypoint() as unknown as {
+    const worker = await loadScript(env, ctx, start, scope);
+    const entrypoint = worker.getEntrypoint() as unknown as {
       run(kind: string, eventJson: string, gs: Gs, run: RunContext, request?: CallbackRequest): Promise<{ status: number; body: string } | null>;
     };
     let timer: ReturnType<typeof setTimeout> | undefined;
