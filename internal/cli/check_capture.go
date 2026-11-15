@@ -15,6 +15,15 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
+func requireContainerChecks() bool {
+	v := strings.TrimSpace(os.Getenv("GITSLICE_CHECKS_REQUIRE_CONTAINER"))
+	return v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes") || strings.EqualFold(v, "on")
+}
+
+func isContainerizedCheckSpec(spec checks.CheckSpec) bool {
+	return strings.TrimSpace(spec.Image) != "" || spec.Build != nil || len(spec.Setup) > 0
+}
+
 type WorkspaceCheckResult struct {
 	Name       string `json:"name"`
 	Status     string `json:"status"`
@@ -198,6 +207,17 @@ func runWorkspaceChecks(ctx context.Context, root string, includedPaths, changed
 				Status:     "skipped",
 				Summary:    "requires files outside workspace slice",
 				OutOfSlice: true,
+			})
+			continue
+		}
+		if requireContainerChecks() && !isContainerizedCheckSpec(spec) {
+			msg := fmt.Sprintf("check %q must declare an image or setup: host-mode execution is disabled when GITSLICE_CHECKS_REQUIRE_CONTAINER is set", spec.Name)
+			results = append(results, WorkspaceCheckResult{
+				Name:     spec.Name,
+				Status:   "errored",
+				ExitCode: -1,
+				Summary:  oneLineSummary(msg),
+				Log:      msg,
 			})
 			continue
 		}

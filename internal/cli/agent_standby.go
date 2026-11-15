@@ -153,11 +153,14 @@ func (d *agentDaemon) standby(ctx context.Context) error {
 			}
 			wait = min(max(wait, standbyPollMin), standbyPollMax)
 			if url, token := resp.GetDoorbellUrl(), resp.GetDoorbellToken(); url != "" && token != "" && !doorbellDisabled() {
+				requireTLS := serverUsesNonLoopbackTLS(d.cfg.ServerAddr)
 				if bell == nil {
-					bell = listenDoorbell(ctx, url, token, d.say)
+					bell = listenDoorbellWithTLS(ctx, url, token, requireTLS, d.say)
+					bell.waitReady(ctx, doorbellInitialReadyWait)
 				} else {
-					bell.update(url, token)
+					bell.updateWithTLS(url, token, requireTLS)
 				}
+				d.doorbellOpen.Store(bell.isConnected())
 				if bell.isConnected() && resp.GetSafetyPollAfterMs() > 0 {
 					wait = time.Duration(resp.GetSafetyPollAfterMs()) * time.Millisecond
 				}
@@ -238,7 +241,7 @@ func (d *agentDaemon) standbyPollRPC(ctx context.Context) (*corev1.StandbyPollRe
 		Runtime:           ciAgentRuntime,
 		Version:           version,
 		ContainerRuntimes: detectContainerRuntimes(),
-		AllowHostExec:     true,
+		AllowHostExec:     !requireContainerChecks(),
 		InstanceId:        d.instanceID,
 		DoorbellOpen:      d.doorbellOpen.Load(),
 	})

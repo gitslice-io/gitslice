@@ -20,9 +20,10 @@ func (d *agentDaemon) handleRunChecks(req *corev1.RunChecks) {
 		return
 	}
 	baseCtx := d.checkBaseContext()
-	serverAddr := strings.TrimSpace(req.GetServerAddr())
-	if serverAddr == "" {
-		serverAddr = d.cfg.ServerAddr
+	serverAddr, err := resolveRunChecksServerAddr(d.cfg.ServerAddr, req.GetServerAddr())
+	if err != nil {
+		d.emitSetupFailureForRunChecks(req, err)
+		return
 	}
 	conn, err := dial(baseCtx, serverAddr)
 	if err != nil {
@@ -102,6 +103,7 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 		emitTerminal(&seq, "errored", -1, oneLineSummary(err.Error()))
 		return
 	}
+	_ = os.Chmod(tempDir, 0o700)
 	defer func() {
 		if err := os.RemoveAll(tempDir); err != nil {
 			fmt.Fprintf(d.runner.stderr(), "check workspace remove failed for %s: %v\n", tempDir, err)
@@ -138,6 +140,21 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 		emitLog(&seq, result.Log)
 	}
 	emitTerminal(&seq, result.Status, result.ExitCode, oneLineSummary(result.Summary))
+}
+
+func resolveRunChecksServerAddr(configuredAddr, requestedAddr string) (string, error) {
+	configured := strings.TrimSpace(configuredAddr)
+	requested := strings.TrimSpace(requestedAddr)
+	if configured != "" {
+		return configured, nil
+	}
+	if requested != "" && isLoopbackDialAddr(requested) {
+		return requested, nil
+	}
+	if requested == "" {
+		return "", fmt.Errorf("check server address is not configured")
+	}
+	return "", fmt.Errorf("refusing untrusted check server address %q", requested)
 }
 
 func (d *agentDaemon) emitSetupFailureForRunChecks(req *corev1.RunChecks, err error) {
