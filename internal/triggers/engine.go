@@ -480,6 +480,19 @@ func (e *Engine) settleExpired(ctx context.Context) {
 	for _, run := range expired {
 		switch run.Status {
 		case storage.TriggerRunRunning:
+			if !run.Deadline.IsZero() {
+				if !run.Deadline.After(time.Now()) {
+					reason := "timed out waiting for callbacks"
+					if updated, err := e.stores.Triggers.UpdateTriggerRun(ctx, run.ID, []string{storage.TriggerRunRunning}, storage.TriggerRunUpdate{Status: storage.TriggerRunTimedOut, Error: reason}); err == nil {
+						e.CloseChecks(ctx, *updated, "errored", "the trigger run "+reason)
+					}
+					continue
+				}
+				_, _ = e.stores.Triggers.UpdateTriggerRun(ctx, run.ID, []string{storage.TriggerRunRunning}, storage.TriggerRunUpdate{
+					Status: storage.TriggerRunWaiting, Deadline: run.Deadline,
+				})
+				continue
+			}
 			if run.Attempt < run.MaxAttempts {
 				next := time.Now()
 				if run.Action == ActionHTTP {
@@ -591,14 +604,18 @@ func (e *Engine) ChecksOutcome(ctx context.Context, run storage.TriggerRun) stri
 	return storage.TriggerRunSucceeded
 }
 
-// FinishIfDone ends a waiting run once every check it reported or launched
-// has a result.
+// FinishIfDone ends a waiting or callback-claimed run once every check it
+// reported or launched has a result.
 func (e *Engine) FinishIfDone(ctx context.Context, runID string) {
 	run, err := e.stores.Triggers.GetTriggerRun(ctx, runID)
-	if err != nil || run.Status != storage.TriggerRunWaiting || len(e.OpenChecks(ctx, *run)) > 0 {
+	if err != nil {
 		return
 	}
-	_, _ = e.stores.Triggers.UpdateTriggerRun(ctx, run.ID, []string{storage.TriggerRunWaiting}, storage.TriggerRunUpdate{Status: e.ChecksOutcome(ctx, *run), Error: run.Error})
+	inCallback := run.Status == storage.TriggerRunRunning && !run.Deadline.IsZero()
+	if (run.Status != storage.TriggerRunWaiting && !inCallback) || len(e.OpenChecks(ctx, *run)) > 0 {
+		return
+	}
+	_, _ = e.stores.Triggers.UpdateTriggerRun(ctx, run.ID, []string{storage.TriggerRunWaiting, storage.TriggerRunRunning}, storage.TriggerRunUpdate{Status: e.ChecksOutcome(ctx, *run), Error: run.Error})
 }
 
 // sendHTTP makes one attempt of an http action.

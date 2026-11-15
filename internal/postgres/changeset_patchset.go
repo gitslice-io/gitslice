@@ -14,6 +14,58 @@ import (
 )
 
 func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedCurrentPatchsetID string, patchset *corev1.Patchset) (*corev1.Patchset, error) {
+	var preCurrentPatchsetID sql.NullString
+	var preStatus string
+	err := s.db.QueryRowContext(ctx, `
+			select current_patchset_id, status
+			from changesets
+			where id = $1
+		`, changesetID).Scan(&preCurrentPatchsetID, &preStatus)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if preStatus != "draft" {
+		return nil, ErrConflict
+	}
+	if expectedCurrentPatchsetID != "" && (!preCurrentPatchsetID.Valid || preCurrentPatchsetID.String != expectedCurrentPatchsetID) {
+		return nil, ErrConflict
+	}
+	if patchset.BaseKind == "" {
+		patchset.BaseKind = "commit"
+	}
+	if patchset.BaseKind == "patchset" && patchset.BasePatchsetId == "" {
+		patchset.BasePatchsetId = patchset.StackParentPatchsetId
+	}
+	if patchset.StackParentPatchsetId == "" && patchset.BaseKind == "patchset" {
+		patchset.StackParentPatchsetId = patchset.BasePatchsetId
+	}
+	baseTreeID, err := s.baseTreeForPatchset(ctx, s.db, patchset)
+	if err != nil {
+		return nil, err
+	}
+	patchset.BaseTreeId = baseTreeID
+	resultTreeID := baseTreeID
+	if len(patchset.FileEdits) > 0 {
+		if s.trees == nil {
+			return nil, fmt.Errorf("tree store is not configured")
+		}
+		treeEdits, err := treeEditsFromPatchset(ctx, s.db, patchset.FileEdits)
+		if err != nil {
+			return nil, err
+		}
+		resultTreeID, err = s.trees.ApplyEdits(ctx, baseTreeID, treeEdits)
+		if errors.Is(err, treestore.ErrNotFound) {
+			return nil, ErrConflict
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	patchset.ResultTreeId = resultTreeID
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -37,11 +89,22 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	if err != nil {
 		return nil, err
 	}
-	if status == "abandoned" || status == "submitted" {
+	if status != "draft" {
 		return nil, ErrConflict
 	}
 	if expectedCurrentPatchsetID != "" && (!currentPatchsetID.Valid || currentPatchsetID.String != expectedCurrentPatchsetID) {
 		return nil, ErrConflict
+	}
+	if len(patchset.FileEdits) > 0 {
+		blobs, err := getBlobsTx(ctx, tx, blobIDsForEdits(patchset.FileEdits))
+		if err != nil {
+			return nil, err
+		}
+		for _, blobID := range blobIDsForEdits(patchset.FileEdits) {
+			if _, ok := blobs[blobID]; !ok {
+				return nil, ErrNotFound
+			}
+		}
 	}
 	patchsetID, err := objectid.RandomID("ps")
 	if err != nil {
@@ -59,38 +122,6 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 		}
 		patchset.SubmitRequirements = req
 	}
-	if patchset.BaseKind == "" {
-		patchset.BaseKind = "commit"
-	}
-	if patchset.BaseKind == "patchset" && patchset.BasePatchsetId == "" {
-		patchset.BasePatchsetId = patchset.StackParentPatchsetId
-	}
-	if patchset.StackParentPatchsetId == "" && patchset.BaseKind == "patchset" {
-		patchset.StackParentPatchsetId = patchset.BasePatchsetId
-	}
-	baseTreeID, err := s.baseTreeForPatchsetTx(ctx, tx, patchset)
-	if err != nil {
-		return nil, err
-	}
-	patchset.BaseTreeId = baseTreeID
-	resultTreeID := baseTreeID
-	if len(patchset.FileEdits) > 0 {
-		if s.trees == nil {
-			return nil, fmt.Errorf("tree store is not configured")
-		}
-		treeEdits, err := treeEditsFromPatchsetTx(ctx, tx, patchset.FileEdits)
-		if err != nil {
-			return nil, err
-		}
-		resultTreeID, err = s.trees.ApplyEdits(ctx, baseTreeID, treeEdits)
-		if errors.Is(err, treestore.ErrNotFound) {
-			return nil, ErrConflict
-		}
-		if err != nil {
-			return nil, err
-		}
-	}
-	patchset.ResultTreeId = resultTreeID
 	if currentPatchsetID.Valid && len(patchset.Conflicts) == 0 {
 		current, err := getPatchsetTx(ctx, tx, currentPatchsetID.String)
 		if err != nil {
@@ -194,6 +225,34 @@ func (s *ChangesetStore) listPatchsets(ctx context.Context, changesetID string) 
 			return nil, err
 		}
 		out = append(out, patchset)
+	}
+	return out, rows.Err()
+}
+
+func (s *ChangesetStore) listPatchsetsForChangesets(ctx context.Context, changesetIDs []string) (map[string][]*corev1.Patchset, error) {
+	out := make(map[string][]*corev1.Patchset, len(changesetIDs))
+	if len(changesetIDs) == 0 {
+		return out, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select id, changeset_id, number, base_commit_id, author_subject_id, created_at,
+		       changed_paths, file_edits, coverage, path_bases, read_set, write_set, conflicts, kind, submit_requirements,
+		       base_kind, base_patchset_id, base_tree_id, result_tree_id, stack_parent_patchset_id,
+		       authoring_conversation_id, authoring_conversation_seq
+		from patchsets
+		where changeset_id = any($1)
+		order by changeset_id, number
+	`, changesetIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		patchset, err := scanPatchset(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[patchset.ChangesetId] = append(out[patchset.ChangesetId], patchset)
 	}
 	return out, rows.Err()
 }

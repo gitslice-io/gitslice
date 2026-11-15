@@ -103,12 +103,28 @@ func (m *GitMirrors) FanOut(ctx context.Context, event storage.WebhookEvent) {
 		if err != nil || len(mirrors) == 0 {
 			return
 		}
-		for _, mirror := range mirrors {
-			slice, err := m.Slices.Get(ctx, mirror.SliceID)
-			if err != nil {
-				continue
+		if len(event.ChangedPaths) == 0 {
+			for _, mirror := range mirrors {
+				marked = append(marked, mirror.SliceID)
 			}
-			if touchesSlice(slice.GetDefinition().GetIncludedPaths(), event.ChangedPaths) {
+			break
+		}
+		if m.Slices == nil {
+			return
+		}
+		covering, err := m.Slices.CoveringIDsByPath(ctx, event.ChangedPaths)
+		if err != nil {
+			slog.WarnContext(ctx, "resolve covering slices for git mirrors", "event", event.ID, "error", err)
+			return
+		}
+		covered := map[string]bool{}
+		for _, ids := range covering {
+			for _, id := range ids {
+				covered[id] = true
+			}
+		}
+		for _, mirror := range mirrors {
+			if covered[mirror.SliceID] {
 				marked = append(marked, mirror.SliceID)
 			}
 		}
@@ -129,24 +145,6 @@ func (m *GitMirrors) FanOut(ctx context.Context, event storage.WebhookEvent) {
 	if err := m.Mirrors.MarkGitMirrorsPending(ctx, marked, false); err != nil {
 		slog.WarnContext(ctx, "mark git mirrors pending", "event", event.ID, "error", err)
 	}
-}
-
-// touchesSlice says whether any changed path is under one of the slice's
-// included paths. Without changed paths it assumes so.
-func touchesSlice(included, changed []string) bool {
-	if len(changed) == 0 {
-		return true
-	}
-	for _, prefix := range included {
-		prefix = "/" + strings.Trim(prefix, "/")
-		for _, p := range changed {
-			p = "/" + strings.Trim(p, "/")
-			if prefix == "/" || p == prefix || strings.HasPrefix(p, prefix+"/") {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // Drain claims the mirrors that are due and pushes them (or asks for it).
@@ -305,7 +303,7 @@ func gitMirrorProto(mirror *storage.GitMirror, slice *corev1.Slice) *corev1.Slic
 
 // gitMirrorSlice resolves the slice of a mirror request and checks that the
 // caller owns or administers its account.
-func (s *SliceService) gitMirrorSlice(ctx context.Context, ref *corev1.SliceRef) (string, *corev1.Slice, error) {
+func (s *SliceService) gitMirrorSlice(ctx context.Context, ref *corev1.SliceRef, allowArchived bool) (string, *corev1.Slice, error) {
 	if s.GitMirrors == nil || s.GitMirrors.Mirrors == nil {
 		return "", nil, status.Error(codes.Unimplemented, "this server has no Git mirrors")
 	}
@@ -321,15 +319,21 @@ func (s *SliceService) gitMirrorSlice(ctx context.Context, ref *corev1.SliceRef)
 	if err != nil {
 		return "", nil, grpcError(err)
 	}
-	if err := authorizeSliceOwner(ctx, s.Auth, subjectID, slice); err != nil {
-		return "", nil, err
+	if allowArchived {
+		if err := authorizeSliceOwnerAllowArchived(ctx, s.Auth, subjectID, slice); err != nil {
+			return "", nil, err
+		}
+	} else {
+		if err := authorizeSliceOwner(ctx, s.Auth, subjectID, slice); err != nil {
+			return "", nil, err
+		}
 	}
 	return subjectID, slice, nil
 }
 
 // GetSliceGitMirror returns the slice's Git mirror.
 func (s *SliceService) GetSliceGitMirror(ctx context.Context, req *corev1.GetSliceGitMirrorRequest) (*corev1.SliceGitMirror, error) {
-	_, slice, err := s.gitMirrorSlice(ctx, req.GetSlice())
+	_, slice, err := s.gitMirrorSlice(ctx, req.GetSlice(), true)
 	if err != nil {
 		return nil, err
 	}
@@ -345,7 +349,7 @@ func (s *SliceService) GetSliceGitMirror(ctx context.Context, req *corev1.GetSli
 
 // SetSliceGitMirror creates or replaces the slice's Git mirror.
 func (s *SliceService) SetSliceGitMirror(ctx context.Context, req *corev1.SetSliceGitMirrorRequest) (*corev1.SliceGitMirror, error) {
-	subjectID, slice, err := s.gitMirrorSlice(ctx, req.GetSlice())
+	subjectID, slice, err := s.gitMirrorSlice(ctx, req.GetSlice(), false)
 	if err != nil {
 		return nil, err
 	}
@@ -386,7 +390,7 @@ func (s *SliceService) SetSliceGitMirror(ctx context.Context, req *corev1.SetSli
 
 // DeleteSliceGitMirror stops mirroring the slice.
 func (s *SliceService) DeleteSliceGitMirror(ctx context.Context, req *corev1.DeleteSliceGitMirrorRequest) (*corev1.Empty, error) {
-	_, slice, err := s.gitMirrorSlice(ctx, req.GetSlice())
+	_, slice, err := s.gitMirrorSlice(ctx, req.GetSlice(), true)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +402,7 @@ func (s *SliceService) DeleteSliceGitMirror(ctx context.Context, req *corev1.Del
 
 // PushSliceGitMirror pushes the slice's mirror now.
 func (s *SliceService) PushSliceGitMirror(ctx context.Context, req *corev1.PushSliceGitMirrorRequest) (*corev1.SliceGitMirror, error) {
-	_, slice, err := s.gitMirrorSlice(ctx, req.GetSlice())
+	_, slice, err := s.gitMirrorSlice(ctx, req.GetSlice(), false)
 	if err != nil {
 		return nil, err
 	}

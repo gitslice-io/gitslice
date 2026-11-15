@@ -169,6 +169,31 @@ func (f *mountFetcher) readAheadFetch(entries []lazyfs.BaseEntry) {
 		return
 	}
 	commitID := f.commitID
+	f.mu.Unlock()
+
+	// Run cache.Exists (os.Stat) checks outside f.mu so read-ahead planning
+	// never holds up foreground opens.
+	seen := map[string]bool{}
+	uncached := make([]lazyfs.BaseEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Size > readAheadMaxFile || seen[entry.ContentHash] {
+			continue
+		}
+		seen[entry.ContentHash] = true
+		if f.cache.Exists(entry.ContentHash) {
+			continue
+		}
+		uncached = append(uncached, entry)
+	}
+	if len(uncached) == 0 {
+		return
+	}
+
+	f.mu.Lock()
+	if time.Until(f.downUntil) > 0 || f.commitID != commitID {
+		f.mu.Unlock()
+		return
+	}
 	var jobs []job
 	var cur []lazyfs.BaseEntry
 	var curBytes, total int64
@@ -183,15 +208,13 @@ func (f *mountFetcher) readAheadFetch(entries []lazyfs.BaseEntry) {
 		jobs = append(jobs, job{cur, call})
 		cur, curBytes = nil, 0
 	}
-	seen := map[string]bool{}
-	for _, entry := range entries {
-		if entry.Size > readAheadMaxFile || seen[entry.ContentHash] || f.inflight[entry.ContentHash] != nil || f.cache.Exists(entry.ContentHash) {
+	for _, entry := range uncached {
+		if f.inflight[entry.ContentHash] != nil || f.completed[entry.ContentHash] {
 			continue
 		}
 		if total+entry.Size > readAheadMaxBytes {
 			break
 		}
-		seen[entry.ContentHash] = true
 		if len(cur) >= mountBatchMaxFiles || curBytes+entry.Size > mountBatchMaxBytes {
 			flush()
 		}

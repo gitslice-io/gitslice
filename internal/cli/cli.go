@@ -33,6 +33,7 @@ type commandOptions struct {
 	Verbose        bool
 	Debug          bool
 	Trace          bool
+	Insecure       bool
 	SyncMerge      string
 	// AgentConversationID, when set on `workspace init`, stamps the workspace
 	// config so changesets authored here link to the agent conversation.
@@ -66,6 +67,8 @@ func Main(args []string, stdout, stderr io.Writer) int {
 }
 
 func (r Runner) Run(ctx context.Context, args []string) error {
+	cliInsecureFlag.Store(false)
+	defer cliInsecureFlag.Store(false)
 	expanded, err := r.expandAliasArgs(args)
 	if err != nil {
 		return r.enhanceCommandError(err)
@@ -95,6 +98,7 @@ func (r Runner) rootCommand() *cobra.Command {
 			return userError("missing_command", "missing command", "Run gs --help to list available commands.")
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			cliInsecureFlag.Store(opts.Insecure)
 			if cmd.Root().PersistentFlags().Changed("json") {
 				opts.Format = "json"
 				fields, err := parseJSONFields(jsonFlagValue)
@@ -126,6 +130,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	root.PersistentFlags().BoolVar(&opts.Verbose, "verbose", false, "emit additional diagnostic output")
 	root.PersistentFlags().BoolVar(&opts.Debug, "debug", false, "emit debug diagnostics")
 	root.PersistentFlags().BoolVar(&opts.Trace, "trace", false, "emit trace diagnostics")
+	root.PersistentFlags().BoolVar(&opts.Insecure, "insecure", false, "allow plaintext connections to non-loopback servers")
 	root.SetHelpCommand(r.helpCommand(root))
 	root.AddCommand(
 		r.authCommand(opts),

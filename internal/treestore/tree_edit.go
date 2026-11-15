@@ -9,13 +9,23 @@ import (
 
 func (s *Store) ApplyEdits(ctx context.Context, rootTreeID string, edits []FileEdit) (string, error) {
 	buf := newBufferingObjectStore(s.objects)
-	buffered := &Store{objects: buf}
+	buffered := &Store{
+		objects: buf,
+		nodes:   s.nodes,
+		staged:  map[string]Node{},
+	}
 	newRoot, err := s.applyEditSet(ctx, buffered, rootTreeID, edits)
 	if err != nil {
 		return "", err
 	}
+	buf.pruneToRoots([]string{newRoot}, buffered.staged)
 	if err := buf.flush(ctx); err != nil {
 		return "", err
+	}
+	if s.nodes != nil {
+		for id, node := range buffered.staged {
+			s.nodes.add(id, node)
+		}
 	}
 	return newRoot, nil
 }
@@ -31,7 +41,11 @@ func (s *Store) ApplyEditChain(ctx context.Context, baseRootTreeID string, editS
 		return []string{}, nil
 	}
 	buf := newBufferingObjectStore(s.objects)
-	buffered := &Store{objects: buf}
+	buffered := &Store{
+		objects: buf,
+		nodes:   s.nodes,
+		staged:  map[string]Node{},
+	}
 	current := baseRootTreeID
 	roots := make([]string, 0, len(editSets))
 	for _, edits := range editSets {
@@ -42,8 +56,14 @@ func (s *Store) ApplyEditChain(ctx context.Context, baseRootTreeID string, editS
 		}
 		roots = append(roots, current)
 	}
+	buf.pruneToRoots(roots, buffered.staged)
 	if err := buf.flush(ctx); err != nil {
 		return nil, err
+	}
+	if s.nodes != nil {
+		for id, node := range buffered.staged {
+			s.nodes.add(id, node)
+		}
 	}
 	return roots, nil
 }

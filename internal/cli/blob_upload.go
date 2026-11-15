@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"runtime"
 	"sort"
@@ -13,7 +14,9 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/encoding/gzip"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 type blobAttachStats struct {
@@ -140,15 +143,19 @@ func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceC
 }
 
 func uploadLocalBlob(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, file localUploadFile) (*corev1.UploadBlobResponse, error) {
-	if file.Size > blobStreamThresholdBytes {
-		f, err := os.Open(file.LocalPath)
-		if err != nil {
-			return nil, err
-		}
-		defer f.Close()
-		return uploadBlobReader(ctx, blobClient, sliceRef, file.ContentHash, file.Size, f)
+	f, err := os.Open(file.LocalPath)
+	if err != nil {
+		return nil, err
 	}
-	data, err := os.ReadFile(file.LocalPath)
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() > blobStreamThresholdBytes {
+		return uploadBlobReader(ctx, blobClient, sliceRef, file.ContentHash, info.Size(), f)
+	}
+	data, err := io.ReadAll(f)
 	if err != nil {
 		return nil, err
 	}
@@ -161,6 +168,10 @@ func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, sli
 }
 
 func attachBlobIDsWithStats(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, edits []*corev1.FileEdit, concurrency int) (blobAttachStats, error) {
+	return attachBlobIDsFromFilesWithStats(ctx, blobClient, sliceRef, cache, edits, nil, concurrency)
+}
+
+func attachBlobIDsFromFilesWithStats(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, edits []*corev1.FileEdit, workingFiles map[string]workingFile, concurrency int) (blobAttachStats, error) {
 	var stats blobAttachStats
 	hashSet := map[string]struct{}{}
 	for _, edit := range edits {
@@ -212,8 +223,19 @@ func attachBlobIDsWithStats(ctx context.Context, blobClient corev1.BlobServiceCl
 	if len(missing) > 0 {
 		stats.UploadWorkers = boundedUploadConcurrency(concurrency, len(missing))
 	}
+	filesByHash := map[string]workingFile{}
+	for _, edit := range edits {
+		if edit == nil || edit.ContentHash == "" {
+			continue
+		}
+		if wf, ok := workingFiles[edit.Path]; ok && wf.AbsPath != "" {
+			if _, exists := filesByHash[edit.ContentHash]; !exists {
+				filesByHash[edit.ContentHash] = wf
+			}
+		}
+	}
 	uploadStarted := time.Now()
-	uploaded, err := uploadCachedBlobs(ctx, blobClient, sliceRef, cache, missing, stats.UploadWorkers)
+	uploaded, err := uploadCachedBlobsWithFallback(ctx, blobClient, sliceRef, cache, missing, filesByHash, stats.UploadWorkers)
 	stats.UploadDuration = time.Since(uploadStarted)
 	for hash, response := range uploaded {
 		if response == nil || response.BlobId == "" {
@@ -241,8 +263,43 @@ func attachBlobIDsWithStats(ctx context.Context, blobClient corev1.BlobServiceCl
 }
 
 func uploadCachedBlobs(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, hashes []string, concurrency int) (map[string]*corev1.UploadBlobResponse, error) {
+	return uploadCachedBlobsWithFallback(ctx, blobClient, sliceRef, cache, hashes, nil, concurrency)
+}
+
+func ensureCachedBlobFromWorkingFile(cache *clientcache.ObjectCache, hash string, filesByHash map[string]workingFile) error {
+	if cache.Exists(hash) {
+		return nil
+	}
+	wf, ok := filesByHash[hash]
+	if !ok || wf.AbsPath == "" {
+		return nil
+	}
+	var cached clientcache.Object
+	var err error
+	if isSymlinkMode(wf.Mode) {
+		link, lerr := os.Readlink(wf.AbsPath)
+		if lerr != nil {
+			return fmt.Errorf("read symlink %s: %w", wf.AbsPath, lerr)
+		}
+		cached, err = cache.PutBytes([]byte(link))
+	} else {
+		cached, err = cache.PutFile(wf.AbsPath)
+	}
+	if err != nil {
+		return fmt.Errorf("cache workspace file %s: %w", wf.AbsPath, err)
+	}
+	if cached.ContentHash != hash {
+		return fmt.Errorf("workspace file %s changed before upload: got hash %s, want %s", wf.AbsPath, cached.ContentHash, hash)
+	}
+	return nil
+}
+
+func uploadCachedBlobsWithFallback(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, hashes []string, filesByHash map[string]workingFile, concurrency int) (map[string]*corev1.UploadBlobResponse, error) {
 	blobs := make([]pendingBlobUpload, 0, len(hashes))
 	for _, hash := range hashes {
+		if err := ensureCachedBlobFromWorkingFile(cache, hash, filesByHash); err != nil {
+			return nil, err
+		}
 		cachePath, err := cache.Path(hash)
 		if err != nil {
 			return nil, err
@@ -342,6 +399,16 @@ func uploadBlobsInBatches(ctx context.Context, blobClient corev1.BlobServiceClie
 			}
 			res, err := blobClient.UploadBlobs(groupCtx, req, grpc.UseCompressor(gzip.Name))
 			if err != nil {
+				if grpcstatus.Code(err) == codes.Unimplemented {
+					for _, blob := range job {
+						response, oneErr := blob.uploadOne()
+						if oneErr != nil {
+							return oneErr
+						}
+						record(blob.hash, response)
+					}
+					return nil
+				}
 				return err
 			}
 			if len(res.GetBlobs()) != len(job) {

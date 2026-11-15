@@ -29,13 +29,29 @@ op() { HOME="$OPERATOR_HOME" "$GS" "$@"; }
 mirror() { HOME="$MIRROR_HOME" "$GS" "$@"; }
 step() { printf '\n== %s\n' "$*"; }
 
+name_re='^[A-Za-z0-9][A-Za-z0-9._-]*$'
+for ident in "$ORG" "$SLICE" "$MIRROR_USER"; do
+  if [[ ! "$ident" =~ $name_re ]] || [[ "$ident" == *".."* ]]; then
+    echo "invalid identifier: $ident" >&2
+    exit 1
+  fi
+done
+
 step "organization $ORG"
 if op account members "$ORG" >/dev/null 2>&1; then
   echo "exists"
 else
   op account create-org "$ORG"
 fi
-for owner in ${OWNERS:-}; do
+owners=()
+if [ -n "${OWNERS:-}" ]; then
+  read -r -a owners <<< "$OWNERS"
+fi
+for owner in "${owners[@]+"${owners[@]}"}"; do
+  if [[ ! "$owner" =~ $name_re ]]; then
+    echo "invalid owner username: $owner" >&2
+    exit 1
+  fi
   op account set-member "$ORG" "$owner" --role owner
 done
 op account set-member "$ORG" "$MIRROR_USER" --role writer

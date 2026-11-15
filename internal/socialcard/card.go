@@ -10,6 +10,7 @@ import (
 	"image/color"
 	"image/draw"
 	"image/png"
+	"sort"
 	"strings"
 	"sync"
 	"unicode"
@@ -28,7 +29,15 @@ const (
 	Height = 630
 )
 
-const margin = 80
+const (
+	margin              = 80
+	maxAccountRunes     = 128
+	maxSliceRunes       = 256
+	maxDescriptionRunes = 1024
+	maxFactRunes        = 256
+	maxFacts            = 8
+	maxWrapRunes        = 2048
+)
 
 // Card is what a card shows. Account and Slice are required; an empty Slice
 // draws the generic Gitslice card.
@@ -81,6 +90,10 @@ func Render(card Card) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	card.Account = clampRunes(card.Account, maxAccountRunes)
+	card.Slice = clampRunes(card.Slice, maxSliceRunes)
+	card.Description = clampRunes(card.Description, maxDescriptionRunes)
+
 	img := image.NewRGBA(image.Rect(0, 0, Width, Height))
 	draw.Draw(img, img.Bounds(), &image.Uniform{paper}, image.Point{}, draw.Src)
 	accent := accentFor(card.Account + "/" + card.Slice)
@@ -121,7 +134,14 @@ func Render(card Card) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	facts := append([]string(nil), card.Facts...)
+	limit := len(card.Facts)
+	if limit > maxFacts {
+		limit = maxFacts
+	}
+	facts := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		facts = append(facts, clampRunes(card.Facts[i], maxFactRunes))
+	}
 	drawLines(img, footer, faint, []string{fit(footer, strings.Join(facts, "  ·  "), Width-2*margin-260)}, margin, Height-72, 0)
 	mark, err := face(f.bold, 34)
 	if err != nil {
@@ -226,10 +246,27 @@ func printable(f font.Face, text string) string {
 	}, text)
 }
 
+// clampRunes truncates s to at most maxRunes UTF-8 runes without converting the
+// entire input to []rune.
+func clampRunes(s string, maxRunes int) string {
+	if maxRunes <= 0 || len(s) <= maxRunes {
+		return s
+	}
+	count := 0
+	for i := range s {
+		if count == maxRunes {
+			return s[:i]
+		}
+		count++
+	}
+	return s
+}
+
 // wrap breaks text into at most maxLines lines no wider than width, ending
 // the last with an ellipsis when text does not fit. A word wider than a line
 // is broken by characters.
 func wrap(f font.Face, text string, width, maxLines int) []string {
+	text = clampRunes(text, maxWrapRunes)
 	words := strings.Fields(printable(f, text))
 	var lines []string
 	line := ""
@@ -269,29 +306,34 @@ func wrap(f font.Face, text string, width, maxLines int) []string {
 }
 
 func splitToWidth(f font.Face, word string, width int) (string, string) {
-	runes := []rune(word)
-	for n := len(runes); n > 1; n-- {
-		if font.MeasureString(f, string(runes[:n])).Round() <= width {
-			return string(runes[:n]), string(runes[n:])
-		}
+	runes := []rune(clampRunes(word, maxWrapRunes))
+	if len(runes) <= 1 || font.MeasureString(f, string(runes)).Round() <= width {
+		return string(runes), ""
 	}
-	return string(runes[:1]), string(runes[1:])
+	n := 1 + sort.Search(len(runes)-1, func(i int) bool {
+		return font.MeasureString(f, string(runes[:i+2])).Round() > width
+	})
+	return string(runes[:n]), string(runes[n:])
 }
 
 // fit shortens text with an ellipsis until it is no wider than width.
 func fit(f font.Face, text string, width int) string {
-	text = strings.TrimSpace(text)
+	text = strings.TrimSpace(clampRunes(text, maxWrapRunes))
 	if font.MeasureString(f, text).Round() <= width {
 		return text
 	}
 	runes := []rune(strings.TrimSuffix(text, "…"))
-	for n := len(runes); n > 0; n-- {
-		candidate := strings.TrimRight(string(runes[:n]), " ") + "…"
-		if font.MeasureString(f, candidate).Round() <= width {
-			return candidate
-		}
+	if len(runes) == 0 {
+		return "…"
 	}
-	return "…"
+	n := sort.Search(len(runes), func(i int) bool {
+		candidate := strings.TrimRight(string(runes[:i+1]), " ") + "…"
+		return font.MeasureString(f, candidate).Round() > width
+	})
+	if n == 0 {
+		return "…"
+	}
+	return strings.TrimRight(string(runes[:n]), " ") + "…"
 }
 
 func measure(f font.Face, text string) int {

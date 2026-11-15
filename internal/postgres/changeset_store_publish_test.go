@@ -153,8 +153,11 @@ func TestPublishPendingBatchPublishesAndSkipsNonPendingChangesets(t *testing.T) 
 	if secondState.ChangesetStatus != "submitted" || secondState.PendingStatus != "published" || !secondState.PendingCommit.Valid {
 		t.Fatalf("second state = %#v, want submitted/published with commit", secondState)
 	}
-	if skippedState.ChangesetStatus != "draft" || skippedState.PendingStatus != "pending" || skippedState.PendingCommit.Valid {
-		t.Fatalf("skipped state = %#v, want draft/pending without commit", skippedState)
+	if skippedState.ChangesetStatus != "draft" || skippedState.PendingStatus != "failed" || skippedState.PendingCommit.Valid {
+		t.Fatalf("skipped state = %#v, want draft/failed without commit", skippedState)
+	}
+	if depth, err := store.Changesets().PendingPublishDepth(ctx); err != nil || depth != 0 {
+		t.Fatalf("PendingPublishDepth = %d, %v; want 0", depth, err)
 	}
 
 	ref := getTestRef(t, ctx, store)
@@ -734,5 +737,120 @@ func TestGetChangesetByLandedCommitID(t *testing.T) {
 	}
 	if _, err := store.Changesets().Get(ctx, "0000000000ab"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Get(unknown) err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestPendingPublishRejectsMutationsAndAllowsResubmitAfterFailedClaim(t *testing.T) {
+	ctx, store, objects := newPostgresTestStoreWithObjects(t)
+	base := getTestRef(t, ctx, store)
+	p := "/acme/payment/pending_immutable.go"
+	blobID, hash := upsertTestBlobObject(t, ctx, store, objects, "package payment\nconst Immutable = true\n")
+	patchset := createDraftPatchset(t, ctx, store, base.CommitId, p, blobID, hash)
+	if _, err := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id); err != nil {
+		t.Fatal(err)
+	}
+
+	nextTitle := "mutated title"
+	if _, err := store.Changesets().UpdateInfo(ctx, patchset.ChangesetId, &nextTitle, nil); !errors.Is(err, ErrConflict) {
+		t.Fatalf("UpdateInfo while pending_publish: err = %v, want ErrConflict", err)
+	}
+	if err := store.Changesets().Abandon(ctx, patchset.ChangesetId); !errors.Is(err, ErrConflict) {
+		t.Fatalf("Abandon while pending_publish: err = %v, want ErrConflict", err)
+	}
+	if _, err := store.Changesets().Approve(ctx, patchset.ChangesetId, "user_bob"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("Approve while pending_publish: err = %v, want ErrConflict", err)
+	}
+	if _, err := store.Changesets().ReportCheckResult(ctx, patchset.ChangesetId, "user_bob", "ci", "pass"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("ReportCheckResult while pending_publish: err = %v, want ErrConflict", err)
+	}
+	if _, err := store.Changesets().AddPatchset(ctx, patchset.ChangesetId, patchset.Id, &corev1.Patchset{
+		BaseCommitId: base.CommitId,
+		Author:       "user_alice",
+	}); !errors.Is(err, ErrConflict) {
+		t.Fatalf("AddPatchset while pending_publish: err = %v, want ErrConflict", err)
+	}
+
+	// Simulate an out-of-band status reset and verify PublishPending marks the
+	// pending_publish row failed, reconciles path_heads, and permits re-submit.
+	if _, err := store.db.ExecContext(ctx, `update changesets set status = 'draft' where id = $1`, patchset.ChangesetId); err != nil {
+		t.Fatal(err)
+	}
+	published, err := store.Changesets().PublishPending(ctx, 10)
+	if err != nil || published != 0 {
+		t.Fatalf("PublishPending = %d, %v; want 0, nil", published, err)
+	}
+	state := requirePublishStateForTest(t, ctx, store, patchset.ChangesetId)
+	if state.PendingStatus != "failed" {
+		t.Fatalf("pending status = %q, want failed", state.PendingStatus)
+	}
+	if _, err := store.VerifyIntegrity(ctx, objects); err != nil {
+		t.Fatalf("VerifyIntegrity after failed pending_publish reconciliation: %v", err)
+	}
+	if _, err := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id); err != nil {
+		t.Fatalf("re-submit after failed pending_publish: %v", err)
+	}
+	if published, err := store.Changesets().PublishPending(ctx, 10); err != nil || published != 1 {
+		t.Fatalf("PublishPending after re-submit = %d, %v; want 1, nil", published, err)
+	}
+}
+
+func TestSubmitRejectsArchivedOrDeletedSliceAndPatchsetSelfApproval(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	base := getTestRef(t, ctx, store)
+
+	slice, err := store.Slices().Create(ctx, "user_alice", &corev1.SliceRef{Account: "acme", Slice: "guarded"}, []string{"/acme/guarded"}, "private", 1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := store.Changesets().Create(ctx, "user_alice", &corev1.CreateChangesetRequest{
+		AuthoringSlice: slice.Ref,
+		TargetRef:      DefaultTargetRef,
+		BaseCommitId:   base.CommitId,
+		Title:          "collaborative change",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobID, hash := upsertTestBlob(t, ctx, store, "guarded\n")
+	ps, err := store.Changesets().AddPatchset(ctx, cs.Id, "", &corev1.Patchset{
+		BaseCommitId: base.CommitId,
+		Author:       "user_bob",
+		ChangedPaths: []string{"/acme/guarded/file.txt"},
+		FileEdits: []*corev1.FileEdit{
+			{Op: "upsert", Path: "/acme/guarded/file.txt", BlobId: blobID, ContentHash: hash, Mode: 0o100644},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// user_bob authored the current patchset and must not satisfy required non-author approvals.
+	if _, err := store.Changesets().Approve(ctx, cs.Id, "user_bob"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Changesets().Submit(ctx, cs.Id, ps.Id); !errors.Is(err, ErrConflict) {
+		t.Fatalf("Submit with patchset author self-approval: err = %v, want ErrConflict", err)
+	}
+
+	// Add a genuine third-party approval, then verify archived slices reject submit.
+	if _, err := store.db.ExecContext(ctx, `insert into subjects(id, kind, display_name) values ('user_carol', 'user', 'Carol') on conflict do nothing`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Changesets().Approve(ctx, cs.Id, "user_carol"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Slices().SetArchived(ctx, slice.Id, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Changesets().Submit(ctx, cs.Id, ps.Id); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "archived") {
+		t.Fatalf("Submit on archived slice: err = %v, want ErrConflict mentioning archived", err)
+	}
+	if _, err := store.Slices().SetArchived(ctx, slice.Id, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `update slices set deleted_at = now() where id = $1`, slice.Id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Changesets().Submit(ctx, cs.Id, ps.Id); !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "deleted") {
+		t.Fatalf("Submit on deleted slice: err = %v, want ErrConflict mentioning deleted", err)
 	}
 }

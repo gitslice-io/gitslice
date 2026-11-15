@@ -234,6 +234,18 @@ func fakeCodexAppServer(in io.Reader, out io.Writer) {
 		case "initialized":
 			continue
 		case "thread/start":
+			if forbid := os.Getenv("GS_FAKE_CODEX_FORBID_ENV"); forbid != "" && os.Getenv(forbid) != "" {
+				if !fakeCodexRespondError(writer, msg.ID, -32602, "forbidden env leaked: "+forbid) {
+					return
+				}
+				continue
+			}
+			if wantSandbox := os.Getenv("GS_FAKE_CODEX_EXPECT_SANDBOX"); wantSandbox != "" && fakeCodexSandbox(msg.Params) != wantSandbox {
+				if !fakeCodexRespondError(writer, msg.ID, -32602, "unexpected sandbox: "+fakeCodexSandbox(msg.Params)) {
+					return
+				}
+				continue
+			}
 			if want := os.Getenv("GS_FAKE_CODEX_EXPECT_INSTRUCTIONS"); want != "" && fakeCodexDeveloperInstructions(msg.Params) != want {
 				if !fakeCodexRespondError(writer, msg.ID, -32602, "missing developerInstructions") {
 					return
@@ -281,6 +293,14 @@ func fakeCodexDeveloperInstructions(params json.RawMessage) string {
 	}
 	_ = json.Unmarshal(params, &p)
 	return p.DeveloperInstructions
+}
+
+func fakeCodexSandbox(params json.RawMessage) string {
+	var p struct {
+		Sandbox string `json:"sandbox"`
+	}
+	_ = json.Unmarshal(params, &p)
+	return p.Sandbox
 }
 
 func fakeCodexRunScript(writer *bufio.Writer, script string) bool {

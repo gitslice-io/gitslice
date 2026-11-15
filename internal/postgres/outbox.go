@@ -133,17 +133,21 @@ func (s *ChangesetStore) applyOutboxRowTx(ctx context.Context, tx *sql.Tx, kind 
 }
 
 func (s *ChangesetStore) applyCommitPublishedOutboxTx(ctx context.Context, tx *sql.Tx, payload commitPublishedPayload) error {
-	if payload.TargetRef == "" || payload.CommitID == "" || payload.BaseCommitID == "" || payload.PatchsetID == "" || payload.CommittedAt.IsZero() {
+	if payload.TargetRef == "" || payload.CommitID == "" || payload.BaseCommitID == "" || (payload.PatchsetID == "" && len(payload.FileEdits) == 0) || payload.CommittedAt.IsZero() {
 		return fmt.Errorf("%w: incomplete commit_published payload", ErrInvalid)
 	}
 	if err := insertCommitChangedPathsTx(ctx, tx, payload.TargetRef, payload.CommitID, payload.ChangedPaths, payload.CommittedAt); err != nil {
 		return err
 	}
-	patchset, err := getPatchsetTx(ctx, tx, payload.PatchsetID)
-	if err != nil {
-		return err
+	edits := payload.FileEdits
+	if payload.PatchsetID != "" {
+		patchset, err := getPatchsetTx(ctx, tx, payload.PatchsetID)
+		if err != nil {
+			return err
+		}
+		edits = patchset.FileEdits
 	}
-	if err := s.applyEntityHistoryTx(ctx, tx, payload.TargetRef, payload.BaseCommitID, payload.CommitID, patchset.FileEdits, payload.CommittedAt); err != nil {
+	if err := s.applyEntityHistoryTx(ctx, tx, payload.TargetRef, payload.BaseCommitID, payload.CommitID, edits, payload.CommittedAt); err != nil {
 		return err
 	}
 	// current_path_entities now reflects payload.CommitID for this ref; advance

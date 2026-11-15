@@ -163,6 +163,9 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	if cs == nil {
 		return nil, storage.ErrNotFound
 	}
+	if cs.Status != "draft" {
+		return nil, storage.ErrConflict
+	}
 	if expectedCurrentPatchsetID != "" && cs.CurrentPatchsetId != expectedCurrentPatchsetID {
 		return nil, storage.ErrConflict
 	}
@@ -232,7 +235,7 @@ func (s *ChangesetStore) Approve(ctx context.Context, changesetID, subjectID str
 	if patchset == nil {
 		return nil, storage.ErrConflict
 	}
-	if cs.Status == "abandoned" || cs.Status == "submitted" {
+	if cs.Status != "draft" {
 		return nil, storage.ErrConflict
 	}
 	key := patchsetRequirementKey(changesetID, patchset.Id)
@@ -258,7 +261,7 @@ func (s *ChangesetStore) ReportCheckResult(ctx context.Context, changesetID, sub
 	if patchset == nil {
 		return nil, storage.ErrConflict
 	}
-	if cs.Status == "abandoned" || cs.Status == "submitted" {
+	if cs.Status != "draft" {
 		return nil, storage.ErrConflict
 	}
 	checkName = strings.TrimSpace(checkName)
@@ -331,11 +334,20 @@ func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurren
 	if cs == nil {
 		return nil, storage.ErrNotFound
 	}
-	if expectedCurrentPatchsetID != "" && cs.CurrentPatchsetId != expectedCurrentPatchsetID {
+	if cs.Status == "abandoned" {
 		return nil, storage.ErrConflict
+	}
+	if cs.Status == "submitted" && cs.CommitId != "" {
+		return &corev1.SubmitChangesetResponse{CommitId: cs.CommitId, TargetRef: cs.TargetRef, NewRefCommitId: cs.CommitId, Status: "submitted"}, nil
 	}
 	if cs.Status == "pending_publish" {
 		return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: cs.Status, PendingPublishId: cs.Id}, nil
+	}
+	if cs.Status != "draft" {
+		return nil, storage.ErrConflict
+	}
+	if expectedCurrentPatchsetID != "" && cs.CurrentPatchsetId != expectedCurrentPatchsetID {
+		return nil, storage.ErrConflict
 	}
 	patchset := currentPatchset(cs)
 	if patchset == nil {
@@ -355,9 +367,18 @@ func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurren
 	}
 	sliceID := s.b.sliceRefs[sliceRefKey(cs.AuthoringSlice)]
 	slice := s.b.slices[sliceID]
+	if slice == nil {
+		return nil, storage.ErrNotFound
+	}
+	if s.b.retiredSlices[sliceID] {
+		return nil, fmt.Errorf("%w: slice is deleted", storage.ErrConflict)
+	}
+	if slice.Archived {
+		return nil, fmt.Errorf("%w: slice is archived", storage.ErrConflict)
+	}
 	latestReq := submitRequirementsForMemorySlice(slice)
 	for _, p := range patchset.ChangedPaths {
-		if slice == nil || slice.Definition == nil || !pathInAnyPrefix(slice.Definition.IncludedPaths, p) {
+		if slice.Definition == nil || !pathInAnyPrefix(slice.Definition.IncludedPaths, p) {
 			return nil, s.b.blockSubmitLocked(cs, fmt.Sprintf("changed path %s is outside latest slice definition, refresh the changeset", p))
 		}
 	}
@@ -366,6 +387,7 @@ func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurren
 	for subjectID := range s.b.approvals[key] {
 		approvalSubjects = append(approvalSubjects, subjectID)
 	}
+	approvalSubjects = storage.FilterApprovalSubjects(approvalSubjects, cs.Author, patchset.Author)
 	checkStatuses := map[string]string{}
 	for checkName, status := range s.b.checkResults[key] {
 		checkStatuses[checkName] = status
@@ -497,7 +519,7 @@ func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error 
 	if cs == nil {
 		return storage.ErrNotFound
 	}
-	if cs.Status == "submitted" {
+	if cs.Status != "draft" {
 		return storage.ErrConflict
 	}
 	for _, child := range s.b.changesets {

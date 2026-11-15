@@ -86,6 +86,9 @@ func (s *TriggerService) ListTriggers(ctx context.Context, req *corev1.ListTrigg
 		return nil, err
 	}
 	ref := strings.TrimSpace(req.GetRef())
+	if err := requireDefaultTargetRef(ref); err != nil {
+		return nil, err
+	}
 	if ref == "" {
 		ref = triggers.DefaultRef
 	}
@@ -156,8 +159,15 @@ func (s *TriggerService) GetTriggerRun(ctx context.Context, req *corev1.GetTrigg
 }
 
 func (s *TriggerService) ListTriggerRunLogs(ctx context.Context, req *corev1.ListTriggerRunLogsRequest) (*corev1.ListTriggerRunLogsResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
 	run, err := s.authorizedRun(ctx, req.GetRunId(), authz.ActionRead)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureTriggerFolderAccess(ctx, subjectID, run.Account, run.Folder, authz.ActionRead); err != nil {
 		return nil, err
 	}
 	logs, err := s.Triggers.ListTriggerRunLogs(ctx, run.ID, req.GetAfterSeq(), 1000)
@@ -207,8 +217,15 @@ func (s *TriggerService) RunTrigger(ctx context.Context, req *corev1.RunTriggerR
 }
 
 func (s *TriggerService) RerunTriggerRun(ctx context.Context, req *corev1.RerunTriggerRunRequest) (*corev1.TriggerRun, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
 	run, err := s.authorizedRun(ctx, req.GetRunId(), authz.ActionWrite)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureTriggerFolderAccess(ctx, subjectID, run.Account, run.Folder, authz.ActionWrite); err != nil {
 		return nil, err
 	}
 	again, err := s.Engine.Rerun(ctx, *run)
@@ -219,8 +236,15 @@ func (s *TriggerService) RerunTriggerRun(ctx context.Context, req *corev1.RerunT
 }
 
 func (s *TriggerService) CancelTriggerRun(ctx context.Context, req *corev1.CancelTriggerRunRequest) (*corev1.TriggerRun, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
 	run, err := s.authorizedRun(ctx, req.GetRunId(), authz.ActionWrite)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureTriggerFolderAccess(ctx, subjectID, run.Account, run.Folder, authz.ActionWrite); err != nil {
 		return nil, err
 	}
 	canceled, err := s.Engine.Cancel(ctx, *run, "canceled by hand")
@@ -231,6 +255,45 @@ func (s *TriggerService) CancelTriggerRun(ctx context.Context, req *corev1.Cance
 		return nil, grpcError(err)
 	}
 	return triggerRunProto(*canceled), nil
+}
+
+func (s *TriggerService) ensureTriggerFolderAccess(ctx context.Context, subjectID, account, folder string, action authz.Action) error {
+	folder = strings.TrimSpace(folder)
+	if folder == "" {
+		return authorizeAccount(ctx, s.Auth, subjectID, account, action)
+	}
+	accountErr := authorizeAccount(ctx, s.Auth, subjectID, account, action)
+	if accountErr == nil {
+		return nil
+	}
+	if s.Slices == nil {
+		return accountErr
+	}
+	covering, err := s.Slices.CoveringIDsByPath(ctx, []string{folder})
+	if err != nil {
+		return grpcError(err)
+	}
+	var archivedErr error
+	for _, sliceID := range covering[folder] {
+		slice, err := s.Slices.Get(ctx, sliceID)
+		if err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				continue
+			}
+			return grpcError(err)
+		}
+		err = authorize(ctx, s.Auth, subjectID, slice, action)
+		if err == nil {
+			return nil
+		}
+		if status.Code(err) == codes.FailedPrecondition && archivedErr == nil {
+			archivedErr = err
+		}
+	}
+	if archivedErr != nil {
+		return archivedErr
+	}
+	return accountErr
 }
 
 // authorizedRun loads a run the caller may act on: through its changeset's

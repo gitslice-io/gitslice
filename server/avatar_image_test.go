@@ -7,14 +7,20 @@ import (
 	"testing"
 )
 
-type fakeAvatars map[string]string // account -> version of its upload
+type fakeAvatars map[string]string // account -> version of its upload; "ERR" simulates transient error
 
 func (f fakeAvatars) AccountAvatar(_ context.Context, account string) ([]byte, string) {
+	if f[account] == "ERR" {
+		return nil, ""
+	}
 	return []byte("png of " + account), f[account]
 }
 
 func TestAvatarImageHandler(t *testing.T) {
-	handler := newAvatarImageHandler(fakeAvatars{"anna": "abc123"})
+	handler := newAvatarImageHandler(fakeAvatars{
+		"anna":  "abc123",
+		"flaky": "ERR",
+	})
 	for _, tc := range []struct {
 		path, wantBody, wantCache string
 		wantStatus                int
@@ -27,6 +33,9 @@ func TestAvatarImageHandler(t *testing.T) {
 		{"/avatars/anna.png?v=none", "png of anna", avatarMaxAge, http.StatusOK},
 		// A generated picture never changes for its name.
 		{"/avatars/bob-2.png?v=none", "png of bob-2", avatarImmutableMaxAge, http.StatusOK},
+		// Transient backend errors must return 503 no-store rather than caching a wrong fallback.
+		{"/avatars/flaky.png?v=none", "", "no-store", http.StatusServiceUnavailable},
+		{"/avatars/flaky.png?v=abc123", "", "no-store", http.StatusServiceUnavailable},
 		{"/avatars/Anna.png", "", "", http.StatusNotFound},
 		{"/avatars/anna", "", "", http.StatusNotFound},
 		{"/avatars/a/b.png", "", "", http.StatusNotFound},
@@ -36,6 +45,12 @@ func TestAvatarImageHandler(t *testing.T) {
 		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tc.path, nil))
 		if rec.Code != tc.wantStatus {
 			t.Errorf("%s: status %d, want %d", tc.path, rec.Code, tc.wantStatus)
+			continue
+		}
+		if tc.wantStatus == http.StatusServiceUnavailable {
+			if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+				t.Errorf("%s: 503 Cache-Control = %q, want no-store", tc.path, got)
+			}
 			continue
 		}
 		if tc.wantStatus != http.StatusOK {

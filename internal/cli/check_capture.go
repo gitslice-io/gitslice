@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -14,6 +15,15 @@ import (
 	gspaths "gitslice.io/gitslice/internal/paths"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
+
+func requireContainerChecks() bool {
+	v := strings.TrimSpace(os.Getenv("GITSLICE_CHECKS_REQUIRE_CONTAINER"))
+	return v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes") || strings.EqualFold(v, "on")
+}
+
+func isContainerizedCheckSpec(spec checks.CheckSpec) bool {
+	return strings.TrimSpace(spec.Image) != "" || spec.Build != nil || len(spec.Setup) > 0
+}
 
 type WorkspaceCheckResult struct {
 	Name       string `json:"name"`
@@ -201,6 +211,17 @@ func runWorkspaceChecks(ctx context.Context, root string, includedPaths, changed
 			})
 			continue
 		}
+		if requireContainerChecks() && !isContainerizedCheckSpec(spec) {
+			msg := fmt.Sprintf("check %q must declare an image or setup: host-mode execution is disabled when GITSLICE_CHECKS_REQUIRE_CONTAINER is set", spec.Name)
+			results = append(results, WorkspaceCheckResult{
+				Name:     spec.Name,
+				Status:   "errored",
+				ExitCode: -1,
+				Summary:  oneLineSummary(msg),
+				Log:      msg,
+			})
+			continue
+		}
 		start := time.Now()
 		result, err := checkexec.Run(ctx, root, spec)
 		elapsedMs := time.Since(start).Milliseconds()
@@ -285,15 +306,17 @@ func (r workspaceDiskTreeReader) ReadFile(ctx context.Context, _ string, logical
 	}
 	var lastErr error
 	for _, rel := range r.candidateRelPaths(logicalPath) {
-		target, err := workspaceDiskPath(r.root, rel)
-		if err != nil {
+		if rel == "" || rel == "." {
+			continue
+		}
+		if _, err := workspaceDiskPath(r.root, rel); err != nil {
 			return nil, err
 		}
-		data, err := os.ReadFile(target)
+		data, err := readConfinedWorkspaceFile(r.root, rel)
 		if err == nil {
 			return data, nil
 		}
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			lastErr = err
 			continue
 		}

@@ -84,14 +84,6 @@ func signupAccountID(username string) string {
 	return "acct_" + strings.ReplaceAll(username, "-", "_")
 }
 
-func signupHomeSliceID(username string) string {
-	return "slice_" + strings.ReplaceAll(username, "-", "_") + "_home"
-}
-
-func sliceID(account, slug string) string {
-	return "slice_" + strings.ReplaceAll(account, "-", "_") + "_" + strings.ReplaceAll(slug, "-", "_")
-}
-
 func tokenHash(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])

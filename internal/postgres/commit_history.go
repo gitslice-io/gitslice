@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -31,33 +32,142 @@ func (s *RepositoryStore) ListCommitPage(ctx context.Context, refName string, li
 	if err != nil {
 		return nil, err
 	}
-	commits := make([]*corev1.Commit, 0, limit+1)
-	seen := map[string]struct{}{}
-	collecting := cursor == nil
-	foundCursor := cursor == nil
-	for commitID := ref.CommitId; commitID != "" && len(commits) < limit+1; {
-		if _, ok := seen[commitID]; ok {
-			break
+	if ref.CommitId == "" {
+		if cursor != nil {
+			return nil, fmt.Errorf("%w: page token is not in ref history", ErrInvalid)
 		}
-		seen[commitID] = struct{}{}
-		commit, err := s.GetCommit(ctx, commitID)
+		return &CommitListPage{Commits: []*corev1.Commit{}}, nil
+	}
+
+	commits := make([]*corev1.Commit, 0, limit+1)
+	if cursor == nil {
+		rows, err := s.db.QueryContext(ctx, `
+			with recursive lineage(
+				id, parent_ids, root_tree_id, author_subject_id, message, created_at, changed_paths,
+				depth, path
+			) as (
+				select c.id, c.parent_ids, c.root_tree_id, coalesce(c.author_subject_id, ''),
+				       c.message, c.created_at, c.changed_paths,
+				       0, array[c.id]
+				from commits c
+				where c.id = $1
+				union all
+				select c.id, c.parent_ids, c.root_tree_id, coalesce(c.author_subject_id, ''),
+				       c.message, c.created_at, c.changed_paths,
+				       l.depth + 1, l.path || c.id
+				from lineage l
+				join commits c on c.id = l.parent_ids->>0
+				where jsonb_array_length(l.parent_ids) > 0
+				  and l.depth + 1 < $2
+				  and not (c.id = any(l.path))
+			)
+			select id, parent_ids, root_tree_id, author_subject_id, message, created_at, changed_paths
+			from lineage
+			order by depth
+		`, ref.CommitId, limit+1)
 		if err != nil {
 			return nil, err
 		}
-		if collecting {
+		defer rows.Close()
+		for rows.Next() {
+			commit, err := scanCommitRow(rows)
+			if err != nil {
+				return nil, err
+			}
 			commits = append(commits, commit)
-		} else if commit.Id == cursor.CommitID {
-			collecting = true
-			foundCursor = true
 		}
-		if len(commit.ParentIds) == 0 {
-			break
+		if err := rows.Err(); err != nil {
+			return nil, err
 		}
-		commitID = commit.ParentIds[0]
+		if len(commits) == 0 {
+			return nil, ErrNotFound
+		}
+	} else {
+		rows, err := s.db.QueryContext(ctx, `
+			with recursive reach(id, next_id, steps) as (
+				select c.id, c.parent_ids->>0, 1
+				from commits c
+				where c.id = $1
+				union all
+				select c.id, c.parent_ids->>0, r.steps + 1
+				from reach r
+				join commits c on c.id = r.next_id
+				where r.id <> $2
+				  and r.next_id is not null
+				  and r.steps < 1000000
+			),
+			cursor_hit as (
+				select id, next_id
+				from reach
+				where id = $2
+				limit 1
+			),
+			lineage(
+				id, parent_ids, root_tree_id, author_subject_id, message, created_at, changed_paths,
+				depth, path
+			) as (
+				select c.id, c.parent_ids, c.root_tree_id, coalesce(c.author_subject_id, ''),
+				       c.message, c.created_at, c.changed_paths,
+				       0, array[ch.id, c.id]
+				from cursor_hit ch
+				join commits c on c.id = ch.next_id
+				union all
+				select c.id, c.parent_ids, c.root_tree_id, coalesce(c.author_subject_id, ''),
+				       c.message, c.created_at, c.changed_paths,
+				       l.depth + 1, l.path || c.id
+				from lineage l
+				join commits c on c.id = l.parent_ids->>0
+				where jsonb_array_length(l.parent_ids) > 0
+				  and l.depth + 1 < $3
+				  and not (c.id = any(l.path))
+			)
+			select exists(select 1 from cursor_hit) as found_cursor,
+			       l.id, l.parent_ids, l.root_tree_id, l.author_subject_id, l.message, l.created_at, l.changed_paths
+			from (select 1) marker
+			left join lineage l on true
+			order by l.depth
+		`, ref.CommitId, cursor.CommitID, limit+1)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		foundCursor := false
+		for rows.Next() {
+			var rowFound bool
+			var id, rootTreeID, author, message sql.NullString
+			var parentJSON, changedJSON []byte
+			var createdAt sql.NullTime
+			if err := rows.Scan(&rowFound, &id, &parentJSON, &rootTreeID, &author, &message, &createdAt, &changedJSON); err != nil {
+				return nil, err
+			}
+			foundCursor = rowFound
+			if !id.Valid {
+				continue
+			}
+			var commit corev1.Commit
+			commit.Id = id.String
+			commit.RootTreeId = rootTreeID.String
+			commit.Author = author.String
+			commit.Message = message.String
+			if createdAt.Valid {
+				commit.CreatedAt = formatTime(createdAt.Time)
+			}
+			if err := decodeJSON(parentJSON, &commit.ParentIds); err != nil {
+				return nil, err
+			}
+			if err := decodeJSON(changedJSON, &commit.ChangedPaths); err != nil {
+				return nil, err
+			}
+			commits = append(commits, &commit)
+		}
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		if !foundCursor {
+			return nil, fmt.Errorf("%w: page token is not in ref history", ErrInvalid)
+		}
 	}
-	if !foundCursor {
-		return nil, fmt.Errorf("%w: page token is not in ref history", ErrInvalid)
-	}
+
 	nextToken := ""
 	if len(commits) > limit {
 		var err error

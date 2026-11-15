@@ -64,7 +64,7 @@ func (s *CheckService) ListCheckRuns(ctx context.Context, req *corev1.ListCheckR
 		return nil, status.Error(codes.InvalidArgument, "changeset_id or patchset_id is required")
 	}
 	if req.ChangesetId != "" {
-		if _, err := s.authorizedChangeset(ctx, subjectID, req.ChangesetId); err != nil {
+		if _, err := s.authorizedChangeset(ctx, subjectID, req.ChangesetId, authz.ActionRead); err != nil {
 			return nil, err
 		}
 		runs, err := s.Checks.ListCheckRuns(ctx, req.ChangesetId, req.PatchsetId)
@@ -82,7 +82,7 @@ func (s *CheckService) ListCheckRuns(ctx context.Context, req *corev1.ListCheckR
 	if len(runs) == 0 {
 		return &corev1.ListCheckRunsResponse{}, nil
 	}
-	if _, err := s.authorizedChangeset(ctx, subjectID, runs[0].GetChangesetId()); err != nil {
+	if _, err := s.authorizedChangeset(ctx, subjectID, runs[0].GetChangesetId(), authz.ActionRead); err != nil {
 		return nil, err
 	}
 	s.annotateDaemons(ctx, runs...)
@@ -102,7 +102,7 @@ func (s *CheckService) GetCheckRun(ctx context.Context, req *corev1.GetCheckRunR
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if _, err := s.authorizedChangeset(ctx, subjectID, run.GetChangesetId()); err != nil {
+	if _, err := s.authorizedChangeset(ctx, subjectID, run.GetChangesetId(), authz.ActionRead); err != nil {
 		return nil, err
 	}
 	s.annotateDaemons(ctx, run)
@@ -122,7 +122,7 @@ func (s *CheckService) RerunCheck(ctx context.Context, req *corev1.RerunCheckReq
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	cs, err := s.authorizedChangeset(ctx, subjectID, run.GetChangesetId())
+	cs, err := s.authorizedChangeset(ctx, subjectID, run.GetChangesetId(), authz.ActionWrite)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ func (s *CheckService) streamCheckRun(req *corev1.StreamCheckRunRequest, stream 
 	if err != nil {
 		return grpcError(err)
 	}
-	if _, err := s.authorizedChangeset(ctx, subjectID, run.GetChangesetId()); err != nil {
+	if _, err := s.authorizedChangeset(ctx, subjectID, run.GetChangesetId(), authz.ActionRead); err != nil {
 		return err
 	}
 
@@ -220,7 +220,7 @@ func (s *CheckService) sendPersistedCheckLogs(ctx context.Context, runID string,
 	return nil
 }
 
-func (s *CheckService) authorizedChangeset(ctx context.Context, subjectID, changesetID string) (*corev1.Changeset, error) {
+func (s *CheckService) authorizedChangeset(ctx context.Context, subjectID, changesetID string, action authz.Action) (*corev1.Changeset, error) {
 	cs, err := s.Changesets.Get(ctx, changesetID)
 	if err != nil {
 		return nil, grpcError(err)
@@ -228,7 +228,11 @@ func (s *CheckService) authorizedChangeset(ctx context.Context, subjectID, chang
 	if cs.GetAuthoringSlice() == nil {
 		return nil, status.Error(codes.FailedPrecondition, "changeset has no authoring slice")
 	}
-	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, cs.GetAuthoringSlice(), authz.ActionRead); err != nil {
+	slice, err := resolveAuthoringSlice(ctx, s.Slices, cs.GetAuthoringSlice(), action)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := authorize(ctx, s.Auth, subjectID, slice, action); err != nil {
 		return nil, err
 	}
 	return cs, nil

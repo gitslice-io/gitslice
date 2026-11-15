@@ -29,14 +29,21 @@ type overlayEditSource struct {
 	// changed file's content (through the mount, which fetches what a moved
 	// base file needs); otherwise the local layer's file, or the cache.
 	mountRoot string
+	// useLayerBase asks for edits directly against the layer's own base
+	// without materializing a full BaseSnapshot on the client.
+	useLayerBase bool
 }
 
 // layerView is what an overlay edit source needs of a lazy workspace's
-// layers: a *lazyfs.FS, or a mounted workspace's daemon (daemonLayerView).
+// layers: a *lazyfs.FS, or a mounted workspace's daemon (*daemonLayerView).
 type layerView interface {
 	Edits() ([]lazyfs.Edit, error)
 	Base() *lazyfs.Manifest
 	ReadFile(ctx context.Context, p string) ([]byte, error)
+}
+
+type baseLookupView interface {
+	EditsWithBase() (edits []lazyfs.Edit, baseCommit string, baseFiles map[string]BaseSnapshotFile, baseDigest string, liveMount bool, err error)
 }
 
 type overlayState struct {
@@ -49,42 +56,95 @@ type overlayState struct {
 func (s overlayEditSource) edits(ctx context.Context, base BaseSnapshot, _ int) (workspaceEdits, error) {
 	started := time.Now()
 	var found workspaceEdits
-	layerEdits, err := s.fs.Edits()
+	var (
+		layerEdits []lazyfs.Edit
+		baseCommit string
+		baseFiles  map[string]BaseSnapshotFile
+		baseDigest string
+		liveMount  = s.mountRoot != ""
+		err        error
+	)
+	if view, ok := s.fs.(baseLookupView); ok {
+		layerEdits, baseCommit, baseFiles, baseDigest, liveMount, err = view.EditsWithBase()
+	} else {
+		layerEdits, err = s.fs.Edits()
+	}
 	if err != nil {
 		return found, err
 	}
-	manifest := s.fs.Base()
+
 	states := map[string]overlayState{}
 	for _, edit := range layerEdits {
+		if err := ensureNotReservedGsPath(edit.Path); err != nil {
+			return found, err
+		}
 		if edit.Op == "delete" {
 			states[edit.Path] = overlayState{}
 			continue
 		}
 		states[edit.Path] = overlayState{exists: true, hash: edit.ContentHash, mode: edit.Mode, localPath: edit.LocalPath}
 	}
-	// Where the base asked about differs from the layer's base, the
-	// workspace shows the layer's base unless the layer changed the path.
-	if base.CommitID != manifest.CommitID() || !sameFiles(base, manifest) {
-		for p, file := range base.Files {
-			if _, ok := states[p]; ok {
-				continue
-			}
-			entry, ok := manifest.Lookup(p)
-			switch {
-			case !ok || entry.Kind == lazyfs.KindDir:
-				states[p] = overlayState{}
-			case entry.ContentHash != file.ContentHash || !sameWorkspaceMode(file.Mode, entry.Mode):
-				states[p] = overlayState{exists: true, hash: entry.ContentHash, mode: entry.Mode}
-			}
+
+	var manifest *lazyfs.Manifest
+	useDaemonBase := false
+	if liveMount {
+		if s.useLayerBase {
+			useDaemonBase = true
+		} else if baseCommit != "" && baseDigest != "" && base.CommitID == baseCommit && snapshotDigest(base) == baseDigest {
+			useDaemonBase = true
 		}
-		manifest.Files(func(entry lazyfs.BaseEntry) {
-			if _, ok := states[entry.Path]; ok {
-				return
+	}
+	if !useDaemonBase {
+		manifest = s.fs.Base()
+		if manifest == nil {
+			return found, fmt.Errorf("lazy workspace base manifest is unavailable")
+		}
+		if s.useLayerBase {
+			baseFiles = make(map[string]BaseSnapshotFile, len(states))
+			for p := range states {
+				if entry, ok := manifest.Lookup(p); ok && entry.Kind != lazyfs.KindDir {
+					baseFiles[p] = BaseSnapshotFile{Path: entry.Path, ContentHash: entry.ContentHash, Mode: entry.Mode, Size: entry.Size}
+				}
 			}
-			if _, ok := base.Files[entry.Path]; !ok {
-				states[entry.Path] = overlayState{exists: true, hash: entry.ContentHash, mode: entry.Mode}
+		} else if base.CommitID != manifest.CommitID() || !sameFiles(base, manifest) {
+			// Where the base asked about differs from the layer's base, the
+			// workspace shows the layer's base unless the layer changed the path.
+			for p, file := range base.Files {
+				if _, ok := states[p]; ok {
+					continue
+				}
+				entry, ok := manifest.Lookup(p)
+				switch {
+				case !ok || entry.Kind == lazyfs.KindDir:
+					states[p] = overlayState{}
+				case entry.ContentHash != file.ContentHash || !sameWorkspaceMode(file.Mode, entry.Mode):
+					states[p] = overlayState{exists: true, hash: entry.ContentHash, mode: entry.Mode}
+				}
 			}
-		})
+			manifest.Files(func(entry lazyfs.BaseEntry) {
+				if _, ok := states[entry.Path]; ok {
+					return
+				}
+				if _, ok := base.Files[entry.Path]; !ok {
+					states[entry.Path] = overlayState{exists: true, hash: entry.ContentHash, mode: entry.Mode}
+				}
+			})
+		}
+	}
+
+	lookupBase := func(p string) (BaseSnapshotFile, bool) {
+		if s.useLayerBase {
+			f, ok := baseFiles[p]
+			return f, ok
+		}
+		if f, ok := base.Files[p]; ok {
+			return f, true
+		}
+		if useDaemonBase && baseFiles != nil {
+			f, ok := baseFiles[p]
+			return f, ok
+		}
+		return BaseSnapshotFile{}, false
 	}
 
 	paths := make([]string, 0, len(states))
@@ -96,7 +156,7 @@ func (s overlayEditSource) edits(ctx context.Context, base BaseSnapshot, _ int) 
 	var ignore *workspaceIgnore
 	for _, p := range paths {
 		state := states[p]
-		baseFile, tracked := base.Files[p]
+		baseFile, tracked := lookupBase(p)
 		rel, err := workspaceRelPath(s.ws, p)
 		if err != nil {
 			return found, err
@@ -106,7 +166,7 @@ func (s overlayEditSource) edits(ctx context.Context, base BaseSnapshot, _ int) 
 				continue
 			}
 			if ignore == nil {
-				ignore = s.ignoreRules(ctx, base, manifest)
+				ignore = s.ignoreRules(ctx, base, baseFiles, manifest)
 			}
 			if ignore.skip(rel, false) {
 				continue
@@ -118,7 +178,9 @@ func (s overlayEditSource) edits(ctx context.Context, base BaseSnapshot, _ int) 
 		case state.exists && (!tracked || baseFile.ContentHash != state.hash || !sameWorkspaceMode(baseFile.Mode, state.mode)):
 			found.edits = append(found.edits, &corev1.FileEdit{Op: "upsert", Path: p, ContentHash: state.hash, Mode: state.mode})
 			absPath := state.localPath
-			if s.mountRoot != "" {
+			if isSymlinkMode(state.mode) {
+				absPath = ""
+			} else if liveMount && s.mountRoot != "" {
 				absPath = filepath.Join(s.mountRoot, filepath.FromSlash(rel))
 			}
 			found.files[p] = workingFile{
@@ -135,12 +197,17 @@ func (s overlayEditSource) edits(ctx context.Context, base BaseSnapshot, _ int) 
 // ignoreRules builds the .gitignore matcher over the workspace's layers. As
 // in a walk, every file of the layer's base and of the base asked about
 // counts as tracked.
-func (s overlayEditSource) ignoreRules(ctx context.Context, base BaseSnapshot, manifest *lazyfs.Manifest) *workspaceIgnore {
-	tracked := map[string]BaseSnapshotFile{}
-	manifest.Files(func(entry lazyfs.BaseEntry) {
-		tracked[entry.Path] = BaseSnapshotFile{Path: entry.Path}
-	})
-	ig := newWorkspaceIgnore("", s.ws, tracked, base.Files)
+func (s overlayEditSource) ignoreRules(ctx context.Context, base BaseSnapshot, baseFiles map[string]BaseSnapshotFile, manifest *lazyfs.Manifest) *workspaceIgnore {
+	var ig *workspaceIgnore
+	if manifest != nil {
+		tracked := map[string]BaseSnapshotFile{}
+		manifest.Files(func(entry lazyfs.BaseEntry) {
+			tracked[entry.Path] = BaseSnapshotFile{Path: entry.Path}
+		})
+		ig = newWorkspaceIgnore("", s.ws, tracked, base.Files)
+	} else {
+		ig = newWorkspaceIgnore("", s.ws, baseFiles, base.Files)
+	}
 	ig.read = func(dir string) []byte {
 		globalPath, err := workspaceRelativePathToGlobalPath(s.ws, path.Join(dir, ".gitignore"))
 		if err != nil {

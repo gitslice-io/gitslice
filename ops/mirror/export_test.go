@@ -173,3 +173,51 @@ func TestExportRefusesTreeDrift(t *testing.T) {
 		t.Fatalf("expected a tree drift error, got %v", err)
 	}
 }
+
+func TestBuildFetchCommandUsesEnvConfigAndRedactsToken(t *testing.T) {
+	ctx := context.Background()
+	secret := "gs_tok_super_secret_mirror_value"
+	cmd, err := buildFetchCommand(ctx, config{
+		Repo:   "/tmp",
+		Source: "https://gitslice.io/git/gitslice/gitslice.git",
+		Token:  secret,
+	})
+	if err != nil {
+		t.Fatalf("buildFetchCommand failed: %v", err)
+	}
+	for _, arg := range cmd.Args {
+		if strings.Contains(arg, secret) || arg == "-c" {
+			t.Fatalf("secret or -c leaked into git argv: %v", cmd.Args)
+		}
+	}
+	envJoined := "\n" + strings.Join(cmd.Env, "\n") + "\n"
+	for _, want := range []string{
+		"\nGIT_TERMINAL_PROMPT=0\n",
+		"\nGIT_ALLOW_PROTOCOL=https\n",
+		"\nGIT_CONFIG_COUNT=2\n",
+		"\nGIT_CONFIG_KEY_0=http.followRedirects\n",
+		"\nGIT_CONFIG_VALUE_0=false\n",
+		"\nGIT_CONFIG_KEY_1=http.extraHeader\n",
+		"\nGIT_CONFIG_VALUE_1=Authorization: Bearer " + secret + "\n",
+	} {
+		if !strings.Contains(envJoined, want) {
+			t.Fatalf("missing expected env %q in %v", strings.TrimSpace(want), cmd.Env)
+		}
+	}
+
+	if _, err := buildFetchCommand(ctx, config{Source: "http://insecure.example/repo.git", Token: secret}); err == nil {
+		t.Fatal("expected http:// source to be rejected")
+	}
+	if _, err := buildFetchCommand(ctx, config{Source: "--upload-pack=evil", Token: ""}); err == nil {
+		t.Fatal("expected leading-dash source to be rejected")
+	}
+	if _, err := buildFetchCommand(ctx, config{Source: "https://gitslice.io/git/a/b.git", Token: "bad\ntoken"}); err == nil {
+		t.Fatal("expected newline in token to be rejected")
+	}
+
+	// Verify run() redacts cfg.Token if git output echoes an error containing it.
+	got := redactToken("fatal: failed with "+secret+" while fetching", secret)
+	if strings.Contains(got, secret) || !strings.Contains(got, "[REDACTED]") {
+		t.Fatalf("redactToken did not redact token: %q", got)
+	}
+}

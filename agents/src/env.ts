@@ -21,6 +21,10 @@ export interface Env {
   NATIVE_SLICES?: string;
   // "off" stops fixer agents from taking over rejected changes.
   FIXER?: string;
+  // When truthy (not "0"/"false"/"off"), require AGENTS_API_KEY on read endpoints too.
+  AGENTS_READ_AUTH?: string;
+  // Optional comma-separated allowed CORS origins (or "*" for public wildcard).
+  CORS_ALLOW_ORIGIN?: string;
   // Secrets.
   GITSLICE_TOKEN: string; // bridge identity: authors changesets
   GITSLICE_REVIEWER_TOKEN: string; // review identity: approves them

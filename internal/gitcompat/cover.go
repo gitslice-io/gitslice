@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -57,20 +56,49 @@ func (p *Projector) SetCompactRequester(r CompactRequester) {
 	p.compactRequester = r
 }
 
-// serveLock is held for reading while git serves the repository and for
-// writing while a compaction replaces its packs.
-func (p *Projector) serveLock(repoPath string) *sync.RWMutex {
+// rLockServe holds the repository's serve lock for reading while git serves it.
+func (p *Projector) rLockServe(repoPath string) func() {
+	entry := p.acquireServeEntry(repoPath)
+	entry.mu.RLock()
+	return func() {
+		entry.mu.RUnlock()
+		p.releaseServeEntry(repoPath, entry)
+	}
+}
+
+// lockServe holds the repository's serve lock for writing while a compaction
+// replaces its packs.
+func (p *Projector) lockServe(repoPath string) func() {
+	entry := p.acquireServeEntry(repoPath)
+	entry.mu.Lock()
+	return func() {
+		entry.mu.Unlock()
+		p.releaseServeEntry(repoPath, entry)
+	}
+}
+
+func (p *Projector) acquireServeEntry(repoPath string) *refRWMutex {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.serveLocks == nil {
-		p.serveLocks = map[string]*sync.RWMutex{}
+		p.serveLocks = map[string]*refRWMutex{}
 	}
-	lock := p.serveLocks[repoPath]
-	if lock == nil {
-		lock = &sync.RWMutex{}
-		p.serveLocks[repoPath] = lock
+	entry := p.serveLocks[repoPath]
+	if entry == nil {
+		entry = &refRWMutex{}
+		p.serveLocks[repoPath] = entry
 	}
-	return lock
+	entry.refs++
+	return entry
+}
+
+func (p *Projector) releaseServeEntry(repoPath string, entry *refRWMutex) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	entry.refs--
+	if entry.refs == 0 && p.serveLocks[repoPath] == entry {
+		delete(p.serveLocks, repoPath)
+	}
 }
 
 // packNames lists the packs in the repository, sorted.
@@ -100,6 +128,12 @@ func (p *Projector) noteFullFetch(repoPath string) {
 	if p.fullFetches == nil {
 		p.fullFetches = map[string]bool{}
 	}
+	if !p.fullFetches[repoPath] && len(p.fullFetches) >= maxTrackedRepos {
+		for k := range p.fullFetches {
+			delete(p.fullFetches, k)
+			break
+		}
+	}
 	p.fullFetches[repoPath] = true
 }
 
@@ -128,9 +162,8 @@ func dirBytes(dir string) (int64, error) {
 
 // lockedState reads the projection state under the repository's lock.
 func (p *Projector) lockedState(repoPath string) *projectionState {
-	lock := p.lockFor(repoPath)
-	lock.Lock()
-	defer lock.Unlock()
+	unlock := p.acquireLock(repoPath)
+	defer unlock()
 	return loadProjectionState(repoPath)
 }
 
@@ -162,19 +195,33 @@ func (p *Projector) needsCover(repoPath string) bool {
 // after its response is written; without a requester it compacts before it
 // returns.
 func (p *Projector) MaybeRequestCover(account, slice string) {
-	repoPath := filepath.Join(p.cacheRoot, account, slice+".git")
-	if !p.needsCover(repoPath) {
+	repoPath, err := p.projectedRepoPath(account, slice)
+	if err != nil || !p.needsCover(repoPath) {
 		return
 	}
+	now := time.Now()
 	p.mu.Lock()
 	if p.coverAsked == nil {
 		p.coverAsked = map[string]time.Time{}
 	}
-	if at, ok := p.coverAsked[repoPath]; ok && time.Since(at) < coverCooldown {
+	if at, ok := p.coverAsked[repoPath]; ok && now.Sub(at) < coverCooldown {
 		p.mu.Unlock()
 		return
 	}
-	p.coverAsked[repoPath] = time.Now()
+	if _, exists := p.coverAsked[repoPath]; !exists && len(p.coverAsked) >= maxTrackedRepos {
+		for k, at := range p.coverAsked {
+			if now.Sub(at) >= coverCooldown {
+				delete(p.coverAsked, k)
+			}
+		}
+		if len(p.coverAsked) >= maxTrackedRepos {
+			for k := range p.coverAsked {
+				delete(p.coverAsked, k)
+				break
+			}
+		}
+	}
+	p.coverAsked[repoPath] = now
 	request := p.compactRequester
 	p.mu.Unlock()
 	if request != nil {
@@ -207,9 +254,8 @@ func (p *Projector) Compact(ctx context.Context, account, slice string) error {
 func (p *Projector) compactRepo(ctx context.Context, account, slice, repoPath string, started time.Time) error {
 	// Fetches do not hydrate while this does; they keep being served from
 	// what is there until the packs are replaced.
-	hydrate := p.hydrateLock(repoPath)
-	hydrate.Lock()
-	defer hydrate.Unlock()
+	unlockHydrate := p.lockHydrate(repoPath)
+	defer unlockHydrate()
 	state := p.lockedState(repoPath)
 	if state == nil || state.GitHead == "" {
 		return fmt.Errorf("%s/%s has no projected history", account, slice)
@@ -218,7 +264,7 @@ func (p *Projector) compactRepo(ctx context.Context, account, slice, repoPath st
 	if state.CoverHead == head {
 		return nil // another request covered it
 	}
-	missing, err := p.missingContents(ctx, repoPath, uploadRequest{fetch: true, wants: []string{head}}, true, p.completeAt(repoPath))
+	missing, err := p.missingContents(ctx, repoPath, uploadRequest{fetch: true, wants: []string{head}}, p.completeAt(repoPath))
 	if err != nil {
 		return err
 	}
@@ -229,10 +275,8 @@ func (p *Projector) compactRepo(ctx context.Context, account, slice, repoPath st
 	}
 	// Landings may have moved the head meanwhile: the cover is complete at the
 	// head it wrote the files for, and the next fetch asks for another.
-	lock := p.lockFor(repoPath)
-	lock.Lock()
-	serve := p.serveLock(repoPath)
-	serve.Lock()
+	unlockRepo := p.acquireLock(repoPath)
+	unlockServe := p.lockServe(repoPath)
 	err = runGit(ctx, repoPath, []string{"GIT_DIR=" + repoPath},
 		"-c", "pack.writeBitmapHashCache=true", "-c", "repack.writeBitmaps=true",
 		"repack", "-a", "-d", "-b", "-q")
@@ -254,15 +298,15 @@ func (p *Projector) compactRepo(ctx context.Context, account, slice, repoPath st
 		state.CoverHead = head
 		err = writeProjectionState(repoPath, state)
 	}
-	serve.Unlock()
+	unlockServe()
 	if err != nil {
-		lock.Unlock()
+		unlockRepo()
 		return fmt.Errorf("repack: %w", err)
 	}
 	p.setComplete(repoPath, head)
 	p.setPublished(repoPath, state.NativeHeadID)
 	p.mirror.Publish(ctx, account, slice, repoPath, state)
-	lock.Unlock()
+	unlockRepo()
 	// This request holds the CPU until the cover is in the object store.
 	for range 30 {
 		if err = p.mirror.Settle(ctx, account, slice); err == nil || ctx.Err() != nil {

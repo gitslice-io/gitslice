@@ -65,8 +65,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          while read -r tag; do
-            case "$tag" in
-              v*) gh workflow run release.yml --ref main -f tag="$tag" ;;
-            esac
+          while IFS= read -r tag; do
+            if [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              gh workflow run release.yml --ref main -f tag="$tag"
+            fi
           done < "$RUNNER_TEMP/new-tags"

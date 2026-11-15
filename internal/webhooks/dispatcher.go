@@ -227,6 +227,9 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	defer ticker.Stop()
 	prune := time.NewTicker(pruneInterval)
 	defer prune.Stop()
+	if !d.waitActiveOrNudge(ctx) {
+		return
+	}
 	d.drainLogged(ctx)
 	for {
 		select {
@@ -249,6 +252,23 @@ func (d *Dispatcher) Run(ctx context.Context) {
 		case <-d.nudge:
 		}
 		d.drainLogged(ctx)
+	}
+}
+
+func (d *Dispatcher) waitActiveOrNudge(ctx context.Context) bool {
+	waitCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	active := make(chan error, 1)
+	go func() {
+		active <- activity.Default.Wait(waitCtx)
+	}()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-d.nudge:
+		return true
+	case err := <-active:
+		return err == nil
 	}
 }
 
@@ -353,6 +373,26 @@ func (d *Dispatcher) fanOut(ctx context.Context, event storage.WebhookEvent, ec 
 	if len(hooks) == 0 || ec == nil {
 		return nil
 	}
+	var touchedBySlice map[string][]string
+	if event.Kind == storage.WebhookEventChangesetSubmitted && len(event.ChangedPaths) > 0 && d.stores.Slices != nil {
+		hasPushHook := false
+		for _, hook := range hooks {
+			if subscribes(hook, storage.WebhookEventPush) {
+				hasPushHook = true
+				break
+			}
+		}
+		if hasPushHook {
+			if covering, err := d.stores.Slices.CoveringIDsByPath(ctx, event.ChangedPaths); err == nil {
+				touchedBySlice = map[string][]string{}
+				for _, p := range event.ChangedPaths {
+					for _, sliceID := range covering[p] {
+						touchedBySlice[sliceID] = append(touchedBySlice[sliceID], p)
+					}
+				}
+			}
+		}
+	}
 	now := time.Now()
 	var out []storage.WebhookDelivery
 	for _, hook := range hooks {
@@ -365,6 +405,13 @@ func (d *Dispatcher) fanOut(ctx context.Context, event storage.WebhookEvent, ec 
 		// push: a landed commit that touches the webhook's slice, whichever
 		// slice authored it.
 		if event.Kind == storage.WebhookEventChangesetSubmitted && subscribes(hook, storage.WebhookEventPush) {
+			var touched []string
+			if touchedBySlice != nil {
+				touched = touchedBySlice[hook.SliceID]
+				if len(touched) == 0 {
+					continue
+				}
+			}
 			hookSlice, ok := slices[hook.SliceID]
 			if !ok {
 				hookSlice, _ = d.stores.Slices.Get(ctx, hook.SliceID)
@@ -373,14 +420,15 @@ func (d *Dispatcher) fanOut(ctx context.Context, event storage.WebhookEvent, ec 
 			if hookSlice == nil || hookSlice.Definition == nil {
 				continue
 			}
-			var touched []string
-			for _, p := range event.ChangedPaths {
-				if paths.InAnyPrefix(hookSlice.Definition.IncludedPaths, p) {
-					touched = append(touched, p)
+			if touchedBySlice == nil {
+				for _, p := range event.ChangedPaths {
+					if paths.InAnyPrefix(hookSlice.Definition.IncludedPaths, p) {
+						touched = append(touched, p)
+					}
 				}
-			}
-			if len(touched) == 0 {
-				continue
+				if len(touched) == 0 {
+					continue
+				}
 			}
 			push := event
 			push.Kind = storage.WebhookEventPush

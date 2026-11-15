@@ -46,7 +46,48 @@ func (s *ChangesetService) submitExtras(ctx context.Context, cs *corev1.Changese
 
 // touchesGitslice reports whether a path is inside a .gitslice folder.
 func touchesGitslice(p string) bool {
-	return strings.Contains(p+"/", "/.gitslice/")
+	return triggers.TouchesGitsliceConfig(p)
+}
+
+func patchsetTouchedGitslicePath(ctx context.Context, repo storage.RepositoryStore, patchset *corev1.Patchset) string {
+	if patchset == nil {
+		return ""
+	}
+	for _, p := range patchset.GetChangedPaths() {
+		if triggers.TouchesGitsliceConfig(p) {
+			return p
+		}
+	}
+	for _, edit := range patchset.GetFileEdits() {
+		if edit.GetPath() != "" && triggers.TouchesGitsliceConfig(edit.GetPath()) {
+			return edit.GetPath()
+		}
+		if edit.GetOldPath() != "" && triggers.TouchesGitsliceConfig(edit.GetOldPath()) {
+			return edit.GetOldPath()
+		}
+	}
+	if repo != nil && strings.TrimSpace(patchset.GetBaseCommitId()) != "" {
+		for _, edit := range patchset.GetFileEdits() {
+			oldPath := strings.TrimSpace(edit.GetOldPath())
+			if oldPath == "" {
+				continue
+			}
+			entry, err := repo.GetEntry(ctx, patchset.GetBaseCommitId(), oldPath)
+			if err != nil || entry.Kind == "file" {
+				continue
+			}
+			children, err := repo.ListFiles(ctx, patchset.GetBaseCommitId(), oldPath)
+			if err != nil {
+				continue
+			}
+			for _, child := range children {
+				if triggers.TouchesGitsliceConfig(child.Path) {
+					return child.Path
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func (s *ChangesetService) requireGitsliceApproval(ctx context.Context, cs *corev1.Changeset) error {
@@ -54,31 +95,24 @@ func (s *ChangesetService) requireGitsliceApproval(ctx context.Context, cs *core
 	if patchset == nil {
 		return nil
 	}
-	touched := ""
-	for _, p := range patchset.GetChangedPaths() {
-		if touchesGitslice(p) {
-			touched = p
-			break
-		}
-	}
-	for _, edit := range patchset.GetFileEdits() {
-		if touched == "" && edit.GetOldPath() != "" && touchesGitslice(edit.GetOldPath()) {
-			touched = edit.GetOldPath()
-		}
-	}
+	touched := patchsetTouchedGitslicePath(ctx, s.Repository, patchset)
 	if touched == "" {
 		return nil
 	}
 	account := cs.GetAuthoringSlice().GetAccount()
-	if ok, err := canAuthorizeAccount(ctx, s.Auth, cs.GetAuthor(), account, authz.ActionAdmin); err != nil || ok {
-		return err
+	patchsetAuthor := strings.TrimSpace(patchset.GetAuthor())
+	if patchsetAuthor != "" {
+		if ok, err := canAuthorizeAccount(ctx, s.Auth, patchsetAuthor, account, authz.ActionAdmin); err != nil || ok {
+			return err
+		}
 	}
 	approvers, err := s.Changesets.ApprovalSubjects(ctx, cs.GetId(), patchset.GetId())
 	if err != nil {
 		return grpcError(err)
 	}
 	for _, subjectID := range approvers {
-		if subjectID == cs.GetAuthor() {
+		subjectID = strings.TrimSpace(subjectID)
+		if subjectID == "" || subjectID == patchsetAuthor || (patchsetAuthor == "" && subjectID == strings.TrimSpace(cs.GetAuthor())) {
 			continue
 		}
 		if ok, err := canAuthorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionAdmin); err != nil || ok {

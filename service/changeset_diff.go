@@ -1,11 +1,14 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"gitslice.io/gitslice/internal/diffutil"
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
@@ -14,6 +17,12 @@ import (
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+)
+
+const (
+	maxDiffFileBytes     = 4 << 20
+	diffBinarySniffBytes = 8 << 10
+	maxDiffOutputBytes   = 16 << 20
 )
 
 func (s *ChangesetService) DiffChangeset(ctx context.Context, req *corev1.DiffChangesetRequest) (*corev1.DiffChangesetResponse, error) {
@@ -77,11 +86,11 @@ func (s *ChangesetService) DiffChangeset(ctx context.Context, req *corev1.DiffCh
 	for i, p := range diffPaths {
 		i, p := i, p
 		group.Go(func() error {
-			oldFile, newFile, err := s.diffFileSides(groupCtx, fromPatchset, toPatchset, p)
+			chunk, err := s.diffSinglePath(groupCtx, fromPatchset, toPatchset, p)
 			if err != nil {
 				return err
 			}
-			chunks[i] = diffutil.UnifiedFileDiff(oldFile, newFile)
+			chunks[i] = chunk
 			return nil
 		})
 	}
@@ -89,10 +98,19 @@ func (s *ChangesetService) DiffChangeset(ctx context.Context, req *corev1.DiffCh
 		return nil, err
 	}
 	var out strings.Builder
+	truncated := false
 	for _, chunk := range chunks {
-		if chunk != "" {
-			out.WriteString(chunk)
+		if chunk == "" {
+			continue
 		}
+		if out.Len()+len(chunk) > maxDiffOutputBytes {
+			truncated = true
+			break
+		}
+		out.WriteString(chunk)
+	}
+	if truncated {
+		out.WriteString("# diff output truncated: exceeds total diff size limit\n")
 	}
 	response.Diff = out.String()
 	if fullDiff {
@@ -132,99 +150,142 @@ type diffBaseFileKey struct {
 	path     string
 }
 
-type diffContentReader func(context.Context, string) ([]byte, error)
+type diffBlobData struct {
+	data      []byte
+	oversized bool
+	binary    bool
+}
 
-type diffBaseFileReader func(context.Context, string, string, string) (diffutil.File, error)
+type diffSide struct {
+	file        diffutil.File
+	contentHash string
+	oversized   bool
+	binary      bool
+}
 
-func (s *ChangesetService) diffFileSides(ctx context.Context, from, to *corev1.Patchset, p string) (diffutil.File, diffutil.File, error) {
-	contentByHash := map[string][]byte{}
-	readContent := func(ctx context.Context, contentHash string) ([]byte, error) {
-		if data, ok := contentByHash[contentHash]; ok {
-			return data, nil
+type diffContentReader func(ctx context.Context, contentHash string, knownSize int64) (diffBlobData, error)
+
+type diffBaseFileReader func(context.Context, string, string, string) (diffSide, error)
+
+func (s *ChangesetService) diffSinglePath(ctx context.Context, from, to *corev1.Patchset, p string) (string, error) {
+	oldSide, newSide, err := s.diffPathSides(ctx, from, to, p)
+	if err != nil {
+		return "", err
+	}
+	if !oldSide.oversized && !newSide.oversized {
+		return diffutil.UnifiedFileDiff(oldSide.file, newSide.file), nil
+	}
+	if oldSide.file.Exists && newSide.file.Exists && oldSide.contentHash != "" && oldSide.contentHash == newSide.contentHash {
+		return "", nil
+	}
+	label := strings.TrimPrefix(p, "/")
+	var b strings.Builder
+	fmt.Fprintf(&b, "diff --git a/%s b/%s\n", label, label)
+	if !oldSide.file.Exists && newSide.file.Exists {
+		b.WriteString("new file mode 100644\n")
+	}
+	if oldSide.file.Exists && !newSide.file.Exists {
+		b.WriteString("deleted file mode 100644\n")
+	}
+	if (oldSide.file.Exists && oldSide.binary) || (newSide.file.Exists && newSide.binary) {
+		oldLabel := "/dev/null"
+		if oldSide.file.Exists {
+			oldLabel = "a/" + label
 		}
-		data, err := s.readContentHash(ctx, contentHash)
+		newLabel := "/dev/null"
+		if newSide.file.Exists {
+			newLabel = "b/" + label
+		}
+		fmt.Fprintf(&b, "Binary files %s and %s differ\n", oldLabel, newLabel)
+		return b.String(), nil
+	}
+	fmt.Fprintf(&b, "Diff too large to render: a/%s and b/%s differ (exceeds %d MiB per-file diff limit)\n", label, label, maxDiffFileBytes>>20)
+	return b.String(), nil
+}
+
+func (s *ChangesetService) diffPathSides(ctx context.Context, from, to *corev1.Patchset, p string) (diffSide, diffSide, error) {
+	contentByHash := map[string]diffBlobData{}
+	readContent := func(ctx context.Context, contentHash string, knownSize int64) (diffBlobData, error) {
+		if blob, ok := contentByHash[contentHash]; ok {
+			return blob, nil
+		}
+		blob, err := s.readDiffContentHash(ctx, contentHash, knownSize)
 		if err != nil {
-			return nil, err
+			return diffBlobData{}, err
 		}
-		contentByHash[contentHash] = data
-		return data, nil
+		contentByHash[contentHash] = blob
+		return blob, nil
 	}
 
 	// The object-store cache is write-through and does not cache read misses, so
 	// this request-local dedup is what removes duplicate base fetches while
 	// resolving the old and new sides for one changed path.
-	baseFiles := map[diffBaseFileKey]diffutil.File{}
-	readBase := func(ctx context.Context, commitID, treeID, p string) (diffutil.File, error) {
+	baseFiles := map[diffBaseFileKey]diffSide{}
+	readBase := func(ctx context.Context, commitID, treeID, p string) (diffSide, error) {
 		key := diffBaseFileKey{commitID: commitID, treeID: treeID, path: p}
-		if file, ok := baseFiles[key]; ok {
-			return file, nil
+		if side, ok := baseFiles[key]; ok {
+			return side, nil
 		}
-		file, err := s.baseFileWithReader(ctx, commitID, treeID, p, readContent)
+		side, err := s.baseFileWithReader(ctx, commitID, treeID, p, readContent)
 		if err != nil {
-			return diffutil.File{}, err
+			return diffSide{}, err
 		}
-		baseFiles[key] = file
-		return file, nil
+		baseFiles[key] = side
+		return side, nil
 	}
 
-	var oldFile diffutil.File
+	var oldSide diffSide
 	var err error
 	if from == nil {
-		oldFile, err = readBase(ctx, to.BaseCommitId, to.BaseTreeId, p)
+		oldSide, err = readBase(ctx, to.BaseCommitId, to.BaseTreeId, p)
 	} else {
-		oldFile, err = s.patchsetFileWithReaders(ctx, from, p, readBase, readContent)
+		oldSide, err = s.patchsetFileWithReaders(ctx, from, p, readBase, readContent)
 	}
 	if err != nil {
-		return diffutil.File{}, diffutil.File{}, err
+		return diffSide{}, diffSide{}, err
 	}
-	newFile, err := s.patchsetFileWithReaders(ctx, to, p, readBase, readContent)
+	newSide, err := s.patchsetFileWithReaders(ctx, to, p, readBase, readContent)
 	if err != nil {
-		return diffutil.File{}, diffutil.File{}, err
+		return diffSide{}, diffSide{}, err
 	}
-	return oldFile, newFile, nil
+	return oldSide, newSide, nil
 }
 
-func (s *ChangesetService) patchsetFile(ctx context.Context, patchset *corev1.Patchset, p string) (diffutil.File, error) {
-	return s.patchsetFileWithReaders(ctx, patchset, p, func(ctx context.Context, commitID, treeID, p string) (diffutil.File, error) {
-		return s.baseFileWithReader(ctx, commitID, treeID, p, s.readContentHash)
-	}, s.readContentHash)
-}
-
-func (s *ChangesetService) patchsetFileWithReaders(ctx context.Context, patchset *corev1.Patchset, p string, readBase diffBaseFileReader, readContent diffContentReader) (diffutil.File, error) {
-	var file diffutil.File
+func (s *ChangesetService) patchsetFileWithReaders(ctx context.Context, patchset *corev1.Patchset, p string, readBase diffBaseFileReader, readContent diffContentReader) (diffSide, error) {
+	var side diffSide
 	fileSet := false
 	for _, edit := range patchset.FileEdits {
 		switch edit.Op {
 		case "delete":
 			if edit.Path == p {
-				file = diffutil.File{Path: p}
+				side = diffSide{file: diffutil.File{Path: p}}
 				fileSet = true
 			}
 		case "copy":
 			if edit.Path == p {
-				oldFile, err := readBase(ctx, patchset.BaseCommitId, patchset.BaseTreeId, edit.OldPath)
+				oldSide, err := readBase(ctx, patchset.BaseCommitId, patchset.BaseTreeId, edit.OldPath)
 				if err != nil {
-					return diffutil.File{}, err
+					return diffSide{}, err
 				}
-				oldFile.Path = p
-				file = oldFile
+				oldSide.file.Path = p
+				side = oldSide
 				fileSet = true
 			}
 		case "rename":
 			if edit.OldPath == p {
-				file = diffutil.File{Path: p}
+				side = diffSide{file: diffutil.File{Path: p}}
 				fileSet = true
 			}
 			if edit.Path == p {
 				if edit.BlobId != "" || edit.ContentHash != "" {
 					return s.editFileWithReader(ctx, edit, p, readContent)
 				}
-				oldFile, err := readBase(ctx, patchset.BaseCommitId, patchset.BaseTreeId, edit.OldPath)
+				oldSide, err := readBase(ctx, patchset.BaseCommitId, patchset.BaseTreeId, edit.OldPath)
 				if err != nil {
-					return diffutil.File{}, err
+					return diffSide{}, err
 				}
-				oldFile.Path = p
-				file = oldFile
+				oldSide.file.Path = p
+				side = oldSide
 				fileSet = true
 			}
 		case "upsert", "add", "update":
@@ -236,14 +297,10 @@ func (s *ChangesetService) patchsetFileWithReaders(ctx context.Context, patchset
 	if !fileSet {
 		return readBase(ctx, patchset.BaseCommitId, patchset.BaseTreeId, p)
 	}
-	return file, nil
+	return side, nil
 }
 
-func (s *ChangesetService) baseFile(ctx context.Context, commitID, p string) (diffutil.File, error) {
-	return s.baseFileWithReader(ctx, commitID, "", p, s.readContentHash)
-}
-
-func (s *ChangesetService) baseFileWithReader(ctx context.Context, commitID, treeID, p string, readContent diffContentReader) (diffutil.File, error) {
+func (s *ChangesetService) baseFileWithReader(ctx context.Context, commitID, treeID, p string, readContent diffContentReader) (diffSide, error) {
 	var entry *storage.FileEntry
 	var err error
 	if treeID != "" {
@@ -252,50 +309,81 @@ func (s *ChangesetService) baseFileWithReader(ctx context.Context, commitID, tre
 		entry, err = s.Repository.GetFile(ctx, commitID, p)
 	}
 	if errors.Is(err, storage.ErrNotFound) {
-		return diffutil.File{Path: p}, nil
+		return diffSide{file: diffutil.File{Path: p}}, nil
 	}
 	if err != nil {
-		return diffutil.File{}, grpcError(err)
+		return diffSide{}, grpcError(err)
 	}
-	data, err := readContent(ctx, entry.ContentHash)
+	blob, err := readContent(ctx, entry.ContentHash, entry.Size)
 	if err != nil {
-		return diffutil.File{}, err
+		return diffSide{}, err
 	}
-	return diffutil.File{Path: p, Exists: true, Data: data}, nil
+	return diffSide{
+		file:        diffutil.File{Path: p, Exists: true, Data: blob.data},
+		contentHash: entry.ContentHash,
+		oversized:   blob.oversized,
+		binary:      blob.binary,
+	}, nil
 }
 
-func (s *ChangesetService) editFile(ctx context.Context, edit *corev1.FileEdit, p string) (diffutil.File, error) {
-	return s.editFileWithReader(ctx, edit, p, s.readContentHash)
-}
-
-func (s *ChangesetService) editFileWithReader(ctx context.Context, edit *corev1.FileEdit, p string, readContent diffContentReader) (diffutil.File, error) {
+func (s *ChangesetService) editFileWithReader(ctx context.Context, edit *corev1.FileEdit, p string, readContent diffContentReader) (diffSide, error) {
 	contentHash := edit.ContentHash
+	var knownSize int64
 	if contentHash == "" && edit.BlobId != "" {
 		blob, err := s.Blobs.GetByID(ctx, edit.BlobId)
 		if err != nil {
-			return diffutil.File{}, grpcError(err)
+			return diffSide{}, grpcError(err)
 		}
 		contentHash = blob.ContentHash
+		knownSize = blob.Size
 	}
 	if contentHash == "" {
-		return diffutil.File{}, status.Errorf(codes.FailedPrecondition, "edit for %s has no content hash", p)
+		return diffSide{}, status.Errorf(codes.FailedPrecondition, "edit for %s has no content hash", p)
 	}
-	data, err := readContent(ctx, contentHash)
+	blob, err := readContent(ctx, contentHash, knownSize)
 	if err != nil {
-		return diffutil.File{}, err
+		return diffSide{}, err
 	}
-	return diffutil.File{Path: p, Exists: true, Data: data}, nil
+	return diffSide{
+		file:        diffutil.File{Path: p, Exists: true, Data: blob.data},
+		contentHash: contentHash,
+		oversized:   blob.oversized,
+		binary:      blob.binary,
+	}, nil
 }
 
-func (s *ChangesetService) readContentHash(ctx context.Context, contentHash string) ([]byte, error) {
-	rc, err := s.ObjectStore.Get(ctx, filesystem.BlobKey(contentHash), 0, 0)
+func sniffDiffBinary(data []byte) bool {
+	if len(data) > diffBinarySniffBytes {
+		data = data[:diffBinarySniffBytes]
+	}
+	return bytes.IndexByte(data, 0) >= 0 || !utf8.Valid(data)
+}
+
+func (s *ChangesetService) readDiffContentHash(ctx context.Context, contentHash string, knownSize int64) (diffBlobData, error) {
+	key := filesystem.BlobKey(contentHash)
+	if knownSize > maxDiffFileBytes {
+		rc, err := s.ObjectStore.Get(ctx, key, 0, diffBinarySniffBytes)
+		if err != nil {
+			return diffBlobData{}, grpcError(err)
+		}
+		defer rc.Close()
+		sniff, err := io.ReadAll(io.LimitReader(rc, diffBinarySniffBytes))
+		if err != nil {
+			return diffBlobData{}, grpcError(err)
+		}
+		return diffBlobData{oversized: true, binary: sniffDiffBinary(sniff)}, nil
+	}
+	rc, err := s.ObjectStore.Get(ctx, key, 0, maxDiffFileBytes+1)
 	if err != nil {
-		return nil, grpcError(err)
+		return diffBlobData{}, grpcError(err)
 	}
 	defer rc.Close()
-	data, err := io.ReadAll(rc)
+	data, err := io.ReadAll(io.LimitReader(rc, maxDiffFileBytes+1))
 	if err != nil {
-		return nil, grpcError(err)
+		return diffBlobData{}, grpcError(err)
 	}
-	return data, nil
+	if len(data) > maxDiffFileBytes {
+		return diffBlobData{oversized: true, binary: sniffDiffBinary(data)}, nil
+	}
+	return diffBlobData{data: data, binary: sniffDiffBinary(data)}, nil
 }

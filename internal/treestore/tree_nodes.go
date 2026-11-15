@@ -17,7 +17,7 @@ import (
 // of the node they read to build its replacement.
 func (s *Store) readNode(ctx context.Context, treeID string) (Node, error) {
 	node, err := s.readSharedNode(ctx, treeID)
-	if err != nil || s.nodes == nil {
+	if err != nil || (s.nodes == nil && s.staged == nil) {
 		return node, err
 	}
 	node.Entries = append([]Entry(nil), node.Entries...)
@@ -32,6 +32,11 @@ func (s *Store) readSharedNode(ctx context.Context, treeID string) (Node, error)
 	if treeID == "" {
 		treeID = EmptyRootID()
 	}
+	if s.staged != nil {
+		if node, ok := s.staged[treeID]; ok {
+			return node, nil
+		}
+	}
 	if s.nodes != nil {
 		if node, ok := s.nodes.get(treeID); ok {
 			return node, nil
@@ -41,7 +46,9 @@ func (s *Store) readSharedNode(ctx context.Context, treeID string) (Node, error)
 	if err != nil {
 		return Node{}, err
 	}
-	if s.nodes != nil {
+	if s.staged != nil {
+		s.staged[treeID] = node
+	} else if s.nodes != nil {
 		s.nodes.add(treeID, node)
 	}
 	return node, nil
@@ -99,6 +106,20 @@ func (s *Store) writeNode(ctx context.Context, node Node) (string, error) {
 	if err := s.objects.Put(ctx, Key(treeID), bytes.NewReader(payload)); err != nil {
 		return "", err
 	}
+	if s.staged != nil {
+		s.staged[treeID] = Node{
+			Version: node.Version,
+			Entries: append([]Entry(nil), node.Entries...),
+		}
+		if buf, ok := s.objects.(*bufferingObjectStore); ok {
+			buf.recordTreeWrite(treeID)
+		}
+	} else if s.nodes != nil {
+		s.nodes.add(treeID, Node{
+			Version: node.Version,
+			Entries: append([]Entry(nil), node.Entries...),
+		})
+	}
 	return treeID, nil
 }
 
@@ -122,39 +143,48 @@ func splitPath(p string) ([]string, error) {
 }
 
 func findEntry(entries []Entry, name string) (Entry, bool) {
-	for _, entry := range entries {
-		if entry.Name == name {
-			return entry, true
-		}
+	i := sort.Search(len(entries), func(i int) bool {
+		return entries[i].Name >= name
+	})
+	if i < len(entries) && entries[i].Name == name {
+		return entries[i], true
 	}
 	return Entry{}, false
 }
 
 func upsertEntry(entries []Entry, entry Entry) []Entry {
-	for i := range entries {
-		if entries[i].Name == entry.Name {
-			entries[i] = entry
-			sortEntries(entries)
-			return entries
-		}
+	i := sort.Search(len(entries), func(i int) bool {
+		return entries[i].Name >= entry.Name
+	})
+	if i < len(entries) && entries[i].Name == entry.Name {
+		entries[i] = entry
+		return entries
 	}
-	entries = append(entries, entry)
-	sortEntries(entries)
+	entries = append(entries, Entry{})
+	copy(entries[i+1:], entries[i:])
+	entries[i] = entry
 	return entries
 }
 
 func removeEntry(entries []Entry, name string) []Entry {
-	out := entries[:0]
-	for _, entry := range entries {
-		if entry.Name != name {
-			out = append(out, entry)
-		}
+	i := sort.Search(len(entries), func(i int) bool {
+		return entries[i].Name >= name
+	})
+	if i < len(entries) && entries[i].Name == name {
+		copy(entries[i:], entries[i+1:])
+		entries[len(entries)-1] = Entry{}
+		return entries[:len(entries)-1]
 	}
-	return out
+	return entries
 }
 
 func sortEntries(entries []Entry) {
-	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
+	for i := 1; i < len(entries); i++ {
+		if entries[i].Name < entries[i-1].Name {
+			sort.Slice(entries, func(a, b int) bool { return entries[a].Name < entries[b].Name })
+			return
+		}
+	}
 }
 
 func treeEntryFromNodeEntry(fullPath string, entry Entry) TreeEntry {

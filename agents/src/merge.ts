@@ -15,24 +15,71 @@ export interface ConflictHunk {
   theirs: string[];
 }
 
+// Hard bounds so Myers' diff never OOMs a 128 MiB Worker isolate on generated
+// or huge files.
+export const MAX_DIFF_LINES = 4_000;
+export const MAX_EDIT_DISTANCE = 1_000;
+const MAX_CONFLICT_PREVIEW_LINES = 80;
+
+export interface LcsOptions {
+  maxLines?: number;
+  maxEditDistance?: number;
+}
+
 // splitLines keeps each line's terminator so joining is lossless.
 export function splitLines(text: string): string[] {
   if (text === "") return [];
   return text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
 }
 
-// lcsPairs returns matching (a, b) index pairs of a longest common
-// subsequence, in increasing order, using Myers' O(ND) algorithm.
-export function lcsPairs(a: string[], b: string[]): Array<[number, number]> {
-  const n = a.length;
-  const m = b.length;
-  const max = n + m;
-  const offset = max + 1;
-  const v = new Int32Array(2 * max + 3);
+function lcsPairsBounded(
+  a: string[],
+  b: string[],
+  maxLines = MAX_DIFF_LINES,
+  maxEditDistance = MAX_EDIT_DISTANCE,
+): { pairs: Array<[number, number]>; complete: boolean } {
+  const nTotal = a.length;
+  const mTotal = b.length;
+
+  let prefix = 0;
+  while (prefix < nTotal && prefix < mTotal && a[prefix] === b[prefix]) {
+    prefix++;
+  }
+  let suffix = 0;
+  while (
+    suffix < nTotal - prefix &&
+    suffix < mTotal - prefix &&
+    a[nTotal - 1 - suffix] === b[mTotal - 1 - suffix]
+  ) {
+    suffix++;
+  }
+
+  const prefixPairs: Array<[number, number]> = [];
+  for (let i = 0; i < prefix; i++) prefixPairs.push([i, i]);
+
+  const suffixPairs: Array<[number, number]> = [];
+  for (let i = suffix - 1; i >= 0; i--) {
+    suffixPairs.push([nTotal - 1 - i, mTotal - 1 - i]);
+  }
+
+  const n = nTotal - prefix - suffix;
+  const m = mTotal - prefix - suffix;
+  if (n === 0 || m === 0) {
+    return { pairs: [...prefixPairs, ...suffixPairs], complete: true };
+  }
+  if (n > maxLines || m > maxLines || Math.abs(n - m) > maxEditDistance) {
+    return { pairs: [...prefixPairs, ...suffixPairs], complete: false };
+  }
+
+  const limit = Math.min(n + m, maxEditDistance);
+  const offset = limit + 1;
+  const v = new Int32Array(2 * limit + 3);
+  // Store only the active diagonal window `[-d, d]` per step (2d + 1 ints)
+  // rather than the full 2*(n+m)+3 buffer.
   const trace: Int32Array[] = [];
   let found = false;
-  for (let d = 0; d <= max && !found; d++) {
-    trace.push(v.slice());
+  for (let d = 0; d <= limit && !found; d++) {
+    trace.push(v.slice(offset - d, offset + d + 1));
     for (let k = -d; k <= d; k += 2) {
       let x: number;
       if (k === -d || (k !== d && v[offset + k - 1] < v[offset + k + 1])) {
@@ -41,7 +88,7 @@ export function lcsPairs(a: string[], b: string[]): Array<[number, number]> {
         x = v[offset + k - 1] + 1;
       }
       let y = x - k;
-      while (x < n && y < m && a[x] === b[y]) {
+      while (x < n && y < m && a[prefix + x] === b[prefix + y]) {
         x++;
         y++;
       }
@@ -52,30 +99,44 @@ export function lcsPairs(a: string[], b: string[]): Array<[number, number]> {
       }
     }
   }
-  // Walk the trace backwards to recover the matched diagonals.
-  const pairs: Array<[number, number]> = [];
+  if (!found) {
+    return { pairs: [...prefixPairs, ...suffixPairs], complete: false };
+  }
+
+  // Walk the compact trace backwards to recover the matched diagonals.
+  const midPairs: Array<[number, number]> = [];
   let x = n;
   let y = m;
   for (let d = trace.length - 1; d >= 0 && (x > 0 || y > 0); d--) {
-    const vd = trace[d];
+    const vd = trace[d]; // length 2*d + 1, where index `k + d` holds `v[offset + k]`
+    const at = (k: number): number => (k >= -d && k <= d ? vd[k + d] : 0);
     const k = x - y;
     let prevK: number;
-    if (k === -d || (k !== d && vd[offset + k - 1] < vd[offset + k + 1])) {
+    if (k === -d || (k !== d && at(k - 1) < at(k + 1))) {
       prevK = k + 1;
     } else {
       prevK = k - 1;
     }
-    const prevX = vd[offset + prevK];
+    const prevX = at(prevK);
     const prevY = prevX - prevK;
     while (x > prevX && y > prevY) {
       x--;
       y--;
-      pairs.push([x, y]);
+      midPairs.push([prefix + x, prefix + y]);
     }
     x = prevX;
     y = prevY;
   }
-  return pairs.reverse();
+  midPairs.reverse();
+  return { pairs: [...prefixPairs, ...midPairs, ...suffixPairs], complete: true };
+}
+
+// lcsPairs returns matching (a, b) index pairs of a longest common
+// subsequence, in increasing order, using bounded Myers' O(ND) algorithm. When
+// inputs exceed line/edit-distance bounds, it returns the matched common
+// prefix/suffix without exhausting memory.
+export function lcsPairs(a: string[], b: string[], opts?: LcsOptions): Array<[number, number]> {
+  return lcsPairsBounded(a, b, opts?.maxLines, opts?.maxEditDistance).pairs;
 }
 
 function sameLines(a: string[], b: string[]): boolean {
@@ -83,16 +144,34 @@ function sameLines(a: string[], b: string[]): boolean {
 }
 
 // merge3 merges ours and theirs, both derived from base. Chunks changed on
-// only one side take that side; identical changes merge; anything else is a
-// conflict.
-export function merge3(base: string, ours: string, theirs: string): MergeResult {
+// only one side take that side; identical changes merge; anything else (or
+// diffs exceeding Worker memory bounds) falls back cleanly to conflict.
+export function merge3(base: string, ours: string, theirs: string, opts?: LcsOptions): MergeResult {
+  if (ours === theirs) return { clean: true, text: ours };
+  if (ours === base) return { clean: true, text: theirs };
+  if (theirs === base) return { clean: true, text: ours };
+
   const b = splitLines(base);
   const a = splitLines(ours);
   const t = splitLines(theirs);
+  const lcsA = lcsPairsBounded(b, a, opts?.maxLines, opts?.maxEditDistance);
+  const lcsT = lcsPairsBounded(b, t, opts?.maxLines, opts?.maxEditDistance);
+  if (!lcsA.complete || !lcsT.complete) {
+    return {
+      clean: false,
+      conflicts: [
+        {
+          base: b.slice(0, MAX_CONFLICT_PREVIEW_LINES),
+          ours: a.slice(0, MAX_CONFLICT_PREVIEW_LINES),
+          theirs: t.slice(0, MAX_CONFLICT_PREVIEW_LINES),
+        },
+      ],
+    };
+  }
   const aOf = new Int32Array(b.length).fill(-1);
   const tOf = new Int32Array(b.length).fill(-1);
-  for (const [bi, ai] of lcsPairs(b, a)) aOf[bi] = ai;
-  for (const [bi, ti] of lcsPairs(b, t)) tOf[bi] = ti;
+  for (const [bi, ai] of lcsA.pairs) aOf[bi] = ai;
+  for (const [bi, ti] of lcsT.pairs) tOf[bi] = ti;
 
   const out: string[] = [];
   const conflicts: ConflictHunk[] = [];

@@ -88,7 +88,7 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	if lazy != nil {
 		current, err = r.lazyWorkingFiles(ctx, conn, cfg, ws, base)
 	} else {
-		current, err = r.scanWorkspaceFiles(ws)
+		current, err = r.scanWorkspaceFiles(ws, base.Files)
 	}
 	if err != nil {
 		return err
@@ -168,6 +168,11 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	if err != nil {
 		return err
 	}
+	blobClient := corev1.NewBlobServiceClient(conn)
+	sliceRef := &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}
+	if err := prefetchSyncPlanBlobs(callCtx, repo, blobClient, sliceRef, cache, oldBaseCommitID, newBaseCommitID, base, remoteFiles, plan, lazy != nil); err != nil {
+		return err
+	}
 	if err := r.applyWorkspaceSyncMergeStrategy(callCtx, repo, cache, oldBaseCommitID, newBaseCommitID, mergeStrategy, base, current, remoteFiles, &plan); err != nil {
 		return err
 	}
@@ -178,7 +183,7 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 				return err
 			}
 		}
-	} else if err := r.applyWorkspaceSyncPlan(ctx, callCtx, repo, cache, root, ws, oldBaseCommitID, newBaseCommitID, base, current, remoteFiles, plan); err != nil {
+	} else if err := r.applyWorkspaceSyncPlan(ctx, callCtx, repo, blobClient, cache, root, ws, oldBaseCommitID, newBaseCommitID, base, current, remoteFiles, plan); err != nil {
 		return err
 	}
 	remoteSnapshot := BaseSnapshot{CommitID: newBaseCommitID, Files: remoteBaseSnapshotFiles(remoteFiles)}
@@ -556,8 +561,66 @@ func (r Runner) tryLineMergeWorkspaceConflict(ctx context.Context, repo corev1.R
 	}, true, nil
 }
 
+func prefetchSyncPlanBlobs(
+	ctx context.Context,
+	repo corev1.RepositoryServiceClient,
+	blob corev1.BlobServiceClient,
+	sliceRef *corev1.SliceRef,
+	cache *clientcache.ObjectCache,
+	oldBaseCommitID, newBaseCommitID string,
+	base BaseSnapshot,
+	remoteFiles map[string]remoteWorkspaceFile,
+	plan workspaceSyncPlan,
+	lazyMode bool,
+) error {
+	var oldTargets []remoteReadTarget
+	var newTargets []remoteReadTarget
+	if !lazyMode {
+		for _, up := range plan.RemoteUpserts {
+			if up.ContentHash != "" {
+				newTargets = append(newTargets, remoteReadTarget{
+					Path:        up.Path,
+					ContentHash: up.ContentHash,
+					Size:        up.Size,
+				})
+			}
+		}
+	}
+	for _, c := range plan.Conflicts {
+		if bf, ok := base.Files[c.Path]; ok && bf.ContentHash != "" {
+			oldTargets = append(oldTargets, remoteReadTarget{
+				Path:        bf.Path,
+				ContentHash: bf.ContentHash,
+				Size:        bf.Size,
+			})
+		}
+		if rf, ok := remoteFiles[c.Path]; ok && rf.ContentHash != "" {
+			newTargets = append(newTargets, remoteReadTarget{
+				Path:        rf.Path,
+				ContentHash: rf.ContentHash,
+				Size:        rf.Size,
+			})
+		}
+	}
+	if len(oldTargets) > 0 {
+		if _, err := prefetchRemoteFilesToCache(ctx, repo, blob, sliceRef, cache, oldBaseCommitID, oldTargets); err != nil {
+			return err
+		}
+	}
+	if len(newTargets) > 0 {
+		if _, err := prefetchRemoteFilesToCache(ctx, repo, blob, sliceRef, cache, newBaseCommitID, newTargets); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // applyWorkspaceSyncPlan writes a sync's result into a gs init workspace.
-func (r Runner) applyWorkspaceSyncPlan(ctx, callCtx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, root string, ws WorkspaceConfig, oldBaseCommitID, newBaseCommitID string, base BaseSnapshot, current map[string]workingFile, remoteFiles map[string]remoteWorkspaceFile, plan workspaceSyncPlan) error {
+func (r Runner) applyWorkspaceSyncPlan(ctx, callCtx context.Context, repo corev1.RepositoryServiceClient, blob corev1.BlobServiceClient, cache *clientcache.ObjectCache, root string, ws WorkspaceConfig, oldBaseCommitID, newBaseCommitID string, base BaseSnapshot, current map[string]workingFile, remoteFiles map[string]remoteWorkspaceFile, plan workspaceSyncPlan) error {
+	sliceRef := &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}
+	if err := prefetchSyncPlanBlobs(callCtx, repo, blob, sliceRef, cache, oldBaseCommitID, newBaseCommitID, base, remoteFiles, plan, false); err != nil {
+		return err
+	}
 	progress := startProgress(ctx, "syncing", "paths", len(plan.RemoteDeletes)+len(plan.RemoteUpserts)+len(plan.MergedFiles)+len(plan.Conflicts))
 	defer progress.Finish()
 	for _, p := range plan.RemoteDeletes {

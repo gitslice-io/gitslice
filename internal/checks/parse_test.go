@@ -288,6 +288,84 @@ checks:
 `,
 			wantErr: "contains .. segment",
 		},
+		{
+			name: "check image leading dash flag injection",
+			yaml: `
+version: 1
+checks:
+  test:
+    image: "--privileged"
+    run: id
+`,
+			wantErr: "must not start with '-'",
+		},
+		{
+			name: "service image whitespace injection",
+			yaml: `
+version: 1
+services:
+  db:
+    image: "postgres:16 --privileged"
+checks:
+  test:
+    image: busybox
+    services: [db]
+    run: "true"
+`,
+			wantErr: "whitespace or control characters",
+		},
+		{
+			name:    "default image newline injection",
+			yaml:    "version: 1\ndefaults:\n  image: \"busybox\\nRUN id\"\nchecks:\n  test:\n    run: \"true\"\n",
+			wantErr: "whitespace or control characters",
+		},
+		{
+			name:    "setup command newline injection",
+			yaml:    "version: 1\nchecks:\n  test:\n    image: busybox\n    setup: [\"echo ok\\nCOPY / /x\"]\n    run: \"true\"\n",
+			wantErr: "must not contain CR, LF, or NUL",
+		},
+		{
+			name: "invalid env variable key",
+			yaml: `
+version: 1
+checks:
+  test:
+    image: busybox
+    env:
+      "BAD-KEY": "1"
+    run: "true"
+`,
+			wantErr: "invalid env variable name",
+		},
+		{
+			name:    "env variable value newline injection",
+			yaml:    "version: 1\nchecks:\n  test:\n    image: busybox\n    env:\n      TOKEN: \"abc\\nLD_PRELOAD=/tmp/evil.so\"\n    run: \"true\"\n",
+			wantErr: "must not contain CR, LF, or NUL",
+		},
+		{
+			name: "invalid memory limit",
+			yaml: `
+version: 1
+checks:
+  test:
+    image: busybox
+    memory: "-4g"
+    run: "true"
+`,
+			wantErr: "invalid memory limit",
+		},
+		{
+			name: "invalid cpus limit",
+			yaml: `
+version: 1
+checks:
+  test:
+    image: busybox
+    cpus: "0"
+    run: "true"
+`,
+			wantErr: "invalid cpus limit",
+		},
 	}
 
 	for _, tt := range tests {
@@ -300,6 +378,58 @@ checks:
 				t.Fatalf("Parse() error = %q, want substring %q", err.Error(), tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateImageRefAndResourceLimits(t *testing.T) {
+	validImages := []string{
+		"a",
+		"busybox",
+		"postgres:16",
+		"postgres:16-alpine",
+		"golang:1.24.1",
+		"golangci/golangci-lint:v1.59",
+		"localhost:5000/org/app:v1.2.3",
+		"example.invalid/check:latest",
+		"ghcr.io/org/repo@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"gcr.io/org/repo:v1@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		"gitslice-ci/0123456789abcdef01234567",
+		"gitslice-ci/build-0123456789abcdef:0123456789abcdef01234567",
+	}
+	for _, img := range validImages {
+		if err := ValidateImageRef(img); err != nil {
+			t.Fatalf("ValidateImageRef(%q) unexpected error = %v", img, err)
+		}
+	}
+
+	invalidImages := []string{
+		"",
+		"-v",
+		"--privileged",
+		" busybox",
+		"busybox ",
+		"busybox latest",
+		"busybox\nRUN id",
+		"busybox\rFROM scratch",
+		"busybox\x00evil",
+		"../busybox",
+		"org/../busybox",
+		"busybox:",
+		"busybox:bad:tag",
+		"busybox@md5:1234",
+		"localhost:99999/app:v1",
+	}
+	for _, img := range invalidImages {
+		if err := ValidateImageRef(img); err == nil {
+			t.Fatalf("ValidateImageRef(%q) = nil, want error", img)
+		}
+	}
+
+	if got, err := ParseMemoryBytes("8g"); err != nil || got != 8<<30 || FormatMemoryBytes(got) != "8g" {
+		t.Fatalf("ParseMemoryBytes(8g) = %d, %v (fmt %q)", got, err, FormatMemoryBytes(got))
+	}
+	if got, err := ParseCPUs("2.5"); err != nil || got != 2.5 || FormatCPUs(got) != "2.5" {
+		t.Fatalf("ParseCPUs(2.5) = %v, %v (fmt %q)", got, err, FormatCPUs(got))
 	}
 }
 

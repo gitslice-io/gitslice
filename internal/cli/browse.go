@@ -332,6 +332,9 @@ func webRouteURL(webURL, route string) (string, error) {
 	if parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return "", userError("invalid_web_url", "web-url must use http or https", "Pass --web-url http://127.0.0.1:8082.")
 	}
+	if strings.TrimSpace(parsed.Host) == "" || strings.HasPrefix(parsed.Host, "-") {
+		return "", userError("invalid_web_url", "web-url must include a valid host", "Pass --web-url http://127.0.0.1:8082.")
+	}
 	route = strings.TrimSpace(route)
 	if route == "" {
 		if parsed.Path == "" {
@@ -364,15 +367,43 @@ func webRouteURL(webURL, route string) (string, error) {
 	return parsed.String(), nil
 }
 
+func validateBrowserURL(rawURL string) (string, error) {
+	trimmed := strings.TrimSpace(rawURL)
+	if trimmed == "" {
+		return "", fmt.Errorf("browser URL is empty")
+	}
+	if strings.HasPrefix(trimmed, "-") {
+		return "", fmt.Errorf("browser URL must not start with '-'")
+	}
+	if strings.ContainsAny(trimmed, "\r\n\x00") {
+		return "", fmt.Errorf("browser URL contains control characters")
+	}
+	parsed, err := url.Parse(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("invalid browser URL: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("browser URL must use http or https")
+	}
+	if strings.TrimSpace(parsed.Host) == "" || strings.HasPrefix(parsed.Host, "-") {
+		return "", fmt.Errorf("browser URL must include a valid host")
+	}
+	return parsed.String(), nil
+}
+
 func openBrowserURL(rawURL string) error {
+	safeURL, err := validateBrowserURL(rawURL)
+	if err != nil {
+		return err
+	}
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "darwin":
-		cmd = exec.Command("open", rawURL)
+		cmd = exec.Command("open", safeURL)
 	case "windows":
-		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", rawURL)
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", safeURL)
 	default:
-		cmd = exec.Command("xdg-open", rawURL)
+		cmd = exec.Command("xdg-open", safeURL)
 	}
 	return cmd.Start()
 }

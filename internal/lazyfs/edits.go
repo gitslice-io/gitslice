@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	"os"
 	"sort"
 )
 
@@ -56,7 +55,7 @@ func (f *FS) editsLocked() ([]Edit, error) {
 	for _, p := range paths {
 		baseEntry, inBase := f.base.Lookup(p)
 		inBase = inBase && baseEntry.Kind != KindDir
-		n, exists := f.lookupLocked(p)
+		n, exists := f.lookupMetaLocked(p)
 		exists = exists && n.kind != KindDir
 		if !exists {
 			if inBase {
@@ -92,19 +91,20 @@ func (f *FS) editsLocked() ([]Edit, error) {
 }
 
 func (f *FS) hashLocalLocked(name string) (string, error) {
-	info, err := os.Stat(f.localPath(name))
+	size, modTime, err := f.statLocal(name)
 	if err != nil {
 		return "", err
 	}
+	modTimeNs := modTime.UnixNano()
 	memo, ok := f.hashes[name]
-	if ok && memo.size == info.Size() && memo.modTime == info.ModTime().UnixNano() {
+	if ok && memo.size == size && memo.modTime == modTimeNs {
 		return memo.hash, nil
 	}
 	hash, err := f.content.HashFile(f.localPath(name))
 	if err != nil {
 		return "", err
 	}
-	f.hashes[name] = hashMemo{size: info.Size(), modTime: info.ModTime().UnixNano(), hash: hash}
+	f.hashes[name] = hashMemo{size: size, modTime: modTimeNs, hash: hash}
 	return hash, nil
 }
 
@@ -112,7 +112,7 @@ func (f *FS) hashLocalLocked(name string) (string, error) {
 // path inside a directory that is itself deleted or replaced cannot be
 // restored on its own: restore that directory.
 func (f *FS) Restore(p string) error {
-	p, err := cleanPath(p)
+	p, err := cleanWritablePath(p)
 	if err != nil {
 		return err
 	}
@@ -411,7 +411,7 @@ func (f *FS) entryForEditLocked(edit Edit) *localEntry {
 	if edit.Op == "delete" {
 		return &localEntry{Kind: entryWhiteout}
 	}
-	n, _ := f.lookupLocked(edit.Path)
+	n, _ := f.lookupMetaLocked(edit.Path)
 	switch {
 	case n.kind == KindSymlink:
 		return &localEntry{Kind: entrySymlink, Mode: ModeSymlink, Target: n.target}
@@ -422,13 +422,13 @@ func (f *FS) entryForEditLocked(edit Edit) *localEntry {
 }
 
 func (f *FS) isVisibleLocked(p string) bool {
-	_, ok := f.lookupLocked(p)
+	_, ok := f.lookupMetaLocked(p)
 	return ok
 }
 
 func (f *FS) discard(names []string) {
 	for _, name := range names {
-		_ = os.Remove(f.localPath(name))
+		_ = f.filesRoot.Remove(name)
 	}
 }
 

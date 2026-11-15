@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"log/slog"
 	"net/http"
@@ -11,7 +12,10 @@ import (
 	"gitslice.io/gitslice/internal/rpclimits"
 )
 
-var openMetricsWarningOnce sync.Once
+var (
+	openMetricsWarningOnce          sync.Once
+	deprecatedMetricsQueryTokenOnce sync.Once
+)
 
 // NewHTTPHandler builds the gateway mux. gitHandler is mounted at /git/ (git
 // smart-HTTP) when non-nil; pass nil to disable the git routes.
@@ -22,22 +26,47 @@ func NewHTTPHandler(api http.Handler, gitHandler http.Handler, allowedOrigin str
 		cfg = cfgs[0]
 		configured = true
 	}
+	return newHTTPHandler(api, gitHandler, allowedOrigin, cfg, configured, newServerLimiters(cfg))
+}
 
+func newHTTPHandler(
+	api http.Handler,
+	gitHandler http.Handler,
+	allowedOrigin string,
+	cfg Config,
+	configured bool,
+	limiters *serverLimiters,
+) http.Handler {
 	mux := http.NewServeMux()
+	probeHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		if r.Method == http.MethodGet {
+			_, _ = w.Write([]byte("ok\n"))
+		}
+	})
+	mux.Handle("/healthz", probeHandler)
+	mux.Handle("/readyz", probeHandler)
+
 	metricsHandler := metrics.Handler()
 	if token := strings.TrimSpace(cfg.MetricsToken); token != "" {
 		metricsHandler = withMetricsToken(metricsHandler, token)
 	} else if configured {
 		warnOpenMetricsEndpoint()
 	}
-	mux.Handle("/metrics", metricsHandler)
+	mux.Handle("/metrics", limiters.httpIPMiddleware()(metricsHandler))
+
 	if gitHandler != nil {
 		mux.Handle("/git/", gitHandler)
 	}
 
 	apiHandler := withMaxBody(api, rpclimits.MaxUnaryMessageBytes)
-	apiHandler = newAgentSignupHTTPMiddleware(cfg)(apiHandler)
-	apiHandler = newHTTPRateLimitMiddleware(cfg)(apiHandler)
+	apiHandler = limiters.agentSignupHTTPMiddleware()(apiHandler)
+	apiHandler = limiters.httpIPMiddleware()(apiHandler)
 	mux.Handle("/", withCORS(apiHandler, allowedOrigin))
 	return mux
 }
@@ -54,15 +83,29 @@ func withMetricsToken(handler http.Handler, token string) http.Handler {
 }
 
 func validMetricsToken(r *http.Request, token string) bool {
-	candidate := r.URL.Query().Get("token")
+	if token == "" {
+		return false
+	}
+	const prefix = "bearer "
+	var candidate string
+	value := strings.TrimSpace(r.Header.Get("Authorization"))
+	if strings.HasPrefix(strings.ToLower(value), prefix) {
+		candidate = strings.TrimSpace(value[len(prefix):])
+	}
 	if candidate == "" {
-		const prefix = "bearer "
-		value := strings.TrimSpace(r.Header.Get("Authorization"))
-		if strings.HasPrefix(strings.ToLower(value), prefix) {
-			candidate = strings.TrimSpace(value[len(prefix):])
+		if q := r.URL.Query().Get("token"); q != "" {
+			deprecatedMetricsQueryTokenOnce.Do(func() {
+				slog.Warn("gitslice /metrics query-string ?token= authentication is deprecated; send Authorization: Bearer <token> instead")
+			})
+			candidate = q
 		}
 	}
-	return subtle.ConstantTimeCompare([]byte(candidate), []byte(token)) == 1
+	if candidate == "" {
+		return false
+	}
+	candDigest := sha256.Sum256([]byte(candidate))
+	tokDigest := sha256.Sum256([]byte(token))
+	return subtle.ConstantTimeCompare(candDigest[:], tokDigest[:]) == 1
 }
 
 func warnOpenMetricsEndpoint() {

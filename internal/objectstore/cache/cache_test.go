@@ -9,11 +9,13 @@ import (
 )
 
 type countingStore struct {
-	mu      sync.Mutex
-	objects map[string][]byte
-	gets    int
-	puts    int
-	deletes int
+	mu         sync.Mutex
+	objects    map[string][]byte
+	gets       int
+	puts       int
+	copies     int
+	deletes    int
+	lastPutSrc io.Reader
 }
 
 func newCountingStore() *countingStore {
@@ -21,6 +23,10 @@ func newCountingStore() *countingStore {
 }
 
 func (c *countingStore) Put(_ context.Context, key string, r io.Reader) error {
+	c.mu.Lock()
+	c.lastPutSrc = r
+	c.mu.Unlock()
+
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return err
@@ -29,6 +35,18 @@ func (c *countingStore) Put(_ context.Context, key string, r io.Reader) error {
 	defer c.mu.Unlock()
 	c.puts++
 	c.objects[key] = append([]byte(nil), data...)
+	return nil
+}
+
+func (c *countingStore) Copy(_ context.Context, dstKey, srcKey string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	data, ok := c.objects[srcKey]
+	if !ok {
+		return io.EOF
+	}
+	c.copies++
+	c.objects[dstKey] = append([]byte(nil), data...)
 	return nil
 }
 
@@ -184,13 +202,99 @@ func TestEvictionRespectsMaxBytes(t *testing.T) {
 func TestObjectsOverMaxObjectBytesNotCached(t *testing.T) {
 	inner := newCountingStore()
 	s := New(inner, 1<<20, 4).(*Store)
-	_ = s.Put(context.Background(), "big", bytes.NewReader([]byte("toolong")))
+	rs := bytes.NewReader([]byte("toolong"))
+	if err := s.Put(context.Background(), "big", rs); err != nil {
+		t.Fatal(err)
+	}
+	// Oversized ReadSeeker should be passed directly through without re-wrapping.
+	if inner.lastPutSrc != rs {
+		t.Fatalf("expected oversized ReadSeeker passed directly to inner.Put, got %T", inner.lastPutSrc)
+	}
 	if _, ok := s.entries["big"]; ok {
 		t.Fatal("oversized object should not be cached")
 	}
 	read(t, s, "big", 0, 0) // must fall through to inner
 	if inner.gets != 1 {
 		t.Fatalf("inner gets = %d, want 1", inner.gets)
+	}
+}
+
+type streamingStepStore struct {
+	sawBeforeFinish bool
+	received        []byte
+}
+
+func (s *streamingStepStore) Put(_ context.Context, _ string, r io.Reader) error {
+	buf := make([]byte, 8)
+	n, err := r.Read(buf)
+	if n > 0 {
+		s.sawBeforeFinish = true
+	}
+	if err != nil && err != io.EOF {
+		return err
+	}
+	rest, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	s.received = append(append([]byte(nil), buf[:n]...), rest...)
+	return nil
+}
+
+func (s *streamingStepStore) Get(context.Context, string, int64, int64) (io.ReadCloser, error) {
+	return nil, io.EOF
+}
+
+func (s *streamingStepStore) Delete(context.Context, string) error { return nil }
+
+func TestOversizedUnseekablePutStreamsWithoutBufferingAll(t *testing.T) {
+	inner := &streamingStepStore{}
+	s := New(inner, 1<<20, 4).(*Store)
+
+	pr, pw := io.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		// Write 6 bytes (> maxObjectBytes=4) and wait for inner.Put to start reading
+		// BEFORE writing the tail; a full io.ReadAll in cache.Put would deadlock here.
+		_, _ = pw.Write([]byte("123456"))
+		_, _ = pw.Write([]byte("7890"))
+		done <- pw.Close()
+	}()
+
+	if err := s.Put(context.Background(), "stream", pr); err != nil {
+		t.Fatalf("Put() error = %v", err)
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("pipe close error = %v", err)
+	}
+	if !inner.sawBeforeFinish {
+		t.Fatal("expected inner.Put to receive streamed bytes before pipe closed")
+	}
+	if string(inner.received) != "1234567890" {
+		t.Fatalf("received = %q, want 1234567890", inner.received)
+	}
+	if _, ok := s.entries["stream"]; ok {
+		t.Fatal("oversized streamed object must not be cached")
+	}
+}
+
+func TestCopyDelegatesToInnerAndUpdatesCache(t *testing.T) {
+	inner := newCountingStore()
+	s := New(inner, 1<<20, 1<<20).(*Store)
+	if err := s.Put(context.Background(), "staging/1", bytes.NewReader([]byte("payload"))); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Copy(context.Background(), "blobs/1", "staging/1"); err != nil {
+		t.Fatal(err)
+	}
+	if inner.copies != 1 {
+		t.Fatalf("inner copies = %d, want 1", inner.copies)
+	}
+	if got := read(t, s, "blobs/1", 0, 0); string(got) != "payload" {
+		t.Fatalf("got %q, want payload", got)
+	}
+	if inner.gets != 0 {
+		t.Fatalf("inner gets = %d, want 0 (served from cache)", inner.gets)
 	}
 }
 

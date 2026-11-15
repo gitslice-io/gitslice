@@ -52,6 +52,24 @@ func (s *Store) Delete(ctx context.Context, key string) error {
 	return s.base.Delete(ctx, key)
 }
 
+// Copy waits for the configured delay, then copies srcKey to dstKey.
+func (s *Store) Copy(ctx context.Context, dstKey, srcKey string) error {
+	if err := s.wait(ctx); err != nil {
+		return err
+	}
+	if copier, ok := s.base.(interface {
+		Copy(context.Context, string, string) error
+	}); ok {
+		return copier.Copy(ctx, dstKey, srcKey)
+	}
+	rc, err := s.base.Get(ctx, srcKey, 0, 0)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+	return s.base.Put(ctx, dstKey, rc)
+}
+
 func (s *Store) wait(ctx context.Context) error {
 	if s.delay <= 0 {
 		return nil

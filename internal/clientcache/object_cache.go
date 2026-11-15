@@ -1,7 +1,6 @@
 package clientcache
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -25,10 +24,27 @@ func New(root string) (*ObjectCache, error) {
 		return nil, fmt.Errorf("client object cache root is required")
 	}
 	cache := &ObjectCache{root: root}
-	if err := os.MkdirAll(filepath.Join(root, "objects"), 0o700); err != nil {
+	if err := cache.EnsureDir(); err != nil {
 		return nil, err
 	}
 	return cache, nil
+}
+
+// EnsureDir creates and tightens the cache root and internal directories to 0700.
+func (c *ObjectCache) EnsureDir() error {
+	for _, dir := range []string{
+		c.root,
+		filepath.Join(c.root, "objects"),
+		filepath.Join(c.root, "tmp"),
+	} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+		if err := os.Chmod(dir, 0o700); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (c *ObjectCache) Root() string {
@@ -48,7 +64,43 @@ func (c *ObjectCache) Empty() bool {
 }
 
 func (c *ObjectCache) PutBytes(data []byte) (Object, error) {
-	return c.PutReader(bytes.NewReader(data))
+	contentHash := objectid.RawContentHash(data)
+	size := int64(len(data))
+	if c.Exists(contentHash) {
+		return Object{ContentHash: contentHash, Size: size}, nil
+	}
+	target, err := c.Path(contentHash)
+	if err != nil {
+		return Object{}, err
+	}
+	tmpDir := filepath.Join(c.root, "tmp")
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+		return Object{}, err
+	}
+	_ = os.Chmod(tmpDir, 0o700)
+	tmp, err := os.CreateTemp(tmpDir, "object-*")
+	if err != nil {
+		return Object{}, err
+	}
+	tmpName := tmp.Name()
+	removeTmp := true
+	defer func() {
+		if removeTmp {
+			_ = os.Remove(tmpName)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return Object{}, err
+	}
+	if err := tmp.Chmod(0o600); err != nil {
+		_ = tmp.Close()
+		return Object{}, err
+	}
+	if err := tmp.Close(); err != nil {
+		return Object{}, err
+	}
+	return c.commitTempObject(tmpName, target, contentHash, size, &removeTmp)
 }
 
 func (c *ObjectCache) PutFile(path string) (Object, error) {
@@ -61,10 +113,12 @@ func (c *ObjectCache) PutFile(path string) (Object, error) {
 }
 
 func (c *ObjectCache) PutReader(r io.Reader) (Object, error) {
-	if err := os.MkdirAll(filepath.Join(c.root, "tmp"), 0o700); err != nil {
+	tmpDir := filepath.Join(c.root, "tmp")
+	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return Object{}, err
 	}
-	tmp, err := os.CreateTemp(filepath.Join(c.root, "tmp"), "object-*")
+	_ = os.Chmod(tmpDir, 0o700)
+	tmp, err := os.CreateTemp(tmpDir, "object-*")
 	if err != nil {
 		return Object{}, err
 	}
@@ -93,6 +147,10 @@ func (c *ObjectCache) PutReader(r io.Reader) (Object, error) {
 	} else if !os.IsNotExist(err) {
 		return Object{}, err
 	}
+	return c.commitTempObject(tmpName, target, contentHash, size, &removeTmp)
+}
+
+func (c *ObjectCache) commitTempObject(tmpName, target, contentHash string, size int64, removeTmp *bool) (Object, error) {
 	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 		return Object{}, err
 	}
@@ -105,7 +163,7 @@ func (c *ObjectCache) PutReader(r io.Reader) (Object, error) {
 		}
 		return Object{}, err
 	}
-	removeTmp = false
+	*removeTmp = false
 	_ = os.Chmod(target, 0o400)
 	return Object{ContentHash: contentHash, Size: size}, nil
 }

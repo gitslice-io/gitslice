@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,14 +36,40 @@ type attachedWorkspace struct {
 
 	// moveMu serializes rebase and switch: each replaces the whole local layer.
 	moveMu sync.Mutex
+
+	digestMu         sync.RWMutex
+	cachedBaseDigest string
+}
+
+func verifyRealWorkspaceDir(dir string) error {
+	info, err := os.Lstat(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("%s is not a real directory", dir)
+	}
+	return nil
 }
 
 // attachWorkspace opens the workspace's layers and mounts them at its mount
 // path. It does not wait for the server: only a read of content the cache
 // lacks needs it, so a workspace can be mounted offline.
 func (r Runner) attachWorkspace(ctx context.Context, rec mountRecord, debug bool, logf func(format string, args ...any)) (*attachedWorkspace, error) {
+	if err := validateMountID(rec.ID); err != nil {
+		return nil, err
+	}
 	state := r.mountStateDir(rec.ID)
+	if err := verifyRealWorkspaceDir(state); err != nil {
+		return nil, err
+	}
 	local := filepath.Join(state, "local")
+	if err := verifyRealWorkspaceDir(local); err != nil {
+		return nil, err
+	}
 	// A base move that reached the layers but not mount.json (the mount stopped
 	// in between) finishes here: the layers name their base.
 	if recorded, err := lazyfs.RecordedBase(local); err == nil && recorded != "" && recorded != rec.BaseCommit {
@@ -64,13 +91,32 @@ func (r Runner) attachWorkspace(ctx context.Context, rec mountRecord, debug bool
 		return nil, err
 	}
 	fetcher := newMountFetcher(r, conn, rec.ref(), cache, manifest)
-	layer, err := lazyfs.Open(local, manifest, mountContent{cacheContent: cacheContent{cache: cache}, fetcher: fetcher}, lazyfs.Options{})
+	layer, err := lazyfs.Open(local, manifest, mountContent{cacheContent: cacheContent{cache: cache}, fetcher: fetcher}, lazyfs.Options{NoSync: true})
 	if err != nil {
 		conn.Close()
 		return nil, err
 	}
-	w := &attachedWorkspace{r: r, ctx: ctx, rec: rec, cache: cache, conn: conn, fetcher: fetcher, layer: layer, logf: logf}
+	w := &attachedWorkspace{
+		r:                r,
+		ctx:              ctx,
+		rec:              rec,
+		cache:            cache,
+		conn:             conn,
+		fetcher:          fetcher,
+		layer:            layer,
+		logf:             logf,
+		cachedBaseDigest: manifestDigest(manifest),
+	}
+	gsDir := r.mountGsDir(rec.ID)
+	if err := verifyRealWorkspaceDir(gsDir); err != nil {
+		w.close()
+		return nil, err
+	}
 	if err := r.writeLazyWorkspaceState(rec, manifest); err != nil {
+		w.close()
+		return nil, err
+	}
+	if err := verifyRealWorkspaceDir(gsDir); err != nil {
 		w.close()
 		return nil, err
 	}
@@ -80,7 +126,7 @@ func (r Runner) attachWorkspace(ctx context.Context, rec mountRecord, debug bool
 		GID:      uint32(os.Getgid()),
 		Debug:    debug,
 		ReadOnly: rec.ReadOnly,
-		GsDir:    r.mountGsDir(rec.ID),
+		GsDir:    gsDir,
 	})
 	if err != nil {
 		w.close()
@@ -174,6 +220,7 @@ func (w *attachedWorkspace) moveLayers(req mountControlRequest, reply *mountCont
 		}
 	}
 	w.fetcher.setBase(newBase)
+	w.setBaseDigest(manifestDigest(newBase))
 	if newBase.CommitID() != w.rec.BaseCommit {
 		previous := w.rec.BaseCommit
 		w.rec.BaseCommit, w.rec.Files = newBase.CommitID(), manifestFileCount(newBase)
@@ -191,6 +238,42 @@ func (w *attachedWorkspace) moveLayers(req mountControlRequest, reply *mountCont
 	return nil
 }
 
+func (w *attachedWorkspace) baseDigest() string {
+	w.digestMu.RLock()
+	defer w.digestMu.RUnlock()
+	return w.cachedBaseDigest
+}
+
+func (w *attachedWorkspace) setBaseDigest(digest string) {
+	w.digestMu.Lock()
+	w.cachedBaseDigest = digest
+	w.digestMu.Unlock()
+}
+
+// populateReplyBaseFiles fills reply.BaseFiles and reply.BaseFilesDigest from
+// manifest for the touched paths in edits.
+func populateReplyBaseFiles(reply *mountControlReply, manifest *lazyfs.Manifest, digest string, edits []lazyfs.Edit) {
+	reply.BaseFilesDigest = digest
+	if manifest == nil || len(edits) == 0 {
+		return
+	}
+	baseFiles := make(map[string]BaseSnapshotFile, len(edits))
+	for _, edit := range edits {
+		if entry, ok := manifest.Lookup(edit.Path); ok && entry.Kind != lazyfs.KindDir {
+			baseFiles[edit.Path] = BaseSnapshotFile{
+				Path:        entry.Path,
+				RelPath:     strings.TrimPrefix(entry.Path, "/"),
+				ContentHash: entry.ContentHash,
+				Mode:        entry.Mode,
+				Size:        entry.Size,
+			}
+		}
+	}
+	if len(baseFiles) > 0 {
+		reply.BaseFiles = baseFiles
+	}
+}
+
 // handle answers one control request for this workspace.
 func (w *attachedWorkspace) handle(req mountControlRequest) (reply mountControlReply) {
 	// One workspace's failure must not take the others down with it.
@@ -203,7 +286,8 @@ func (w *attachedWorkspace) handle(req mountControlRequest) (reply mountControlR
 	w.fetcher.mu.Lock()
 	files, bytes := w.fetcher.files, w.fetcher.bytes
 	w.fetcher.mu.Unlock()
-	reply = mountControlReply{PID: os.Getpid(), MountedAt: w.mountedAt.Format(time.RFC3339), Opens: stats.Opens, Fetches: stats.Fetches, FetchedFiles: files, FetchedBytes: bytes, Errors: stats.Errors, LastError: stats.LastError, BaseCommit: w.layer.Base().CommitID()}
+	base := w.layer.Base()
+	reply = mountControlReply{PID: os.Getpid(), MountedAt: w.mountedAt.Format(time.RFC3339), Opens: stats.Opens, Fetches: stats.Fetches, FetchedFiles: files, FetchedBytes: bytes, Errors: stats.Errors, LastError: stats.LastError, BaseCommit: base.CommitID()}
 	switch req.Op {
 	case "rebase", "switch":
 		if w.rec.ReadOnly {
@@ -219,8 +303,10 @@ func (w *attachedWorkspace) handle(req mountControlRequest) (reply mountControlR
 		edits, err := w.layer.Edits()
 		if err != nil {
 			reply.Error = err.Error()
+			break
 		}
 		reply.Edits = edits
+		populateReplyBaseFiles(&reply, w.layer.Base(), w.baseDigest(), edits)
 	case "restore":
 		before, _ := w.layer.Edits()
 		for _, p := range req.Paths {

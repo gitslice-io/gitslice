@@ -4,32 +4,32 @@
 
 import { DurableObject } from "cloudflare:workers";
 import { nativeCommitOf, sessionRepoName, slugify } from "./artifacts";
-import { Gitslice, type Changeset, type PatchsetInfo } from "./gitslice";
+import { Gitslice } from "./gitslice";
 import type { Env } from "./env";
 import { mapLimit, retryEscalated } from "./land";
+import {
+  capRetiredList,
+  computeNextAlarmMs,
+  filterSlicePaths,
+  FIX_AFTER_MS,
+  isUnreviewedEscalation,
+  PROCESSING_STATUSES,
+  protectedPatterns,
+  pruneNativeQueued,
+  pruneSessionsMap,
+  REREVIEW_AFTER_MS,
+  RETRY_LIMIT,
+  STALL_MS,
+} from "./policy";
 import type { Baseline, HubEvent, Session, Signal, Stats } from "./types";
 
-const MAX_EVENTS = 300;
-const MIN_IMPORT_INTERVAL_MS = 4000;
-// How long an agent has to answer a review before a fixer agent takes over.
-const FIX_AFTER_MS = 15_000;
-// A landing that has not moved for this long probably died with its Worker
-// invocation: it is queued again, up to RETRY_LIMIT times.
-const STALL_MS = 90_000;
-const WATCHDOG_EVERY_MS = 30_000;
-const RETRY_LIMIT = 3;
-const PROCESSING: ReadonlySet<string> = new Set(["pushed", "reviewing", "approved", "landing", "merging"]);
-// An escalation only because no review model answered is reviewed again
-// after this long, before it bothers a person.
-const REREVIEW_AFTER_MS = 20_000;
-// How often the Hub looks for changesets agents pushed straight to Gitslice:
-// quickly while they are active, rarely while the slice is quiet.
-const NATIVE_POLL_BUSY_MS = 2_000;
-const NATIVE_POLL_IDLE_MS = 20_000;
-const NATIVE_BUSY_WINDOW_MS = 90_000;
+export { protectedPatterns };
 
-// unreviewed: the review agent escalated only because no model answered.
-const unreviewed = (s: Session): boolean => s.status === "needs-human" && s.review?.model === "none";
+const MAX_EVENTS = 300;
+const MAX_HUB_SOCKETS = 64;
+const MIN_IMPORT_INTERVAL_MS = 4000;
+const PROCESSING = PROCESSING_STATUSES;
+const unreviewed = isUnreviewedEscalation;
 const MAX_SIGNALS = 40;
 const ACTIVE: ReadonlySet<string> = new Set(["forked", "pushed", "reviewing", "approved", "landing", "merging", "needs-human", "changes-requested"]);
 
@@ -536,13 +536,17 @@ export class Hub extends DurableObject<Env> {
   }
 
   // watchNative tells the Hub which slice it serves, so it can look for
-  // changesets pushed to Gitslice without an Artifacts repo.
-  async watchNative(account: string, slice: string): Promise<void> {
+  // changesets pushed to Gitslice without an Artifacts repo while active or
+  // watched on a live dashboard socket.
+  async watchNative(account: string, slice: string, active = false): Promise<void> {
     await this.load();
     if (!this.ident) {
       this.ident = { account, slice };
       this.nativeSince = Date.now();
       await this.ctx.storage.put({ ident: this.ident, nativeSince: this.nativeSince });
+    }
+    if (active) {
+      this.nativeActiveAt = Date.now();
     }
     if (this.nativeEnabled()) await this.scheduleAlarm();
   }
@@ -567,6 +571,10 @@ export class Hub extends DurableObject<Env> {
   }): Promise<Session | null> {
     await this.load();
     const { changeset: cs, patchset: ps } = input;
+    const scopedPaths = filterSlicePaths(ps.changedPaths, input.account, input.slice, {
+      allowDotGitslice: true,
+      leadingSlash: true,
+    });
     const related = [...this.sessions.values()].filter((s) => s.changesetId === cs.id);
     const known = related.find((s) => s.patchsetId === ps.id);
     if (known) return input.force ? known : null;
@@ -581,7 +589,7 @@ export class Hub extends DurableObject<Env> {
       target.pushes++;
       target.pushedAt = ps.createdAtMs || now;
       target.status = "pushed";
-      target.touched = ps.changedPaths;
+      target.touched = scopedPaths;
       target.updatedAt = now;
       delete target.fixAt;
       this.counters.pushes++;
@@ -604,8 +612,8 @@ export class Hub extends DurableObject<Env> {
       slice: input.slice,
       remote: `${this.env.GITSLICE_GIT}/${input.account}/${input.slice}.git`,
       baseline: { repo: "gitslice", gitCommit: "", nativeCommit: cs.baseCommitId, tree: ps.baseTreeId ?? "", createdAt: now },
-      intent: ps.changedPaths,
-      touched: ps.changedPaths,
+      intent: scopedPaths,
+      touched: scopedPaths,
       status: "pushed",
       changesetId: cs.id,
       handle: cs.handle || cs.id,
@@ -644,6 +652,7 @@ export class Hub extends DurableObject<Env> {
     const now = Date.now();
     if (now - this.nativePollAt < 1000) return;
     this.nativePollAt = now;
+    pruneNativeQueued(this.nativeQueued, now);
     const slice = { account: this.ident.account, slice: this.ident.slice };
     const gitslice = new Gitslice(this.env.GITSLICE_API, this.env.GITSLICE_TOKEN);
     const open = await gitslice.listChangesets(slice, "draft", 200);
@@ -657,6 +666,7 @@ export class Hub extends DurableObject<Env> {
       if (queued && now - queued < 30_000) continue;
       if ([...this.sessions.values()].some((s) => s.changesetId === cs.id && s.patchsetId === ps.id)) continue;
       this.nativeQueued.set(key, now);
+      pruneNativeQueued(this.nativeQueued, now);
       this.nativeActiveAt = now;
       await this.env.EVENTS.send({ kind: "review-native", account: slice.account, slice: slice.slice, changeset: cs.id });
     }
@@ -678,26 +688,28 @@ export class Hub extends DurableObject<Env> {
   }
 
   // scheduleAlarm wakes the Hub for the next thing that needs a timer:
-  // escalations a person may have approved, and fixers that are due.
+  // escalations a person may have approved, due fixers, or active native
+  // sessions. When completely idle with no viewers, no alarm is scheduled so
+  // the DO, Cloud Run, and Neon scale to zero.
   private async scheduleAlarm(): Promise<void> {
     const now = Date.now();
-    let next = Infinity;
-    for (const s of this.sessions.values()) {
-      if (s.supersededBy) continue;
-      if (s.status === "needs-human") next = Math.min(next, now + (unreviewed(s) ? REREVIEW_AFTER_MS : 3000));
-      if (PROCESSING.has(s.status)) next = Math.min(next, now + WATCHDOG_EVERY_MS);
-      if (s.fixAt && !s.fixedBy) next = Math.min(next, s.fixAt);
+    const target = computeNextAlarmMs({
+      now,
+      sessions: this.sessions.values(),
+      nativeEnabled: this.nativeEnabled(),
+      nativeActiveAt: this.nativeActiveAt,
+      openWebSockets: this.ctx.getWebSockets().length,
+    });
+    const existing = await this.ctx.storage.getAlarm();
+    if (target === null) {
+      if (existing !== null) await this.ctx.storage.deleteAlarm();
+      return;
     }
-    if (this.nativeEnabled()) {
-      const busy = now - this.nativeActiveAt < NATIVE_BUSY_WINDOW_MS || [...this.sessions.values()].some((s) => s.native && s.status !== "landed" && s.status !== "failed" && !s.supersededBy);
-      next = Math.min(next, now + (busy ? NATIVE_POLL_BUSY_MS : NATIVE_POLL_IDLE_MS));
-    }
-    if (next === Infinity) return;
-    const target = Math.max(next, now + 250);
     // Keep an alarm that is already due sooner: patches arrive constantly and
     // must not push it back.
-    const existing = await this.ctx.storage.getAlarm();
-    if (existing === null || existing <= now || existing > target) await this.ctx.storage.setAlarm(target);
+    if (existing === null || existing <= now || existing > target) {
+      await this.ctx.storage.setAlarm(target);
+    }
   }
 
   // ---- dashboard stream ---------------------------------------------------
@@ -705,10 +717,20 @@ export class Hub extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade") !== "websocket") return new Response("expected websocket", { status: 426 });
     await this.load();
-    const where = /\/v1\/slices\/([^/]+)\/([^/]+)\/stream/.exec(new URL(request.url).pathname);
-    if (where) await this.watchNative(where[1], where[2]);
+    const open = this.ctx.getWebSockets();
+    if (open.length >= MAX_HUB_SOCKETS) {
+      for (const stale of open.slice(0, open.length - MAX_HUB_SOCKETS + 1)) {
+        try {
+          stale.close(1008, "too many connections");
+        } catch {
+          // already closed
+        }
+      }
+    }
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
+    const where = /\/v1\/slices\/([^/]+)\/([^/]+)\/stream/.exec(new URL(request.url).pathname);
+    if (where) await this.watchNative(where[1], where[2], false);
     pair[1].send(JSON.stringify({ type: "snapshot", ...this.snapshot() }));
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -726,6 +748,18 @@ export class Hub extends DurableObject<Env> {
     } catch {
       // already closed
     }
+    await this.load();
+    await this.scheduleAlarm();
+  }
+
+  async webSocketError(ws: WebSocket): Promise<void> {
+    try {
+      ws.close(1011, "websocket error");
+    } catch {
+      // already closed
+    }
+    await this.load();
+    await this.scheduleAlarm();
   }
 
   // ---- internals ----------------------------------------------------------
@@ -782,11 +816,29 @@ export class Hub extends DurableObject<Env> {
 
   private retire(repo: string): void {
     if (!this.retired.includes(repo)) this.retired.push(repo);
+    const overflow = capRetiredList(this.retired, this.baseline?.repo);
+    if (overflow.length > 0) {
+      mapLimit(overflow, 4, (name) => this.env.ARTIFACTS.delete(name).catch(() => {})).catch(() => {});
+    }
   }
 
   private async save(session: Session): Promise<void> {
     this.sessions.set(session.id, session);
     await this.ctx.storage.put(`s:${session.id}`, session);
+    const evicted = pruneSessionsMap(this.sessions);
+    if (evicted.length > 0) {
+      await this.ctx.storage.delete(evicted.map((s) => `s:${s.id}`));
+      let retiredChanged = false;
+      for (const s of evicted) {
+        if (!s.native) {
+          this.retire(s.id);
+          retiredChanged = true;
+        }
+      }
+      if (retiredChanged) {
+        await this.ctx.storage.put("retired", this.retired);
+      }
+    }
   }
 
   private event(event: Omit<HubEvent, "at">): void {

@@ -53,9 +53,18 @@ steps:
       - -c
       - |
         set -euo pipefail
+        tag_re='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$$'
+        if [ -n "$${TAG:-}" ] && [[ ! "$$TAG" =~ $$tag_re ]]; then
+          echo "invalid release tag: $$TAG" >&2
+          exit 1
+        fi
+        if [[ ! "$$SINCE" =~ $$tag_re ]]; then
+          echo "invalid SINCE tag: $$SINCE" >&2
+          exit 1
+        fi
         # The build script comes from Gitslice too, so this config needs no
         # source upload and Cloud Scheduler can submit it as it is.
-        git clone -q --depth 1 "${_GIT_URL}" /workspace/tools
+        git clone -q --depth 1 -- "${_GIT_URL}" /workspace/tools
         bash "/workspace/tools/${_MODULE_DIR}/ops/release/build.sh"
     env:
       - TAG=${_TAG}
@@ -75,8 +84,13 @@ steps:
       - |
         set -euo pipefail
         if [ ! -s /workspace/built.txt ]; then echo "nothing to publish"; exit 0; fi
-        while read -r tag; do
-          for f in /workspace/dist/$$tag/*; do
+        tag_re='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$$'
+        while IFS= read -r tag; do
+          if [[ ! "$$tag" =~ $$tag_re ]]; then
+            echo "refusing to publish invalid tag: $$tag" >&2
+            exit 1
+          fi
+          for f in "/workspace/dist/$$tag/"*; do
             [ "$$(basename "$$f")" = checksums.txt ] && continue
             aws --endpoint-url "${_R2_ENDPOINT}" s3 cp "$$f" "s3://${_BUCKET}/releases/$$tag/$$(basename "$$f")" --only-show-errors
           done

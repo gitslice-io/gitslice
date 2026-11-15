@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"sort"
@@ -75,11 +74,16 @@ func (d *agentDaemon) materializeCheckTree(ctx context.Context, repo RepoClient,
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		target, err := checkTreeLocalPath(destRoot, dir)
-		if err != nil {
+		if dir == "/" {
+			if _, err := ensureConfinedDir(destRoot, "."); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := checkTreeLocalPath(destRoot, dir); err != nil {
 			return err
 		}
-		if err := os.MkdirAll(target, 0o755); err != nil {
+		if _, err := ensureConfinedDir(destRoot, dir); err != nil {
 			return err
 		}
 	}
@@ -273,11 +277,7 @@ func materializeCheckFile(ctx context.Context, repo RepoClient, cache *clientcac
 	if err != nil {
 		return err
 	}
-	target, err := checkTreeLocalPath(destRoot, entryPath)
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	if _, err := checkTreeTarget(destRoot, entryPath); err != nil {
 		return err
 	}
 	data, err := materializeCheckFileBytes(ctx, repo, cache, rootTreeID, entryPath, entry.GetContentHash())
@@ -288,7 +288,7 @@ func materializeCheckFile(ctx context.Context, repo RepoClient, cache *clientcac
 	if mode == 0 {
 		mode = 0o100644
 	}
-	_, err = writeWorkspaceFile(target, mode, bytes.NewReader(data))
+	_, _, err = writeConfinedWorkspaceFile(destRoot, entryPath, mode, bytes.NewReader(data))
 	return err
 }
 
@@ -440,10 +440,16 @@ func normalizeCheckMaterializePath(value string) (string, error) {
 		if segment == ".." {
 			return "", fmt.Errorf("check materialize path %q contains .. segment", value)
 		}
+		if segment == ".gs" {
+			return "", ensureNotReservedGsPath(value)
+		}
 	}
 	cleaned := path.Clean("/" + trimmed)
 	if cleaned == "/" {
 		return "/", nil
+	}
+	if err := ensureNotReservedGsPath(cleaned); err != nil {
+		return "", err
 	}
 	return strings.TrimPrefix(cleaned, "/"), nil
 }
@@ -483,6 +489,25 @@ func logicalAbsPath(p string) string {
 	return "/" + path.Clean(p)
 }
 
+func checkTreeTarget(destRoot, logicalPath string) (string, error) {
+	target, err := checkTreeLocalPath(destRoot, logicalPath)
+	if err != nil {
+		return "", err
+	}
+	root, err := filepath.Abs(destRoot)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(root, target)
+	if err != nil || rel == "." {
+		return "", fmt.Errorf("check materialize file target must be inside destination: %s", logicalPath)
+	}
+	if err := ensureNotReservedGsPath(filepath.ToSlash(rel)); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
 func checkTreeLocalPath(destRoot, logicalPath string) (string, error) {
 	cleaned, err := normalizeCheckMaterializePath(logicalPath)
 	if err != nil {
@@ -490,6 +515,9 @@ func checkTreeLocalPath(destRoot, logicalPath string) (string, error) {
 	}
 	rel := "."
 	if cleaned != "/" {
+		if err := ensureNotReservedGsPath(cleaned); err != nil {
+			return "", err
+		}
 		rel = filepath.FromSlash(cleaned)
 	}
 	root, err := filepath.Abs(destRoot)

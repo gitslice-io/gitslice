@@ -2,11 +2,13 @@ package gitcompat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -16,6 +18,8 @@ import (
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
+
+var errInvalidUploadRequest = errors.New("invalid git upload-pack request")
 
 // lazyChunkCommits is how many commits one pack holds. After each chunk the
 // projection is complete up to that commit and its state is saved, so a build
@@ -324,12 +328,14 @@ func (p *Projector) HydrateFor(ctx context.Context, repoPath string, body []byte
 		return nil
 	}
 	req, understood := parseUploadRequest(body)
-	if understood && !req.fetch {
+	if !understood {
+		return errInvalidUploadRequest
+	}
+	if !req.fetch {
 		return nil
 	}
-	lock := p.hydrateLock(repoPath)
-	lock.Lock()
-	defer lock.Unlock()
+	unlock := p.lockHydrate(repoPath)
+	defer unlock()
 	// Walking the history to find what is missing costs time on a large
 	// repository, so once everything at a head is present, that is remembered
 	// until the head moves.
@@ -338,13 +344,14 @@ func (p *Projector) HydrateFor(ctx context.Context, repoPath string, body []byte
 	if head != "" && p.completeAt(repoPath) == head {
 		return nil
 	}
+	wantsHead := head != "" && (slices.Contains(req.wants, head) || slices.Contains(req.wantRefs, projectedBranch))
 	// Everything reachable from the last complete head is present, so only what
 	// is newer needs searching.
-	if understood && !req.excludesBlobs() && len(req.haves) == 0 {
+	if wantsHead && !req.excludesBlobs() && len(req.haves) == 0 {
 		// A clone of whole files: worth a cover (cover.go).
 		p.noteFullFetch(repoPath)
 	}
-	missing, err := p.missingContents(ctx, repoPath, req, understood, p.completeAt(repoPath))
+	missing, err := p.missingContents(ctx, repoPath, req, p.completeAt(repoPath))
 	if err != nil {
 		return err
 	}
@@ -353,9 +360,9 @@ func (p *Projector) HydrateFor(ctx context.Context, repoPath string, body []byte
 			return err
 		}
 	}
-	// A request for the whole history, with nothing assumed on the client's
-	// side, leaves nothing missing at this head.
-	if head != "" && understood && !req.excludesBlobs() && req.depth == 0 && len(req.haves) == 0 {
+	// A request for the whole history at head, with nothing assumed on the
+	// client's side, leaves nothing missing at this head.
+	if wantsHead && !req.excludesBlobs() && req.depth == 0 && len(req.haves) == 0 {
 		p.setComplete(repoPath, head)
 	}
 	return nil
@@ -370,77 +377,210 @@ func (p *Projector) completeAt(repoPath string) string {
 func (p *Projector) setComplete(repoPath, head string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if head == "" {
+		delete(p.complete, repoPath)
+		return
+	}
 	if p.complete == nil {
 		p.complete = map[string]string{}
+	}
+	if _, exists := p.complete[repoPath]; !exists && len(p.complete) >= maxTrackedRepos {
+		for k := range p.complete {
+			delete(p.complete, k)
+			break
+		}
 	}
 	p.complete[repoPath] = head
 }
 
-func (p *Projector) hydrateLock(repoPath string) *sync.Mutex {
-	return p.lockFor(repoPath + "#hydrate")
+func (p *Projector) lockHydrate(repoPath string) func() {
+	return p.acquireLock(repoPath + "#hydrate")
 }
 
-// missingContents returns the Git blob ids the request needs that the
-// repository does not have.
-func (p *Projector) missingContents(ctx context.Context, repoPath string, req uploadRequest, understood bool, completeHead string) ([]string, error) {
-	have := func(oid string) bool {
-		return runGit(ctx, repoPath, nil, "cat-file", "-e", oid) == nil
+// missingContents returns the reachable Git blob ids the request needs that the
+// repository does not have. Foreign or unreachable SHA-1s are never hydrated.
+func (p *Projector) missingContents(ctx context.Context, repoPath string, req uploadRequest, completeHead string) ([]string, error) {
+	wantOIDs := append([]string(nil), req.wants...)
+	if len(req.wantRefs) > 0 {
+		resolved, err := resolveRepoRefs(ctx, repoPath, req.wantRefs)
+		if err != nil {
+			return nil, err
+		}
+		wantOIDs = append(wantOIDs, resolved...)
 	}
+	checkOIDs := make([]string, 0, len(wantOIDs)+len(req.haves)+1)
+	checkOIDs = append(checkOIDs, wantOIDs...)
+	checkOIDs = append(checkOIDs, req.haves...)
+	if completeHead != "" {
+		checkOIDs = append(checkOIDs, completeHead)
+	}
+	objectTypes, err := batchObjectTypes(ctx, repoPath, checkOIDs)
+	if err != nil {
+		return nil, err
+	}
+
 	missing := map[string]bool{}
-	var commits []string
-	for _, want := range req.wants {
-		// A want the repository lacks is a file asked for by id (a lazy
-		// checkout does this); one it has is a commit to walk.
-		if have(want) {
-			commits = append(commits, want)
-		} else {
-			missing[want] = true
+	var walkWants []string
+	var directMissingWants []string
+	seenWant := map[string]struct{}{}
+	for _, want := range wantOIDs {
+		if _, dup := seenWant[want]; dup {
+			continue
+		}
+		seenWant[want] = struct{}{}
+		if typ, ok := objectTypes[want]; ok {
+			if typ != "blob" {
+				walkWants = append(walkWants, want)
+			}
+			continue
+		}
+		directMissingWants = append(directMissingWants, want)
+	}
+
+	// Partial-clone clients ask for missing blobs directly by SHA-1. Only
+	// hydrate direct blob wants that are reachable from this repository's own
+	// projected refs so another tenant's blob cannot be pulled into repoPath.
+	if len(directMissingWants) > 0 {
+		unresolved := directMissingWants
+		if headMissing, err := reachableMissingBlobs(ctx, repoPath, "--no-walk", projectedBranch); err == nil {
+			var rest []string
+			for _, oid := range unresolved {
+				if headMissing[oid] {
+					missing[oid] = true
+				} else {
+					rest = append(rest, oid)
+				}
+			}
+			unresolved = rest
+		}
+		if len(unresolved) > 0 {
+			args := []string{"--branches", "--tags"}
+			if completeHead != "" && objectTypes[completeHead] == "commit" {
+				args = append(args, "--not", completeHead)
+			}
+			reachableMissing, err := reachableMissingBlobs(ctx, repoPath, args...)
+			if err != nil {
+				return nil, err
+			}
+			for _, oid := range unresolved {
+				if reachableMissing[oid] {
+					missing[oid] = true
+				}
+			}
 		}
 	}
-	if !understood || !req.excludesBlobs() {
+
+	if !req.excludesBlobs() && len(walkWants) > 0 {
+		var stdin strings.Builder
+		for _, w := range walkWants {
+			stdin.WriteString(w)
+			stdin.WriteByte('\n')
+		}
+		if req.depth == 0 {
+			for _, h := range req.haves {
+				if typ := objectTypes[h]; typ == "commit" || typ == "tag" {
+					stdin.WriteByte('^')
+					stdin.WriteString(h)
+					stdin.WriteByte('\n')
+				}
+			}
+			if completeHead != "" && objectTypes[completeHead] == "commit" {
+				stdin.WriteByte('^')
+				stdin.WriteString(completeHead)
+				stdin.WriteByte('\n')
+			}
+		}
 		args := []string{"rev-list", "--objects", "--missing=print"}
 		if req.depth > 0 {
 			args = append(args, "--max-count="+strconv.Itoa(req.depth))
 		}
-		switch {
-		case !understood:
-			args = append(args, "--all")
-		case len(commits) == 0:
-			args = nil
-		default:
-			args = append(args, commits...)
-			var haves []string
-			for _, h := range req.haves {
-				if have(h) {
-					haves = append(haves, h)
-				}
-			}
-			if completeHead != "" && have(completeHead) {
-				haves = append(haves, completeHead)
-			}
-			if len(haves) > 0 && req.depth == 0 {
-				args = append(args, "--not")
-				args = append(args, haves...)
-			}
+		args = append(args, "--stdin")
+		out, err := gitOutputInput(ctx, repoPath, []string{"GIT_DIR=" + repoPath}, []byte(stdin.String()), args...)
+		if err != nil {
+			return nil, err
 		}
-		if args != nil {
-			out, err := gitOutput(ctx, repoPath, nil, args...)
-			if err != nil {
-				return nil, err
-			}
-			for _, line := range strings.Split(out, "\n") {
-				if strings.HasPrefix(line, "?") {
-					missing[strings.TrimSpace(line[1:])] = true
-				}
-			}
-		}
+		addMissingLines(missing, out)
 	}
+
 	ids := make([]string, 0, len(missing))
 	for id := range missing {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	return ids, nil
+}
+
+func resolveRepoRefs(ctx context.Context, repoPath string, refs []string) ([]string, error) {
+	args := append([]string{"for-each-ref", "--format=%(objectname)", "--"}, refs...)
+	out, err := gitOutput(ctx, repoPath, []string{"GIT_DIR=" + repoPath}, args...)
+	if err != nil {
+		return nil, err
+	}
+	var oids []string
+	for _, line := range strings.Split(out, "\n") {
+		if oid := strings.TrimSpace(line); validOID(oid) {
+			oids = append(oids, oid)
+		}
+	}
+	return oids, nil
+}
+
+// batchObjectTypes inspects every OID in one git cat-file --batch-check call
+// and returns the object type ("commit", "tree", "blob", "tag") for OIDs
+// present in repoPath.
+func batchObjectTypes(ctx context.Context, repoPath string, oids []string) (map[string]string, error) {
+	types := map[string]string{}
+	if len(oids) == 0 {
+		return types, nil
+	}
+	var stdin strings.Builder
+	seen := make(map[string]struct{}, len(oids))
+	for _, oid := range oids {
+		if !validOID(oid) {
+			continue
+		}
+		if _, dup := seen[oid]; dup {
+			continue
+		}
+		seen[oid] = struct{}{}
+		stdin.WriteString(oid)
+		stdin.WriteByte('\n')
+	}
+	if stdin.Len() == 0 {
+		return types, nil
+	}
+	out, err := gitOutputInput(ctx, repoPath, []string{"GIT_DIR=" + repoPath}, []byte(stdin.String()), "cat-file", "--batch-check")
+	if err != nil {
+		return nil, err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[1] != "missing" {
+			types[fields[0]] = fields[1]
+		}
+	}
+	return types, nil
+}
+
+func reachableMissingBlobs(ctx context.Context, repoPath string, revArgs ...string) (map[string]bool, error) {
+	args := append([]string{"rev-list", "--objects", "--missing=print"}, revArgs...)
+	out, err := gitOutput(ctx, repoPath, []string{"GIT_DIR=" + repoPath}, args...)
+	if err != nil {
+		return nil, err
+	}
+	missing := map[string]bool{}
+	addMissingLines(missing, out)
+	return missing, nil
+}
+
+func addMissingLines(dst map[string]bool, out string) {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "?") {
+			if oid := strings.TrimSpace(line[1:]); validOID(oid) {
+				dst[oid] = true
+			}
+		}
+	}
 }
 
 // hydrate writes the file contents with the given Git blob ids into the

@@ -57,6 +57,41 @@ func (s *Store) Put(ctx context.Context, key string, r io.Reader) error {
 	return os.Rename(tmpPath, target)
 }
 
+func (s *Store) Copy(ctx context.Context, dstKey, srcKey string) error {
+	dstPath, err := s.pathForKey(dstKey)
+	if err != nil {
+		return err
+	}
+	srcPath, err := s.pathForKey(srcKey)
+	if err != nil {
+		return err
+	}
+	if dstPath == srcPath {
+		_, err := os.Stat(srcPath)
+		return err
+	}
+	if _, err := os.Stat(srcPath); err != nil {
+		return err
+	}
+	if _, err := os.Stat(dstPath); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
+		return err
+	}
+	if err := os.Link(srcPath, dstPath); err == nil || os.IsExist(err) {
+		return nil
+	}
+	f, err := os.Open(srcPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return s.Put(ctx, dstKey, f)
+}
+
 func (s *Store) Get(_ context.Context, key string, offset, length int64) (io.ReadCloser, error) {
 	target, err := s.pathForKey(key)
 	if err != nil {

@@ -109,7 +109,7 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 	edits, current := found.edits, found.current
 	changed := changedPathsFromEdits(edits)
 	if opts.jsonOutput() {
-		diffText, err := r.workspaceDiffText(ctx, cfg, ws, base, baseCommitID, current, changed)
+		diffText, err := r.workspaceDiffText(ctx, conn, cfg, ws, base, baseCommitID, current, changed)
 		if err != nil {
 			return err
 		}
@@ -135,7 +135,7 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 		printChangeSummary(r.Stdout, changes, "  ", r.colorEnabled(opts))
 		return nil
 	}
-	diffText, err := r.workspaceDiffText(ctx, cfg, ws, base, baseCommitID, current, changed)
+	diffText, err := r.workspaceDiffText(ctx, conn, cfg, ws, base, baseCommitID, current, changed)
 	if err != nil {
 		return err
 	}
@@ -143,24 +143,46 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 	return err
 }
 
-func (r Runner) workspaceDiffText(ctx context.Context, cfg UserConfig, ws WorkspaceConfig, base BaseSnapshot, baseCommitID string, current map[string]workingFile, changed []string) (string, error) {
+func (r Runner) workspaceDiffText(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, base BaseSnapshot, baseCommitID string, current map[string]workingFile, changed []string) (string, error) {
 	if len(changed) == 0 {
 		return "", nil
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return "", err
+	if conn == nil {
+		var err error
+		conn, err = dial(ctx, cfg.ServerAddr)
+		if err != nil {
+			return "", err
+		}
+		defer conn.Close()
 	}
-	defer conn.Close()
 	repo := corev1.NewRepositoryServiceClient(conn)
 	blob := corev1.NewBlobServiceClient(conn)
 	cache, err := r.objectCache()
 	if err != nil {
 		return "", err
 	}
+	callCtx := authContext(ctx, cfg)
+	sliceRef := &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}
+	var prefetch []remoteReadTarget
+	for _, p := range changed {
+		if file, ok := base.Files[p]; ok && file.ContentHash != "" {
+			if _, cachedOK, _ := readVerifiedCachedBytes(cache, file.ContentHash); !cachedOK {
+				prefetch = append(prefetch, remoteReadTarget{
+					Path:        p,
+					ContentHash: file.ContentHash,
+					Size:        file.Size,
+				})
+			}
+		}
+	}
+	if len(prefetch) > 0 {
+		if _, err := prefetchRemoteFilesToCache(callCtx, repo, blob, sliceRef, cache, baseCommitID, prefetch); err != nil {
+			return "", err
+		}
+	}
 	var b strings.Builder
 	for _, p := range changed {
-		oldFile, err := r.workspaceBaseDiffFile(authContext(ctx, cfg), repo, blob, &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, cache, base, baseCommitID, p)
+		oldFile, err := r.workspaceBaseDiffFile(callCtx, repo, blob, sliceRef, cache, base, baseCommitID, p)
 		if err != nil {
 			return "", err
 		}
@@ -205,17 +227,20 @@ func (r Runner) commitDiff(ctx context.Context, cfg UserConfig, conn *grpc.Clien
 	if explicitOld {
 		changed = commitDiffChangedPaths(oldCommit, newCommit)
 	}
+	callCtx := authContext(ctx, cfg)
+	blob := corev1.NewBlobServiceClient(conn)
+	cache, _ := r.objectCache()
+	oldFiles, err := batchReadCommitDiffFiles(callCtx, repo, blob, cache, oldCommit, changed)
+	if err != nil {
+		return nil, nil, nil, "", err
+	}
+	newFiles, err := batchReadCommitDiffFiles(callCtx, repo, blob, cache, newCommit, changed)
+	if err != nil {
+		return nil, nil, nil, "", err
+	}
 	var b strings.Builder
 	for _, p := range changed {
-		oldFile, err := r.commitDiffFile(authContext(ctx, cfg), repo, oldCommit, p)
-		if err != nil {
-			return nil, nil, nil, "", err
-		}
-		newFile, err := r.commitDiffFile(authContext(ctx, cfg), repo, newCommit, p)
-		if err != nil {
-			return nil, nil, nil, "", err
-		}
-		b.WriteString(diffutil.UnifiedFileDiff(oldFile, newFile))
+		b.WriteString(diffutil.UnifiedFileDiff(oldFiles[p], newFiles[p]))
 	}
 	return oldCommit, newCommit, changed, b.String(), nil
 }
@@ -282,33 +307,40 @@ func oldCommitID(commit *corev1.Commit) string {
 }
 
 func (r Runner) workspaceBaseDiffFile(ctx context.Context, repo corev1.RepositoryServiceClient, blob corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, base BaseSnapshot, baseCommitID, p string) (diffutil.File, error) {
+	var expectedHash string
 	if file, ok := base.Files[p]; ok && file.ContentHash != "" {
-		if cache.Exists(file.ContentHash) {
-			data, err := cache.Read(file.ContentHash)
+		expectedHash = file.ContentHash
+		if cache != nil && cache.Exists(file.ContentHash) {
+			data, ok, err := readVerifiedCachedBytes(cache, file.ContentHash)
 			if err != nil {
 				return diffutil.File{}, err
 			}
-			return diffutil.File{Path: p, Exists: true, Data: data}, nil
+			if ok {
+				return diffutil.File{Path: p, Exists: true, Data: data}, nil
+			}
 		}
 		if blob != nil && sliceRef != nil {
 			data, err := readBlobStreamBytes(ctx, blob, sliceRef, file.ContentHash, 0, 0)
 			if err == nil {
-				if _, cacheErr := cache.PutBytes(data); cacheErr != nil {
-					return diffutil.File{}, cacheErr
+				if _, verifyErr := putVerifiedCachedBytes(cache, p, file.ContentHash, data); verifyErr != nil {
+					return diffutil.File{}, verifyErr
 				}
 				return diffutil.File{Path: p, Exists: true, Data: data}, nil
 			}
-			if grpcstatus.Code(err) != codes.NotFound {
+			if grpcstatus.Code(err) != codes.NotFound && grpcstatus.Code(err) != codes.Unimplemented {
 				return diffutil.File{}, err
 			}
 		}
 	}
-	read, err := repo.ReadFile(ctx, &corev1.ReadFileRequest{CommitId: baseCommitID, Path: p})
-	if grpcstatus.Code(err) == codes.NotFound {
-		return diffutil.File{Path: p}, nil
-	}
+	data, ok, err := fetchSingleRemoteTarget(ctx, repo, blob, sliceRef, cache, baseCommitID, remoteReadTarget{
+		Path:        p,
+		ContentHash: expectedHash,
+	})
 	if err != nil {
 		return diffutil.File{}, err
 	}
-	return diffutil.File{Path: p, Exists: true, Data: read.Data}, nil
+	if !ok {
+		return diffutil.File{Path: p}, nil
+	}
+	return diffutil.File{Path: p, Exists: true, Data: data}, nil
 }

@@ -14,7 +14,10 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-const blobStreamChunkBytes = 1 << 20
+const (
+	blobStreamChunkBytes     = 1 << 20
+	maxBlobStreamUploadBytes = 256 << 20
+)
 
 func (s *BlobService) UploadBlobStream(stream corev1.BlobService_UploadBlobStreamServer) error {
 	ctx := stream.Context()
@@ -38,6 +41,9 @@ func (s *BlobService) UploadBlobStream(stream corev1.BlobService_UploadBlobStrea
 	}
 	if init.Size != nil && *init.Size < 0 {
 		return status.Error(codes.InvalidArgument, "size must be non-negative")
+	}
+	if init.Size != nil && *init.Size > maxBlobStreamUploadBytes {
+		return status.Errorf(codes.ResourceExhausted, "upload size %d exceeds %d byte limit", *init.Size, maxBlobStreamUploadBytes)
 	}
 	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, init.Slice, authz.ActionWrite)
 	if err != nil {
@@ -63,6 +69,7 @@ func (s *BlobService) UploadBlobStream(stream corev1.BlobService_UploadBlobStrea
 		return cause
 	}
 
+	var streamed int64
 	for {
 		chunk, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
@@ -77,6 +84,10 @@ func (s *BlobService) UploadBlobStream(stream corev1.BlobService_UploadBlobStrea
 		data := chunk.GetData()
 		if len(data) > blobStreamChunkBytes {
 			return abort(status.Errorf(codes.InvalidArgument, "upload chunk exceeds %d bytes", blobStreamChunkBytes))
+		}
+		streamed += int64(len(data))
+		if streamed > maxBlobStreamUploadBytes {
+			return abort(status.Errorf(codes.ResourceExhausted, "upload exceeds %d byte limit", maxBlobStreamUploadBytes))
 		}
 		if _, err := writer.Write(data); err != nil {
 			return abort(grpcError(err))

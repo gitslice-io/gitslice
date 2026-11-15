@@ -45,6 +45,18 @@ var converter = goldmark.New(
 	goldmark.WithRendererOptions(html.WithUnsafe()),
 )
 
+const (
+	safeRasterDataExpr = `data:image/(?:png|jpeg|gif|webp);base64,[A-Za-z0-9+/]+={0,2}`
+	safeSrcsetItemExpr = `(?:https?://[^\s,"'<>]+|` + safeRasterDataExpr + `)(?: \d+(?:\.\d+)?[wx])?`
+)
+
+var (
+	safeRasterDataURI       = regexp.MustCompile(`^` + safeRasterDataExpr + `$`)
+	safeSrcsetPattern       = regexp.MustCompile(`^` + safeSrcsetItemExpr + `(?:, ` + safeSrcsetItemExpr + `)*$`)
+	srcsetDescriptorPattern = regexp.MustCompile(`^\d+(?:\.\d+)?[wx]$`)
+	schemePattern           = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*:`)
+)
+
 var policy = newPolicy()
 
 func newPolicy() *bluemonday.Policy {
@@ -52,8 +64,8 @@ func newPolicy() *bluemonday.Policy {
 	p.RequireNoFollowOnLinks(false)
 	p.AllowDataURIImages()
 	p.AllowElements("picture", "details", "summary", "source")
-	p.AllowAttrs("srcset", "media", "type").OnElements("source")
-	p.AllowAttrs("srcset").OnElements("img")
+	p.AllowAttrs("media", "type").OnElements("source")
+	p.AllowAttrs("srcset").Matching(safeSrcsetPattern).OnElements("source", "img")
 	p.AllowAttrs("align").OnElements("p", "div", "h1", "h2", "h3", "h4", "h5", "h6", "img", "table", "td", "th", "tr")
 	p.AllowAttrs("open").OnElements("details")
 	// Task lists.
@@ -102,16 +114,9 @@ func rewrite(rendered []byte, opts Options) (string, error) {
 					setAttr(n, "rel", "noopener noreferrer")
 				}
 			case atom.Img:
-				if path, ok := RepoImage(opts.Directory, opts.Root, attr(n, "src")); ok {
-					removeAttr(n, "src")
-					removeAttr(n, "srcset")
-					setAttr(n, "data-repo-image", path)
-				}
+				rewriteImg(n, opts)
 			case atom.Source:
-				if path, ok := RepoImage(opts.Directory, opts.Root, firstSrcsetURL(attr(n, "srcset"))); ok {
-					removeAttr(n, "srcset")
-					setAttr(n, "data-repo-srcset", path)
-				}
+				rewriteSource(n, opts)
 			}
 		}
 		for c := n.FirstChild; c != nil; c = c.NextSibling {
@@ -128,7 +133,179 @@ func rewrite(rendered []byte, opts Options) (string, error) {
 	return out.String(), nil
 }
 
-var schemePattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.-]*:`)
+func rewriteImg(n *xhtml.Node, opts Options) {
+	if hasAttr(n, "src") {
+		src := strings.TrimSpace(attr(n, "src"))
+		if hasExplicitScheme(src) {
+			if isSafeExternalImageURL(src) {
+				setAttr(n, "src", src)
+			} else {
+				removeAttr(n, "src")
+			}
+		} else if path, ok := RepoImage(opts.Directory, opts.Root, src); ok {
+			removeAttr(n, "src")
+			removeAttr(n, "srcset")
+			setAttr(n, "data-repo-image", path)
+			return
+		}
+	}
+
+	if !hasAttr(n, "srcset") {
+		return
+	}
+	repoPath, external := sanitizeSrcset(attr(n, "srcset"), opts)
+	if !hasAttr(n, "src") && repoPath != "" {
+		removeAttr(n, "srcset")
+		setAttr(n, "data-repo-image", repoPath)
+		return
+	}
+	if len(external) == 0 {
+		removeAttr(n, "srcset")
+		return
+	}
+	setAttr(n, "srcset", strings.Join(external, ", "))
+}
+
+func rewriteSource(n *xhtml.Node, opts Options) {
+	if !hasAttr(n, "srcset") {
+		return
+	}
+	repoPath, external := sanitizeSrcset(attr(n, "srcset"), opts)
+	if repoPath != "" {
+		removeAttr(n, "srcset")
+		setAttr(n, "data-repo-srcset", repoPath)
+		return
+	}
+	if len(external) == 0 {
+		removeAttr(n, "srcset")
+		return
+	}
+	setAttr(n, "srcset", strings.Join(external, ", "))
+}
+
+type srcsetCandidate struct {
+	url  string
+	desc string
+}
+
+// parseSrcset parses an HTML srcset attribute into URL + width/density
+// descriptor pairs, preserving commas inside base64 data: URIs.
+func parseSrcset(raw string) []srcsetCandidate {
+	var out []srcsetCandidate
+	i := 0
+	n := len(raw)
+	for i < n {
+		for i < n && isASCIIWhitespace(raw[i]) {
+			i++
+		}
+		if i >= n {
+			break
+		}
+		if raw[i] == ',' {
+			// Empty candidate slot; skip comma and continue.
+			i++
+			continue
+		}
+		start := i
+		for i < n && !isASCIIWhitespace(raw[i]) {
+			i++
+		}
+		token := raw[start:i]
+		if strings.HasSuffix(token, ",") {
+			u := strings.TrimSuffix(token, ",")
+			out = append(out, srcsetCandidate{url: u})
+			continue
+		}
+		for i < n && isASCIIWhitespace(raw[i]) {
+			i++
+		}
+		descStart := i
+		for i < n && raw[i] != ',' {
+			i++
+		}
+		desc := strings.TrimSpace(raw[descStart:i])
+		if i < n && raw[i] == ',' {
+			i++
+		}
+		out = append(out, srcsetCandidate{url: token, desc: desc})
+	}
+	return out
+}
+
+func sanitizeSrcset(raw string, opts Options) (firstRepoPath string, safeExternal []string) {
+	candidates := parseSrcset(raw)
+	for _, c := range candidates {
+		if c.desc != "" && !srcsetDescriptorPattern.MatchString(c.desc) {
+			continue
+		}
+		if isSafeExternalImageURL(c.url) {
+			if c.desc != "" {
+				safeExternal = append(safeExternal, c.url+" "+c.desc)
+			} else {
+				safeExternal = append(safeExternal, c.url)
+			}
+			continue
+		}
+		if !hasExplicitScheme(c.url) {
+			if path, ok := RepoImage(opts.Directory, opts.Root, c.url); ok && firstRepoPath == "" {
+				firstRepoPath = path
+			}
+		}
+	}
+	return firstRepoPath, safeExternal
+}
+
+func hasExplicitScheme(raw string) bool {
+	cleaned := stripControlAndSpace(raw)
+	return schemePattern.MatchString(cleaned)
+}
+
+func stripControlAndSpace(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] <= 0x20 || s[i] == 0x7f {
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+func isSafeExternalImageURL(raw string) bool {
+	u := strings.TrimSpace(raw)
+	if u == "" {
+		return false
+	}
+	if safeRasterDataURI.MatchString(u) {
+		return true
+	}
+	if strings.ContainsAny(u, ",\"'<> \t\r\n") {
+		return false
+	}
+	for i := 0; i < len(u); i++ {
+		if u[i] < 0x20 || u[i] == 0x7f {
+			return false
+		}
+	}
+	parsed, err := url.Parse(u)
+	if err != nil {
+		return false
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return false
+	}
+	return parsed.Host != "" && parsed.User == nil
+}
+
+func isASCIIWhitespace(b byte) bool {
+	switch b {
+	case ' ', '\t', '\n', '\r', '\f':
+		return true
+	default:
+		return false
+	}
+}
 
 // RepoLink is the absolute repository path a relative link in a document in
 // directory points at (docs/guide.md, ../LICENSE), as the web viewer's
@@ -163,6 +340,7 @@ func RepoLink(directory, href string) (string, bool) {
 			if len(parts) == 0 {
 				return "", false
 			}
+			parts = append(parts, parts[:0]...)
 			parts = parts[:len(parts)-1]
 		default:
 			parts = append(parts, part)
@@ -194,14 +372,6 @@ func RepoImage(directory, root, src string) (string, bool) {
 		return resolved, true
 	}
 	return RepoLink(directory, link)
-}
-
-func firstSrcsetURL(srcset string) string {
-	first := strings.TrimSpace(strings.Split(srcset, ",")[0])
-	if fields := strings.Fields(first); len(fields) > 0 {
-		return fields[0]
-	}
-	return ""
 }
 
 func attr(n *xhtml.Node, key string) string {

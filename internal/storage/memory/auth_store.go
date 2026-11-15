@@ -16,10 +16,16 @@ func (s *AuthStore) StartCliLogin(ctx context.Context) (string, time.Time, error
 	if err != nil {
 		return "", time.Time{}, err
 	}
-	expiresAt := time.Now().UTC().Add(10 * time.Minute)
+	now := time.Now().UTC()
+	expiresAt := now.Add(10 * time.Minute)
 
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
+	for hash, existing := range s.b.cliLoginSessions {
+		if !existing.expiresAt.After(now) {
+			delete(s.b.cliLoginSessions, hash)
+		}
+	}
 	s.b.cliLoginSessions[memoryTokenHash(code)] = cliLoginSession{
 		status:    "pending",
 		expiresAt: expiresAt,
@@ -32,10 +38,6 @@ func (s *AuthStore) CompleteCliLogin(ctx context.Context, code, subjectID string
 	subjectID = strings.TrimSpace(subjectID)
 	if code == "" || subjectID == "" {
 		return storage.ErrNotFound
-	}
-	token, err := objectid.RandomID("clitok")
-	if err != nil {
-		return err
 	}
 
 	s.b.mu.Lock()
@@ -51,10 +53,9 @@ func (s *AuthStore) CompleteCliLogin(ctx context.Context, code, subjectID string
 		}
 		return storage.ErrNotFound
 	}
-	s.b.sessions[token] = subjectID
 	session.status = "approved"
 	session.subjectID = subjectID
-	session.sessionToken = token
+	session.sessionToken = ""
 	s.b.cliLoginSessions[codeHash] = session
 	return nil
 }
@@ -80,8 +81,17 @@ func (s *AuthStore) PollCliLogin(ctx context.Context, code string) (string, stri
 		return "pending", "", "", nil
 	}
 	if session.status == "approved" {
+		token := session.sessionToken
+		if token == "" {
+			var err error
+			token, err = objectid.RandomID("clitok")
+			if err != nil {
+				return "", "", "", err
+			}
+			s.b.sessions[token] = session.subjectID
+		}
 		delete(s.b.cliLoginSessions, codeHash)
-		return "approved", session.sessionToken, session.subjectID, nil
+		return "approved", token, session.subjectID, nil
 	}
 	return "expired", "", "", nil
 }

@@ -83,3 +83,64 @@ func TestRPCCopyAndMovePathLandWithoutReview(t *testing.T) {
 	})
 	assertGRPCCode(t, err, codes.AlreadyExists)
 }
+
+func TestRPCPathOperationsRejectGitsliceAndCrossSliceIntoProtectedSlice(t *testing.T) {
+	ts := startRPCServer(t)
+	token := ts.loginViaGRPC(t, "alice")
+	conn := dialTestGRPC(t, ts.addr)
+	defer conn.Close()
+	ctx := grpcAuthContext(token)
+	clients := newTestCoreClients(conn)
+	slices := corev1.NewSliceServiceClient(conn)
+
+	paymentRef := &corev1.SliceRef{Account: "acme", Slice: "payment"}
+	submitRPCFileWithTitle(t, ctx, clients, "payment", "/acme/payment/outside/unreviewed.txt", "outside\n", "seed outside")
+	submitRPCFileWithTitle(t, ctx, clients, "payment", "/acme/payment/cfg/.gitslice/checks.yaml", "version: 1\nchecks: {}\n", "seed checks")
+	protectedRef := createSubmitRequirementSlice(t, ctx, clients, slices, "protectedcopy", 1, []string{"unit"})
+
+	// 1. Touching .gitslice directly or via a parent folder is always rejected with FailedPrecondition.
+	_, err := clients.changeset.CopyPath(ctx, &corev1.CopyPathRequest{
+		Slice:           paymentRef,
+		SourcePath:      "/acme/payment/outside/unreviewed.txt",
+		DestinationPath: "/acme/payment/.gitslice/checks.yaml",
+	})
+	assertGRPCCode(t, err, codes.FailedPrecondition)
+
+	_, err = clients.changeset.MovePath(ctx, &corev1.MovePathRequest{
+		Slice:           paymentRef,
+		SourcePath:      "/acme/payment/cfg/.gitslice/checks.yaml",
+		DestinationPath: "/acme/payment/outside/moved-checks.yaml",
+	})
+	assertGRPCCode(t, err, codes.FailedPrecondition)
+
+	_, err = clients.changeset.CopyPath(ctx, &corev1.CopyPathRequest{
+		Slice:           paymentRef,
+		SourcePath:      "/acme/payment/cfg",
+		DestinationPath: "/acme/payment/cfg-copy",
+	})
+	assertGRPCCode(t, err, codes.FailedPrecondition)
+
+	// 2. Cross-slice CopyPath into a slice with required approvals/checks is rejected with FailedPrecondition.
+	_, err = clients.changeset.CopyPath(ctx, &corev1.CopyPathRequest{
+		Slice:           protectedRef,
+		SourceSlice:     paymentRef,
+		SourcePath:      "/acme/payment/outside/unreviewed.txt",
+		DestinationPath: "/acme/payment/protectedcopy/unreviewed.txt",
+	})
+	assertGRPCCode(t, err, codes.FailedPrecondition)
+
+	// 3. Copying or moving from an unprotected parent slice into the protected sub-slice is also rejected.
+	_, err = clients.changeset.CopyPath(ctx, &corev1.CopyPathRequest{
+		Slice:           paymentRef,
+		SourcePath:      "/acme/payment/outside/unreviewed.txt",
+		DestinationPath: "/acme/payment/protectedcopy/via-parent.txt",
+	})
+	assertGRPCCode(t, err, codes.FailedPrecondition)
+
+	_, err = clients.changeset.MovePath(ctx, &corev1.MovePathRequest{
+		Slice:           paymentRef,
+		SourcePath:      "/acme/payment/outside/unreviewed.txt",
+		DestinationPath: "/acme/payment/protectedcopy/moved-via-parent.txt",
+	})
+	assertGRPCCode(t, err, codes.FailedPrecondition)
+}

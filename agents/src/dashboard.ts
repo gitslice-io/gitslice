@@ -200,6 +200,7 @@ function connect() {
       baseline = msg.baseline;
     }
     dirty = true;
+    scheduleRender();
   };
 }
 
@@ -252,7 +253,10 @@ function render() {
 
   $("events").innerHTML = events.slice(-40).reverse().map((e) =>
     '<div class="ev ' + esc(e.kind) + '"><time>' + new Date(e.at).toLocaleTimeString([], { hour12: false }) + '</time><span class="who">' + esc(e.agent || "hub") + '</span><span class="what">' + esc(e.message) + "</span></div>").join("");
-  if (open) renderDrawer();
+  if (open) {
+    if (sessions.has(open)) $("drawer").classList.add("open");
+    renderDrawer();
+  }
 }
 
 function card(x) {
@@ -308,11 +312,22 @@ function hunks(g) {
   return list.map((h) => '<div class="hunk"><div class="h">' + esc(short(h.path)) + "</div>" + lines("base   ", "b", h.base) + lines("yours  ", "o", h.ours) + lines("landed ", "t", h.theirs) + "</div>").join("");
 }
 
+let renderTimer = null;
+function scheduleRender() {
+  if (!dirty || document.hidden || renderTimer !== null) return;
+  renderTimer = setTimeout(() => {
+    renderTimer = null;
+    if (!document.hidden) render();
+  }, 100);
+}
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && dirty) scheduleRender();
+});
+
 const hash = new URLSearchParams(location.hash.slice(1));
 if (hash.get("s")) open = hash.get("s");
 connect();
-setInterval(render, 150);
-setInterval(() => { if (open) $("drawer").classList.add("open"); }, 500);
+scheduleRender();
 </script>
 </body>
 </html>`;

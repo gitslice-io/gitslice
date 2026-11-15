@@ -15,10 +15,17 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const maxBundledCheckLogBytes = 4 << 20
+
 func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.UpdateChangesetRequest) (*corev1.Patchset, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
 		return nil, err
+	}
+	for _, bundledRun := range req.GetBundledCheckRuns() {
+		if len(bundledRun.GetLog()) > maxBundledCheckLogBytes {
+			return nil, status.Errorf(codes.InvalidArgument, "bundled check %q log exceeds %d bytes", bundledRun.GetName(), maxBundledCheckLogBytes)
+		}
 	}
 	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionWrite)
 	if err != nil {
@@ -70,7 +77,7 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 	}
 	createdPatchset := priorPatchsetID == "" || patchset.Id != priorPatchsetID
 	if createdPatchset {
-		s.recordBundledCheckRuns(ctx, cs.Id, patchset.Id, req.BundledCheckRuns)
+		s.recordBundledCheckRuns(ctx, cs, slice, patchset, req.BundledCheckRuns)
 		if s.dispatcher != nil {
 			s.dispatcher.cancelOpenCheckRunsBeforePatchset(ctx, cs.Id, patchset.Id)
 		}
@@ -186,12 +193,18 @@ func requireEditBlobsAccessible(ctx context.Context, blobs storage.BlobStore, sl
 	return nil
 }
 
-func (s *ChangesetService) recordBundledCheckRuns(ctx context.Context, changesetID, patchsetID string, bundled []*corev1.BundledCheckRun) {
-	if len(bundled) == 0 || s.Checks == nil {
+func (s *ChangesetService) recordBundledCheckRuns(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, bundled []*corev1.BundledCheckRun) {
+	if len(bundled) == 0 || s.Checks == nil || cs == nil || patchset == nil {
 		return
 	}
+	changesetID := cs.GetId()
+	patchsetID := patchset.GetId()
+	hasDaemon := len(storage.CIDaemonPool(slice)) > 0
 	for _, bundledRun := range bundled {
 		if bundledRun == nil {
+			continue
+		}
+		if isRequiredSliceCheck(slice, bundledRun.GetName()) && (hasDaemon || s.isRequiredCheckOwnedByCIOrTrigger(ctx, cs, slice, patchset, bundledRun.GetName())) {
 			continue
 		}
 		run, err := s.Checks.CreateCheckRun(ctx, storage.CheckRunInput{
@@ -214,8 +227,12 @@ func (s *ChangesetService) recordBundledCheckRuns(ctx context.Context, changeset
 		if _, err := s.Checks.UpdateCheckRunStatus(ctx, run.Id, status, bundledRun.ExitCode, summary); err != nil {
 			slog.Warn("failed to record bundled check status", "run_id", run.Id, "check", bundledRun.Name, "status", status, "error", err)
 		}
-		if bundledRun.Log != "" {
-			if _, err := s.Checks.AppendCheckRunLog(ctx, run.Id, 1, "stdout", bundledRun.Log); err != nil {
+		logText := bundledRun.Log
+		if len(logText) > maxBundledCheckLogBytes {
+			logText = logText[:maxBundledCheckLogBytes]
+		}
+		if logText != "" {
+			if _, err := s.Checks.AppendCheckRunLog(ctx, run.Id, 1, "stdout", logText); err != nil {
 				slog.Warn("failed to record bundled check log", "run_id", run.Id, "check", bundledRun.Name, "error", err)
 			}
 		}

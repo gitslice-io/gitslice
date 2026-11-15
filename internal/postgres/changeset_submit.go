@@ -116,6 +116,9 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 		}
 		return nil, ErrConflict
 	}
+	if cs.Status != "draft" {
+		return nil, ErrConflict
+	}
 	if expectedCurrentPatchsetID != "" && cs.CurrentPatchsetID != expectedCurrentPatchsetID {
 		return nil, ErrConflict
 	}
@@ -147,7 +150,7 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 			return nil, blockSubmitTx(ctx, tx, cs.ID, "BlockedOnBaseChangeset")
 		}
 	}
-	latestReq, latestIncludedPaths, err := submitRequirementsAndIncludedPathsForSliceTx(ctx, tx, cs.SliceID)
+	latestReq, latestIncludedPaths, err := activeSliceRequirementsAndIncludedPathsTx(ctx, tx, cs.SliceID)
 	if err != nil {
 		return nil, err
 	}
@@ -160,6 +163,7 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 	if err != nil {
 		return nil, err
 	}
+	approvalSubjects = storage.FilterApprovalSubjects(approvalSubjects, cs.Author, patchset.Author)
 	checkStatuses, err := checkStatusesTx(ctx, tx, cs.ID, patchset.Id)
 	if err != nil {
 		return nil, err
@@ -193,12 +197,32 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 	if err != nil {
 		return nil, err
 	}
-	_, err = tx.ExecContext(ctx, `
+	res, err := tx.ExecContext(ctx, `
 		insert into pending_publish(id, changeset_id, patchset_id, target_ref, base_ref_commit_id, status, created_at, updated_at)
 		values ($1, $2, $3, $4, $5, 'pending', now(), now())
+		on conflict (changeset_id) do update
+		set id = excluded.id,
+		    sequence = nextval(pg_get_serial_sequence('pending_publish', 'sequence')),
+		    patchset_id = excluded.patchset_id,
+		    target_ref = excluded.target_ref,
+		    base_ref_commit_id = excluded.base_ref_commit_id,
+		    status = 'pending',
+		    commit_id = null,
+		    error = null,
+		    created_at = now(),
+		    updated_at = now(),
+		    published_at = null
+		where pending_publish.status = 'failed'
 	`, pendingID, cs.ID, patchset.Id, cs.TargetRef, currentCommitID)
 	if err != nil {
 		return nil, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if affected == 0 {
+		return nil, ErrConflict
 	}
 	_, err = tx.ExecContext(ctx, `
 		update changesets

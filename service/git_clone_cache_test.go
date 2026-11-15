@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -57,10 +58,10 @@ func newCountingCache(t *testing.T) *countingCache {
 	c.now = func() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.clock }
 	run := c.run
 	c.run = func(ctx context.Context, dir, allow string, args ...string) error {
-		switch args[0] {
-		case "clone":
+		switch {
+		case slices.Contains(args, "clone"):
 			c.clones.Add(1)
-		case "fetch":
+		case slices.Contains(args, "fetch"):
 			c.fetches.Add(1)
 		}
 		return run(ctx, dir, allow, args...)
@@ -215,7 +216,7 @@ func TestImportCloneCacheServesKeptCloneWhenFetchFails(t *testing.T) {
 	release()
 	run := c.run
 	c.run = func(ctx context.Context, dir, allow string, args ...string) error {
-		if args[0] == "fetch" {
+		if slices.Contains(args, "fetch") {
 			return errors.New("fetch: early EOF")
 		}
 		return run(ctx, dir, allow, args...)
@@ -278,5 +279,66 @@ func TestCloneErrorSaysWhetherToRetry(t *testing.T) {
 	cancel()
 	if got := status.Code(cloneError(canceled, errors.New("signal: killed"))); got != codes.Canceled {
 		t.Errorf("cloneError after the client left = %s, want Canceled", got)
+	}
+}
+
+func TestImportGitHardeningFlagsAndBlobCaps(t *testing.T) {
+	source, commit := testGitSource(t)
+	c := newCountingCache(t)
+	var recorded [][]string
+	run := c.run
+	c.run = func(ctx context.Context, dir, allow string, args ...string) error {
+		c.mu.Lock()
+		recorded = append(recorded, append([]string(nil), args...))
+		c.mu.Unlock()
+		return run(ctx, dir, allow, args...)
+	}
+
+	dir, release, err := c.acquire(context.Background(), source, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	commit("second")
+	c.advance(importCloneFetchAfter + time.Second)
+	dir, release, err = c.acquire(context.Background(), source, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	if len(recorded) < 2 {
+		t.Fatalf("recorded %d git commands, want clone and fetch", len(recorded))
+	}
+	for _, args := range recorded {
+		if !slices.Contains(args, "http.followRedirects=false") {
+			t.Fatalf("git args %v missing http.followRedirects=false", args)
+		}
+		if !slices.Contains(args, "--") {
+			t.Fatalf("git args %v missing -- separator", args)
+		}
+	}
+
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD:f.txt").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobID := strings.TrimSpace(string(out))
+
+	prevBlobMax, prevCommitMax := maxGitImportBlobBytes, maxGitImportCommitBytes
+	t.Cleanup(func() {
+		maxGitImportBlobBytes = prevBlobMax
+		maxGitImportCommitBytes = prevCommitMax
+	})
+
+	maxGitImportBlobBytes = 2 // "second" is 6 bytes
+	if _, err := gitBlobContents(context.Background(), dir, []string{blobID}); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("gitBlobContents over single-blob cap = %v, want ResourceExhausted", err)
+	}
+
+	maxGitImportBlobBytes = 64
+	maxGitImportCommitBytes = 8
+	if _, err := gitBlobContents(context.Background(), dir, []string{blobID, blobID}); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("gitBlobContents over commit cap = %v, want ResourceExhausted", err)
 	}
 }
