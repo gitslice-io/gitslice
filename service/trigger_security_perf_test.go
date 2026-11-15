@@ -1,13 +1,20 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"gitslice.io/gitslice/internal/activity"
+	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/objectstore/filesystem"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
 	"gitslice.io/gitslice/internal/triggers"
@@ -439,4 +446,317 @@ type zeroReader struct{}
 func (zeroReader) Read(p []byte) (int, error) {
 	clear(p)
 	return len(p), nil
+}
+
+func TestBlobAndRepositoryResourceCaps(t *testing.T) {
+	mem, h := newSliceMemberHandlers(t)
+	alice := subjectCtx("user_alice")
+	sliceRef := &corev1.SliceRef{Account: "acme", Slice: "payment"}
+
+	// 1. GetBlobStatus caps ContentHashes at getBlobStatusMaxHashes (1000).
+	tooMany := make([]string, getBlobStatusMaxHashes+1)
+	for i := range tooMany {
+		tooMany[i] = fmt.Sprintf("sha256:%064x", i)
+	}
+	_, err := h.Blob.GetBlobStatus(alice, &corev1.GetBlobStatusRequest{
+		Slice:         sliceRef,
+		ContentHashes: tooMany,
+	})
+	wantCode(t, err, codes.InvalidArgument, "GetBlobStatus > 1000 hashes")
+
+	// 2. UploadBlobStream rejects declared size > 256 MiB and streamed bytes > 256 MiB.
+	blobSvc := &BlobService{
+		Auth:        mem.Auth,
+		Blobs:       mem.Blobs,
+		Slices:      mem.Slices,
+		ObjectStore: discardObjectStore{ObjectStore: mem.Objects},
+	}
+	tooBigDeclared := int64(maxBlobStreamUploadBytes + 1)
+	err = blobSvc.UploadBlobStream(&uploadBlobStreamServerForTest{
+		ctx: authctx.WithSubjectID(context.Background(), "user_alice"),
+		chunks: []*corev1.UploadBlobChunk{{
+			Payload: &corev1.UploadBlobChunk_Init{Init: &corev1.UploadBlobInit{
+				Slice: sliceRef,
+				Size:  &tooBigDeclared,
+			}},
+		}},
+	})
+	wantCode(t, err, codes.ResourceExhausted, "UploadBlobStream declared size > 256 MiB")
+
+	oneMiB := make([]byte, blobStreamChunkBytes)
+	err = blobSvc.UploadBlobStream(&repeatingUploadStream{
+		ctx:       authctx.WithSubjectID(context.Background(), "user_alice"),
+		slice:     sliceRef,
+		chunk:     oneMiB,
+		remaining: (maxBlobStreamUploadBytes / blobStreamChunkBytes) + 1,
+	})
+	wantCode(t, err, codes.ResourceExhausted, "UploadBlobStream streamed > 256 MiB")
+
+	// 3. Unary ReadFile rejects length > 64 MiB and streams > 64 MiB when req.Length == 0.
+	head, err := h.Repository.GetRef(alice, &corev1.GetRefRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	small, err := h.Blob.UploadBlob(alice, &corev1.UploadBlobRequest{Data: []byte("hello\n"), Slice: sliceRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	csRead, err := h.Changeset.CreateChangeset(alice, &corev1.CreateChangesetRequest{
+		AuthoringSlice: sliceRef,
+		BaseCommitId:   head.CommitId,
+		Title:          "seed file",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	psRead, err := h.Changeset.UpdateChangeset(alice, &corev1.UpdateChangesetRequest{
+		ChangesetId:  csRead.Id,
+		BaseCommitId: head.CommitId,
+		FileEdits: []*corev1.FileEdit{{
+			Op:          "upsert",
+			Path:        "/acme/payment/seed.txt",
+			BlobId:      small.BlobId,
+			ContentHash: small.ContentHash,
+			Mode:        0o100644,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Changeset.SubmitChangeset(alice, &corev1.SubmitChangesetRequest{
+		ChangesetId:               csRead.Id,
+		ExpectedCurrentPatchsetId: psRead.Id,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mem.Changesets.PublishPending(alice, 10); err != nil {
+		t.Fatal(err)
+	}
+	landed, err := h.Repository.GetRef(alice, &corev1.GetRefRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = h.Repository.ReadFile(alice, &corev1.ReadFileRequest{
+		Slice:    sliceRef,
+		CommitId: landed.CommitId,
+		Path:     "/acme/payment/seed.txt",
+		Length:   maxUnaryReadFileBytes + 1,
+	})
+	wantCode(t, err, codes.ResourceExhausted, "ReadFile explicit length > 64 MiB")
+
+	// Even if metadata Size is small, LimitReader caps unary ReadFile (req.Length == 0) at 64 MiB.
+	repoBounded := &RepositoryService{
+		Auth:       mem.Auth,
+		Repository: mem.Repository,
+		Slices:     mem.Slices,
+		Changesets: mem.Changesets,
+		ObjectStore: oversizedZeroStreamObjectStore{
+			ObjectStore: mem.Objects,
+			key:         filesystem.BlobKey(small.ContentHash),
+			size:        maxUnaryReadFileBytes + 1024,
+		},
+	}
+	_, err = repoBounded.ReadFile(alice, &corev1.ReadFileRequest{
+		Slice:    sliceRef,
+		CommitId: landed.CommitId,
+		Path:     "/acme/payment/seed.txt",
+	})
+	wantCode(t, err, codes.ResourceExhausted, "ReadFile streaming > 64 MiB with Length == 0")
+
+	// 4. DiffChangeset caps per-file diff at 4 MiB (with 8 KiB binary sniff) and total diff output at 16 MiB.
+	largeText := bytes.Repeat([]byte("a"), maxDiffFileBytes+128)
+	largeBin := append([]byte{0x00, 0x01, 0x02}, bytes.Repeat([]byte("b"), maxDiffFileBytes+128)...)
+	upText, err := h.Blob.UploadBlob(alice, &corev1.UploadBlobRequest{Data: largeText, Slice: sliceRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	upBin, err := h.Blob.UploadBlob(alice, &corev1.UploadBlobRequest{Data: largeBin, Slice: sliceRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	csDiff, err := h.Changeset.CreateChangeset(alice, &corev1.CreateChangesetRequest{
+		AuthoringSlice: sliceRef,
+		BaseCommitId:   landed.CommitId,
+		Title:          "large diff",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edits := []*corev1.FileEdit{
+		{Op: "upsert", Path: "/acme/payment/huge.txt", BlobId: upText.BlobId, ContentHash: upText.ContentHash, Mode: 0o100644},
+		{Op: "upsert", Path: "/acme/payment/huge.bin", BlobId: upBin.BlobId, ContentHash: upBin.ContentHash, Mode: 0o100644},
+	}
+	// Add 6 medium text files (~3.5 MiB each) so total diff exceeds 16 MiB (maxDiffOutputBytes).
+	chunkText := bytes.Repeat([]byte("line of diff output content here\n"), 110_000) // ~3.6 MiB < 4 MiB
+	upChunk, err := h.Blob.UploadBlob(alice, &corev1.UploadBlobRequest{Data: chunkText, Slice: sliceRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 6 {
+		edits = append(edits, &corev1.FileEdit{
+			Op:          "upsert",
+			Path:        fmt.Sprintf("/acme/payment/part_%d.txt", i),
+			BlobId:      upChunk.BlobId,
+			ContentHash: upChunk.ContentHash,
+			Mode:        0o100644,
+		})
+	}
+	if _, err := h.Changeset.UpdateChangeset(alice, &corev1.UpdateChangesetRequest{
+		ChangesetId:  csDiff.Id,
+		BaseCommitId: landed.CommitId,
+		FileEdits:    edits,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	diffResp, err := h.Changeset.DiffChangeset(alice, &corev1.DiffChangesetRequest{ChangesetId: csDiff.Id})
+	if err != nil {
+		t.Fatalf("DiffChangeset: %v", err)
+	}
+	if !strings.Contains(diffResp.Diff, "Binary files /dev/null and b/acme/payment/huge.bin differ") {
+		t.Fatalf("expected binary notice for oversized binary file in diff")
+	}
+	if !strings.Contains(diffResp.Diff, "Diff too large to render: a/acme/payment/huge.txt and b/acme/payment/huge.txt differ (exceeds 4 MiB per-file diff limit)") {
+		t.Fatalf("expected large-file notice for oversized text file in diff")
+	}
+	if !strings.Contains(diffResp.Diff, "# diff output truncated: exceeds total diff size limit") {
+		t.Fatalf("expected total diff truncation notice when total diff > 16 MiB")
+	}
+	if len(diffResp.Diff) > maxDiffOutputBytes+256 {
+		t.Fatalf("diff output length %d exceeded cap %d", len(diffResp.Diff), maxDiffOutputBytes)
+	}
+}
+
+type countingMissingGitBlobStore struct {
+	storage.BlobStore
+	calls atomic.Int64
+}
+
+func (c *countingMissingGitBlobStore) ListMissingGitBlobIDs(ctx context.Context, limit int) ([]*corev1.BlobRecord, error) {
+	c.calls.Add(1)
+	return c.BlobStore.ListMissingGitBlobIDs(ctx, limit)
+}
+
+type countingMirrorSliceStore struct {
+	storage.SliceStore
+	gets atomic.Int64
+}
+
+func (c *countingMirrorSliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, error) {
+	c.gets.Add(1)
+	return c.SliceStore.Get(ctx, sliceID)
+}
+
+func TestGitBlobBackfillIdleWaitAndGitMirrorCoveringFanOut(t *testing.T) {
+	t.Cleanup(func() {
+		done := activity.Default.Begin()
+		done()
+	})
+
+	mem := memory.New()
+	mem.AddAccount("user_alice", "acme")
+
+	// 1. RunGitBlobBackfill waits on activity.Default before its initial DB query.
+	blobStore := &countingMissingGitBlobStore{BlobStore: mem.Blobs}
+	blobSvc := &BlobService{
+		Auth:        mem.Auth,
+		Blobs:       blobStore,
+		Slices:      mem.Slices,
+		ObjectStore: mem.Objects,
+	}
+
+	activity.Default.ResetIdle()
+	ctx, cancel := context.WithCancel(context.Background())
+	doneCh := make(chan struct{})
+	go func() {
+		defer close(doneCh)
+		blobSvc.RunGitBlobBackfill(ctx)
+	}()
+
+	time.Sleep(40 * time.Millisecond)
+	if got := blobStore.calls.Load(); got != 0 {
+		cancel()
+		<-doneCh
+		t.Fatalf("ListMissingGitBlobIDs called %d times while idle, want 0", got)
+	}
+
+	endReq := activity.Default.Begin()
+	endReq()
+	deadline := time.Now().Add(2 * time.Second)
+	for blobStore.calls.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-doneCh
+	if blobStore.calls.Load() == 0 {
+		t.Fatal("RunGitBlobBackfill did not run after activity woke the gate")
+	}
+
+	// 2. GitMirrors.FanOut uses CoveringIDsByPath with 0 Slices.Get calls across mirrored slices.
+	touched := mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "touched"}, []string{"/acme/touched"}, "private")
+	if _, err := mem.GitMirrors.PutGitMirror(context.Background(), storage.GitMirror{
+		SliceID:   touched.Id,
+		URL:       "https://github.com/acme/touched.git",
+		CreatedBy: "user_alice",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	untouchedIDs := make([]string, 0, 20)
+	for i := range 20 {
+		other := mem.PutSlice(
+			&corev1.SliceRef{Account: "acme", Slice: fmt.Sprintf("other_%d", i)},
+			[]string{fmt.Sprintf("/acme/other_%d", i)},
+			"private",
+		)
+		untouchedIDs = append(untouchedIDs, other.Id)
+		if _, err := mem.GitMirrors.PutGitMirror(context.Background(), storage.GitMirror{
+			SliceID:   other.Id,
+			URL:       fmt.Sprintf("https://github.com/acme/other_%d.git", i),
+			CreatedBy: "user_alice",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Clear initial pending state from PutGitMirror? Let's check: PutGitMirror sets PendingSeq=1,
+	// so finish them first so Pending() is false before FanOut!
+	for _, id := range append([]string{touched.Id}, untouchedIDs...) {
+		m, err := mem.GitMirrors.GetGitMirror(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := mem.GitMirrors.FinishGitMirror(context.Background(), id, storage.GitMirrorPush{
+			Seq:    m.PendingSeq,
+			OK:     true,
+			Commit: "init",
+			At:     time.Now().UTC(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sliceStore := &countingMirrorSliceStore{SliceStore: mem.Slices}
+	mirrors := &GitMirrors{
+		Mirrors:             mem.GitMirrors,
+		Slices:              sliceStore,
+		AllowPrivateTargets: true,
+	}
+	mirrors.FanOut(context.Background(), storage.WebhookEvent{
+		Kind:         storage.WebhookEventChangesetSubmitted,
+		TargetRef:    storage.DefaultTargetRef,
+		ChangedPaths: []string{"/acme/touched/file.go"},
+	})
+
+	if gets := sliceStore.gets.Load(); gets != 0 {
+		t.Fatalf("GitMirrors.FanOut Slices.Get calls = %d, want 0", gets)
+	}
+	tm, err := mem.GitMirrors.GetGitMirror(context.Background(), touched.Id)
+	if err != nil || !tm.Pending() {
+		t.Fatalf("touched mirror pending = %v (err=%v), want true", tm != nil && tm.Pending(), err)
+	}
+	um, err := mem.GitMirrors.GetGitMirror(context.Background(), untouchedIDs[0])
+	if err != nil || um.Pending() {
+		t.Fatalf("untouched mirror pending = %v (err=%v), want false", um != nil && um.Pending(), err)
+	}
 }
