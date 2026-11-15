@@ -31,9 +31,15 @@ service_account() {
 
 case "${1:-}" in
   run)
-    subs=""
-    if [ -n "${2:-}" ]; then subs="--substitutions=_TAG=$2,_FORCE=1"; fi
-    gcloud builds submit --project "$project" --no-source --config "$here/cloudbuild.yaml" $subs
+    subs=()
+    if [ -n "${2:-}" ]; then
+      if [[ ! "$2" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+        echo "invalid release tag: $2" >&2
+        exit 1
+      fi
+      subs=("--substitutions=_TAG=$2,_FORCE=1")
+    fi
+    gcloud builds submit --project "$project" --no-source --config "$here/cloudbuild.yaml" "${subs[@]+"${subs[@]}"}"
     ;;
   webhook)
     account="$(service_account)"
