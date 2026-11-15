@@ -9500,3 +9500,25 @@ pages are code-split, analytics waits for the page to load.
   `tests/rpc` and `internal/postgres` suites pass.
 - Web: panel tests, `tsc`, `npm run build`; full vitest 696/698 with two
   timing failures in `SlicePages.test.tsx` under load, which pass alone.
+
+## 2026-11-15 — Security and performance sweep, reverted and relanded in parts
+
+**Why**
+- Changeset dc7e14f0e0 (an agent's repo-wide security and scale-to-zero sweep: 259 files, +19.5k lines) landed in one piece. Review found regressions, so it was reverted (5c72b8772c) and its fixes relanded one area at a time, each reviewable on its own.
+
+**What changed**
+- 31 changesets reland the sweep: secret envelopes, Markdown image sources, Clerk azp and JWKS, IPv6 SSRF ranges, tracked migrations, draft-only changeset mutations, checks.yaml validation, card and avatar limits, copy/move guards, authorization gaps, Git Smart-HTTP limits and reachable-only wants, account/CLI-login storage, Postgres performance, check-container isolation, git import limits, tree/object storage, triggers and check secrets, the mirror exporter, lazyfs, the server's idle gate, rate limits and deadlines, the CLI (transport, upgrade, confinement, agents, mounts, state files), the three Workers, release scripts, and diff limits. Each description lists what it changes.
+- Fixed while relanding (the original change had these):
+  - The migration runner held a session `pg_advisory_lock` through Neon's transaction pooler, where it can stay on a pooled backend and hang the next migrate job; each migration now takes `pg_advisory_xact_lock` in its own transaction. Tracking migrations also stops `0042_clear_blame_snapshots.sql` clearing blame snapshots on every deploy.
+  - Check images (`build:`, `setup:`) were built with `--network=none` unless the check set `network: true`, which breaks `ci/Dockerfile` (`go mod download`) and `web/ci/Dockerfile` (`npm ci`); builds keep network. Services ran with `--cap-drop=ALL`, which stops `postgres:16` from starting; services keep the default capabilities.
+  - FUSE reused a cached child's inode for a new file of the same name, so after a rename the kernel served the old file's content (`TestWritableMountMatchesARealDirectory`); the inode reuse is dropped.
+  - gRPC's pre-auth per-IP limit used the Git HTTP rate (30/s) for every call; behind Cloudflare's shared edge addresses that throttles everyone's gs and CI traffic together. It now uses the per-subject rate.
+  - `ops/release/build.sh` let pre-release tags become `latest.json` (`sort -V` ranks `v1.2.0-rc1` above `v1.2.0`); only `vX.Y.Z` tags are built and published as latest.
+  - Git import refused files over 64 MiB, below GitHub's own 100 MiB limit; the cap is 100 MiB.
+- Not relanded yet: writing secrets as `enc:v2` (AAD-bound). Reading `enc:v2` is live first, so a server can be rolled back safely; the writer follows after a deploy.
+- Review note: I first flagged the draft-only rule as leaving a changeset stuck after a failed publish; that was wrong, a publish is only marked failed once the changeset has left `pending_publish`.
+
+**Verification**
+- Each changeset passed the slice's required checks (gofmt, vet, test, build, e2e). Several e2e runs first failed on CI load or a full disk (Postgres in recovery, the 10-minute package timeout) and passed on rerun.
+- Tests CI can't run (no Docker or FUSE in its container) were run locally: `internal/checkexec` service and build tests, `internal/lazyfs/fusefs`, and the lazy-mount e2e tests. The Workers' `node --test` suites pass (doorbell 9, trigger-dispatch 6, agents 18).
+- A no-push run of the relanded mirror exporter against github.com/gitslice-io/gitslice produced the same head as the previous exporter.
