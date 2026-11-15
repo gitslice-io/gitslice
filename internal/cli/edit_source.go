@@ -2,7 +2,13 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"gitslice.io/gitslice/internal/clientcache"
@@ -34,7 +40,8 @@ type workspaceEdits struct {
 }
 
 // editSourceFor returns the edit source for a workspace: a walk for an eager
-// one, the local layer (through its mount daemon) for a lazy one.
+// one, the local layer (through its mount daemon, or local state when
+// unmounted) for a lazy one.
 func (r Runner) editSourceFor(ws WorkspaceConfig) (editSource, error) {
 	root, err := r.workspaceRoot()
 	if err != nil {
@@ -48,11 +55,7 @@ func (r Runner) editSourceFor(ws WorkspaceConfig) (editSource, error) {
 	if err != nil {
 		return nil, err
 	}
-	manifest, err := r.loadMountManifest(rec)
-	if err != nil {
-		return nil, err
-	}
-	return overlayEditSource{fs: daemonLayerView{id: id, manifest: manifest, mountRoot: root}, ws: ws, mountRoot: root}, nil
+	return overlayEditSource{fs: r.newDaemonLayerView(rec, root, nil), ws: ws, mountRoot: root}, nil
 }
 
 // walkEditSource finds edits by hashing every file of an eager workspace (the
@@ -88,11 +91,77 @@ func (s walkEditSource) edits(ctx context.Context, base BaseSnapshot, hashConcur
 }
 
 // readWorkingFile returns a workspace file's content: from the file on disk
-// when there is one, else from the client cache by its hash (a lazy
-// workspace's file that was renamed but never read has no local copy).
+// when there is one (confined without following symlinks), else from the client
+// cache by its hash (a lazy workspace's file that was renamed but never read
+// has no local copy).
 func readWorkingFile(file workingFile, cache *clientcache.ObjectCache) ([]byte, error) {
 	if file.AbsPath != "" {
-		return os.ReadFile(file.AbsPath)
+		rootDir, relPath := splitConfinedWorkingPath(file)
+		if isSymlinkMode(file.Mode) {
+			if dir := filepath.Dir(relPath); dir != "." {
+				root, err := os.OpenRoot(rootDir)
+				if err != nil {
+					return nil, err
+				}
+				_, statErr := root.Lstat(relPath)
+				_ = root.Close()
+				if statErr != nil {
+					return nil, statErr
+				}
+			}
+			target, err := os.Readlink(file.AbsPath)
+			if err != nil {
+				return nil, err
+			}
+			return []byte(target), nil
+		}
+		root, err := os.OpenRoot(rootDir)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) && file.ContentHash != "" && cache != nil && cache.Exists(file.ContentHash) {
+				return cache.Read(file.ContentHash)
+			}
+			return nil, err
+		}
+		f, err := root.Open(relPath)
+		if err != nil {
+			_ = root.Close()
+			if errors.Is(err, fs.ErrNotExist) && file.ContentHash != "" && cache != nil && cache.Exists(file.ContentHash) {
+				return cache.Read(file.ContentHash)
+			}
+			return nil, err
+		}
+		info, sErr := f.Stat()
+		if sErr != nil {
+			_ = f.Close()
+			_ = root.Close()
+			return nil, sErr
+		}
+		if !info.Mode().IsRegular() {
+			_ = f.Close()
+			_ = root.Close()
+			return nil, fmt.Errorf("working file %s is not a regular file", file.AbsPath)
+		}
+		data, rErr := io.ReadAll(f)
+		_ = f.Close()
+		_ = root.Close()
+		return data, rErr
 	}
 	return cache.Read(file.ContentHash)
+}
+
+func splitConfinedWorkingPath(file workingFile) (string, string) {
+	if file.RelPath != "" {
+		if cleanRel, err := cleanConfinedRelPath(file.RelPath); err == nil {
+			relSlash := filepath.FromSlash(cleanRel)
+			sepSuffix := string(filepath.Separator) + relSlash
+			if strings.HasSuffix(file.AbsPath, sepSuffix) {
+				rootDir := strings.TrimSuffix(file.AbsPath, sepSuffix)
+				if rootDir == "" {
+					rootDir = string(filepath.Separator)
+				}
+				return rootDir, relSlash
+			}
+		}
+	}
+	return filepath.Dir(file.AbsPath), filepath.Base(file.AbsPath)
 }

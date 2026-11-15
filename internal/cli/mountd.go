@@ -11,7 +11,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"sort"
 	"sync"
 	"syscall"
@@ -56,11 +55,7 @@ func (r Runner) runMountSupervisor(ctx context.Context) error {
 	if _, err := callMountd(socket, mountdRequest{Op: "ping"}); err == nil {
 		return nil // one is already running
 	}
-	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
-		return err
-	}
-	_ = os.Remove(socket)
-	listener, err := net.Listen("unix", socket)
+	listener, err := listenUnixControlSocket(socket)
 	if err != nil {
 		return fmt.Errorf("mount supervisor cannot listen on %s: %w", socket, err)
 	}
@@ -114,6 +109,10 @@ func (s *mountSupervisor) logf(format string, args ...any) { s.logger.Printf(for
 
 func (s *mountSupervisor) serve(conn net.Conn) {
 	defer conn.Close()
+	if err := verifyUnixPeerUID(conn); err != nil {
+		s.logger.Printf("rejected control connection: %v", err)
+		return
+	}
 	_ = conn.SetDeadline(time.Now().Add(time.Minute))
 	var req mountdRequest
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
@@ -159,6 +158,9 @@ func mountdError(err error) mountdReply {
 // attach mounts the workspace the record names and serves it until it is
 // unmounted.
 func (s *mountSupervisor) attach(id string) mountdReply {
+	if err := validateMountID(id); err != nil {
+		return mountdError(userError("invalid_workspace_id", "invalid lazy workspace id", "Run gs mount list."))
+	}
 	s.mu.Lock()
 	if s.workspaces[id] != nil || s.attaching[id] {
 		s.mu.Unlock()

@@ -32,18 +32,15 @@ func mounted(dir string) bool {
 	return false
 }
 
-// isolateClientCache lets each home keep its own content cache even when the
-// environment names a shared one, so a test can tell what a mount fetched.
-func isolateClientCache(t *testing.T) {
-	t.Helper()
-	t.Setenv("GS_CLIENT_CACHE_DIR", "")
-	t.Setenv("GITSLICE_CLIENT_CACHE_DIR", "")
-}
-
 // startMount serves gs mount --foreground in the background and waits for the
 // mount to come up. The returned channel reports when it ends.
 func startMount(t *testing.T, home, cwd string, args ...string) <-chan error {
 	t.Helper()
+	if runtimeDir := os.Getenv("XDG_RUNTIME_DIR"); runtimeDir == "" {
+		setMountRuntimeDir(t)
+	} else {
+		_ = os.Chmod(runtimeDir, 0o700)
+	}
 	dir := args[len(args)-1]
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
@@ -707,42 +704,12 @@ func TestMountWorksWithoutTheServer(t *testing.T) {
 	}
 }
 
-// startMountSupervisor runs the mount supervisor (gs mountd) in this process,
-// with its sockets in a directory of its own, and waits for it to listen. The
-// returned channel reports when it ends.
-func startMountSupervisor(t *testing.T, home, cwd string) <-chan error {
-	t.Helper()
-	runtimeDir := os.Getenv("XDG_RUNTIME_DIR")
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan error, 1)
-	go func() {
-		var out strings.Builder
-		r := cli.Runner{Home: home, Dir: cwd, Stdout: &out, Stderr: &out}
-		done <- r.Run(ctx, []string{"mountd"})
-	}()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case <-done:
-		case <-time.After(20 * time.Second):
-		}
-	})
-	for i := 0; i < 100; i++ {
-		if matches, _ := filepath.Glob(filepath.Join(runtimeDir, "gs-mountd-*.sock")); len(matches) > 0 {
-			return done
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Fatal("the mount supervisor did not start listening")
-	return done
-}
-
 // TestMountSupervisorServesEveryMountInOneProcess: gs mount hands each
 // workspace to one supervisor, which serves them independently, keeps working
 // while another is unmounted, and exits when the last one is.
 func TestMountSupervisorServesEveryMountInOneProcess(t *testing.T) {
 	isolateClientCache(t)
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	setMountRuntimeDir(t)
 	t.Setenv("GS_MOUNTD_IDLE", "1s")
 	if _, err := os.Stat("/dev/fuse"); err != nil {
 		t.Skip("no /dev/fuse here")
@@ -833,7 +800,7 @@ func TestMountSupervisorServesEveryMountInOneProcess(t *testing.T) {
 // re-attaches it, edits included, after an unmount.
 func TestInitLazyCreatesAMountAndMountBringsItBack(t *testing.T) {
 	isolateClientCache(t)
-	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	setMountRuntimeDir(t)
 	if _, err := os.Stat("/dev/fuse"); err != nil {
 		t.Skip("no /dev/fuse here")
 	}

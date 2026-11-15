@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"io/fs"
 	"net"
@@ -16,8 +17,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
@@ -96,27 +99,161 @@ func (r Runner) mountsRoot() string {
 	return filepath.Join(r.homeDir(), ".local", "share", "gitslice", "mounts")
 }
 
-func (r Runner) mountStateDir(id string) string { return filepath.Join(r.mountsRoot(), id) }
+var errInvalidMountID = errors.New("invalid mount workspace id")
 
-// mountRuntimeDir is where the mount sockets live, in a short path: a socket
-// path is limited to about 100 bytes.
-func mountRuntimeDir() string {
-	dir := os.Getenv("XDG_RUNTIME_DIR")
-	if dir == "" {
-		// macOS's $TMPDIR alone takes half of the 104 bytes a socket path
-		// may have there.
-		tmp := os.TempDir()
-		if runtime.GOOS == "darwin" {
-			tmp = "/tmp"
-		}
-		dir = filepath.Join(tmp, fmt.Sprintf("gitslice-%d", os.Getuid()))
+// maxMountRuntimeDirLen keeps "<runtimeDir>/gs-mount-<16hex>.sock" within
+// macOS's 104-byte sockaddr_un.sun_path limit (103 non-NUL bytes).
+const maxMountRuntimeDirLen = 72
+
+func isValidMountID(id string) bool {
+	if len(id) != 16 {
+		return false
 	}
-	return dir
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+func validateMountID(id string) error {
+	if !isValidMountID(id) {
+		return fmt.Errorf("%w: %q", errInvalidMountID, id)
+	}
+	return nil
+}
+
+func (r Runner) mountStateDir(id string) string {
+	if !isValidMountID(id) {
+		return filepath.Join(r.mountsRoot(), "_invalid_mount_id")
+	}
+	return filepath.Join(r.mountsRoot(), id)
+}
+
+// mountRuntimeDir is where the mount sockets live, in a user-owned 0700
+// directory short enough for Unix domain sockets (104 bytes on macOS).
+func mountRuntimeDir() string {
+	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+		return filepath.Clean(dir)
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		candidate := filepath.Join(home, ".gitslice", "run")
+		if len(candidate) <= maxMountRuntimeDirLen {
+			return candidate
+		}
+	}
+	// Fallback when HOME is unset or exceeds sun_path budget: verified via
+	// strict Lstat ownership, non-symlink, and 0700 mode before use.
+	tmp := os.TempDir()
+	if runtime.GOOS == "darwin" {
+		tmp = "/tmp"
+	}
+	return filepath.Join(tmp, fmt.Sprintf("gitslice-%d", os.Getuid()))
+}
+
+func verifyMountRuntimeDir(dir string) error {
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("mount runtime directory %s is not a real directory", dir)
+	}
+	if uid, ok := fileOwnerUID(info); !ok || uid != os.Getuid() {
+		return fmt.Errorf("mount runtime directory %s is not owned by current user", dir)
+	}
+	if info.Mode().Perm() != 0o700 {
+		return fmt.Errorf("mount runtime directory %s has unsafe mode %04o (want 0700)", dir, info.Mode().Perm())
+	}
+	return nil
+}
+
+func ensureMountRuntimeDir(dir string) error {
+	if _, err := os.Lstat(dir); errors.Is(err, fs.ErrNotExist) {
+		parent := filepath.Dir(dir)
+		if err := os.MkdirAll(parent, 0o700); err != nil {
+			return err
+		}
+		if pInfo, err := os.Lstat(parent); err != nil || pInfo.Mode()&os.ModeSymlink != 0 || !pInfo.IsDir() {
+			if err != nil {
+				return err
+			}
+			return fmt.Errorf("mount runtime parent %s is not a real directory", parent)
+		}
+		created := false
+		if err := os.Mkdir(dir, 0o700); err == nil {
+			created = true
+		} else if !errors.Is(err, fs.ErrExist) {
+			return err
+		}
+		if created {
+			if info, err := os.Lstat(dir); err == nil && info.Mode()&os.ModeSymlink == 0 && info.IsDir() {
+				if uid, ok := fileOwnerUID(info); ok && uid == os.Getuid() {
+					_ = os.Chmod(dir, 0o700)
+				}
+			}
+		}
+	}
+	return verifyMountRuntimeDir(dir)
+}
+
+func listenUnixControlSocket(socket string) (net.Listener, error) {
+	if err := ensureMountRuntimeDir(filepath.Dir(socket)); err != nil {
+		return nil, err
+	}
+	if info, err := os.Lstat(socket); err == nil {
+		if info.Mode()&os.ModeSocket == 0 {
+			return nil, fmt.Errorf("refusing to overwrite non-socket %s", socket)
+		}
+		_ = os.Remove(socket)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(socket, 0o600); err != nil {
+		_ = listener.Close()
+		_ = os.Remove(socket)
+		return nil, err
+	}
+	return listener, nil
+}
+
+func verifyUnixPeerUID(conn net.Conn) error {
+	sc, ok := conn.(syscall.Conn)
+	if !ok {
+		return fmt.Errorf("unix connection does not support peer credential check")
+	}
+	raw, err := sc.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var peerUID int
+	var credErr error
+	if err := raw.Control(func(fd uintptr) {
+		peerUID, credErr = socketPeerUID(int(fd))
+	}); err != nil {
+		return err
+	}
+	if credErr != nil {
+		return credErr
+	}
+	if peerUID != os.Getuid() {
+		return fmt.Errorf("rejected unix socket peer uid %d (expected %d)", peerUID, os.Getuid())
+	}
+	return nil
 }
 
 // mountControlPath is a lazy workspace's control socket, served by whichever
 // process has it mounted.
 func mountControlPath(id string) string {
+	if !isValidMountID(id) {
+		return filepath.Join(mountRuntimeDir(), "gs-mount-_invalid.sock")
+	}
 	return filepath.Join(mountRuntimeDir(), "gs-mount-"+id+".sock")
 }
 
@@ -146,11 +283,17 @@ type mountdReply struct {
 // is errMountUnreachable; an error it reports comes back as a user error.
 func callMountd(socket string, req mountdRequest) (mountdReply, error) {
 	var reply mountdReply
+	if err := verifyMountRuntimeDir(filepath.Dir(socket)); err != nil {
+		return reply, fmt.Errorf("%w: %v", errMountUnreachable, err)
+	}
 	conn, err := net.DialTimeout("unix", socket, 2*time.Second)
 	if err != nil {
 		return reply, fmt.Errorf("%w: %v", errMountUnreachable, err)
 	}
 	defer conn.Close()
+	if err := verifyUnixPeerUID(conn); err != nil {
+		return reply, fmt.Errorf("%w: %v", errMountUnreachable, err)
+	}
 	_ = conn.SetDeadline(time.Now().Add(time.Minute))
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return reply, err
@@ -174,13 +317,24 @@ func newMountID() (string, error) {
 
 func (r Runner) readMountRecord(id string) (mountRecord, error) {
 	var rec mountRecord
-	err := readJSONFile(filepath.Join(r.mountStateDir(id), "mount.json"), &rec)
-	return rec, err
+	if err := validateMountID(id); err != nil {
+		return rec, err
+	}
+	if err := readJSONFile(filepath.Join(r.mountStateDir(id), "mount.json"), &rec); err != nil {
+		return rec, err
+	}
+	if rec.ID != id {
+		return mountRecord{}, fmt.Errorf("%w: record id %q does not match %q", errInvalidMountID, rec.ID, id)
+	}
+	return rec, nil
 }
 
 // writeMountRecord replaces mount.json atomically: the daemon rewrites it
 // while commands may be reading it.
 func (r Runner) writeMountRecord(rec mountRecord) error {
+	if err := validateMountID(rec.ID); err != nil {
+		return err
+	}
 	path := filepath.Join(r.mountStateDir(rec.ID), "mount.json")
 	tmp := path + ".tmp"
 	if err := writeJSONFile(tmp, rec, 0o600); err != nil {
@@ -386,6 +540,7 @@ type mountFetcher struct {
 	manifest  *lazyfs.Manifest
 	byHash    map[string]lazyfs.BaseEntry // a base file with each content hash, built when first needed
 	inflight  map[string]*fetchCall       // by content hash
+	completed map[string]bool             // hashes fetched on current base, avoiding duplicate schedules across unlocked Stat
 	files     int64
 	bytes     int64
 
@@ -400,21 +555,30 @@ type fetchCall struct {
 }
 
 func newMountFetcher(r Runner, conn *grpc.ClientConn, slice *corev1.SliceRef, cache *clientcache.ObjectCache, manifest *lazyfs.Manifest) *mountFetcher {
-	return &mountFetcher{r: r, conn: conn, slice: slice, cache: cache, commitID: manifest.CommitID(), manifest: manifest, inflight: map[string]*fetchCall{}}
+	return &mountFetcher{
+		r:         r,
+		conn:      conn,
+		slice:     slice,
+		cache:     cache,
+		commitID:  manifest.CommitID(),
+		manifest:  manifest,
+		inflight:  map[string]*fetchCall{},
+		completed: map[string]bool{},
+	}
 }
 
 // setBase points the fetcher at a new base, after gs sync moved the layers.
 func (f *mountFetcher) setBase(manifest *lazyfs.Manifest) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.manifest, f.commitID, f.byHash = manifest, manifest.CommitID(), nil
+	f.manifest, f.commitID, f.byHash, f.completed = manifest, manifest.CommitID(), nil, map[string]bool{}
 	f.ahead.reset()
 }
 
 // Fetch implements fusefs.Fetcher.
 func (f *mountFetcher) Fetch(ctx context.Context, p string, attr lazyfs.Attr) (string, bool, error) {
 	f.observeRead(p)
-	fetched, err := f.fetchContent(p, attr.ContentHash, attr.Size)
+	fetched, err := f.fetchContent(ctx, p, attr.ContentHash, attr.Size)
 	if err != nil {
 		return "", false, err
 	}
@@ -422,32 +586,87 @@ func (f *mountFetcher) Fetch(ctx context.Context, p string, attr lazyfs.Attr) (s
 	return path, fetched, err
 }
 
+func waitForFetchCall(ctx context.Context, call *fetchCall) error {
+	select {
+	case <-call.done:
+		return call.err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 // fetchContent puts the content with hash in the cache, unless it is there.
 // p is a path that shows it, if known. It reports whether it fetched.
-func (f *mountFetcher) fetchContent(p, hash string, size int64) (bool, error) {
+func (f *mountFetcher) fetchContent(ctx context.Context, p, hash string, size int64) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
 	if f.cache.Exists(hash) {
 		return false, nil
 	}
 	f.mu.Lock()
 	if call := f.inflight[hash]; call != nil {
 		f.mu.Unlock()
-		<-call.done
-		return false, call.err
+		return false, waitForFetchCall(ctx, call)
 	}
 	if wait := time.Until(f.downUntil); wait > 0 {
 		f.mu.Unlock()
 		return false, fmt.Errorf("the server is not reachable (trying again in %s): %w", wait.Round(time.Second), errServerUnreachable)
 	}
 	commitID := f.commitID
-	batch := f.planLocked(p, hash, size)
+	primary, siblings := f.candidatesLocked(p, hash, size)
+	f.mu.Unlock()
+
+	// Check cache existence on disk outside f.mu so os.Stat syscalls do not
+	// serialize concurrent FUSE opens.
+	if f.cache.Exists(hash) {
+		return false, nil
+	}
+	filtered := make([]lazyfs.BaseEntry, 0, min(len(siblings)+1, mountBatchMaxFiles))
+	filtered = append(filtered, primary)
+	total := primary.Size
+	for _, sibling := range siblings {
+		if len(filtered) >= mountBatchMaxFiles || total+sibling.Size > mountBatchMaxBytes {
+			break
+		}
+		if f.cache.Exists(sibling.ContentHash) {
+			continue
+		}
+		filtered = append(filtered, sibling)
+		total += sibling.Size
+	}
+
+	f.mu.Lock()
+	if call := f.inflight[hash]; call != nil {
+		f.mu.Unlock()
+		return false, waitForFetchCall(ctx, call)
+	}
+	if f.completed[hash] && f.cache.Exists(hash) {
+		f.mu.Unlock()
+		return false, nil
+	}
+	if wait := time.Until(f.downUntil); wait > 0 {
+		f.mu.Unlock()
+		return false, fmt.Errorf("the server is not reachable (trying again in %s): %w", wait.Round(time.Second), errServerUnreachable)
+	}
 	call := &fetchCall{done: make(chan struct{})}
-	for _, entry := range batch {
+	batch := make([]lazyfs.BaseEntry, 0, len(filtered))
+	for i, entry := range filtered {
+		if i > 0 && (f.inflight[entry.ContentHash] != nil || f.completed[entry.ContentHash]) {
+			continue
+		}
 		f.inflight[entry.ContentHash] = call
+		batch = append(batch, entry)
 	}
 	f.mu.Unlock()
 
-	err := f.runBatch(commitID, batch, call)
-	return err == nil, err
+	go func() {
+		_ = f.runBatch(commitID, batch, call)
+	}()
+	if err := waitForFetchCall(ctx, call); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // runBatch fetches batch, which the caller has marked in flight under call,
@@ -468,6 +687,14 @@ func (f *mountFetcher) runBatch(commitID string, batch []lazyfs.BaseEntry, call 
 	})
 
 	f.mu.Lock()
+	if err == nil {
+		if f.completed == nil || len(f.completed) > 65536 {
+			f.completed = map[string]bool{}
+		}
+		for _, entry := range batch {
+			f.completed[entry.ContentHash] = true
+		}
+	}
 	for _, entry := range batch {
 		delete(f.inflight, entry.ContentHash)
 	}
@@ -490,11 +717,12 @@ const mountOutageWindow = 5 * time.Second
 
 var errServerUnreachable = errors.New("server unreachable")
 
-// planLocked picks what to fetch for the content with hash: the base file
-// at p with the small files beside it that are not cached yet or already
-// being fetched; else a base file elsewhere with the same content (a renamed
-// file); else the content alone, by its hash (an entry with no path).
-func (f *mountFetcher) planLocked(p, hash string, size int64) []lazyfs.BaseEntry {
+// candidatesLocked picks the primary entry and un-inflight sibling candidates
+// from in-memory manifest metadata only (without calling cache.Exists under f.mu).
+func (f *mountFetcher) candidatesLocked(p, hash string, size int64) (lazyfs.BaseEntry, []lazyfs.BaseEntry) {
+	if f.manifest == nil {
+		return lazyfs.BaseEntry{Kind: lazyfs.KindFile, Size: size, ContentHash: hash}, nil
+	}
 	entry, ok := f.manifest.Lookup(p)
 	if !ok || entry.Kind != lazyfs.KindFile || entry.ContentHash != hash {
 		if f.byHash == nil {
@@ -506,36 +734,31 @@ func (f *mountFetcher) planLocked(p, hash string, size int64) []lazyfs.BaseEntry
 			})
 		}
 		if other, ok := f.byHash[hash]; ok {
-			return []lazyfs.BaseEntry{other}
+			return other, nil
 		}
-		return []lazyfs.BaseEntry{{Kind: lazyfs.KindFile, Size: size, ContentHash: hash}}
+		return lazyfs.BaseEntry{Kind: lazyfs.KindFile, Size: size, ContentHash: hash}, nil
 	}
-	batch := []lazyfs.BaseEntry{entry}
 	if entry.Size > mountLargeFileBytes {
-		return batch
+		return entry, nil
 	}
-	total := entry.Size
 	seen := map[string]bool{hash: true}
 	dir := p[:strings.LastIndex(p, "/")]
 	if dir == "" {
 		dir = "/"
 	}
+	var siblings []lazyfs.BaseEntry
 	for _, name := range f.manifest.Children(dir) {
 		sibling, ok := f.manifest.Lookup(joinGlobalPath(dir, name))
 		if !ok || sibling.Kind != lazyfs.KindFile || sibling.Size > mountPrefetchMaxFile || seen[sibling.ContentHash] {
 			continue
 		}
-		if f.inflight[sibling.ContentHash] != nil || f.cache.Exists(sibling.ContentHash) {
+		if f.inflight[sibling.ContentHash] != nil || f.completed[sibling.ContentHash] {
 			continue
 		}
-		if len(batch) >= mountBatchMaxFiles || total+sibling.Size > mountBatchMaxBytes {
-			break
-		}
 		seen[sibling.ContentHash] = true
-		batch = append(batch, sibling)
-		total += sibling.Size
+		siblings = append(siblings, sibling)
 	}
-	return batch
+	return entry, siblings
 }
 
 func joinGlobalPath(dir, name string) string {
@@ -568,7 +791,7 @@ type mountContent struct {
 }
 
 func (c mountContent) Open(ctx context.Context, hash string) (io.ReadCloser, error) {
-	if _, err := c.fetcher.fetchContent("", hash, 0); err != nil {
+	if _, err := c.fetcher.fetchContent(ctx, "", hash, 0); err != nil {
 		return nil, err
 	}
 	return c.cacheContent.Open(ctx, hash)
@@ -718,6 +941,9 @@ func lazyWorkspaceID(root string) string {
 	if err := readJSONFile(filepath.Join(root, ".gs", "lazy.json"), &marker); err != nil {
 		return ""
 	}
+	if !isValidMountID(marker.ID) {
+		return ""
+	}
 	return marker.ID
 }
 
@@ -731,32 +957,221 @@ func (r Runner) refuseInLazyWorkspace(what, instead string) error {
 	return userError("lazy_workspace_unsupported", what+" does not apply to a lazy workspace (gs mount)", instead)
 }
 
-// daemonLayerView reads a mounted lazy workspace's layers through its daemon,
-// which owns them: the edits over the control socket, files through the mount.
-type daemonLayerView struct {
-	id        string
-	manifest  *lazyfs.Manifest
-	mountRoot string
+func multisetFileHash(p, contentHash string, mode uint32) (uint64, uint64) {
+	var modeBuf [16]byte
+	modeBytes := strconv.AppendUint(modeBuf[:0], uint64(mode), 8)
+	h1 := fnv.New64a()
+	_, _ = h1.Write([]byte(p))
+	_, _ = h1.Write([]byte{0})
+	_, _ = h1.Write([]byte(contentHash))
+	_, _ = h1.Write([]byte{0})
+	_, _ = h1.Write(modeBytes)
+	s1 := h1.Sum64()
+
+	h2 := fnv.New64()
+	_, _ = h2.Write([]byte("gs-manifest-v1:"))
+	_, _ = h2.Write(modeBytes)
+	_, _ = h2.Write([]byte{0})
+	_, _ = h2.Write([]byte(p))
+	_, _ = h2.Write([]byte{0})
+	_, _ = h2.Write([]byte(contentHash))
+	s2 := h2.Sum64()
+	return s1, s2
 }
 
-func (v daemonLayerView) Edits() ([]lazyfs.Edit, error) {
+// manifestDigest computes an order-independent multiset digest of manifest's
+// files, matching snapshotDigest(manifestSnapshot(manifest)).
+func manifestDigest(manifest *lazyfs.Manifest) string {
+	if manifest == nil {
+		return ""
+	}
+	var count int
+	var sum1, sum2, xor1 uint64
+	manifest.Files(func(entry lazyfs.BaseEntry) {
+		count++
+		s1, s2 := multisetFileHash(entry.Path, entry.ContentHash, entry.Mode)
+		sum1 += s1
+		sum2 += s2
+		xor1 ^= s1
+	})
+	return fmt.Sprintf("%d:%016x:%016x:%016x", count, sum1, sum2, xor1)
+}
+
+func snapshotDigest(base BaseSnapshot) string {
+	var count int
+	var sum1, sum2, xor1 uint64
+	for p, file := range base.Files {
+		count++
+		s1, s2 := multisetFileHash(p, file.ContentHash, file.Mode)
+		sum1 += s1
+		sum2 += s2
+		xor1 ^= s1
+	}
+	return fmt.Sprintf("%d:%016x:%016x:%016x", count, sum1, sum2, xor1)
+}
+
+// daemonLayerView reads a mounted lazy workspace's layers through its daemon,
+// which owns them: the edits and touched base entries over the control socket,
+// files through the mount. When unmounted, it falls back to reading the local
+// layer and manifest on disk if present.
+type daemonLayerView struct {
+	r           Runner
+	rec         mountRecord
+	id          string
+	manifest    *lazyfs.Manifest
+	mountRoot   string
+	offlineRead func(ctx context.Context, p string) ([]byte, error)
+}
+
+func (r Runner) newDaemonLayerView(rec mountRecord, mountRoot string, manifest *lazyfs.Manifest) *daemonLayerView {
+	return &daemonLayerView{
+		r:         r,
+		rec:       rec,
+		id:        rec.ID,
+		manifest:  manifest,
+		mountRoot: mountRoot,
+	}
+}
+
+func (v *daemonLayerView) EditsWithBase() ([]lazyfs.Edit, string, map[string]BaseSnapshotFile, string, bool, error) {
 	reply, err := callMountDaemon(v.id, mountControlRequest{Op: "edits"})
 	if errors.Is(err, errMountUnreachable) {
-		return nil, userError("lazy_workspace_not_mounted", "cannot reach the mount of this lazy workspace: "+err.Error(), "Mount it again: gs mount <slice> "+v.mountRoot+".")
+		edits, m, oerr := v.offlineEdits()
+		if oerr == nil {
+			v.manifest = m
+			return edits, m.CommitID(), nil, "", false, nil
+		}
+		return nil, "", nil, "", false, userError("lazy_workspace_not_mounted", "cannot reach the mount of this lazy workspace: "+err.Error(), "Mount it again: gs mount <slice> "+v.mountRoot+".")
 	}
+	if err != nil {
+		return nil, "", nil, "", false, err
+	}
+	if v.manifest != nil && reply.BaseCommit != "" && reply.BaseCommit != v.manifest.CommitID() {
+		return nil, "", nil, "", false, userError("workspace_changed", "the lazy workspace moved to another base meanwhile", "Run the command again.")
+	}
+	if reply.BaseCommit != "" {
+		v.rec.BaseCommit = reply.BaseCommit
+	}
+	return reply.Edits, reply.BaseCommit, reply.BaseFiles, reply.BaseFilesDigest, true, nil
+}
+
+func (v *daemonLayerView) offlineEdits() ([]lazyfs.Edit, *lazyfs.Manifest, error) {
+	if !isValidMountID(v.id) {
+		return nil, nil, errInvalidMountID
+	}
+	local := filepath.Join(v.r.mountStateDir(v.id), "local")
+	info, err := os.Lstat(local)
+	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		if err != nil {
+			return nil, nil, err
+		}
+		return nil, nil, fmt.Errorf("local layer is not a real directory")
+	}
+	rec := v.rec
+	if rec.ID == "" {
+		rec, err = v.r.readMountRecord(v.id)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	if recorded, rErr := lazyfs.RecordedBase(local); rErr == nil && recorded != "" && recorded != rec.BaseCommit {
+		if _, sErr := os.Stat(v.r.mountManifestPath(v.id, recorded)); sErr == nil {
+			rec.BaseCommit = recorded
+		}
+	}
+	manifest := v.manifest
+	if manifest == nil || manifest.CommitID() != rec.BaseCommit {
+		manifest, err = v.r.loadMountManifest(rec)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	cache, err := v.r.objectCache()
+	if err != nil {
+		return nil, nil, err
+	}
+	layer, err := lazyfs.Open(local, manifest, cacheContent{cache: cache}, lazyfs.Options{NoSync: true})
+	if err != nil {
+		return nil, nil, err
+	}
+	defer layer.Close()
+	edits, err := layer.Edits()
+	if err != nil {
+		return nil, nil, err
+	}
+	editByPath := make(map[string]lazyfs.Edit, len(edits))
+	for _, edit := range edits {
+		editByPath[edit.Path] = edit
+	}
+	v.offlineRead = func(ctx context.Context, p string) ([]byte, error) {
+		if edit, ok := editByPath[p]; ok {
+			if edit.Op == "delete" || isSymlinkMode(edit.Mode) {
+				return nil, fs.ErrNotExist
+			}
+			if edit.LocalPath != "" {
+				return os.ReadFile(edit.LocalPath)
+			}
+			return cache.Read(edit.ContentHash)
+		}
+		entry, ok := manifest.Lookup(p)
+		if !ok || entry.Kind != lazyfs.KindFile {
+			return nil, fs.ErrNotExist
+		}
+		return cache.Read(entry.ContentHash)
+	}
+	return edits, manifest, nil
+}
+
+func (v *daemonLayerView) Edits() ([]lazyfs.Edit, error) {
+	edits, _, _, _, _, err := v.EditsWithBase()
+	return edits, err
+}
+
+func (v *daemonLayerView) Base() *lazyfs.Manifest {
+	if v.manifest != nil {
+		return v.manifest
+	}
+	rec := v.rec
+	if rec.ID == "" {
+		if loaded, err := v.r.readMountRecord(v.id); err == nil {
+			rec = loaded
+		}
+	}
+	if m, err := v.r.loadMountManifest(rec); err == nil {
+		v.manifest = m
+	}
+	return v.manifest
+}
+
+func (v *daemonLayerView) ReadFile(ctx context.Context, p string) ([]byte, error) {
+	if err := ensureNotReservedGsPath(p); err != nil {
+		return nil, err
+	}
+	if v.offlineRead != nil {
+		return v.offlineRead(ctx, p)
+	}
+	rel, err := cleanConfinedRelPath(strings.TrimPrefix(p, "/"))
 	if err != nil {
 		return nil, err
 	}
-	if reply.BaseCommit != "" && reply.BaseCommit != v.manifest.CommitID() {
-		return nil, userError("workspace_changed", "the lazy workspace moved to another base meanwhile", "Run the command again.")
+	root, err := os.OpenRoot(v.mountRoot)
+	if err != nil {
+		return nil, err
 	}
-	return reply.Edits, nil
-}
-
-func (v daemonLayerView) Base() *lazyfs.Manifest { return v.manifest }
-
-func (v daemonLayerView) ReadFile(ctx context.Context, p string) ([]byte, error) {
-	return os.ReadFile(filepath.Join(v.mountRoot, filepath.FromSlash(strings.TrimPrefix(p, "/"))))
+	defer root.Close()
+	file, err := root.Open(filepath.FromSlash(rel))
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fs.ErrInvalid
+	}
+	return io.ReadAll(file)
 }
 
 // mountControlRequest and mountControlReply are the daemon's control
@@ -814,6 +1229,11 @@ type mountControlReply struct {
 	Edits        []lazyfs.Edit `json:"edits,omitempty"`
 	// BaseCommit is the layers' base commit.
 	BaseCommit string `json:"base_commit,omitempty"`
+	// BaseFiles holds base entries from the daemon's in-memory manifest for
+	// touched paths in Edits, and BaseFilesDigest identifies the full manifest
+	// multiset so clients avoid loading manifest-<commit> when live.
+	BaseFiles       map[string]BaseSnapshotFile `json:"base_files,omitempty"`
+	BaseFilesDigest string                      `json:"base_files_digest,omitempty"`
 	// Conflicts and Changed report a rebase or a switch: the paths the
 	// rebase marked as conflicts, and how many paths the view changed at.
 	Conflicts []string `json:"conflicts,omitempty"`
@@ -827,11 +1247,21 @@ var errMountUnreachable = errors.New("no mount daemon answers")
 
 func callMountDaemon(id string, req mountControlRequest) (mountControlReply, error) {
 	var reply mountControlReply
-	conn, err := net.DialTimeout("unix", mountControlPath(id), 2*time.Second)
+	if err := validateMountID(id); err != nil {
+		return reply, err
+	}
+	socket := mountControlPath(id)
+	if err := verifyMountRuntimeDir(filepath.Dir(socket)); err != nil {
+		return reply, fmt.Errorf("%w: %v", errMountUnreachable, err)
+	}
+	conn, err := net.DialTimeout("unix", socket, 2*time.Second)
 	if err != nil {
 		return reply, fmt.Errorf("%w: %v", errMountUnreachable, err)
 	}
 	defer conn.Close()
+	if err := verifyUnixPeerUID(conn); err != nil {
+		return reply, fmt.Errorf("%w: %v", errMountUnreachable, err)
+	}
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Minute))
 	if err := json.NewEncoder(conn).Encode(req); err != nil {
 		return reply, err

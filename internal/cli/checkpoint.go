@@ -72,8 +72,9 @@ func (r Runner) checkpoints(id string) ([]checkpointRecord, error) {
 // takeCheckpoint saves the workspace's edits. An automatic checkpoint that
 // would repeat the newest one is not taken.
 func (r Runner) takeCheckpoint(ctx context.Context, lw *lazyWorkspace, ws WorkspaceConfig, message string, auto bool) (checkpointRecord, bool, error) {
-	source := overlayEditSource{fs: lw.layerView(), ws: ws, mountRoot: lw.root}
-	reported, err := source.edits(ctx, manifestSnapshot(lw.manifest), 0)
+	baseCommit := lw.baseCommit()
+	source := overlayEditSource{fs: lw.layerView(), ws: ws, mountRoot: lw.root, useLayerBase: true}
+	reported, err := source.edits(ctx, BaseSnapshot{CommitID: baseCommit}, 0)
 	if err != nil {
 		return checkpointRecord{}, false, err
 	}
@@ -81,25 +82,58 @@ func (r Runner) takeCheckpoint(ctx context.Context, lw *lazyWorkspace, ws Worksp
 	if err != nil {
 		return checkpointRecord{}, false, err
 	}
+	var mountRoot *os.Root
+	defer func() {
+		if mountRoot != nil {
+			_ = mountRoot.Close()
+		}
+	}()
 	edits := make([]checkpointEdit, 0, len(reported.edits))
 	for _, edit := range reported.edits {
 		cp := checkpointEdit{Op: edit.GetOp(), Path: edit.GetPath(), ContentHash: edit.GetContentHash(), Mode: edit.GetMode()}
+		if err := ensureNotReservedGsPath(cp.Path); err != nil {
+			return checkpointRecord{}, false, err
+		}
 		if cp.Op != "delete" {
 			cp.Op = "upsert"
 			// The content must outlive the file: keep it in the cache.
 			if !cache.Exists(cp.ContentHash) {
-				local := filepath.Join(lw.root, filepath.FromSlash(strings.TrimPrefix(cp.Path, "/")))
-				if cp.Mode == lazyfs.ModeSymlink {
-					target, err := os.Readlink(local)
-					if err != nil {
-						return checkpointRecord{}, false, err
-					}
-					_, err = cache.PutBytes([]byte(target))
-					if err != nil {
-						return checkpointRecord{}, false, err
-					}
-				} else if _, err := cache.PutFile(local); err != nil {
+				rel, err := cleanConfinedRelPath(strings.TrimPrefix(cp.Path, "/"))
+				if err != nil {
 					return checkpointRecord{}, false, err
+				}
+				if cp.Mode == lazyfs.ModeSymlink {
+					target, err := os.Readlink(filepath.Join(lw.root, filepath.FromSlash(rel)))
+					if err != nil {
+						return checkpointRecord{}, false, err
+					}
+					if _, err := cache.PutBytes([]byte(target)); err != nil {
+						return checkpointRecord{}, false, err
+					}
+				} else {
+					if mountRoot == nil {
+						if mountRoot, err = os.OpenRoot(lw.root); err != nil {
+							return checkpointRecord{}, false, err
+						}
+					}
+					file, err := mountRoot.Open(filepath.FromSlash(rel))
+					if err != nil {
+						return checkpointRecord{}, false, err
+					}
+					info, sErr := file.Stat()
+					if sErr != nil {
+						_ = file.Close()
+						return checkpointRecord{}, false, sErr
+					}
+					if !info.Mode().IsRegular() {
+						_ = file.Close()
+						return checkpointRecord{}, false, fmt.Errorf("checkpoint source %s is not a regular file", cp.Path)
+					}
+					_, pErr := cache.PutReader(file)
+					_ = file.Close()
+					if pErr != nil {
+						return checkpointRecord{}, false, pErr
+					}
 				}
 			}
 		}
@@ -113,7 +147,7 @@ func (r Runner) takeCheckpoint(ctx context.Context, lw *lazyWorkspace, ws Worksp
 		if len(edits) == 0 {
 			return checkpointRecord{}, false, nil
 		}
-		if n := len(existing); n > 0 && existing[n-1].BaseCommit == lw.manifest.CommitID() && sameCheckpointEdits(existing[n-1].Edits, edits) {
+		if n := len(existing); n > 0 && existing[n-1].BaseCommit == baseCommit && sameCheckpointEdits(existing[n-1].Edits, edits) {
 			return existing[n-1], false, nil
 		}
 	}
@@ -126,7 +160,7 @@ func (r Runner) takeCheckpoint(ctx context.Context, lw *lazyWorkspace, ws Worksp
 		CreatedAt:  time.Now().UTC().Format(time.RFC3339),
 		Message:    strings.TrimSpace(message),
 		Auto:       auto,
-		BaseCommit: lw.manifest.CommitID(),
+		BaseCommit: baseCommit,
 		Edits:      edits,
 	}
 	if err := os.MkdirAll(r.checkpointDir(lw.id), 0o700); err != nil {
@@ -178,16 +212,19 @@ func sameCheckpointEdits(a, b []checkpointEdit) bool {
 
 // checkpointSnapshot is the workspace as the checkpoint saw it: base with
 // the checkpoint's edits.
-func checkpointSnapshot(base *lazyfs.Manifest, cp checkpointRecord) BaseSnapshot {
+func checkpointSnapshot(base *lazyfs.Manifest, cp checkpointRecord) (BaseSnapshot, error) {
 	snapshot := manifestSnapshot(base)
 	for _, edit := range cp.Edits {
+		if err := ensureNotReservedGsPath(edit.Path); err != nil {
+			return BaseSnapshot{}, err
+		}
 		if edit.Op == "delete" {
 			delete(snapshot.Files, edit.Path)
 			continue
 		}
 		snapshot.Files[edit.Path] = BaseSnapshotFile{Path: edit.Path, RelPath: strings.TrimPrefix(edit.Path, "/"), ContentHash: edit.ContentHash, Mode: edit.Mode}
 	}
-	return snapshot
+	return snapshot, nil
 }
 
 func (r Runner) findCheckpoint(id, selector string) (checkpointRecord, error) {
@@ -267,7 +304,7 @@ func (r Runner) runCheckpointList(opts commandOptions) error {
 			label = "(no message)"
 		}
 		base := ""
-		if cp.BaseCommit != lw.manifest.CommitID() {
+		if cp.BaseCommit != lw.baseCommit() {
 			base = " (older base; gs fork it)"
 		}
 		fmt.Fprintf(r.Stdout, "%d\t%s\t%s\t%s%s\n", cp.Number, cp.CreatedAt, editCountText(len(cp.Edits)), label, base)
@@ -311,7 +348,7 @@ func (r Runner) runRewind(ctx context.Context, opts commandOptions, selector str
 		found := false
 		for i := len(all) - 1; i >= 0; i-- {
 			cp := all[i]
-			if cp.BaseCommit == lw.manifest.CommitID() && !sameCheckpointEdits(cp.Edits, current.Edits) {
+			if cp.BaseCommit == lw.baseCommit() && !sameCheckpointEdits(cp.Edits, current.Edits) {
 				target, found = cp, true
 				break
 			}
@@ -320,8 +357,16 @@ func (r Runner) runRewind(ctx context.Context, opts commandOptions, selector str
 			return userError("no_checkpoint_to_rewind_to", "no earlier checkpoint on this base differs from the workspace now", "gs checkpoint list shows them; gs fork <n> <dir> opens one taken on an older base.")
 		}
 	}
-	if target.BaseCommit != lw.manifest.CommitID() {
+	if target.BaseCommit != lw.baseCommit() {
 		return userError("checkpoint_on_older_base", fmt.Sprintf("checkpoint %d was taken on an older base, before the workspace moved (gs sync)", target.Number), fmt.Sprintf("Open it in a new workspace: gs fork %d <dir>.", target.Number))
+	}
+	baseManifest, err := lw.baseManifest()
+	if err != nil {
+		return err
+	}
+	snap, err := checkpointSnapshot(baseManifest, target)
+	if err != nil {
+		return err
 	}
 	cfg, conn, err := r.lazyRemote()
 	if err != nil {
@@ -329,7 +374,7 @@ func (r Runner) runRewind(ctx context.Context, opts commandOptions, selector str
 	}
 	defer conn.Close()
 	// switchLazyWorkspace checkpoints what it replaces.
-	if err := r.switchLazyWorkspace(ctx, conn, cfg, ws, lw, nil, checkpointSnapshot(lw.manifest, target)); err != nil {
+	if err := r.switchLazyWorkspace(ctx, conn, cfg, ws, lw, nil, snap); err != nil {
 		return err
 	}
 	if opts.jsonOutput() {
@@ -375,8 +420,12 @@ func (r Runner) runFork(ctx context.Context, opts commandOptions, selector, dir 
 		return err
 	}
 	defer conn.Close()
-	base := fw.manifest
-	if cp.BaseCommit != base.CommitID() {
+	var base *lazyfs.Manifest
+	if cp.BaseCommit == fw.baseCommit() {
+		if base, err = fw.baseManifest(); err != nil {
+			return err
+		}
+	} else {
 		if base, err = forked.lazyListingAt(ctx, conn, cfg, fw, cp.BaseCommit); err != nil {
 			return err
 		}
@@ -385,10 +434,14 @@ func (r Runner) runFork(ctx context.Context, opts commandOptions, selector, dir 
 	if err != nil {
 		return err
 	}
-	if err := forked.switchLazyWorkspace(ctx, conn, cfg, ws, fw, base, checkpointSnapshot(base, cp)); err != nil {
+	snap, err := checkpointSnapshot(base, cp)
+	if err != nil {
 		return err
 	}
-	if base.CommitID() != lw.manifest.CommitID() || base.CommitID() != fw.rec.BaseCommit {
+	if err := forked.switchLazyWorkspace(ctx, conn, cfg, ws, fw, base, snap); err != nil {
+		return err
+	}
+	if base.CommitID() != lw.baseCommit() || base.CommitID() != fw.rec.BaseCommit {
 		if err := forked.writeLazyWorkspaceState(fw.rec, base); err != nil {
 			return err
 		}

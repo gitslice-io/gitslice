@@ -23,6 +23,7 @@ import (
 
 // lazyWorkspace is a mounted lazy workspace, as a command sees it.
 type lazyWorkspace struct {
+	r        Runner
 	id       string
 	root     string
 	rec      mountRecord
@@ -30,7 +31,8 @@ type lazyWorkspace struct {
 }
 
 // currentLazyWorkspace returns the lazy workspace the command runs in, or
-// nil in a gs init workspace.
+// nil in a gs init workspace. Its manifest is loaded lazily only when a
+// rebase or full snapshot diff needs it.
 func (r Runner) currentLazyWorkspace() (*lazyWorkspace, error) {
 	root, err := r.workspaceRoot()
 	if err != nil {
@@ -44,11 +46,26 @@ func (r Runner) currentLazyWorkspace() (*lazyWorkspace, error) {
 	if err != nil {
 		return nil, err
 	}
-	manifest, err := r.loadMountManifest(rec)
+	return &lazyWorkspace{r: r, id: id, root: root, rec: rec}, nil
+}
+
+func (lw *lazyWorkspace) baseCommit() string {
+	if lw.manifest != nil {
+		return lw.manifest.CommitID()
+	}
+	return lw.rec.BaseCommit
+}
+
+func (lw *lazyWorkspace) baseManifest() (*lazyfs.Manifest, error) {
+	if lw.manifest != nil {
+		return lw.manifest, nil
+	}
+	m, err := lw.r.loadMountManifest(lw.rec)
 	if err != nil {
 		return nil, err
 	}
-	return &lazyWorkspace{id: id, root: root, rec: rec, manifest: manifest}, nil
+	lw.manifest = m
+	return m, nil
 }
 
 func (lw *lazyWorkspace) call(req mountControlRequest) (mountControlReply, error) {
@@ -69,22 +86,22 @@ func (lw *lazyWorkspace) rawEdits() ([]lazyfs.Edit, error) {
 	if err != nil {
 		return nil, err
 	}
-	if reply.BaseCommit != "" && reply.BaseCommit != lw.manifest.CommitID() {
+	if reply.BaseCommit != "" && reply.BaseCommit != lw.baseCommit() {
 		return nil, userError("workspace_changed", "the lazy workspace moved to another base meanwhile", "Run the command again.")
 	}
 	return reply.Edits, nil
 }
 
 // layerView reads the workspace's layers through its daemon.
-func (lw *lazyWorkspace) layerView() daemonLayerView {
-	return daemonLayerView{id: lw.id, manifest: lw.manifest, mountRoot: lw.root}
+func (lw *lazyWorkspace) layerView() *daemonLayerView {
+	return lw.r.newDaemonLayerView(lw.rec, lw.root, lw.manifest)
 }
 
 // listingAt returns the slice's listing at commitID, stored where the daemon
 // reads it when moving the workspace there.
 func (r Runner) lazyListingAt(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, lw *lazyWorkspace, commitID string) (*lazyfs.Manifest, error) {
-	if commitID == lw.manifest.CommitID() {
-		return lw.manifest, nil
+	if commitID == lw.baseCommit() {
+		return lw.baseManifest()
 	}
 	cache, err := r.objectCache()
 	if err != nil {
@@ -119,6 +136,10 @@ func manifestSnapshot(manifest *lazyfs.Manifest) BaseSnapshot {
 // same path (lazyfs.NeedsMerge); the daemon refuses the rebase if a decided
 // path changed again meanwhile.
 func (r Runner) rebaseLazyWorkspace(lw *lazyWorkspace, newManifest *lazyfs.Manifest, resolve func(edit lazyfs.Edit) mountResolution) (mountControlReply, error) {
+	oldManifest, err := lw.baseManifest()
+	if err != nil {
+		return mountControlReply{}, err
+	}
 	r.autoCheckpoint(context.Background(), lw, "before gs moved the workspace to "+shortCommitLabel(newManifest.CommitID()))
 	raw, err := lw.rawEdits()
 	if err != nil {
@@ -126,7 +147,7 @@ func (r Runner) rebaseLazyWorkspace(lw *lazyWorkspace, newManifest *lazyfs.Manif
 	}
 	resolutions := map[string]mountResolution{}
 	for _, edit := range raw {
-		if !lazyfs.NeedsMerge(edit, lw.manifest, newManifest) {
+		if !lazyfs.NeedsMerge(edit, oldManifest, newManifest) {
 			continue
 		}
 		res := resolve(edit)
@@ -150,10 +171,10 @@ func (r Runner) rebaseLazyWorkspace(lw *lazyWorkspace, newManifest *lazyfs.Manif
 // fetched but symlink targets, and the sizes of files neither the cache nor
 // the base knows.
 func (r Runner) switchLazyWorkspace(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, lw *lazyWorkspace, newManifest *lazyfs.Manifest, snapshot BaseSnapshot) error {
-	manifest := lw.manifest
-	commit := ""
-	if newManifest != nil {
-		manifest, commit = newManifest, newManifest.CommitID()
+	for p := range snapshot.Files {
+		if err := ensureNotReservedGsPath(p); err != nil {
+			return err
+		}
 	}
 	// What the switch replaces is saved first (gs rewind brings it back).
 	if _, _, err := r.takeCheckpoint(ctx, lw, ws, "before gs replaced the workspace's files", true); err != nil {
@@ -165,8 +186,8 @@ func (r Runner) switchLazyWorkspace(ctx context.Context, conn *grpc.ClientConn, 
 	}
 	// The local layer's changes a walk would report, against its own base;
 	// the rest of its changes are ignored files, which a switch keeps.
-	source := overlayEditSource{fs: lw.layerView(), ws: ws, mountRoot: lw.root}
-	reported, err := source.edits(ctx, manifestSnapshot(lw.manifest), 0)
+	source := overlayEditSource{fs: lw.layerView(), ws: ws, mountRoot: lw.root, useLayerBase: true}
+	reported, err := source.edits(ctx, BaseSnapshot{CommitID: lw.baseCommit()}, 0)
 	if err != nil {
 		return err
 	}
@@ -176,8 +197,21 @@ func (r Runner) switchLazyWorkspace(ctx context.Context, conn *grpc.ClientConn, 
 	}
 	var keep []string
 	for _, edit := range raw {
+		if err := ensureNotReservedGsPath(edit.Path); err != nil {
+			return err
+		}
 		if _, tracked := snapshot.Files[edit.Path]; edit.Op != "delete" && !tracked && !reportedPaths[edit.Path] {
 			keep = append(keep, edit.Path)
+		}
+	}
+	manifest := newManifest
+	commit := ""
+	if newManifest != nil {
+		commit = newManifest.CommitID()
+	} else {
+		manifest, err = lw.baseManifest()
+		if err != nil {
+			return err
 		}
 	}
 	diff, err := r.lazySnapshotDiff(ctx, conn, cfg, ws, manifest, snapshot)
@@ -209,6 +243,9 @@ func (r Runner) lazySnapshotDiff(ctx context.Context, conn *grpc.ClientConn, cfg
 	sliceRef := &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}
 	blob := corev1.NewBlobServiceClient(conn)
 	for p, file := range snapshot.Files {
+		if err := ensureNotReservedGsPath(p); err != nil {
+			return nil, err
+		}
 		entry, inBase := manifest.Lookup(p)
 		if isSymlinkMode(file.Mode) {
 			if inBase && entry.Kind == lazyfs.KindSymlink && entry.ContentHash == file.ContentHash {
