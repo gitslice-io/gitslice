@@ -1,9 +1,8 @@
 package cli
 
 import (
+	"bytes"
 	"context"
-	"errors"
-	"os"
 	"path/filepath"
 
 	"gitslice.io/gitslice/internal/clientcache"
@@ -134,23 +133,34 @@ func remoteBaseSnapshotFiles(files map[string]remoteWorkspaceFile) map[string]Ba
 	return out
 }
 
-func removeWorkspaceFile(root string, ws WorkspaceConfig, current map[string]workingFile, globalPath string) error {
+func resolveConfinedWorkspaceRel(root string, ws WorkspaceConfig, current map[string]workingFile, globalPath string) (string, error) {
 	if file, ok := current[globalPath]; ok && file.AbsPath != "" {
-		err := os.Remove(file.AbsPath)
-		if err == nil || errors.Is(err, os.ErrNotExist) {
-			return nil
+		absRoot, err := filepath.Abs(root)
+		if err != nil {
+			return "", err
 		}
-		return err
+		absLocal, err := filepath.Abs(file.AbsPath)
+		if err != nil {
+			return "", err
+		}
+		rel, err := filepath.Rel(absRoot, absLocal)
+		if err != nil {
+			return "", err
+		}
+		if _, err := cleanConfinedRelPath(rel); err != nil {
+			return "", err
+		}
+		return filepath.ToSlash(rel), nil
 	}
-	rel, err := workspaceRelPath(ws, globalPath)
+	return workspaceRelPath(ws, globalPath)
+}
+
+func removeWorkspaceFile(root string, ws WorkspaceConfig, current map[string]workingFile, globalPath string) error {
+	rel, err := resolveConfinedWorkspaceRel(root, ws, current, globalPath)
 	if err != nil {
 		return err
 	}
-	err = os.Remove(filepath.Join(root, filepath.FromSlash(rel)))
-	if err == nil || errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	return err
+	return removeConfinedWorkspaceFile(root, rel)
 }
 
 func (r Runner) writeWorkspaceRemoteFile(ctx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, root string, ws WorkspaceConfig, current map[string]workingFile, commitID string, file remoteWorkspaceFile) error {
@@ -161,35 +171,23 @@ func (r Runner) writeWorkspaceRemoteFile(ctx context.Context, repo corev1.Reposi
 	if !exists {
 		return nil
 	}
-	target := ""
-	if local, ok := current[file.Path]; ok && local.AbsPath != "" {
-		target = local.AbsPath
-	} else {
-		rel, err := workspaceRelPath(ws, file.Path)
-		if err != nil {
-			return err
-		}
-		target = filepath.Join(root, filepath.FromSlash(rel))
-	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	rel, err := resolveConfinedWorkspaceRel(root, ws, current, file.Path)
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(target, data, fileModeFromSnapshot(file.Mode))
+	_, _, err = writeConfinedWorkspaceFile(root, rel, normalizedSnapshotMode(file.Mode), bytes.NewReader(data))
+	return err
 }
 
 func (r Runner) writeWorkspaceMergedFile(root string, ws WorkspaceConfig, current map[string]workingFile, file mergedWorkspaceFile) error {
-	target := ""
-	if local, ok := current[file.Path]; ok && local.AbsPath != "" {
-		target = local.AbsPath
-	} else {
-		rel, err := workspaceRelPath(ws, file.Path)
-		if err != nil {
-			return err
-		}
-		target = filepath.Join(root, filepath.FromSlash(rel))
-	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+	rel, err := resolveConfinedWorkspaceRel(root, ws, current, file.Path)
+	if err != nil {
 		return err
 	}
-	return os.WriteFile(target, file.Data, fileModeFromSnapshot(file.Mode))
+	mode := normalizedSnapshotMode(file.Mode)
+	if isSymlinkMode(mode) {
+		mode = 0o100644
+	}
+	_, _, err = writeConfinedWorkspaceFile(root, rel, mode, bytes.NewReader(file.Data))
+	return err
 }

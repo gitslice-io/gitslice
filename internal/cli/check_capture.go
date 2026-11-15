@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -305,15 +306,17 @@ func (r workspaceDiskTreeReader) ReadFile(ctx context.Context, _ string, logical
 	}
 	var lastErr error
 	for _, rel := range r.candidateRelPaths(logicalPath) {
-		target, err := workspaceDiskPath(r.root, rel)
-		if err != nil {
+		if rel == "" || rel == "." {
+			continue
+		}
+		if _, err := workspaceDiskPath(r.root, rel); err != nil {
 			return nil, err
 		}
-		data, err := os.ReadFile(target)
+		data, err := readConfinedWorkspaceFile(r.root, rel)
 		if err == nil {
 			return data, nil
 		}
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			lastErr = err
 			continue
 		}
