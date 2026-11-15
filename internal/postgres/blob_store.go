@@ -178,6 +178,7 @@ func (s *BlobStore) PathsByContentHash(ctx context.Context, contentHashes []stri
 		select content_hash, path
 		from path_heads
 		where content_hash = any($1)
+		  and content_hash is not null
 		order by content_hash, path
 	`, contentHashes)
 	if err != nil {
