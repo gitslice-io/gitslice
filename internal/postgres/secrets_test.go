@@ -314,6 +314,7 @@ func TestSecretPathsMigration(t *testing.T) {
 		`insert into secrets(id, account_id, name, value) values ('sec_listed', 'acct_acme', 'DEPLOY_TOKEN', 'deploy')`,
 		`insert into secret_slices(secret_id, slice_id, name) values ('sec_listed', 'slice_acme_payment', 'DEPLOY_TOKEN')`,
 		`insert into secret_slices(secret_id, slice_id, name) values ('sec_listed', 'slice_acme_backend', 'DEPLOY_TOKEN')`,
+		`delete from schema_migrations where filename = '0047_secret_paths.sql'`,
 	} {
 		if _, err := store.db.ExecContext(ctx, stmt); err != nil {
 			t.Fatal(err)
