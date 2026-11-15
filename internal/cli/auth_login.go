@@ -70,14 +70,10 @@ func (r Runner) runAuthLoginClerkBrowser(ctx context.Context, opts commandOption
 	if code == "" {
 		return userError("clerk_login_failed", "server did not return a CLI login code", "Try gs auth login --clerk again.")
 	}
-	webURL = strings.TrimSpace(webURL)
-	if webURL == "" {
-		webURL = defaultWebURL()
+	loginURL, err := webRouteURL(webURL, "cli-login?code="+url.QueryEscape(code))
+	if err != nil {
+		return err
 	}
-	if !strings.Contains(webURL, "://") {
-		webURL = "http://" + webURL
-	}
-	loginURL := strings.TrimRight(webURL, "/") + "/cli-login?code=" + url.QueryEscape(code)
 
 	promptWriter := r.stdout()
 	if opts.jsonOutput() {

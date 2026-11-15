@@ -62,15 +62,16 @@ func (r Runner) readPendingAgentRegistration() (pendingAgentRegistration, bool) 
 }
 
 func (r Runner) writePendingAgentRegistration(pending pendingAgentRegistration) error {
-	path := r.pendingAgentRegistrationPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	return savePendingAgentRegistration(r.pendingAgentRegistrationPath(), pending)
+}
+
+func savePendingAgentRegistration(path string, pending pendingAgentRegistration) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	raw, err := json.MarshalIndent(pending, "", "  ")
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, append(raw, '\n'), 0o600)
+	_ = os.Chmod(dir, 0o700)
+	return writeJSONFile(path, pending, 0o600)
 }
 
 func (r Runner) clearPendingAgentRegistration() {
