@@ -63,6 +63,7 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 	hub := newAgentHub()
 	checkLogs := newCheckLogHub()
 	checkDispatcher := &checkDispatcher{
+		Auth:        stores.Auth,
 		Checks:      stores.Checks,
 		Changesets:  stores.Changesets,
 		Repository:  stores.Repository,

@@ -127,14 +127,29 @@ func (s *TriggerRunService) StartCallback(ctx context.Context, req *corev1.Start
 	if !hmac.Equal([]byte(req.GetCallbackSignature()), []byte(s.Engine.CallbackSignature(runID))) {
 		return nil, status.Error(codes.PermissionDenied, "the callback URL is not genuine")
 	}
-	run, err := s.Triggers.GetTriggerRun(ctx, runID)
+	run, err := s.Triggers.UpdateTriggerRun(ctx, runID, []string{storage.TriggerRunWaiting}, storage.TriggerRunUpdate{
+		Status: storage.TriggerRunRunning,
+	})
+	if errors.Is(err, storage.ErrConflict) {
+		current, gerr := s.Triggers.GetTriggerRun(ctx, runID)
+		if gerr != nil {
+			return nil, grpcError(gerr)
+		}
+		return nil, status.Errorf(codes.FailedPrecondition, "run %s is not waiting for callbacks (%s)", current.ID, current.Status)
+	}
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if run.Status != storage.TriggerRunWaiting && run.Status != storage.TriggerRunRunning {
-		return nil, status.Errorf(codes.FailedPrecondition, "run %s is not waiting for callbacks (%s)", run.ID, run.Status)
+	_ = s.Triggers.ExtendTriggerRunLease(ctx, run.ID, triggers.RunLease)
+	resp, err := s.startResponse(ctx, run)
+	if err != nil {
+		_, _ = s.Triggers.UpdateTriggerRun(ctx, run.ID, []string{storage.TriggerRunRunning}, storage.TriggerRunUpdate{
+			Status:   storage.TriggerRunWaiting,
+			Deadline: run.Deadline,
+		})
+		return nil, err
 	}
-	return s.startResponse(ctx, run)
+	return resp, nil
 }
 
 // startResponse gathers what the dispatcher needs to call the script: the
@@ -165,6 +180,7 @@ func (s *TriggerRunService) startResponse(ctx context.Context, run *storage.Trig
 		deadline = time.Now().Add(spec.Trigger.Timeout)
 	}
 	hash := sha256.New()
+	fmt.Fprintf(hash, "account\x00%s\x00folder\x00%s\x00", run.Account, run.Folder)
 	names := make([]string, 0, len(modules))
 	for name := range modules {
 		names = append(names, name)
@@ -222,7 +238,7 @@ func loadTriggerModules(ctx context.Context, tree triggers.TreeReader, rootTreeI
 			return nil, fmt.Errorf("script module %s is not UTF-8", rel)
 		}
 		modules[rel] = string(data)
-		for _, m := range moduleImport.FindAllStringSubmatch(string(data), -1) {
+		for _, m := range moduleImport.FindAllStringSubmatch(stripJSComments(string(data)), -1) {
 			target := path.Clean(path.Join(path.Dir(rel), m[1]))
 			if target == ".." || strings.HasPrefix(target, "../") {
 				return nil, fmt.Errorf("%s imports %s, outside the .gitslice folder", rel, m[1])
@@ -234,6 +250,59 @@ func loadTriggerModules(ctx context.Context, tree triggers.TreeReader, rootTreeI
 		}
 	}
 	return modules, nil
+}
+
+func stripJSComments(src string) string {
+	var b strings.Builder
+	b.Grow(len(src))
+	for i := 0; i < len(src); {
+		c := src[i]
+		if c == '"' || c == '\'' || c == '`' {
+			quote := c
+			b.WriteByte(c)
+			i++
+			for i < len(src) {
+				ch := src[i]
+				b.WriteByte(ch)
+				i++
+				if ch == '\\' && i < len(src) {
+					b.WriteByte(src[i])
+					i++
+					continue
+				}
+				if ch == quote {
+					break
+				}
+			}
+			continue
+		}
+		if c == '/' && i+1 < len(src) && src[i+1] == '/' {
+			b.WriteByte(' ')
+			i += 2
+			for i < len(src) && src[i] != '\n' && src[i] != '\r' {
+				i++
+			}
+			continue
+		}
+		if c == '/' && i+1 < len(src) && src[i+1] == '*' {
+			b.WriteByte(' ')
+			i += 2
+			for i < len(src) {
+				if src[i] == '*' && i+1 < len(src) && src[i+1] == '/' {
+					i += 2
+					break
+				}
+				if src[i] == '\n' {
+					b.WriteByte('\n')
+				}
+				i++
+			}
+			continue
+		}
+		b.WriteByte(c)
+		i++
+	}
+	return b.String()
 }
 
 func (s *TriggerRunService) FinishRun(ctx context.Context, req *corev1.FinishTriggerRunRequest) (*corev1.TriggerRun, error) {
@@ -258,10 +327,12 @@ func (s *TriggerRunService) FinishRun(ctx context.Context, req *corev1.FinishTri
 		switch {
 		case req.GetFinish():
 			update.Status = s.checksOutcome(ctx, *run)
-		case req.GetWait() || open || (req.GetCallback() && run.Status == storage.TriggerRunWaiting):
+		case req.GetWait() || open || (req.GetCallback() && (run.Status == storage.TriggerRunWaiting || !run.Deadline.IsZero())):
 			update.Status = storage.TriggerRunWaiting
 			if run.Deadline.IsZero() {
 				update.Deadline = time.Now().Add(call.spec.Trigger.Timeout)
+			} else {
+				update.Deadline = run.Deadline
 			}
 		default:
 			update.Status = s.checksOutcome(ctx, *run)
