@@ -49,22 +49,31 @@ func TestValidateURL(t *testing.T) {
 
 func TestPublicAddress(t *testing.T) {
 	for addr, want := range map[string]bool{
-		"8.8.8.8":          true,
-		"2606:4700::1111":  true,
-		"127.0.0.1":        false,
-		"0.0.0.0":          false,
-		"10.0.0.1":         false,
-		"172.16.0.1":       false,
-		"192.168.1.1":      false,
-		"169.254.169.254":  false,
-		"100.100.100.100":  false,
-		"198.18.0.1":       false,
-		"224.0.0.1":        false,
-		"::1":              false,
-		"fe80::1":          false,
-		"fc00::1":          false,
-		"::ffff:127.0.0.1": false,
-		"64:ff9b::a00:1":   false,
+		"8.8.8.8":           true,
+		"2606:4700::1111":   true,
+		"127.0.0.1":         false,
+		"0.0.0.0":           false,
+		"10.0.0.1":          false,
+		"172.16.0.1":        false,
+		"192.168.1.1":       false,
+		"169.254.169.254":   false,
+		"100.100.100.100":   false,
+		"198.18.0.1":        false,
+		"224.0.0.1":         false,
+		"::1":               false,
+		"fe80::1":           false,
+		"fc00::1":           false,
+		"::ffff:127.0.0.1":  false,
+		"64:ff9b::a00:1":    false,
+		"::10.0.0.1":        false, // ::/96 IPv4-compatible IPv6
+		"64:ff9b:1::a00:1":  false, // 64:ff9b:1::/48 local NAT64
+		"2002:0a00:0001::1": false, // 2002::/16 6to4
+		"2001::1":           false, // 2001::/23 Teredo / IETF
+		"2001:100::1":       false, // 2001::/23
+		"100::1":            false, // 100::/64 discard-only
+		"ff02::1":           false, // link-local multicast
+		"ff05::1":           false, // site-local multicast
+		"ff0e::1":           false, // global multicast
 	} {
 		if got := publicAddress(netip.MustParseAddr(addr)); got != want {
 			t.Errorf("publicAddress(%s) = %v, want %v", addr, got, want)

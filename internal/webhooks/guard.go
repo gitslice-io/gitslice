@@ -35,8 +35,13 @@ var blockedPrefixes = func() []netip.Prefix {
 		"198.51.100.0/24", // documentation
 		"203.0.113.0/24",  // documentation
 		"240.0.0.0/4",     // reserved
-		"64:ff9b::/96",    // NAT64, which can reach IPv4 private ranges
+		"::/96",           // deprecated IPv4-compatible IPv6
+		"64:ff9b::/96",    // NAT64 well-known prefix
+		"64:ff9b:1::/48",  // NAT64 local-use translation prefix
+		"100::/64",        // discard-only prefix (RFC 6666)
+		"2001::/23",       // IETF protocol assignments (includes Teredo 2001::/32)
 		"2001:db8::/32",   // documentation
+		"2002::/16",       // 6to4 relay / embedded IPv4
 	} {
 		out = append(out, netip.MustParsePrefix(cidr))
 	}
@@ -45,7 +50,6 @@ var blockedPrefixes = func() []netip.Prefix {
 
 // publicAddress reports whether ip is an ordinary public unicast address.
 func publicAddress(ip netip.Addr) bool {
-	ip = ip.Unmap()
 	if !ip.IsValid() || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() ||
 		ip.IsMulticast() || ip.IsUnspecified() || ip.IsInterfaceLocalMulticast() {
 		return false
@@ -53,6 +57,18 @@ func publicAddress(ip netip.Addr) bool {
 	for _, prefix := range blockedPrefixes {
 		if prefix.Contains(ip) {
 			return false
+		}
+	}
+	unmapped := ip.Unmap()
+	if unmapped != ip {
+		if !unmapped.IsValid() || unmapped.IsLoopback() || unmapped.IsPrivate() || unmapped.IsLinkLocalUnicast() || unmapped.IsLinkLocalMulticast() ||
+			unmapped.IsMulticast() || unmapped.IsUnspecified() || unmapped.IsInterfaceLocalMulticast() {
+			return false
+		}
+		for _, prefix := range blockedPrefixes {
+			if prefix.Contains(unmapped) {
+				return false
+			}
 		}
 	}
 	return true
@@ -162,7 +178,7 @@ func ResolvePublic(ctx context.Context, host string, allowPrivate bool) (netip.A
 		return netip.Addr{}, fmt.Errorf("resolve %s: no addresses", host)
 	}
 	for _, ip := range addrs {
-		if !allowPrivate && !publicAddress(ip.Unmap()) {
+		if !allowPrivate && !publicAddress(ip) {
 			return netip.Addr{}, errBlockedAddress
 		}
 	}
