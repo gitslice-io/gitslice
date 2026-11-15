@@ -196,7 +196,7 @@ func schemaHistoryCommands() []map[string]any {
 			"machine_output": []string{"commit_id", "path", "line_count", "truncated", "ranges", "commits"},
 		},
 		{
-			"use":            "gs show <commit-id-or-prefix>",
+			"use":            "gs show <commit-id-or-prefix|changeset>",
 			"summary":        "show a native commit resolved from a full id or short prefix",
 			"args":           []string{"commit-id-or-prefix"},
 			"flags":          []string{"--full", "--name-only", "--stat", "--patch"},

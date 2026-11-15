@@ -53,12 +53,12 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		uses[command.Use] = true
 		aliases[command.Use] = command.Aliases
 	}
-	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [account:slice | /account/path | workspace/path | web-page]", "gs init <slice|account:slice>", "gs import <source>", "gs sync", "gs workspace sync", "gs ci", "gs create", "gs modify", "gs submit [changeset]", "gs deps [dependency-tree]", "gs update-dependents [changeset]", "gs switch <changeset>", "gs up [changeset]", "gs down [steps]", "gs top", "gs bottom", "gs move <changeset> --onto <base|root>", "gs insert --base <changeset> --message <title>", "gs detach <changeset>", "gs log [-- <path>]", "gs show <commit-id-or-prefix>", "gs version", "gs completion <shell>", "gs fs ls [remote-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
+	for _, want := range []string{"gs auth token", "gs auth logout", "gs alias list", "gs alias set <name> <command>", "gs browse [account:slice | /account/path | workspace/path | web-page]", "gs init <slice|account:slice>", "gs import <source>", "gs sync", "gs workspace sync", "gs ci", "gs create", "gs modify", "gs submit [changeset]", "gs deps [dependency-tree]", "gs update-dependents [changeset]", "gs switch <changeset>", "gs up [changeset]", "gs down [steps]", "gs top", "gs bottom", "gs move <changeset> --onto <base|root>", "gs insert --base <changeset> --message <title>", "gs detach <changeset>", "gs log [-- <path>]", "gs show <commit-id-or-prefix|changeset>", "gs version", "gs completion <shell>", "gs fs ls [remote-path]", "gs fs cat <absolute-path>", "gs fs mkdir <absolute-path>", "gs help <topic>"} {
 		if !uses[want] {
 			t.Fatalf("schema missing %q", want)
 		}
 	}
-	for _, removed := range []string{"gs repo import github <owner/repo-or-url>", "gs repository import github <owner/repo-or-url>", "gs cs create", "gs cs update", "gs cs submit [changeset]", "gs cs status [changeset]", "gs cs diff [changeset]", "gs cs list"} {
+	for _, removed := range []string{"gs repo import github <owner/repo-or-url>", "gs repository import github <owner/repo-or-url>", "gs cs create", "gs cs update", "gs cs submit [changeset]", "gs cs diff [changeset]"} {
 		if uses[removed] {
 			t.Fatalf("schema still includes removed command %q", removed)
 		}

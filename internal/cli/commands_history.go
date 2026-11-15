@@ -68,16 +68,27 @@ func (r Runner) historyCommands(opts *commandOptions) []*cobra.Command {
 	showStat := false
 	showPatch := false
 	showCmd := &cobra.Command{
-		Use:   "show <commit-id-or-prefix>",
-		Short: "Show a native commit",
-		Args:  exactArgs(1, "gs show <commit-id-or-prefix>"),
+		Use:   "show <commit-or-changeset>",
+		Short: "Show a native commit, or a changeset",
+		Long: "Show a native commit by id or prefix. When no commit matches, or the id starts with cs_, " +
+			"gs show shows the changeset with that id or handle instead (as gs cs show).",
+		Args: exactArgs(1, "gs show <commit-id-or-prefix|changeset>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runCommitShow(cmd.Context(), diffContextOptions(cmd, *opts, showContext), args[0], commitShowOptions{
+			if looksLikeChangesetID(args[0]) {
+				return r.runChangesetShow(cmd.Context(), *opts, args[0])
+			}
+			err := r.runCommitShow(cmd.Context(), diffContextOptions(cmd, *opts, showContext), args[0], commitShowOptions{
 				Full:     showFull,
 				NameOnly: showNameOnly,
 				Stat:     showStat,
 				Patch:    showPatch,
 			})
+			if err != nil && commitNotFound(err) {
+				if csErr := r.runChangesetShow(cmd.Context(), *opts, args[0]); csErr == nil {
+					return nil
+				}
+			}
+			return err
 		},
 	}
 	showCmd.Flags().BoolVar(&showFull, "full", showFull, "show full native commit ids")

@@ -249,7 +249,7 @@ export const commandGroups = [
       ["gs ci", "Run the slice's checks against your pending edits, locally."],
       ["gs log", "Read recent accepted history."],
       ["gs blame <path>", "Which commit and changeset last changed each line (--lines 10,20, --json)."],
-      ["gs show <commit>", "Inspect an accepted native commit."]
+      ["gs show <commit|changeset>", "Inspect an accepted native commit, or a changeset by id or handle."]
     ]
   },
   {
@@ -275,7 +275,7 @@ export const commandGroups = [
         "Give the changeset a Markdown description; the title stays one line."
       ],
       ["gs cs edit --title <title> --description <text>", "Change a draft changeset's title or description."],
-      ["gs modify", "Create a new patchset on the active changeset."],
+      ["gs modify [--submit]", "Create a new patchset on the active changeset; --submit also lands it once required checks pass."],
       ["gs diff", "Review workspace or changeset content."],
       ["gs submit", "Submit for validation and publish."],
       ["gs deps", "Inspect dependent changesets."]

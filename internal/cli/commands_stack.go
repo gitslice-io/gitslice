@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
+	"time"
 )
 
 // stackCommands builds the top-level changeset and dependency commands: create, modify, submit, deps, update-dependents, switch, up, down, top, bottom, move, insert and detach.
@@ -42,7 +43,7 @@ func (r Runner) stackCommands(opts *commandOptions) []*cobra.Command {
 			return r.runStackCreate(cmd.Context(), *opts, createMessage, description, createParent, createRoot, createSibling, createAll, submit, createEmpty, createReview)
 		},
 	}
-	createCmd.Flags().StringVar(&createMessage, "message", createMessage, "changeset title: one line, like a commit subject. A message of several lines is split: the first line is the title, the rest the description")
+	createCmd.Flags().StringVarP(&createMessage, "message", "m", createMessage, "changeset title: one line, like a commit subject. A message of several lines is split: the first line is the title, the rest the description")
 	createCmd.Flags().StringVar(&createDescription, "description", createDescription, "changeset description (Markdown): what and why, shown on its page and, after the title, in the commit message")
 	createCmd.Flags().StringVar(&createDescriptionFile, "description-file", createDescriptionFile, "read the description from a file, or from standard input with -")
 	createCmd.Flags().StringVar(&createParent, "base", createParent, "base changeset id or handle")
@@ -57,22 +58,41 @@ func (r Runner) stackCommands(opts *commandOptions) []*cobra.Command {
 	modifyMessage := ""
 	modifyNoRestack := false
 	modifyAll := false
+	modifySubmit := false
+	modifyWatchTimeout := "15m"
 	modifyCmd := &cobra.Command{
 		Use:   "modify",
 		Short: "Create a new patchset for the active changeset",
-		Args:  noArgs("gs modify [--all] [--message title] [--no-update-dependents]"),
+		Long: "Create a new patchset for the active changeset from workspace edits. With --submit, also submit it: " +
+			"gs modify waits for required checks that have no result yet (up to --watch-timeout), submits, and waits for it to land.",
+		Args: noArgs("gs modify [--all] [-m title] [--no-update-dependents] [--submit] [--watch-timeout 15m]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runStackModify(cmd.Context(), *opts, modifyMessage, modifyNoRestack, modifyAll)
+			var timeout time.Duration
+			if modifySubmit {
+				var err error
+				if timeout, err = parsePositiveDurationFlag("watch-timeout", modifyWatchTimeout); err != nil {
+					return err
+				}
+			}
+			if err := r.runStackModify(cmd.Context(), *opts, modifyMessage, modifyNoRestack, modifyAll); err != nil {
+				return err
+			}
+			if !modifySubmit {
+				return nil
+			}
+			return r.runStackSubmit(cmd.Context(), *opts, "", false, "", true, timeout)
 		},
 	}
-	modifyCmd.Flags().StringVar(&modifyMessage, "message", modifyMessage, "new title for the changeset (as gs cs edit --title)")
+	modifyCmd.Flags().StringVarP(&modifyMessage, "message", "m", modifyMessage, "new title for the changeset (as gs cs edit --title)")
+	modifyCmd.Flags().BoolVar(&modifySubmit, "submit", modifySubmit, "submit the changeset once required checks pass, and wait for it to land")
+	modifyCmd.Flags().StringVar(&modifyWatchTimeout, "watch-timeout", modifyWatchTimeout, "with --submit, how long to wait for required checks and for the changeset to land")
 	modifyCmd.Flags().BoolVar(&modifyNoRestack, "no-update-dependents", modifyNoRestack, "do not update dependent changesets after modifying")
 	modifyCmd.Flags().BoolVar(&modifyAll, "all", modifyAll, "snapshot all current workspace edits")
 
 	submitStack := false
 	submitSubtree := ""
 	submitNoWatch := false
-	submitWatchTimeout := "5m"
+	submitWatchTimeout := "15m"
 	submitCmd := &cobra.Command{
 		Use:   "submit [changeset]",
 		Short: "Submit the active changeset or dependent changesets",

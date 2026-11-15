@@ -249,7 +249,7 @@ If sync records conflicts, inspect `gs status --json`, then resolve conflict fil
 gs cs update --json
 ```
 
-Use `gs modify --all --json` for normal patchset updates when no sync conflict state is present.
+Use `gs modify --all --json` for normal patchset updates when no sync conflict state is present; `gs modify --all --submit` also waits for required checks and lands it, like `gs create --submit`. `-m` is short for `--message` on both.
 
 ## Changesets And Dependents
 
@@ -280,7 +280,7 @@ gs detach <changeset>
 
 Use product language such as changeset, base changeset, dependent changeset, dependency tree, and update dependents. Avoid introducing "stack" as user-facing terminology even if internal fields still use names such as `stack_id`.
 
-The hidden `gs cs ...` namespace may exist for compatibility and low-level diagnostics, but it is not the preferred surface and is intentionally omitted from `gs schema`.
+`gs cs` holds the changeset commands that have no top-level form: `gs cs list`, `gs cs show`, `gs cs status` (each check run, with its run id), `gs cs edit`, `gs cs link`. Prefer the top-level `gs create`, `gs modify` and `gs submit` for making and landing changesets.
 
 ## Slices
 
@@ -401,7 +401,7 @@ gs log --slice acme/payment --limit 20 --json
 gs log -- /acme/payment/app.go
 gs blame app.go --json                          # who last changed each line, and in which changeset
 gs blame app.go --lines 40,60
-gs show <commit-id-or-prefix> --name-only --json
+gs show <commit-id-or-prefix> --name-only --json   # a changeset id or handle shows the changeset instead
 gs diff
 gs diff --name-only
 gs diff <commit-id-or-prefix>

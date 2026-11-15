@@ -9,8 +9,7 @@ func (r Runner) changesetCommand(opts *commandOptions) *cobra.Command {
 	csCmd := &cobra.Command{
 		Use:     "cs",
 		Aliases: []string{"changeset"},
-		Short:   "Manage changesets",
-		Hidden:  true,
+		Short:   "Manage changesets: list, show, status, edit, link, update, submit",
 		RunE:    requireSubcommand("cs"),
 	}
 	createTitle := "CLI changeset"
@@ -49,11 +48,11 @@ func (r Runner) changesetCommand(opts *commandOptions) *cobra.Command {
 		},
 	}
 	csSubmitNoWatch := false
-	csSubmitWatchTimeout := "5m"
+	csSubmitWatchTimeout := "15m"
 	csSubmitCmd := &cobra.Command{
 		Use:   "submit [changeset]",
 		Short: "Submit the current changeset",
-		Args:  maxArgs(1, "gs cs submit [changeset] [--no-watch] [--watch-timeout 5m]"),
+		Args:  maxArgs(1, "gs cs submit [changeset] [--no-watch] [--watch-timeout 15m]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			id := ""
 			if len(args) > 0 {
