@@ -43,3 +43,26 @@ test("unifiedDiff renders hunks with context", () => {
   assert.match(diff, /-line 17/);
   assert.equal((diff.match(/^@@/gm) ?? []).length, 2);
 });
+
+test("merge3 and lcsPairs handle large files with small edits and fall back cleanly to conflict when edit bounds are exceeded", () => {
+  // 10,000-line file with small disjoint edits at top and bottom trims prefix/suffix and merges cleanly!
+  const bigLines = Array.from({ length: 10_000 }, (_, i) => `line ${i}\n`);
+  const base = bigLines.join("");
+  const oursLines = [...bigLines];
+  oursLines[5] = "ours line 5\n";
+  const theirsLines = [...bigLines];
+  theirsLines[9_990] = "theirs line 9990\n";
+  const cleanBig = merge3(base, oursLines.join(""), theirsLines.join(""));
+  assert.equal(cleanBig.clean, true);
+
+  // Huge completely divergent files fall back cleanly to conflict without OOMing.
+  const hugeA = Array.from({ length: 5_000 }, (_, i) => `alpha ${i}\n`).join("");
+  const hugeB = Array.from({ length: 5_000 }, (_, i) => `beta ${i}\n`).join("");
+  const hugeC = Array.from({ length: 5_000 }, (_, i) => `gamma ${i}\n`).join("");
+  const boundedConflict = merge3(hugeA, hugeB, hugeC);
+  assert.equal(boundedConflict.clean, false);
+  if (!boundedConflict.clean) {
+    assert.equal(boundedConflict.conflicts.length, 1);
+    assert.ok(boundedConflict.conflicts[0].ours.length <= 80);
+  }
+});

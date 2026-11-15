@@ -7,8 +7,11 @@ import { diffTrees, gitMode, readBlob, type TreeChange } from "./artifacts";
 import type { Env } from "./env";
 import { Gitslice, GitsliceError, sleep, type FileEdit, type SliceRef } from "./gitslice";
 import { isText, merge3, type ConflictHunk } from "./merge";
+import { normalizeSlicePath, protectedPatterns } from "./policy";
 import { review, type ReviewFile } from "./review";
 import type { Session, Signal } from "./types";
+
+export { protectedPatterns };
 
 export interface HubPort {
   getSession(id: string): Promise<Session | null>;
@@ -48,13 +51,14 @@ export async function landPush(env: Env, hub: HubPort, sessionId: string, commit
 
 async function landClaimed(env: Env, hub: HubPort, session: Session, commit: string): Promise<void> {
   const slice: SliceRef = { account: session.account, slice: session.slice };
-  const prefix = `${session.account}/${session.slice}/`;
   const gitslice = new Gitslice(env.GITSLICE_API, env.GITSLICE_TOKEN);
 
   using repo = await env.ARTIFACTS.get(session.id);
   const meta = await repo.readCommit(commit);
   if (!meta) throw new Error(`commit ${commit} is not in ${session.id}`);
-  const changes = (await diffTrees(repo, session.baseline.tree, meta.treeHash)).filter((c) => c.path.startsWith(prefix));
+  const changes = (await diffTrees(repo, session.baseline.tree, meta.treeHash)).filter(
+    (c) => normalizeSlicePath(c.path, session.account, session.slice, { allowDotGitslice: true }) !== null,
+  );
   if (changes.length === 0) {
     await hub.patch(session.id, { status: "forked" }, { kind: "info", message: "That push changed nothing inside the slice." });
     return;
@@ -306,14 +310,6 @@ function describe(session: Session, commit: string, message: string): string {
 // agentNotes is the commit message body: the agent's reasoning and trailers.
 function agentNotes(message: string): string {
   return message.split("\n").slice(1).join("\n").trim();
-}
-
-export function protectedPatterns(env: Env): RegExp[] {
-  return (env.PROTECTED_PATHS || "")
-    .split(",")
-    .map((p) => p.trim())
-    .filter(Boolean)
-    .map((p) => new RegExp(p.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*")));
 }
 
 function sameBytes(a: Uint8Array | null, b: Uint8Array | null): boolean {
