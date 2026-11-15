@@ -8,7 +8,9 @@ import (
 
 	"gitslice.io/gitslice/internal/analytics"
 	"gitslice.io/gitslice/internal/authz"
+	"gitslice.io/gitslice/internal/checks"
 	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/triggers"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -192,7 +194,7 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	if err != nil {
 		return nil, err
 	}
-	cs, err := s.getChangesetForWriteOrAuthor(ctx, subjectID, req.ChangesetId)
+	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionWrite)
 	if err != nil {
 		return nil, err
 	}
@@ -287,11 +289,95 @@ func (s *ChangesetService) ReportCheckResult(ctx context.Context, req *corev1.Re
 	if err != nil {
 		return nil, err
 	}
+	slice, err := s.Slices.Resolve(ctx, cs.GetAuthoringSlice())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	checkName := strings.TrimSpace(req.GetCheckName())
+	if isRequiredSliceCheck(slice, checkName) {
+		if normalized, ok := storage.NormalizeCheckStatus(req.GetStatus()); ok && normalized == storage.CheckStatusPass {
+			patchset := currentPatchset(cs)
+			isAuthor := subjectID == strings.TrimSpace(cs.GetAuthor()) || (patchset != nil && subjectID == strings.TrimSpace(patchset.GetAuthor()))
+			if (isAuthor && len(storage.CIDaemonPool(slice)) > 0) || s.isRequiredCheckOwnedByCIOrTrigger(ctx, cs, slice, patchset, checkName) {
+				return nil, status.Errorf(codes.PermissionDenied, "required check %q is gated by CI or triggers and cannot be marked passing manually", checkName)
+			}
+		}
+	}
 	res, err := s.Changesets.ReportCheckResult(ctx, cs.Id, subjectID, req.CheckName, req.Status)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return res, nil
+}
+
+func (s *ChangesetService) isRequiredCheckOwnedByCIOrTrigger(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, checkName string) bool {
+	checkName = strings.TrimSpace(checkName)
+	if checkName == "" {
+		return false
+	}
+	if s.Checks != nil && cs != nil && patchset != nil {
+		if runs, err := s.Checks.ListCheckRuns(ctx, cs.GetId(), patchset.GetId()); err == nil {
+			for _, run := range runs {
+				if strings.TrimSpace(run.GetCheckName()) == checkName && (run.GetProvenance() == "ci" || run.GetProvenance() == "trigger") {
+					return true
+				}
+			}
+		}
+	}
+	if s.dispatcher != nil && slice != nil && patchset != nil {
+		if plan, err := s.dispatcher.resolveCheckPlan(ctx, slice, patchset); err == nil {
+			if spec, ok := plan.Spec(checkName); ok {
+				if len(storage.CIDaemonPool(slice)) > 0 || spec.OutOfSlice {
+					return true
+				}
+			}
+			if len(storage.CIDaemonPool(slice)) > 0 && checkPlanDefines(plan, checkName) {
+				return true
+			}
+		}
+	}
+	if s.Repository != nil && s.ObjectStore != nil && cs != nil && patchset != nil {
+		account := cs.GetAuthoringSlice().GetAccount()
+		ref := cs.GetTargetRef()
+		if ref == "" {
+			ref = triggers.DefaultRef
+		}
+		files := TreeFiles{Repository: s.Repository, Objects: s.ObjectStore}
+		changes := triggers.ChangesFromPatchset(patchset)
+		if head, err := s.Repository.GetRef(ctx, ref); err == nil {
+			if tree, err := s.Repository.RootTreeForCommit(ctx, head.GetCommitId()); err == nil {
+				if _, declared, err := triggers.CheckSkipped(ctx, files, tree, account, ref, checkName, changes); err == nil && declared {
+					return true
+				}
+			}
+		}
+		if patchset.GetResultTreeId() != "" {
+			if _, declared, err := triggers.CheckSkipped(ctx, files, patchset.GetResultTreeId(), account, ref, checkName, changes); err == nil && declared {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func checkPlanDefines(plan *checks.Plan, checkName string) bool {
+	if plan == nil {
+		return false
+	}
+	if _, ok := plan.Spec(checkName); ok {
+		return true
+	}
+	for _, skipped := range plan.Skipped {
+		if skipped.Name == checkName {
+			return true
+		}
+	}
+	for _, errored := range plan.Errored {
+		if errored.Name == checkName {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *ChangesetService) AbandonChangeset(ctx context.Context, req *corev1.AbandonChangesetRequest) (*corev1.Empty, error) {

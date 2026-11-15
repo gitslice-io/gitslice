@@ -456,3 +456,109 @@ func TestChangesetUpdateValidatesAndHydratesBlobContentHash(t *testing.T) {
 		t.Fatalf("patchset content hash = %q, want %q", got, uploaded.ContentHash)
 	}
 }
+
+func TestBranchProtectionAndOffboardingEnforcement(t *testing.T) {
+	mem, handlers := newSliceMemberHandlers(t)
+	alice := authctx.WithSubjectID(context.Background(), "user_alice")
+	bob := authctx.WithSubjectID(context.Background(), "user_bob")
+	mem.AddAccountRole("user_bob", "acme", "writer")
+
+	sliceRef := &corev1.SliceRef{Account: "acme", Slice: "protected"}
+	slice := mem.PutSliceWithSubmitSettings(sliceRef, []string{"/acme/payment/protected"}, "private", 0, []string{"unit"})
+	if _, err := mem.Slices.SetCIDaemons(alice, slice.Id, []string{"daemon-ci"}); err != nil {
+		t.Fatal(err)
+	}
+
+	ref, err := handlers.Repository.GetRef(alice, &corev1.GetRefRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, patchset := createStandaloneChangesetWithPatchsetForSlice(t, bob, handlers, sliceRef, ref.CommitId, "bob change", "/acme/payment/protected/a.go", "package protected\n")
+
+	// 1. Author cannot self-mark a CI-gated required check as passing via ReportCheckResult.
+	_, err = handlers.Changeset.ReportCheckResult(bob, &corev1.ReportCheckResultRequest{
+		ChangesetId: cs.Id,
+		CheckName:   "unit",
+		Status:      "pass",
+	})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("ReportCheckResult self-pass error = %v, want PermissionDenied", err)
+	}
+
+	// 2. Oversized BundledCheckRuns log is rejected.
+	upload, err := handlers.Blob.UploadBlob(bob, &corev1.UploadBlobRequest{Data: []byte("package protected\n// v2\n"), Slice: sliceRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = handlers.Changeset.UpdateChangeset(bob, &corev1.UpdateChangesetRequest{
+		ChangesetId:               cs.Id,
+		ExpectedCurrentPatchsetId: patchset.Id,
+		BaseCommitId:              ref.CommitId,
+		FileEdits: []*corev1.FileEdit{{
+			Op:          "upsert",
+			Path:        "/acme/payment/protected/a.go",
+			BlobId:      upload.BlobId,
+			ContentHash: upload.ContentHash,
+			Mode:        0o100644,
+		}},
+		BundledCheckRuns: []*corev1.BundledCheckRun{{
+			Name:   "lint",
+			Status: "passed",
+			Log:    strings.Repeat("x", maxBundledCheckLogBytes+1),
+		}},
+	})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("UpdateChangeset oversized bundled log error = %v, want InvalidArgument", err)
+	}
+
+	// 3. Revoked ex-member cannot submit a pre-staged changeset even if requirements are cleared.
+	if _, err := handlers.Auth.CreateOrganization(alice, &corev1.CreateOrganizationRequest{Slug: "labs"}); err != nil {
+		t.Fatal(err)
+	}
+	mem.AddAccountRole("user_bob", "labs", "writer")
+	unprotectedRef := &corev1.SliceRef{Account: "labs", Slice: "offboard"}
+	mem.PutSliceWithSubmitSettings(unprotectedRef, []string{"/labs/offboard"}, "private", 0, nil)
+	stagedCS, stagedPS := createStandaloneChangesetWithPatchsetForSlice(t, bob, handlers, unprotectedRef, ref.CommitId, "staged before offboard", "/labs/offboard/x.go", "package offboard\n")
+	if err := mem.Auth.RemoveAccountMember(alice, "labs", "user_bob"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = handlers.Changeset.SubmitChangeset(bob, &corev1.SubmitChangesetRequest{
+		ChangesetId:               stagedCS.Id,
+		ExpectedCurrentPatchsetId: stagedPS.Id,
+	})
+	if code := status.Code(err); code != codes.PermissionDenied && code != codes.NotFound {
+		t.Fatalf("SubmitChangeset by revoked author error = %v, want PermissionDenied or NotFound", err)
+	}
+}
+
+func createStandaloneChangesetWithPatchsetForSlice(t *testing.T, ctx context.Context, handlers *Handlers, sliceRef *corev1.SliceRef, baseCommitID, title, path, content string) (*corev1.Changeset, *corev1.Patchset) {
+	t.Helper()
+	upload, err := handlers.Blob.UploadBlob(ctx, &corev1.UploadBlobRequest{Data: []byte(content), Slice: sliceRef})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := handlers.Changeset.CreateChangeset(ctx, &corev1.CreateChangesetRequest{
+		AuthoringSlice: sliceRef,
+		TargetRef:      storage.DefaultTargetRef,
+		BaseCommitId:   baseCommitID,
+		Title:          title,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps, err := handlers.Changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
+		ChangesetId:  cs.Id,
+		BaseCommitId: baseCommitID,
+		FileEdits: []*corev1.FileEdit{{
+			Op:          "upsert",
+			Path:        path,
+			BlobId:      upload.BlobId,
+			ContentHash: upload.ContentHash,
+			Mode:        0o100644,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cs, ps
+}
