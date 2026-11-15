@@ -156,7 +156,7 @@ func (r Runner) runStackModify(ctx context.Context, opts commandOptions, message
 		return err
 	}
 	if title := strings.TrimSpace(message); title != "" {
-		// --message retitles the changeset, as gs edit --title does, once
+		// --message retitles the changeset, as gs cs edit --title does, once
 		// the new patchset is in.
 		if _, err := changesetClient.UpdateChangesetInfo(callCtx, &corev1.UpdateChangesetInfoRequest{ChangesetId: cs.Id, Title: &title}); err != nil {
 			return err
