@@ -467,6 +467,7 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 		if !opts.jsonOutput() && !opts.Quiet {
 			r.writeSubmitResultsText(res)
 		}
+		r.reportFailingChecks(ctx, conn, cfg, opts, res)
 	}
 	if opts.jsonOutput() {
 		if err := r.writeJSONOutput(opts, out); err != nil {

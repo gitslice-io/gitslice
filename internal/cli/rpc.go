@@ -3,11 +3,15 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
 	"google.golang.org/protobuf/types/dynamicpb"
@@ -46,8 +50,8 @@ func (r Runner) runRPCCall(ctx context.Context, opts commandOptions, selector, r
 	if err != nil {
 		return err
 	}
-	if method.IsStreamingClient() || method.IsStreamingServer() {
-		return userError("unsupported_rpc", "streaming RPCs are not supported by gs rpc call", "Use a dedicated CLI command for streaming workflows.")
+	if method.IsStreamingClient() {
+		return userError("unsupported_rpc", "client-streaming RPCs are not supported by gs rpc call", "Use a dedicated CLI command for uploads.")
 	}
 	cfg := UserConfig{}
 	if unauthenticated {
@@ -87,6 +91,9 @@ func (r Runner) runRPCCall(ctx context.Context, opts commandOptions, selector, r
 		callCtx = authContext(ctx, cfg)
 	}
 	fullMethod := "/" + string(method.Parent().FullName()) + "/" + string(method.Name())
+	if method.IsStreamingServer() {
+		return r.runRPCServerStream(callCtx, conn, fullMethod, method, req)
+	}
 	if err := conn.Invoke(callCtx, fullMethod, req, res); err != nil {
 		return err
 	}
@@ -163,4 +170,36 @@ func findGeneratedRPCMethod(selector string) (protoreflect.MethodDescriptor, err
 		return nil, userError("unknown_rpc", "unknown RPC method "+selector, "Run gs rpc list to show generated core RPC methods.")
 	}
 	return method, nil
+}
+
+// runRPCServerStream calls a server-streaming RPC and prints each message as
+// one line of JSON (NDJSON) as it arrives, until the server ends the stream.
+func (r Runner) runRPCServerStream(ctx context.Context, conn *grpc.ClientConn, fullMethod string, method protoreflect.MethodDescriptor, req proto.Message) error {
+	stream, err := conn.NewStream(ctx, &grpc.StreamDesc{ServerStreams: true}, fullMethod)
+	if err != nil {
+		return err
+	}
+	if err := stream.SendMsg(req); err != nil {
+		return err
+	}
+	if err := stream.CloseSend(); err != nil {
+		return err
+	}
+	marshal := protojson.MarshalOptions{UseProtoNames: true}
+	for {
+		msg := dynamicpb.NewMessage(method.Output())
+		if err := stream.RecvMsg(msg); err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return err
+		}
+		data, err := marshal.Marshal(msg)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(r.Stdout, string(data)); err != nil {
+			return err
+		}
+	}
 }

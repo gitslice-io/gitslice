@@ -225,7 +225,13 @@ gs submit --json
 gs status --json
 ```
 
-To create and land in one step, use `gs create --message "describe the change" --all --submit --json`: it waits for required checks that have not reported (up to `--watch-timeout`, default 15m), submits, and waits for the changeset to land. If something else blocks it (a failing check, missing approvals), the changeset stays created, the command exits 1 with `submit_blocked`, and `submit.results[].blocked_reason` says why.
+To create and land in one step, use `gs create --message "describe the change" --all --submit --json`: it waits for required checks that have not reported (up to `--watch-timeout`, default 15m), submits, and waits for the changeset to land. If something else blocks it (a failing check, missing approvals), the changeset stays created, the command exits 1 with `submit_blocked`, and `submit.results[].blocked_reason` says why. When a required check failed, gs also prints the last 30 lines of its log on stderr. To look further:
+
+```bash
+gs check list [changeset]               # latest run of each check on the current patchset, with run ids
+gs check logs e2e                        # a check's whole log, by name (or run id); --tail 50, --follow while it runs
+gs check rerun e2e                       # run it again (needs write access)
+```
 
 A changeset has a one-line title (a commit subject, up to 200 characters) and a Markdown description; the commit's message is the title, a blank line, then the description. Put the summary in `--message` and the detail in `--description "..."` or `--description-file <path>`. A `--message` of several lines is split at the first line, so `--message "$(git log -1 --format=%B)"` also works. Change either while the changeset is a draft with `gs cs edit [changeset] [--title ...] [--description ...|--description-file ...]`; once it has landed its text is its commit's and cannot change. `gs cs show` and the MCP changeset tools print both.
 
@@ -444,7 +450,7 @@ gs rpc call AuthService/GetAuthStatus --request '{}' --json
 gs rpc call gitslice.core.v1.AuthService/GetAuthStatus --request '{}' --json=subject_id
 ```
 
-`gs rpc call` supports unary generated core RPCs with protojson requests. It uses saved auth by default; add `--unauthenticated` only for intentionally public development methods. Do not replace product commands with RPC calls when a dedicated `gs` command exists.
+`gs rpc call` calls generated core RPCs with protojson requests, given with `--request` or as a second argument (`gs rpc call Service/Method '{...}'`); a server-streaming RPC prints one JSON object per line until it ends. It uses saved auth by default; add `--unauthenticated` only for intentionally public development methods. Do not replace product commands with RPC calls when a dedicated `gs` command exists.
 
 ## Feedback
 

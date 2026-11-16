@@ -98,11 +98,18 @@ func (r Runner) rpcCommand(opts *commandOptions) *cobra.Command {
 	rpcCallRequest := "{}"
 	rpcCallUnauthenticated := false
 	rpcCallCmd := &cobra.Command{
-		Use:   "call <service>/<method>",
-		Short: "Call a generated unary core RPC with a JSON request",
-		Args:  exactArgs(1, "gs rpc call <service>/<method> --request '{}'"),
+		Use:   "call <service>/<method> [request-json]",
+		Short: "Call a generated core RPC with a JSON request; a server-streaming RPC prints one JSON object per line",
+		Args:  rangeArgs(1, 2, "gs rpc call <service>/<method> ['{...}' | --request '{...}']"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runRPCCall(cmd.Context(), *opts, args[0], rpcCallRequest, rpcCallServer, rpcCallUnauthenticated)
+			request := rpcCallRequest
+			if len(args) == 2 {
+				if cmd.Flags().Changed("request") {
+					return userError("invalid_args", "pass the request either as an argument or with --request, not both", "")
+				}
+				request = args[1]
+			}
+			return r.runRPCCall(cmd.Context(), *opts, args[0], request, rpcCallServer, rpcCallUnauthenticated)
 		},
 	}
 	rpcCallCmd.Flags().StringVar(&rpcCallRequest, "request", rpcCallRequest, "JSON request body")

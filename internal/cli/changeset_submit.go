@@ -325,7 +325,11 @@ func (r Runner) runStackSubmit(ctx context.Context, opts commandOptions, request
 			}
 		}
 	}
-	return r.writeSubmitDependencies(opts, res)
+	if err := r.writeSubmitDependencies(opts, res); err != nil {
+		return err
+	}
+	r.reportFailingChecks(ctx, conn, cfg, opts, res)
+	return nil
 }
 
 func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOptions, cfg UserConfig, state WorkspaceState, watch bool, watchTimeout time.Duration) error {
@@ -347,6 +351,7 @@ func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOption
 	if err := r.writeSubmitDependencies(opts, res); err != nil {
 		return err
 	}
+	r.reportFailingChecks(ctx, conn, cfg, opts, res)
 	// Something the server would not submit is a failed submit, as with
 	// gs create --submit: a script must not read it as landed.
 	if res.Status == "partial" {

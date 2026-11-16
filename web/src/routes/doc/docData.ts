@@ -248,6 +248,7 @@ export const commandGroups = [
       ["gs status", "Show pending workspace edits."],
       ["gs diff", "Inspect pending content changes, three lines of context around each (-U N to change)."],
       ["gs ci", "Run the slice's checks against your pending edits, locally."],
+      ["gs check list | logs <check> | rerun <check>", "A changeset's check runs, a check's log (--tail, --follow), and running it again."],
       ["gs log", "Read recent accepted history."],
       ["gs blame <path>", "Which commit and changeset last changed each line (--lines 10,20, --json)."],
       ["gs show <commit|changeset>", "Inspect an accepted native commit, or a changeset by id or handle."]
