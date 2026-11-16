@@ -9522,3 +9522,17 @@ pages are code-split, analytics waits for the page to load.
 - Each changeset passed the slice's required checks (gofmt, vet, test, build, e2e). Several e2e runs first failed on CI load or a full disk (Postgres in recovery, the 10-minute package timeout) and passed on rerun.
 - Tests CI can't run (no Docker or FUSE in its container) were run locally: `internal/checkexec` service and build tests, `internal/lazyfs/fusefs`, and the lazy-mount e2e tests. The Workers' `node --test` suites pass (doorbell 9, trigger-dispatch 6, agents 18).
 - A no-push run of the relanded mirror exporter against github.com/gitslice-io/gitslice produced the same head as the previous exporter.
+
+## 2026-11-15 — macOS Docker Desktop VirtioFS check staging and web vendor copy
+
+**Why**
+- Running `gitslice/web/build` on a macOS Docker Desktop CI daemon failed during Nitro's `copyPublicAssets` with `EACCES: permission denied, chmod '/workspace/gitslice/web/.output/public/vendor/mermaid/chunks/mermaid.esm.min/...'`.
+- In `node:22-bookworm` (`Node v22.23.5`), `web/scripts/copy-vendor.mjs` called synchronous `fs.cpSync(..., { recursive: true })` from `/deps/node_modules/...` (container overlayfs) onto `/workspace/...` (Docker Desktop VirtioFS), where libuv's `uv_fs_cp` leaves copied files at mode `0200` (`--w-------`); Nitro's subsequent `fs.promises.cp` / `chmod` on those `0200` VirtioFS files fails with `EACCES`. Direct read-write host bind mounts on macOS also write container symlinks and build outputs back into a local workspace during `gs ci`.
+
+**What changed**
+- `internal/checkexec` (`workspace_stage.go`, `exec.go`): on `darwin` (or when `GITSLICE_CHECK_STAGE_WORKSPACE=1`; disabled by `0` or when a `cache` path sits under `/workspace`), container checks mount the host tree read-only at `/.gitslice-workspace-src:ro`, mount an executable `tmpfs` at `/workspace` owned by the check user, copy the tree in with POSIX `cp -RPp`, `cd` into the check's working directory, and `exec sh -c` the check command.
+- `web/scripts/copy-vendor.mjs`: replaced synchronous `cpSync` with `fs/promises` `await cp`, which preserves `0644` permissions even on direct VirtioFS bind mounts.
+
+**Verification**
+- `go test -count=1 ./internal/checkexec/... ./internal/cli/...` (including live Docker Desktop container and staged-workspace integration tests).
+- Verified `node scripts/copy-vendor.mjs` inside `gitslice-ci/build-*` produces `0644` files on raw VirtioFS and full `npm run build && npm test` (95 files, 700 tests) passes in staged `/workspace`.

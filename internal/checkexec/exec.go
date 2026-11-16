@@ -99,12 +99,13 @@ func runHost(ctx context.Context, workspaceRoot string, spec checks.CheckSpec, t
 
 // containerRun is what a check's container needs beyond its spec.
 type containerRun struct {
-	user      []string          // --user / --userns arguments
-	home      bool              // give the check a HOME it can write
-	envFile   string            // 0600 temporary --env-file path, if any
-	network   string            // the run's services network, if any
-	hosts     []string          // names that resolve to 127.0.0.1 (services, on the host network)
-	cacheDirs map[string]string // container cache path -> host folder
+	user           []string          // --user / --userns arguments
+	home           bool              // give the check a HOME it can write
+	envFile        string            // 0600 temporary --env-file path, if any
+	network        string            // the run's services network, if any
+	hosts          []string          // names that resolve to 127.0.0.1 (services, on the host network)
+	cacheDirs      map[string]string // container cache path -> host folder
+	workspaceTmpfs string            // --tmpfs spec when staging /workspace inside the container
 }
 
 func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSpec, timeout time.Duration) (Result, error) {
@@ -188,9 +189,14 @@ func runContainer(ctx context.Context, workspaceRoot string, spec checks.CheckSp
 
 	run := containerRun{user: userArgs(rt)}
 	run.home = needsHome(ctx, rt, image)
+	cachePaths, err := normalizedContainerCachePaths(spec.Cache)
+	if err != nil {
+		return Result{}, err
+	}
 	if run.cacheDirs, err = checkCacheDirs(spec); err != nil {
 		return Result{}, err
 	}
+	run.workspaceTmpfs = workspaceStageTmpfs(rt, cachePaths)
 	if len(spec.Services) > 0 {
 		services, note, result, err := startServices(ctx, rt, spec)
 		if err != nil {
@@ -513,7 +519,13 @@ func containerRunArgs(root, image, containerName string, spec checks.CheckSpec, 
 		"--cpus=" + cpuLimit,
 	}
 	args = append(args, run.user...)
-	args = append(args, "-v", root+":"+containerWorkspacePath)
+	workdir := containerWorkingDir(spec.WorkingDir)
+	if run.workspaceTmpfs != "" {
+		args = append(args, "-v", root+":"+containerWorkspaceSrcPath+":ro")
+		args = append(args, "--tmpfs", run.workspaceTmpfs)
+	} else {
+		args = append(args, "-v", root+":"+containerWorkspacePath)
+	}
 	for _, cachePath := range cachePaths {
 		hostDir, ok := run.cacheDirs[cachePath]
 		if !ok {
@@ -521,7 +533,13 @@ func containerRunArgs(root, image, containerName string, spec checks.CheckSpec, 
 		}
 		args = append(args, "-v", hostDir+":"+cachePath)
 	}
-	args = append(args, "-w", containerWorkingDir(spec.WorkingDir))
+	if run.workspaceTmpfs != "" {
+		// Start at /workspace so the OCI runtime never pre-creates nested
+		// subdirectories as root before the non-root check user stages files.
+		args = append(args, "-w", containerWorkspacePath)
+	} else {
+		args = append(args, "-w", workdir)
+	}
 	switch {
 	case run.network != "":
 		args = append(args, "--network="+run.network)
@@ -538,7 +556,11 @@ func containerRunArgs(root, image, containerName string, spec checks.CheckSpec, 
 	} else if _, ok := spec.Env["HOME"]; run.home && !ok {
 		args = append(args, "-e", "HOME="+containerHome)
 	}
-	args = append(args, "--", image, "sh", "-c", spec.Run)
+	if run.workspaceTmpfs != "" {
+		args = append(args, "--", image, "sh", "-c", stageWorkspaceScript, "gitslice-stage", workdir, spec.Run)
+	} else {
+		args = append(args, "--", image, "sh", "-c", spec.Run)
+	}
 	return args, nil
 }
 

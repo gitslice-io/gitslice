@@ -16,6 +16,7 @@ import (
 // tree the daemon materialized in a folder only that user may open. As root
 // with every capability dropped it could do neither on rootful Docker.
 func TestRunContainerReadsAndWritesItsTree(t *testing.T) {
+	t.Setenv("GITSLICE_CHECK_STAGE_WORKSPACE", "0")
 	image := requireLocalImage(t, "busybox")
 	root := t.TempDir()
 	if err := os.Chmod(root, 0o700); err != nil {

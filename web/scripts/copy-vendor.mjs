@@ -6,7 +6,8 @@
 // diagram is opened, so they are served as static files instead of being part
 // of the build. Run by `npm run build` and `npm run dev`.
 
-import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { cp } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -28,6 +29,9 @@ for (const [from, to] of copies) {
   }
   const destination = join(target, to);
   mkdirSync(dirname(destination), { recursive: true });
-  cpSync(source, destination, { recursive: true });
+  // Use fs/promises cp instead of cpSync: in Node 22 on Docker Desktop VirtioFS,
+  // libuv's synchronous recursive directory copy leaves destination files with
+  // mode 0200 (--w-------), causing Nitro's asset copy chmod to fail with EACCES.
+  await cp(source, destination, { recursive: true });
 }
 console.log("copy-vendor: diagram engines copied to public/vendor");
