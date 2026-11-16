@@ -394,6 +394,38 @@ Lockfiles and generated files (`go.sum`, `package-lock.json`) often conflict
 here while being trivially resolvable; per-slice merge rules for them are a
 follow-up.
 
+## 7.5 Merge rules for lockfiles and generated files
+
+Some files merge badly line by line but have an obvious resolution: `go.sum`
+is a set of lines, a lockfile or generated file should be the newest one
+(and regenerated if that matters). A folder can say so in
+`.gitslice/merge.yaml`:
+
+```yaml
+version: 1
+rules:
+  - paths: ["go.sum", "**/go.sum"]
+    merge: union      # the new base's lines, minus those the change removed, plus those it added
+  - paths: ["**/package-lock.json", "**/*.pb.go"]
+    merge: newest     # the new base's version
+  - paths: ["docs/generated/**"]
+    merge: ours       # the change's version
+```
+
+- Patterns are doublestar globs relative to the folder holding `.gitslice`.
+  The nearest `merge.yaml` above a path decides, and in it the first rule
+  that matches.
+- Rules apply only where a line merge would leave conflict markers, both on
+  the server (restacking a dependency tree, merge on submit) and in `gs sync`.
+- They are read from the new base, which has landed: a change cannot set the
+  rules of its own merge.
+- `regenerate:<check>` (take the newest, then rebuild the file with a check)
+  is not supported: nothing writes a check's output back into a change yet.
+  Use `newest` and a check that fails when the file is stale.
+
+Code: `internal/mergerules`; `service/restack_merge.go` (server);
+`internal/cli/sync_merge_rules.go` (gs sync).
+
 ## 8. Interaction With Overlapping Slices
 
 Overlapping slices do not duplicate files. They project the same global path.

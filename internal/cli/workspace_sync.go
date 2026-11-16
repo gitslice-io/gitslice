@@ -525,7 +525,15 @@ func (r Runner) applyWorkspaceSyncMergeStrategy(ctx context.Context, repo corev1
 				return err
 			}
 			if !ok {
-				remaining = append(remaining, conflict)
+				// A rule in .gitslice/merge.yaml (read from the new base)
+				// may resolve what the line merge could not.
+				resolved, err := r.applySyncMergeRule(ctx, repo, cache, oldBaseCommitID, newBaseCommitID, base, current, remote, conflict, plan)
+				if err != nil {
+					return err
+				}
+				if !resolved {
+					remaining = append(remaining, conflict)
+				}
 				continue
 			}
 			plan.MergedFiles = append(plan.MergedFiles, merged)

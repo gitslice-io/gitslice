@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"gitslice.io/gitslice/internal/diffutil"
+	"gitslice.io/gitslice/internal/mergerules"
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
 	"gitslice.io/gitslice/proto/core/v1"
 )
@@ -63,6 +64,35 @@ func (s *ChangesetStackService) rebaseEdits(ctx context.Context, cs *corev1.Chan
 		return out
 	}
 
+	// Merge rules (.gitslice/merge.yaml) are read from the new base.
+	ruleFiles := map[string]struct {
+		data []byte
+		ok   bool
+	}{}
+	rules := func(p string) (mergerules.Strategy, bool, error) {
+		return mergerules.Lookup(p, func(cfg string) ([]byte, bool, error) {
+			if f, seen := ruleFiles[cfg]; seen {
+				return f.data, f.ok, nil
+			}
+			base, err := s.validator.pathBase(ctx, newBaseCommitID, newBaseTreeID, cfg)
+			if err != nil {
+				return nil, false, err
+			}
+			var data []byte
+			ok := base.GetExists() && base.GetEntryKind() == "file"
+			if ok {
+				if data, ok, err = s.restackContent(ctx, base.GetContentHash()); err != nil {
+					return nil, false, err
+				}
+			}
+			ruleFiles[cfg] = struct {
+				data []byte
+				ok   bool
+			}{data, ok}
+			return data, ok, nil
+		})
+	}
+
 	edits := make([]*corev1.FileEdit, 0, len(patchset.GetFileEdits()))
 	var conflicts []*corev1.PatchsetConflict
 	for _, edit := range cloneFileEdits(patchset.GetFileEdits()) {
@@ -101,7 +131,7 @@ func (s *ChangesetStackService) rebaseEdits(ctx context.Context, cs *corev1.Chan
 				edits = append(edits, edit)
 				continue
 			}
-			merged, class, err := s.mergeUpstream(ctx, cs, edit, oldBases[p], newBases[p])
+			merged, class, err := s.mergeUpstream(ctx, cs, edit, oldBases[p], newBases[p], rules)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -117,7 +147,7 @@ func (s *ChangesetStackService) rebaseEdits(ctx context.Context, cs *corev1.Chan
 // mergeUpstream merges an edit of a file with the file's upstream change.
 // class is empty for a clean merge, else the conflict's class; the returned
 // edit is what the patchset keeps (the merge, or the patchset's own version).
-func (s *ChangesetStackService) mergeUpstream(ctx context.Context, cs *corev1.Changeset, edit *corev1.FileEdit, old, upstream *corev1.PathBase) (*corev1.FileEdit, string, error) {
+func (s *ChangesetStackService) mergeUpstream(ctx context.Context, cs *corev1.Changeset, edit *corev1.FileEdit, old, upstream *corev1.PathBase, rules func(string) (mergerules.Strategy, bool, error)) (*corev1.FileEdit, string, error) {
 	if upstream.GetExists() && upstream.GetEntryKind() == "file" && upstream.GetContentHash() == edit.GetContentHash() {
 		return edit, "", nil // the same change landed upstream
 	}
@@ -137,6 +167,23 @@ func (s *ChangesetStackService) mergeUpstream(ctx context.Context, cs *corev1.Ch
 		return edit, "restack_binary", err
 	}
 	merged, clean := diffutil.Merge3(base, ours, theirs, "changeset", "upstream")
+	if !clean && rules != nil {
+		// A merge rule for the path resolves what the line merge could not.
+		strategy, ok, err := rules(edit.GetPath())
+		if err != nil {
+			return nil, "", err
+		}
+		if ok {
+			switch strategy {
+			case mergerules.Union:
+				merged, clean = mergerules.MergeUnion(base, ours, theirs), true
+			case mergerules.Newest:
+				merged, clean = theirs, true
+			case mergerules.Ours:
+				return edit, "", nil
+			}
+		}
+	}
 	stored, err := (&BlobService{Auth: s.Auth, Blobs: s.Blobs, Slices: s.Slices, ObjectStore: s.ObjectStore}).
 		uploadBlobs(ctx, cs.GetAuthoringSlice(), []*corev1.UploadBlobsEntry{{Data: merged}})
 	if err != nil {

@@ -241,7 +241,7 @@ When nothing changed, `gs create` creates nothing and fails with `nothing_to_cha
 
 Long uploads (`gs fs upload`, `gs create`), syncs and hydrates print progress lines on stderr; `--json` and `--quiet` keep stderr free of them.
 
-Use `gs sync --json` before editing if the remote base may have advanced. Uncommitted edits with no changeset are merged with the new head in place when every file merges cleanly, after a copy of them is saved under `.gs/sync-backup/`; if the head conflicts with one, sync changes nothing and asks you to `gs create` first, so the conflicts are recorded on the changeset. Merge strategies are `line` (default), `manual`, `ours`, and `theirs`:
+Use `gs sync --json` before editing if the remote base may have advanced. Uncommitted edits with no changeset are merged with the new head in place when every file merges cleanly, after a copy of them is saved under `.gs/sync-backup/`; if the head conflicts with one, sync changes nothing and asks you to `gs create` first, so the conflicts are recorded on the changeset. A folder's `.gitslice/merge.yaml` can say how files that merge badly line by line are resolved when both sides changed them: `union` (line sets such as `go.sum`), `newest` (lockfiles, generated files) or `ours`, by glob (design/07 §7.5); it applies in `gs sync` and when the server restacks or merges on submit. Merge strategies are `line` (default), `manual`, `ours`, and `theirs`:
 
 ```bash
 gs sync --merge line --json
