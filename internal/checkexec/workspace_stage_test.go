@@ -2,7 +2,9 @@ package checkexec
 
 import (
 	"context"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -19,9 +21,19 @@ func TestWorkspaceStageTmpfsSelection(t *testing.T) {
 	}
 
 	rootless := workspaceStageTmpfs(RuntimeInfo{Name: "podman", Path: "/usr/bin/podman", Rootless: true}, nil)
-	if rootless != "/workspace:exec,mode=1777" {
-		t.Fatalf("workspaceStageTmpfs(rootless) = %q, want /workspace:exec,mode=1777", rootless)
+	if rootless != "/workspace:exec,size=4g,mode=1777" {
+		t.Fatalf("workspaceStageTmpfs(rootless) = %q, want /workspace:exec,size=4g,mode=1777", rootless)
 	}
+
+	t.Setenv("GITSLICE_CHECK_STAGE_SIZE", "8G")
+	if got := workspaceStageTmpfs(RuntimeInfo{Name: "podman", Rootless: true}, nil); got != "/workspace:exec,size=8g,mode=1777" {
+		t.Fatalf("workspaceStageTmpfs(GITSLICE_CHECK_STAGE_SIZE=8G) = %q", got)
+	}
+	t.Setenv("GITSLICE_CHECK_STAGE_SIZE", "8g,uid=0")
+	if got := workspaceStageTmpfs(RuntimeInfo{Name: "podman", Rootless: true}, nil); got != "/workspace:exec,size=4g,mode=1777" {
+		t.Fatalf("workspaceStageTmpfs(bad size) = %q, want the 4g default", got)
+	}
+	t.Setenv("GITSLICE_CHECK_STAGE_SIZE", "")
 
 	// Cache mounts inside /workspace must disable tmpfs staging so they are not shadowed.
 	if nested := workspaceStageTmpfs(RuntimeInfo{Name: "docker", Path: "/usr/bin/docker"}, []string{"/workspace/.cache"}); nested != "" {
@@ -96,5 +108,78 @@ func TestRunContainerStagedWorkspacePreservesHostAndDotfiles(t *testing.T) {
 	// Host workspace must remain clean (no build-artifact written back to root).
 	if _, err := os.Stat(filepath.Join(root, "sub/app/build-artifact")); !os.IsNotExist(err) {
 		t.Fatalf("host workspace was mutated by staged container run: stat err = %v", err)
+	}
+}
+
+// runStageScript runs the staging script on the host's sh, copying src into
+// dst and then running command in workdir (relative to dst).
+func runStageScript(t *testing.T, src, dst, workdir, command string) (string, int) {
+	t.Helper()
+	cmd := exec.Command("sh", "-c", stageScript(src, dst), "gitslice-stage", filepath.Join(dst, workdir), command)
+	out, err := cmd.CombinedOutput()
+	var exitErr *exec.ExitError
+	switch {
+	case err == nil:
+		return string(out), 0
+	case errors.As(err, &exitErr):
+		return string(out), exitErr.ExitCode()
+	default:
+		t.Fatalf("run stage script: %v", err)
+		return "", -1
+	}
+}
+
+func TestStageScriptCopiesTreeAndSkipsGsMetadata(t *testing.T) {
+	src, dst := t.TempDir(), t.TempDir()
+	writeTestFile(t, src, ".hidden", "dot-ok")
+	writeTestFile(t, src, "..odd", "odd-ok")
+	writeTestFile(t, src, "sub/app/file", "app-ok")
+	writeTestFile(t, src, ".gs/workspace.json", "{}")
+
+	out, code := runStageScript(t, src, dst, "sub/app", `cat file ../../.hidden ../../..odd; test ! -e ../../.gs && echo no-gs`)
+	if code != 0 || out != "app-okdot-okodd-okno-gs\n" {
+		t.Fatalf("stage script = %q, exit %d; want the files copied, .gs skipped and the check run in sub/app", out, code)
+	}
+}
+
+// A copy that fails must stop the check before it runs: a loop of cp
+// commands reports only the last one's status, so a partial tree could
+// otherwise pass.
+func TestStageScriptFailsWhenACopyFails(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads unreadable files")
+	}
+	src, dst := t.TempDir(), t.TempDir()
+	writeTestFile(t, src, "a-unreadable", "secret")
+	writeTestFile(t, src, "z-last/file", "ok")
+	if err := os.Chmod(filepath.Join(src, "a-unreadable"), 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(filepath.Join(src, "a-unreadable"), 0o600) })
+
+	out, code := runStageScript(t, src, dst, ".", `echo check-ran`)
+	if code != stageFailedExit {
+		t.Fatalf("exit = %d, want %d; output %q", code, stageFailedExit, out)
+	}
+	if strings.Contains(out, "check-ran") || !strings.Contains(out, "the check did not run") {
+		t.Fatalf("output = %q, want the staging error and no check run", out)
+	}
+}
+
+// A tree larger than GITSLICE_CHECK_STAGE_SIZE fails the check with the
+// staging error instead of running it on whatever fit.
+func TestRunContainerStagedWorkspaceTooLarge(t *testing.T) {
+	image := requireLocalImage(t, "busybox")
+	t.Setenv("GITSLICE_CHECK_STAGE_WORKSPACE", "1")
+	t.Setenv("GITSLICE_CHECK_STAGE_SIZE", "1m")
+
+	root := t.TempDir()
+	writeTestFile(t, root, "big", strings.Repeat("x", 2<<20))
+	res, err := Run(context.Background(), root, checks.CheckSpec{Image: image, Run: `echo check-ran`})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if res.Status == "passed" || strings.Contains(res.Log, "check-ran") || !strings.Contains(res.Log, "the check did not run") {
+		t.Fatalf("result = %#v, want a failure with the staging error", res)
 	}
 }

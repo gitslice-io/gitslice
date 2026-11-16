@@ -557,7 +557,7 @@ func containerRunArgs(root, image, containerName string, spec checks.CheckSpec, 
 		args = append(args, "-e", "HOME="+containerHome)
 	}
 	if run.workspaceTmpfs != "" {
-		args = append(args, "--", image, "sh", "-c", stageWorkspaceScript, "gitslice-stage", workdir, spec.Run)
+		args = append(args, "--", image, "sh", "-c", stageWorkspaceScript(), "gitslice-stage", workdir, spec.Run)
 	} else {
 		args = append(args, "--", image, "sh", "-c", spec.Run)
 	}

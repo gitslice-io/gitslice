@@ -9536,3 +9536,16 @@ pages are code-split, analytics waits for the page to load.
 **Verification**
 - `go test -count=1 ./internal/checkexec/... ./internal/cli/...` (including live Docker Desktop container and staged-workspace integration tests).
 - Verified `node scripts/copy-vendor.mjs` inside `gitslice-ci/build-*` produces `0644` files on raw VirtioFS and full `npm run build && npm test` (95 files, 700 tests) passes in staged `/workspace`.
+
+## 2026-11-16 — staged check workspaces: fail on a partial copy, size cap, skip .gs
+
+**Why** (review of the macOS staging change above)
+- The staging loop's status was that of its last `cp`, so an earlier failed copy (unreadable file, full tmpfs) let the check run on a partial tree and possibly pass.
+- The tmpfs had no size, and `gs ci` on macOS copied the live workspace's `.gs/` metadata too.
+
+**What changed**
+- `internal/checkexec/workspace_stage.go`: each failed `cp` stops with exit 125 and "the check did not run"; `.gs` at the workspace root is skipped; the tmpfs gets `size=` from `GITSLICE_CHECK_STAGE_SIZE` (default `4g`; only `<n>[kmg]` is accepted).
+- SKILL documents the staging, its size cap and the switches.
+
+**Verification**
+- `go test ./internal/checkexec/`: script tests on the host `sh` (dotfiles copied, `.gs` skipped, an unreadable file stops the check) and a busybox container whose tree exceeds a 1m cap.
