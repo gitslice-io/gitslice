@@ -65,12 +65,16 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 			"base_commit_id":      commitID,
 			"client_object_cache": cache.Root(),
 			"hydrated":            hydrated,
+			"files_under":         workspaceFilesLocation(slice.Definition.IncludedPaths),
 		})
 	}
 	if opts.Quiet {
 		return nil
 	}
 	fmt.Fprintf(r.Stdout, "initialized workspace for %s:%s\n", ref.Account, ref.Slice)
+	if where := workspaceFilesLocation(slice.Definition.IncludedPaths); where != "" {
+		fmt.Fprintf(r.Stdout, "files are under %s\n", where)
+	}
 	fmt.Fprintf(r.Stdout, "hydrated %d file(s) through cache (%d hit(s), %d miss(es))\n", hydrated.FileCount, hydrated.CacheHits, hydrated.CacheMisses)
 	return nil
 }

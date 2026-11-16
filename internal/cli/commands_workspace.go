@@ -13,8 +13,9 @@ func (r Runner) workspaceCommands(opts *commandOptions) []*cobra.Command {
 		Short: "Create a workspace for a slice: check it out here, or with --lazy mount it",
 		Long: `Create a workspace for one slice.
 
-Without --lazy, gs init checks the slice out into the current (empty)
-directory: every file is downloaded, which grows with the slice.
+Without --lazy, gs init checks the slice out into dir (created if missing) or
+the current directory, which must be empty: every file is downloaded, which
+grows with the slice.
 
 With --lazy, gs init mounts the slice at dir (default: the current, empty
 directory) as a lazy workspace, on Linux and macOS with FUSE. Only the listing
@@ -29,11 +30,20 @@ process shared by all your lazy workspaces, which exits when the last is
 unmounted. After a reboot or gs unmount, gs mount <dir> brings the workspace back
 with its edits. --prefetch <glob> (relative to the mount, repeatable) fetches
 matching files in the background; --read-only refuses writes.`,
-		Args: rangeArgs(1, 2, "gs init <slice|account:slice>  |  gs init --lazy <slice|account:slice> [dir]"),
+		Args: rangeArgs(1, 2, "gs init <slice|account:slice> [dir]  |  gs init --lazy <slice|account:slice> [dir]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !initLazy {
-				if len(args) == 2 || initReadOnly || len(initPrefetch) > 0 {
-					return userError("invalid_args", "a directory, --read-only and --prefetch apply to lazy workspaces only", "Add --lazy, or run gs init <slice> in the directory to check out.")
+				if initReadOnly || len(initPrefetch) > 0 {
+					return userError("invalid_args", "--read-only and --prefetch apply to lazy workspaces only", "Add --lazy.")
+				}
+				if len(args) == 2 {
+					into, err := r.prepareInitDir(args[1])
+					if err != nil {
+						return err
+					}
+					sub := r
+					sub.Dir = into
+					return sub.runWorkspaceInit(cmd.Context(), *opts, args[0])
 				}
 				return r.runWorkspaceInit(cmd.Context(), *opts, args[0])
 			}

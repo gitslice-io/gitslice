@@ -226,7 +226,8 @@ export const commandGroups = [
   {
     title: "Workspace and source",
     commands: [
-      ["gs init <account>:<slice>", "Create a workspace for one slice: checks every file out into the current empty directory."],
+      ["gs init <account>:<slice> [dir]", "Create a workspace for one slice: checks every file out into dir (created if missing) or the current empty directory, and says where the files are."],
+      ["gs -C <dir> <command>", "Run any gs command as if it started in dir, like git -C."],
       [
         "gs init --lazy <account>:<slice> [dir]",
         "Create a lazy workspace instead (Linux and macOS, with FUSE): the slice is mounted at dir in seconds (2.6 s for 4,500 files, cold), a file's content is fetched the first time something reads it (each first read is a server round trip; a walk of the whole tree, such as grep or a build, is read ahead of, and gs fetch first is fastest for work that reads everything), and your edits stay on this machine until gs create. Every other command works as in a checkout; gs sync and changeset switching move the mount without fetching. --prefetch <glob> warms files in the background; --read-only refuses writes."

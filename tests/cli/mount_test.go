@@ -822,10 +822,10 @@ func TestInitLazyCreatesAMountAndMountBringsItBack(t *testing.T) {
 	loginTestCLI(t, ts, mountHome, upstream)
 	startMountSupervisor(t, mountHome, upstream)
 
-	// Options that only mean something for a lazy workspace are refused without it.
+	// Options that only mean something for a lazy workspace are refused without
+	// it. (A directory is not one of them: gs init <slice> <dir> checks out there.)
 	elsewhere := t.TempDir()
 	for _, args := range [][]string{
-		{"init", "acme/payment", filepath.Join(elsewhere, "x")},
 		{"init", "acme/payment", "--read-only"},
 		{"init", "acme/payment", "--prefetch", "**"},
 	} {

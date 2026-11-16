@@ -21,6 +21,9 @@ func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dir
 			return userError("invalid_args", "invalid --prefetch pattern "+pattern, "Use a glob relative to the mount, such as 'acme/app/**/*.go'.")
 		}
 	}
+	if !filepath.IsAbs(dirArg) {
+		dirArg = filepath.Join(r.cwd(), dirArg)
+	}
 	dir, err := filepath.Abs(dirArg)
 	if err != nil {
 		return err

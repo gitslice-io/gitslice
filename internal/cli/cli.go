@@ -69,6 +69,13 @@ func Main(args []string, stdout, stderr io.Writer) int {
 func (r Runner) Run(ctx context.Context, args []string) error {
 	cliInsecureFlag.Store(false)
 	defer cliInsecureFlag.Store(false)
+	args, dir, err := extractDirectoryFlag(args, r.cwd())
+	if err != nil {
+		return err
+	}
+	if dir != "" {
+		r.Dir = dir
+	}
 	expanded, err := r.expandAliasArgs(args)
 	if err != nil {
 		return r.enhanceCommandError(err)
@@ -131,6 +138,9 @@ func (r Runner) rootCommand() *cobra.Command {
 	root.PersistentFlags().BoolVar(&opts.Debug, "debug", false, "emit debug diagnostics")
 	root.PersistentFlags().BoolVar(&opts.Trace, "trace", false, "emit trace diagnostics")
 	root.PersistentFlags().BoolVar(&opts.Insecure, "insecure", false, "allow plaintext connections to non-loopback servers")
+	// -C is applied by Run before the command tree is built (extractDirectoryFlag);
+	// it is declared here so help lists it.
+	root.PersistentFlags().StringP("directory", "C", "", "run as if gs was started in this directory (like git -C); repeatable, each relative to the last")
 	root.SetHelpCommand(r.helpCommand(root))
 	root.AddCommand(
 		r.authCommand(opts),

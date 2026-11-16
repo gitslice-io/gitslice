@@ -195,10 +195,8 @@ Use this pattern:
 ```bash
 run_root="${TMPDIR:-/tmp}/gitslice-agent/${USER:-agent}/$(date +%Y%m%d%H%M%S)-$$"
 task_dir="$run_root/acme-payment-task-1"
-mkdir -p "$task_dir"
-cd "$task_dir"
-gs init acme/payment --json
-gs context --json
+gs init acme/payment "$task_dir" --json   # creates the directory, which must be empty
+gs -C "$task_dir" context --json          # -C <dir> runs any gs command as if started in <dir>, like git -C
 ```
 
 Guidelines:
