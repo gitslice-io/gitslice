@@ -36,6 +36,9 @@ type workspaceSyncOutput struct {
 	RestackedChangesets  []string `json:"updated_changesets,omitempty"`
 	LandedChangesetID    string   `json:"landed_changeset_id,omitempty"`
 	LandedStackID        string   `json:"landed_stack_id,omitempty"`
+	// BackupDir holds copies of the uncommitted edits a sync merged into,
+	// taken before it changed them (a checkout with no changeset).
+	BackupDir string `json:"backup_dir,omitempty"`
 }
 
 const (
@@ -139,13 +142,10 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 			return err
 		}
 	}
-	if len(localDirtyPaths) > 0 && activeChangeset == nil {
-		return userError(
-			"sync_needs_changeset",
-			"workspace has local changes but no draft changeset",
-			"Run gs create --message <title> first, then run gs sync again.",
-		)
-	}
+	// Uncommitted edits with no changeset to hold them are merged with the
+	// new head in place, as long as every file merges cleanly: conflicts are
+	// recorded on a changeset, so those need gs create first.
+	uncommitted := len(localDirtyPaths) > 0 && activeChangeset == nil
 	cache, err := r.objectCache()
 	if err != nil {
 		return err
@@ -175,6 +175,22 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	}
 	if err := r.applyWorkspaceSyncMergeStrategy(callCtx, repo, cache, oldBaseCommitID, newBaseCommitID, mergeStrategy, base, current, remoteFiles, &plan); err != nil {
 		return err
+	}
+	backupDir := ""
+	if uncommitted {
+		if len(plan.Conflicts) > 0 {
+			paths := workspaceConflictPaths(plan.Conflicts)
+			return userError(
+				"sync_needs_changeset",
+				fmt.Sprintf("the latest commit conflicts with %d of your uncommitted edits (%s); nothing was changed", len(paths), strings.Join(paths, ", ")),
+				"Run gs create --message <title> first, then run gs sync again: the conflicts are then recorded on the changeset.",
+			)
+		}
+		if lazy == nil {
+			if backupDir, err = r.backupUncommittedEdits(root, localDirtyPaths); err != nil {
+				return err
+			}
+		}
 	}
 	if lazy != nil {
 		// With a dependency tree, the restack below moves the workspace.
@@ -211,6 +227,7 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		MergeStrategy:        mergeStrategy,
 		LandedChangesetID:    landedChangesetID,
 		LandedStackID:        landedStackID,
+		BackupDir:            backupDir,
 	}
 	if oldBaseCommitID == newBaseCommitID && len(plan.UpdatedPaths) == 0 && len(plan.Conflicts) == 0 {
 		output.Status = "up_to_date"
@@ -353,6 +370,9 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	}
 	if output.MergedPathCount > 0 {
 		fmt.Fprintf(r.Stdout, "merged %d path(s) with %s strategy\n", output.MergedPathCount, output.MergeStrategy)
+	}
+	if output.BackupDir != "" {
+		fmt.Fprintf(r.Stdout, "your uncommitted edits were copied to %s first\n", output.BackupDir)
 	}
 	if output.PatchsetID != "" {
 		fmt.Fprintf(r.Stdout, "created sync patchset %d for %s\n", output.PatchsetNumber, firstNonEmpty(storage.ShortChangesetID(output.ChangesetID), output.ChangesetID))

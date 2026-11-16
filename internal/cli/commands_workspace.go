@@ -137,15 +137,21 @@ Pass the workspace's own directory, not a folder inside it.`,
 
 // statusCommands builds gs status and gs context.
 func (r Runner) statusCommands(opts *commandOptions) []*cobra.Command {
+	statusLocal, statusRelative := false, false
 	statusCmd := &cobra.Command{
 		Use:     "status",
 		Aliases: []string{"st"},
 		Short:   "Show workspace changes against the local base snapshot",
-		Args:    noArgs("gs status [--format text|json] [--json]"),
+		Long: "Show workspace changes against the local base snapshot. Offline, or when the server refuses the caller " +
+			"(no write access to the slice, signed out), gs status still lists the workspace's own edits and says so; " +
+			"--local never asks the server for anything it can do without.",
+		Args: noArgs("gs status [--local] [--relative] [--format text|json] [--json]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runStatus(cmd.Context(), *opts)
+			return r.runStatus(cmd.Context(), *opts, statusLocal, statusRelative)
 		},
 	}
+	statusCmd.Flags().BoolVar(&statusLocal, "local", false, "list the workspace's own edits without asking the server to validate them")
+	statusCmd.Flags().BoolVar(&statusRelative, "relative", false, "print paths relative to the current directory instead of their slice paths (text output)")
 	contextCmd := &cobra.Command{
 		Use:     "context",
 		Aliases: []string{"ctx"},

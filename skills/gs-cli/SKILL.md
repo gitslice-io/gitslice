@@ -162,7 +162,7 @@ gs init nic/home --json
 gs status --json
 ```
 
-`gs status` and `gs diff --stat` label each changed path `added`, `modified`, `deleted` or `renamed`, with the lines it adds and removes (`changes` in the JSON; lines are counted from content already on this machine). Both work without the server: offline they list the workspace's own edits, with the dependency tree as last seen, and say `offline`.
+`gs status` and `gs diff --stat` label each changed path `added`, `modified`, `deleted` or `renamed`, with the lines it adds and removes (`changes` in the JSON; lines are counted from content already on this machine). Both work without the server: offline they list the workspace's own edits, with the dependency tree as last seen, and say `offline`. `gs status` does the same when the server refuses you (no write access to the slice, or signed out) and says `local` (`local_only` in JSON); `gs status --local` never asks the server. Paths are slice paths (`/acme/app/x.go`); `gs status --relative` prints them relative to the current directory instead.
 
 To work in a large slice without checking it all out, mount it lazily (Linux and macOS with FUSE). The listing arrives in seconds (2.6 s for 4,500 files, cold), and a file's content is fetched on first read, with the small files beside it; each first read is a server round trip. A walk of the whole tree (`rg`, `grep -r`, a build) is noticed and the files ahead of it are fetched first (`GS_READAHEAD=off` turns that off); for work you know reads everything, `gs fetch` first is still fastest. Edit with any tool: edits stay in the workspace's local layer, on this machine, until `gs create` or `gs modify` uploads them.
 
@@ -241,7 +241,7 @@ When nothing changed, `gs create` creates nothing and fails with `nothing_to_cha
 
 Long uploads (`gs fs upload`, `gs create`), syncs and hydrates print progress lines on stderr; `--json` and `--quiet` keep stderr free of them.
 
-Use `gs sync --json` before editing if the remote base may have advanced. Merge strategies are `line` (default), `manual`, `ours`, and `theirs`:
+Use `gs sync --json` before editing if the remote base may have advanced. Uncommitted edits with no changeset are merged with the new head in place when every file merges cleanly, after a copy of them is saved under `.gs/sync-backup/`; if the head conflicts with one, sync changes nothing and asks you to `gs create` first, so the conflicts are recorded on the changeset. Merge strategies are `line` (default), `manual`, `ours`, and `theirs`:
 
 ```bash
 gs sync --merge line --json

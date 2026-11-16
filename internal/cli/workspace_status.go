@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -31,6 +32,10 @@ type statusOutput struct {
 	// Offline is set when the server could not be reached: the edits are
 	// still this workspace's own, and a dependency tree is the last one seen.
 	Offline bool `json:"offline,omitempty"`
+	// LocalOnly is set when the server was reachable but refused to answer
+	// for this caller (no write access, signed out) or --local was given:
+	// the edits come from this machine alone.
+	LocalOnly string `json:"local_only,omitempty"`
 }
 
 // statusServerTimeout bounds each server call gs status makes, so an
@@ -38,6 +43,16 @@ type statusOutput struct {
 var statusServerTimeout = 5 * time.Second
 
 // isOfflineError reports whether err means the server could not be reached.
+// isRefusedError reports whether the server answered but refused the
+// caller: status can still list the workspace's own edits.
+func isRefusedError(err error) bool {
+	switch grpcstatus.Code(err) {
+	case codes.PermissionDenied, codes.Unauthenticated:
+		return true
+	}
+	return false
+}
+
 func isOfflineError(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) {
 		return true
@@ -52,6 +67,8 @@ func isOfflineError(err error) bool {
 // localEdits are a workspace's local edits against its base: the base
 // the active changeset builds on, which includes the changesets below it.
 type localEdits struct {
+	// refused: the server answered but refused this caller (see isRefusedError).
+	refused bool
 	stack   *corev1.ChangesetStack
 	base    BaseSnapshot
 	edits   []*corev1.FileEdit
@@ -64,8 +81,16 @@ type localEdits struct {
 // .gs/dependency-tree.json, and fails only when it has none and the active
 // changeset builds on others.
 func (r Runner) loadWorkspaceEdits(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, state WorkspaceState) (localEdits, error) {
+	return r.loadWorkspaceEditsMode(ctx, conn, cfg, ws, state, false)
+}
+
+// loadWorkspaceEditsMode is loadWorkspaceEdits; local skips asking the
+// server for the dependency tree and uses the one last seen.
+func (r Runner) loadWorkspaceEditsMode(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, state WorkspaceState, local bool) (localEdits, error) {
 	var out localEdits
-	if state.ActiveStackID != "" {
+	if state.ActiveStackID != "" && local {
+		out.stack = r.readCachedDependencyTree(state.ActiveStackID)
+	} else if state.ActiveStackID != "" {
 		callCtx, cancel := context.WithTimeout(authContext(ctx, cfg), statusServerTimeout)
 		stack, err := corev1.NewChangesetStackServiceClient(conn).GetStack(callCtx, &corev1.GetStackRequest{StackId: state.ActiveStackID})
 		cancel()
@@ -74,6 +99,9 @@ func (r Runner) loadWorkspaceEdits(ctx context.Context, conn *grpc.ClientConn, c
 			out.stack = stack
 		case isOfflineError(err):
 			out.offline = true
+			out.stack = r.readCachedDependencyTree(state.ActiveStackID)
+		case isRefusedError(err):
+			out.refused = true
 			out.stack = r.readCachedDependencyTree(state.ActiveStackID)
 		default:
 			return out, err
@@ -100,7 +128,7 @@ func (r Runner) loadWorkspaceEdits(ctx context.Context, conn *grpc.ClientConn, c
 		return out, err
 	}
 	out.base = base
-	if out.stack != nil && !out.offline {
+	if out.stack != nil && !out.offline && !out.refused && !local {
 		// stackBaseSnapshotThroughChangeset filled in the changesets it
 		// read, so the kept tree serves offline runs on its own.
 		r.writeCachedDependencyTree(out.stack)
@@ -153,7 +181,7 @@ func (r Runner) writeCachedDependencyTree(stack *corev1.ChangesetStack) {
 	}
 }
 
-func (r Runner) runStatus(ctx context.Context, opts commandOptions) error {
+func (r Runner) runStatus(ctx context.Context, opts commandOptions, local, relative bool) error {
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
 		return err
@@ -164,13 +192,13 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions) error {
 		return err
 	}
 	defer conn.Close()
-	found, err := r.loadWorkspaceEdits(ctx, conn, cfg, ws, state)
+	found, err := r.loadWorkspaceEditsMode(ctx, conn, cfg, ws, state, local)
 	if err != nil {
 		return err
 	}
 	stack, edits := found.stack, found.edits
 	changedPaths := changedPathsFromEdits(edits)
-	if stack == nil && !found.offline && len(edits) > 0 {
+	if stack == nil && !found.offline && !found.refused && !local && len(edits) > 0 {
 		callCtx, cancel := context.WithTimeout(authContext(ctx, cfg), statusServerTimeout)
 		validation, err := corev1.NewWorkspaceServiceClient(conn).ValidateWorkspaceDiff(callCtx, &corev1.ValidateWorkspaceDiffRequest{
 			Workspace:    workspaceRef(ws),
@@ -183,6 +211,8 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions) error {
 			changedPaths = validation.AffectedPaths
 		case isOfflineError(err):
 			found.offline = true
+		case isRefusedError(err):
+			found.refused = true
 		default:
 			return err
 		}
@@ -211,6 +241,12 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions) error {
 		CurrentPatchsetID:  state.CurrentPatchsetID,
 		Offline:            found.offline,
 	}
+	switch {
+	case local:
+		output.LocalOnly = "local"
+	case found.refused:
+		output.LocalOnly = "refused"
+	}
 	if stack != nil {
 		stackOut := stackOutputFromProto(stack)
 		output.StackID = stack.Id
@@ -238,6 +274,12 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions) error {
 			note += ", and the dependency tree as last seen"
 		}
 		fmt.Fprintf(r.Stdout, "offline: %s is unreachable; %s\n", cfg.ServerAddr, note)
+	} else if output.LocalOnly != "" {
+		reason := "--local"
+		if output.LocalOnly == "refused" {
+			reason = "the server would not check them for you (no write access to this slice, or not signed in)"
+		}
+		fmt.Fprintf(r.Stdout, "local: showing this workspace's own edits; %s\n", reason)
 	}
 	if stack != nil {
 		printWorkspaceStack(r.Stdout, stack, state.CurrentChangesetID)
@@ -253,8 +295,37 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions) error {
 			fmt.Fprintf(r.Stdout, "  %s\n", p)
 		}
 	}
+	if relative {
+		changes = r.relativeChanges(changes)
+	}
 	printChangeSummary(r.Stdout, changes, "  ", r.colorEnabled(opts))
 	return nil
+}
+
+// relativeChanges shows each path relative to the working directory (gs
+// status --relative), as a shell there would name it.
+func (r Runner) relativeChanges(changes []pathChange) []pathChange {
+	root, err := r.workspaceRoot()
+	if err != nil {
+		return changes
+	}
+	cwd := r.cwd()
+	rel := func(p string) string {
+		if p == "" {
+			return p
+		}
+		out, err := filepath.Rel(cwd, filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(p, "/"))))
+		if err != nil {
+			return p
+		}
+		return filepath.ToSlash(out)
+	}
+	out := make([]pathChange, len(changes))
+	for i, c := range changes {
+		c.Path, c.OldPath = rel(c.Path), rel(c.OldPath)
+		out[i] = c
+	}
+	return out
 }
 
 // changeHeadline is "3 changed path(s), +12 -4" (the counts only when some
