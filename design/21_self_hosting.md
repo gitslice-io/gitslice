@@ -543,9 +543,12 @@ assigned), so releases no longer depend on GitHub:
    linux/amd64 `gs` reports the tag, and uploads them to the production bucket
    under `releases/<tag>/`, then `releases/latest.json`.
    - Since 2026-10-08 the tag's own event starts the build instead of a
-     15-minute poll. The slice's `tag.created` webhook (`design/24_webhooks.md`)
-     calls the Cloud Build webhook trigger `gs-release-webhook` with the tag
-     name. `ops/release/release.sh webhook` creates that trigger.
+     15-minute poll. Since 2026-11-17 the `release` trigger in
+     `/gitslice/gitslice/.gitslice/triggers.yaml` (design/34) sends that event
+     to the Cloud Build webhook trigger `gs-release-webhook`, whose URL is the
+     slice secret `RELEASE_WEBHOOK_URL`; the slice webhook that did this before
+     (design/24) was deleted. `ops/release/release.sh webhook` creates the
+     Cloud Build trigger.
    - Cloud Scheduler job `gs-release` now runs once a day, to build a tag whose
      event was missed (`release.sh schedule`).
    - `ops/release/release.sh run [<tag>]` builds now; with a tag, it rebuilds
@@ -553,13 +556,15 @@ assigned), so releases no longer depend on GitHub:
 3. **Serve from R2:** the web Worker's `RELEASES` binding serves
    `/releases/latest` (a redirect to `/releases/tag/<tag>`, a page listing the
    files), `/releases/download/<tag>/<asset>` and
-   `/releases/latest/download/<asset>` (`web/src/lib/releases.ts`). Anything
-   R2 does not have, such as releases up to v0.4.1, is redirected to the GitHub
-   releases as before. `install.sh` and `gs upgrade` are unchanged.
+   `/releases/latest/download/<asset>` (`web/src/lib/releases.ts`). The
+   releases up to v0.4.1, built on GitHub, were copied into R2 on 2026-11-17;
+   a release or file R2 doesn't have is 404, never a redirect to GitHub.
+   `install.sh` and `gs upgrade` are unchanged.
 
-GitHub stays a mirror: the exporter still pushes tags and starts
-`release.yml`, which copies the release to GitHub when Actions works, but
-nothing waits for it.
+Releases no longer touch GitHub (2026-11-17): `.github/workflows/release.yml`
+was removed, and Homebrew is no longer supported (the tap
+`gitslice-io/homebrew-tap` stopped at v0.4.27 and was archived). GitHub stays
+a mirror of the source, and still gets the tags.
 
 ## Open Questions
 

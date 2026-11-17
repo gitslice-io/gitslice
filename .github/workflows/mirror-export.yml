@@ -2,9 +2,10 @@ name: Mirror from Gitslice
 
 # Phase 2 of design/21_self_hosting.md: Gitslice is the source of truth and
 # main on GitHub is a read-only mirror. ops/mirror replays every new projected
-# commit of gitslice/gitslice onto main and pushes new tags. Version tags then
-# start release.yml, and new commits start ci.yml: pushes made with
-# GITHUB_TOKEN do not trigger workflows, but workflow_dispatch does.
+# commit of gitslice/gitslice onto main and pushes new tags. New commits start
+# ci.yml: pushes made with GITHUB_TOKEN do not trigger workflows, but
+# workflow_dispatch does. Releases are built off GitHub (ops/release), so tags
+# start nothing here.
 #
 # Enable with the repository variable GITSLICE_EXPORT_ENABLED=true (and turn
 # GITSLICE_IMPORT_ENABLED off). main must allow pushes from GitHub Actions
@@ -59,14 +60,3 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh workflow run ci.yml --ref main
-
-      - name: Build releases for new version tags
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          while IFS= read -r tag; do
-            if [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-              gh workflow run release.yml --ref main -f tag="$tag"
-            fi
-          done < "$RUNNER_TEMP/new-tags"

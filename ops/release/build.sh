@@ -7,8 +7,8 @@
 #      SINCE (only build tags newer than this), GIT_URL, MODULE_DIR.
 # Out: /workspace/dist/<tag>/{gs_<os>_<arch>.tar.gz|.zip, checksums.txt},
 #      /workspace/built.txt (tags built), /workspace/latest.json.
-# The archive layout matches .github/workflows/release.yml, so install.sh and
-# gs upgrade work with either.
+# The archive layout is the one install.sh and gs upgrade expect (the same as
+# the GitHub release workflow used until 2026-11-17).
 set -euo pipefail
 
 cd /workspace
@@ -119,7 +119,7 @@ for tag in "${pending[@]}"; do
     done
   )
   # The release also carries the install script at this tag, so it can be
-  # checked (checksums.txt, or the same file in the GitHub mirror at the tag)
+  # checked (checksums.txt, or the same file in the slice at the tag)
   # before it is run. Tags from before it existed have none.
   installer="$src/$MODULE_DIR/web/public/install.sh"
   if [ -f "$installer" ]; then

@@ -180,14 +180,13 @@ codebase:
 - merged line by line when two agents touched the same file.
 
 Live dashboard: https://agents.gitslice.io. Demo video:
-[release `agents-demo-2026-10-02`](https://github.com/gitslice-io/gitslice/releases/tag/agents-demo-2026-10-02).
+[gitslice-agents-on-artifacts.mp4](https://gitslice.io/releases/download/agents-demo-2026-10-02/gitslice-agents-on-artifacts.mp4) (release `agents-demo-2026-10-02`).
 Design: [design/22_agents_on_artifacts.md](design/22_agents_on_artifacts.md).
 
 ## Install
 
 ```bash
 curl -fsSL https://gitslice.io/install.sh | sh        # prebuilt gs
-brew install gitslice-io/tap/gitslice                 # or with Homebrew
 go install gitslice.io/gitslice/cmd/gs@latest         # or with Go
 ```
 

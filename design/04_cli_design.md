@@ -973,12 +973,12 @@ a newer release exists. It uses the daily release check's answer while that
 is a day old or newer, else looks it up (2-second limit) and records the
 answer; `--json` never looks.
 
-Homebrew installs gs from the tap `gitslice-io/homebrew-tap`
-(`brew install gitslice-io/tap/gitslice`, formula `gitslice`, which conflicts
-with Ghostscript's `gs`). The tap's hourly `update` workflow writes the formula
-for the latest release from its `checksums.txt` and checks it installs. A gs
-in a Homebrew Cellar refuses `gs upgrade` (`installed_by_homebrew`), and its
-update notices say `brew upgrade gitslice`.
+Homebrew is not supported since 2026-11-17 (v0.4.27 was the last formula in
+the archived tap `gitslice-io/homebrew-tap`): releases no longer depend on
+GitHub. A gs in a Homebrew Cellar still refuses `gs upgrade`
+(`installed_by_homebrew`), since replacing it would leave Homebrew out of
+step; it says to `brew uninstall gitslice` and install with
+`https://gitslice.io/install.sh`, and its update notices say the same.
 
 ## 9. Changeset Commands
 

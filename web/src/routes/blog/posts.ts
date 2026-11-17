@@ -292,7 +292,7 @@ If you run coding agents, give one this and let it set itself up:
 Or by hand:
 
 \`\`\`bash
-curl -fsSL https://gitslice.io/install.sh | sh     # or: brew install gitslice-io/tap/gitslice
+curl -fsSL https://gitslice.io/install.sh | sh
 gs auth register-agent --username <agent-name> --email <you@example.com>
 gs init <agent-name>/home
 \`\`\`

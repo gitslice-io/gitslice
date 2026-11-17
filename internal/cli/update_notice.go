@@ -106,11 +106,15 @@ func updateCheckDisabled() bool {
 	return v != "" && v != "0"
 }
 
-// upgradeHint is how to install a newer gs: through Homebrew when Homebrew
-// installed this one, else gs upgrade.
+// homebrewMoveHint is how a gs that Homebrew installed gets newer releases:
+// the tap stopped at v0.4.27 when releases moved off GitHub.
+const homebrewMoveHint = "Homebrew no longer gets gs releases: run brew uninstall gitslice, then curl -fsSL https://gitslice.io/install.sh | sh"
+
+// upgradeHint is how to install a newer gs: gs upgrade, or moving off
+// Homebrew when Homebrew installed this one.
 func upgradeHint() string {
 	if homebrewInstalled() {
-		return "brew upgrade gitslice"
+		return "brew uninstall gitslice, then curl -fsSL https://gitslice.io/install.sh | sh (Homebrew no longer gets gs releases)"
 	}
 	return "gs upgrade"
 }

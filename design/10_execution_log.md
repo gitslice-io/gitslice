@@ -9600,3 +9600,17 @@ pages are code-split, analytics waits for the page to load.
 
 **Verification**
 - `service`: TestImportNeedsGitsliceApprovalLikeSubmit (fails without the fix), TestPathIntentsAreCappedPerSubject; `internal/cli`: TestParentCommitForDiffToleratesAHiddenParent; `gs diff` of 11750ccaae's commit against production now prints its diff.
+
+## 2026-11-17 — releases off GitHub; Homebrew dropped
+
+**Why**: the user asked to remove the CLI release's dependence on GitHub and the deprecated release webhook, using the trigger framework instead.
+
+**What changed**
+- The `release` trigger (`.gitslice/triggers.yaml`, design/34) already sends `tag.created` to the Cloud Build trigger `gs-release-webhook` (it built v0.4.28); the slice webhook `wh_39d571ccb83db7b2647ecbea5e82df80` that did the same (design/24, inactive) was deleted.
+- The seven releases that existed only on GitHub (v0.1.0, v0.1.1, v0.2.0, v0.3.0, v0.4.0, v0.4.1, agents-demo-2026-10-02) were copied into R2 `releases/<tag>/` by a one-off Cloud Build job that checked each `checksums.txt`; `latest.json` was not touched.
+- `web/src/lib/releases.ts` serves releases only from R2: a missing release or file is 404, a missing or failing bucket 503; nothing redirects to GitHub. Videos get `video/mp4`.
+- `.github/workflows/release.yml` removed, and `mirror-export.yml` no longer dispatches it.
+- Homebrew is no longer supported (the tap `gitslice-io/homebrew-tap` stopped at v0.4.27; its update workflow was disabled and the repo archived): docs, README and the blog drop `brew install`; a gs in a Homebrew Cellar still refuses `gs upgrade` and says to `brew uninstall gitslice` and use install.sh. The CLI reference's install check compares `install.sh` with a clone from gitslice.io instead of raw.githubusercontent.com.
+
+**Verification**
+- Every GitHub release tag answers 200 from gitslice.io (`checksums.txt`, or the video for the demo release); `internal/cli` upgrade tests; web tests run in CI.

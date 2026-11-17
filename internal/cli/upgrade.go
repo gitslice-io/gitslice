@@ -129,9 +129,9 @@ func (r Runner) runUpgrade(ctx context.Context, opts commandOptions, req upgrade
 		return r.writeUpgrade(opts, out, req.check)
 	}
 	// Homebrew owns a gs it installed; replacing it here would leave Homebrew
-	// out of step.
+	// out of step. Homebrew is no longer supported, so say how to move off it.
 	if strings.Contains(filepath.ToSlash(binary), "/Cellar/gitslice/") {
-		return userError("installed_by_homebrew", "this gs was installed with Homebrew ("+binary+")", "Run brew upgrade gitslice.")
+		return userError("installed_by_homebrew", "this gs was installed with Homebrew ("+binary+"), which gs no longer supports", homebrewMoveHint)
 	}
 
 	if err := installRelease(ctx, client, base, out.Target, binary); err != nil {

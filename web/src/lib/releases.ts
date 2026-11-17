@@ -1,18 +1,21 @@
 // Release downloads are addressed through gitslice.io, so install.sh, gs
 // upgrade and the docs never name the store that holds the bytes.
 //
-// Releases are built off GitHub (ops/release) and stored in R2 under
-// releases/<tag>/, with releases/latest.json naming the newest; the worker
-// serves them from its RELEASES binding (releaseResponse). Releases made before
-// that live on the GitHub mirror's releases, so anything not in R2 is
-// redirected there. Redirects are temporary (302) so the store can change.
-export const releasesBase = "https://github.com/gitslice-io/gitslice/releases";
+// Every release is built off GitHub (ops/release, started by the
+// gitslice/release trigger) and stored in R2 under releases/<tag>/, with
+// releases/latest.json naming the newest; the worker serves them from its
+// RELEASES binding. Releases made before that were copied into R2 on
+// 2026-11-17, so nothing is fetched from GitHub.
 
 // Tags and asset names: letters, digits, '.', '_', '+' and '-', starting with
-// a letter or digit. This keeps redirects inside releasesBase (no '/' or '..').
+// a letter or digit. This keeps every key inside releases/ (no '/' or '..').
 const segment = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
 
-export function releaseRedirectTarget(request: Request): string | null {
+// releasePath reports whether a request is for the releases tree, and its
+// path segments after /releases when they name something it can serve:
+// [], ["latest"], ["tag", tag], ["latest", "download", asset] or
+// ["download", tag, asset]. Anything else under /releases is not a release.
+export function releasePath(request: Request): string[] | null {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return null;
   }
@@ -22,32 +25,21 @@ export function releaseRedirectTarget(request: Request): string | null {
   }
   const parts = pathname.split("/").filter(Boolean).slice(1);
   if (parts.length === 0) {
-    return releasesBase;
+    return parts;
   }
   if (parts.length === 1 && parts[0] === "latest") {
-    return `${releasesBase}/latest`;
+    return parts;
   }
   if (parts.length === 3 && parts[0] === "latest" && parts[1] === "download" && segment.test(parts[2])) {
-    return `${releasesBase}/latest/download/${parts[2]}`;
+    return parts;
   }
   if (parts.length === 2 && parts[0] === "tag" && segment.test(parts[1])) {
-    return `${releasesBase}/tag/${parts[1]}`;
+    return parts;
   }
   if (parts.length === 3 && parts[0] === "download" && segment.test(parts[1]) && segment.test(parts[2])) {
-    return `${releasesBase}/download/${parts[1]}/${parts[2]}`;
+    return parts;
   }
   return null;
-}
-
-export function releaseRedirect(request: Request): Response | null {
-  const target = releaseRedirectTarget(request);
-  if (!target) {
-    return null;
-  }
-  return new Response(null, {
-    status: 302,
-    headers: { Location: target, "Cache-Control": "public, max-age=60" }
-  });
 }
 
 // The part of an R2 bucket binding that serving releases uses.
@@ -67,7 +59,10 @@ const textTypes: Record<string, string> = {
   ".txt": "text/plain; charset=utf-8",
   // Shown as text, so the install script can be read before it is run.
   ".sh": "text/plain; charset=utf-8",
-  ".json": "application/json"
+  ".json": "application/json",
+  // The agents demo release (agents-demo-2026-10-02) holds videos.
+  ".mp4": "video/mp4",
+  ".srt": "text/plain; charset=utf-8"
 };
 
 function contentType(asset: string) {
@@ -130,40 +125,46 @@ async function tagPage(request: Request, bucket: ReleaseBucket, tag: string) {
   });
 }
 
-// releaseResponse answers /releases URLs from R2 when the release is there,
-// and redirects to the GitHub releases otherwise (older releases, or no
-// bucket, as in tests and staging). The URLs:
+function plain(status: number, message: string, maxAge = 60) {
+  return new Response(message + "\n", {
+    status,
+    headers: { "Cache-Control": `public, max-age=${maxAge}`, "Content-Type": "text/plain; charset=utf-8" }
+  });
+}
+
+const notFound = () => plain(404, "No such gs release or file. See https://gitslice.io/releases/latest.");
+const unavailable = () => plain(503, "gs releases are unavailable right now; try again in a minute.", 0);
+
+// releaseResponse answers /releases URLs from R2:
 //   /releases, /releases/latest          -> /releases/tag/<latest>
 //   /releases/tag/<tag>                  -> a page listing the files
 //   /releases/latest/download/<asset>    -> the latest release's file
 //   /releases/download/<tag>/<asset>     -> that release's file
+// A release or file that isn't there is 404; no bucket, or a failing one, is
+// 503.
 export async function releaseResponse(request: Request, bucket: ReleaseBucket | null | undefined): Promise<Response | null> {
-  const fallback = releaseRedirectTarget(request);
-  if (!fallback) {
+  const parts = releasePath(request);
+  if (!parts) {
     return null;
   }
   if (!bucket) {
-    return redirectTo(fallback);
+    return unavailable();
   }
-  const parts = new URL(request.url).pathname.split("/").filter(Boolean).slice(1);
   try {
     if (parts.length === 0 || (parts.length === 1 && parts[0] === "latest")) {
       const tag = await latestTag(bucket);
-      return tag ? redirectTo(`/releases/tag/${tag}`) : redirectTo(fallback);
+      return tag ? redirectTo(`/releases/tag/${tag}`) : notFound();
     }
     if (parts.length === 2 && parts[0] === "tag") {
-      return (await tagPage(request, bucket, parts[1])) ?? redirectTo(fallback);
+      return (await tagPage(request, bucket, parts[1])) ?? notFound();
     }
     if (parts.length === 3 && parts[0] === "latest" && parts[1] === "download") {
       const tag = await latestTag(bucket);
       // Through the tag's URL, so a cached "latest" never mixes two releases.
-      return tag ? redirectTo(`/releases/download/${tag}/${parts[2]}`) : redirectTo(fallback);
+      return tag ? redirectTo(`/releases/download/${tag}/${parts[2]}`) : notFound();
     }
-    if (parts.length === 3 && parts[0] === "download") {
-      return (await assetResponse(request, bucket, parts[1], parts[2])) ?? redirectTo(fallback);
-    }
+    return (await assetResponse(request, bucket, parts[1], parts[2])) ?? notFound();
   } catch {
-    // The store is unavailable: the GitHub copy may still be there.
+    return unavailable();
   }
-  return redirectTo(fallback);
 }

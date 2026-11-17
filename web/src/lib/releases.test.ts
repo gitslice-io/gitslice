@@ -1,49 +1,30 @@
 import { describe, expect, it } from "vitest";
 
-import { releaseRedirect, releaseRedirectTarget, releaseResponse, releasesBase } from "./releases";
+import { releasePath, releaseResponse } from "./releases";
 
-function target(path: string, method = "GET"): string | null {
-  return releaseRedirectTarget(new Request(`https://gitslice.io${path}`, { method }));
+function path(p: string, method = "GET"): string[] | null {
+  return releasePath(new Request(`https://gitslice.io${p}`, { method }));
 }
 
-describe("releaseRedirectTarget", () => {
-  it("maps release pages and downloads to the backing store", () => {
-    expect(target("/releases")).toBe(releasesBase);
-    expect(target("/releases/")).toBe(releasesBase);
-    expect(target("/releases/latest")).toBe(`${releasesBase}/latest`);
-    expect(target("/releases/latest/download/gs_linux_amd64.tar.gz")).toBe(
-      `${releasesBase}/latest/download/gs_linux_amd64.tar.gz`
-    );
-    expect(target("/releases/latest/download/checksums.txt")).toBe(
-      `${releasesBase}/latest/download/checksums.txt`
-    );
-    expect(target("/releases/download/v0.2.0/gs_darwin_arm64.tar.gz")).toBe(
-      `${releasesBase}/download/v0.2.0/gs_darwin_arm64.tar.gz`
-    );
-    expect(target("/releases/tag/v0.2.0")).toBe(`${releasesBase}/tag/v0.2.0`);
-    expect(target("/releases/latest", "HEAD")).toBe(`${releasesBase}/latest`);
+describe("releasePath", () => {
+  it("accepts release pages and downloads", () => {
+    expect(path("/releases")).toEqual([]);
+    expect(path("/releases/")).toEqual([]);
+    expect(path("/releases/latest")).toEqual(["latest"]);
+    expect(path("/releases/latest/download/gs_linux_amd64.tar.gz")).toEqual(["latest", "download", "gs_linux_amd64.tar.gz"]);
+    expect(path("/releases/download/v0.2.0/gs_darwin_arm64.tar.gz")).toEqual(["download", "v0.2.0", "gs_darwin_arm64.tar.gz"]);
+    expect(path("/releases/tag/v0.2.0")).toEqual(["tag", "v0.2.0"]);
+    expect(path("/releases/latest", "HEAD")).toEqual(["latest"]);
   });
 
   it("rejects anything that could escape the releases tree", () => {
-    expect(target("/releases/download/v0.2.0/../../settings")).toBeNull();
-    expect(target("/releases/download/..%2F..%2Fsettings/x")).toBeNull();
-    expect(target("/releases/latest/download/.hidden")).toBeNull();
-    expect(target("/releases/download/v0.2.0")).toBeNull();
-    expect(target("/releases/other")).toBeNull();
-    expect(target("/releasesx")).toBeNull();
-    expect(target("/releases/latest", "POST")).toBeNull();
-  });
-});
-
-describe("releaseRedirect", () => {
-  it("answers with a temporary redirect", () => {
-    const response = releaseRedirect(new Request("https://gitslice.io/releases/latest"));
-    expect(response?.status).toBe(302);
-    expect(response?.headers.get("Location")).toBe(`${releasesBase}/latest`);
-  });
-
-  it("passes through other paths", () => {
-    expect(releaseRedirect(new Request("https://gitslice.io/doc"))).toBeNull();
+    expect(path("/releases/download/v0.2.0/../../settings")).toBeNull();
+    expect(path("/releases/download/..%2F..%2Fsettings/x")).toBeNull();
+    expect(path("/releases/latest/download/.hidden")).toBeNull();
+    expect(path("/releases/download/v0.2.0")).toBeNull();
+    expect(path("/releases/other")).toBeNull();
+    expect(path("/releasesx")).toBeNull();
+    expect(path("/releases/latest", "POST")).toBeNull();
   });
 });
 
@@ -119,14 +100,15 @@ describe("releaseResponse", () => {
     expect(response?.headers.get("Location")).toBe("/releases/download/v0.4.2/gs_linux_amd64.tar.gz");
   });
 
-  it("redirects what R2 does not have to the GitHub releases", async () => {
+  it("answers 404 for what R2 does not have, and never sends anyone to GitHub", async () => {
     const old = await serve("/releases/download/v0.3.0/gs_linux_amd64.tar.gz");
-    expect(old?.headers.get("Location")).toBe(`${releasesBase}/download/v0.3.0/gs_linux_amd64.tar.gz`);
-    const page = await serve("/releases/tag/v0.3.0");
-    expect(page?.headers.get("Location")).toBe(`${releasesBase}/tag/v0.3.0`);
-    // No latest.json yet, or no bucket at all.
-    expect((await serve("/releases/latest", {}))?.headers.get("Location")).toBe(`${releasesBase}/latest`);
-    expect((await serve("/releases/latest", null))?.headers.get("Location")).toBe(`${releasesBase}/latest`);
+    expect(old?.status).toBe(404);
+    expect(old?.headers.get("Location")).toBeNull();
+    expect((await serve("/releases/tag/v0.3.0"))?.status).toBe(404);
+    // No latest.json yet.
+    expect((await serve("/releases/latest", {}))?.status).toBe(404);
+    // No bucket at all.
+    expect((await serve("/releases/latest", null))?.status).toBe(503);
   });
 
   it("never reads outside releases/ and ignores other paths", async () => {
@@ -139,9 +121,10 @@ describe("releaseResponse", () => {
     expect(await serve("/releases/latest", stored, "POST")).toBeNull();
   });
 
-  it("falls back to GitHub when R2 fails", async () => {
+  it("answers 503 when R2 fails", async () => {
     const broken = { get: async () => { throw new Error("down"); } };
     const response = await releaseResponse(new Request("https://gitslice.io/releases/download/v0.4.2/gs_linux_amd64.tar.gz"), broken);
-    expect(response?.headers.get("Location")).toBe(`${releasesBase}/download/v0.4.2/gs_linux_amd64.tar.gz`);
+    expect(response?.status).toBe(503);
+    expect(response?.headers.get("Location")).toBeNull();
   });
 });

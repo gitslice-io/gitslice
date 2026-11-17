@@ -51,21 +51,8 @@ export function CliReferenceDoc() {
         <CommandBlock>{`curl -fsSLO https://gitslice.io/releases/latest/download/install.sh
 curl -fsSL https://gitslice.io/releases/latest/download/checksums.txt | grep ' install.sh$' | sha256sum -c -
 tag=$(curl -fsSI https://gitslice.io/releases/latest | sed -n 's#^[Ll]ocation: .*/tag/##p' | tr -d '\\r')
-curl -fsSL "https://raw.githubusercontent.com/gitslice-io/gitslice/$tag/web/public/install.sh" | cmp - install.sh
+git clone -q --depth 1 --branch "$tag" https://gitslice.io/git/gitslice/gitslice.git gs-src && cmp gs-src/gitslice/gitslice/web/public/install.sh install.sh
 less install.sh && sh install.sh`}</CommandBlock>
-
-        <h3 className="mt-5 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-          Or with Homebrew (macOS and Linux)
-        </h3>
-        <CommandBlock>{`brew install gitslice-io/tap/gitslice`}</CommandBlock>
-        <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-          Installs gs with its shell completions. Upgrade it with{" "}
-          <code className="rounded bg-slate-50 dark:bg-zinc-950 px-1.5 py-0.5 font-mono text-xs text-slate-700 dark:text-zinc-300">
-            brew upgrade gitslice
-          </code>
-          . Ghostscript also installs a gs command, so the two cannot be
-          installed together with Homebrew.
-        </p>
 
         <h3 className="mt-5 text-sm font-semibold text-zinc-950 dark:text-zinc-50">
           Option B — go install

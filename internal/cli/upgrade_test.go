@@ -280,7 +280,7 @@ func TestUpgradeLeavesHomebrewInstallsToHomebrew(t *testing.T) {
 	var out bytes.Buffer
 	r := Runner{Stdout: &out, Stderr: &out}
 	err := r.runUpgrade(context.Background(), commandOptions{Format: "text"}, upgradeRequest{path: path})
-	if !isUserErrorCode(err, "installed_by_homebrew") || !strings.Contains(err.Error(), "brew upgrade gitslice") {
+	if !isUserErrorCode(err, "installed_by_homebrew") || !strings.Contains(err.Error(), "brew uninstall gitslice") || !strings.Contains(err.Error(), "gitslice.io/install.sh") {
 		t.Fatalf("err = %v", err)
 	}
 	if data, _ := os.ReadFile(path); string(data) != oldScript("v0.1.0") {
