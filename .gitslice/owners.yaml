@@ -1,0 +1,10 @@
+# Path owners for gitslice/gitslice (design/36 section 5).
+# A change to an owned path lands only with an owner's approval, unless an
+# owner wrote it. Rules are read from main, so a change can't relax its own
+# review. Owners count once per accountable person: gitslice-operator and
+# antigravity-nic are agents working for slices.
+version: 1
+owners:
+  - paths: ["**"]
+    owners: ["slices", "gitslice-operator", "antigravity-nic"]
+    require: 1
