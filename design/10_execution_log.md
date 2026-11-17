@@ -9581,3 +9581,22 @@ pages are code-split, analytics waits for the page to load.
 **Verification**
 - `gofmt -l`, `go vet ./...`, `go build ./cmd/...`, `go test -count=1 ./internal/cli -run TestSchema`, and full `env -u GITSLICE_TEST_DATABASE_URL go test -count=1 ./...`.
 - Live PostgreSQL suites (`./internal/postgres`, `./tests/rpc`, `./tests/cli`) and Docker `web/` `npm run build && npm test`.
+
+## 2026-11-17 — design/36 review fixes
+
+**Why** (review of the design/36 changesets 11750ccaae … 5750556365)
+- `ImportGitRepository` submitted each imported commit straight to the store, skipping `submitExtras`: a writer could import a `.gitslice` change (or a change to owned paths) without an owner or admin of the account, or the path owners.
+- Path intents had no count limit; every list and every changeset update scans them all.
+- Agents a daemon runs can still read the daemon's saved login by its path (same OS user); the per-run `HOME` only stops default use.
+- The refusal when acting on someone else's changeset didn't say how to get access.
+- `gs diff <commit>` failed when the commit's parent belonged to another account's private slice (history is shared, and the server hides that commit).
+
+**What changed**
+- `service/git_import.go`: `requireImportSubmitApprovals` runs the `.gitslice` and path-owner rules before each imported commit is submitted; when they aren't met the import stops and the draft stays open.
+- `service/path_intents.go`: at most 20 active intents per subject per slice and 200 per slice (`ResourceExhausted`).
+- `gs agent doctor` "agent isolation" check; design/36 and SKILL say what the per-run key and `HOME` do and don't isolate.
+- Ownership refusals name who may act and how to be added (`gs cs collaborators add`, `gs cs handoff`).
+- `internal/cli/diff.go`: a hidden parent becomes a commit with just its id.
+
+**Verification**
+- `service`: TestImportNeedsGitsliceApprovalLikeSubmit (fails without the fix), TestPathIntentsAreCappedPerSubject; `internal/cli`: TestParentCommitForDiffToleratesAHiddenParent; `gs diff` of 11750ccaae's commit against production now prints its diff.

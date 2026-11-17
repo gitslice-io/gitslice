@@ -74,6 +74,22 @@ func (s *ChangesetService) CreatePathIntent(ctx context.Context, req *corev1.Cre
 	}
 
 	now := time.Now().UTC()
+	active, err := s.Changesets.ListPathIntents(ctx, slice.GetId(), now)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if len(active) >= intents.MaxActivePerSlice {
+		return nil, status.Errorf(codes.ResourceExhausted, "slice %s/%s already has %d active intents; clear some (gs intent clear) or let them expire", slice.GetRef().GetAccount(), slice.GetRef().GetSlice(), len(active))
+	}
+	mine := 0
+	for _, item := range active {
+		if item.SubjectID == subjectID {
+			mine++
+		}
+	}
+	if mine >= intents.MaxActivePerSubject {
+		return nil, status.Errorf(codes.ResourceExhausted, "you already have %d active intents on %s/%s; clear some (gs intent clear) or let them expire", mine, slice.GetRef().GetAccount(), slice.GetRef().GetSlice())
+	}
 	created, err := s.Changesets.CreatePathIntent(ctx, storage.PathIntent{
 		SliceID:     slice.GetId(),
 		Account:     slice.GetRef().GetAccount(),

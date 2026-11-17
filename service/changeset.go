@@ -565,7 +565,7 @@ func (s *ChangesetService) authorizeChangesetForAction(ctx context.Context, subj
 		return cs, nil
 	}
 
-	return nil, status.Error(codes.PermissionDenied, "only an owner or slice admin may act on this changeset")
+	return nil, status.Errorf(codes.PermissionDenied, "only its author, the person an agent author works for, a collaborator or a slice admin may change, submit or abandon changeset %s; ask the author to add you (gs cs collaborators add %s <you>) or hand it over (gs cs handoff %s <you>)", changesetLabel(cs), changesetLabel(cs), changesetLabel(cs))
 }
 
 func (s *ChangesetService) getChangesetForAction(ctx context.Context, subjectID, changesetID string, action authz.Action) (*corev1.Changeset, error) {
@@ -606,4 +606,11 @@ func authorizeWithDelegation(ctx context.Context, auth storage.AuthStore, actorS
 		return grpcError(err)
 	}
 	return nil
+}
+
+func changesetLabel(cs *corev1.Changeset) string {
+	if short := storage.ShortChangesetID(cs.GetId()); short != "" {
+		return short
+	}
+	return cs.GetId()
 }

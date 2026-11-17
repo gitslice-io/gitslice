@@ -191,6 +191,13 @@ alter table api_keys
   `contributor`). That key goes into the agent's environment as `GS_TOKEN`,
   and `HOME` points at a run folder with no saved login. The agent can then
   touch only its own slice, with only its role, for only as long as the run.
+  **Limit:** the agent still runs as the daemon's OS user, so it can read
+  the daemon's own saved login by its path (`~/.gitslice/config.json`); a
+  separate `HOME` only stops it being used by default. That login should be
+  a key limited to the daemon's slices, not the person's full sign-in, and
+  for real isolation the daemon runs as its own OS user. `gs agent doctor`
+  warns ("agent isolation") when the daemon is signed in with a full
+  sign-in.
 - A child key can't exceed its parent. Revoking a key revokes its children.
 
 ### 5. Path owners inside a slice (phase 3)

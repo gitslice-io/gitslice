@@ -27,6 +27,12 @@ const (
 
 	// MaxMessageLength caps advisory intent reason text.
 	MaxMessageLength = 2000
+
+	// MaxActivePerSubject caps one subject's active intents in one slice, and
+	// MaxActivePerSlice caps a slice's active intents, so listing them and
+	// matching them against every changeset update stays cheap.
+	MaxActivePerSubject = 20
+	MaxActivePerSlice   = 200
 )
 
 var intentIDRegex = regexp.MustCompile(`\bint_[0-9a-zA-Z]+\b`)

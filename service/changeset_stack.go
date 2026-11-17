@@ -655,7 +655,7 @@ func (s *ChangesetStackService) authorizeStackCreatorOrAdmin(ctx context.Context
 	if authz.New(s.Auth).AuthorizeAllowArchived(ctx, subjectID, slice, authz.ActionActOnAnyChangeset) == nil {
 		return authorize(ctx, s.Auth, subjectID, slice, action)
 	}
-	return status.Error(codes.PermissionDenied, "only an owner or slice admin may act on this stack")
+	return status.Error(codes.PermissionDenied, "only its creator, the person an agent creator works for, an owner of one of its changesets or a slice admin may change this stack")
 }
 
 func (s *ChangesetStackService) authorizeStackOwner(ctx context.Context, subjectID string, stack *corev1.ChangesetStack, action authz.Action) error {

@@ -122,8 +122,27 @@ func (r Runner) agentDoctorChecks(ctx context.Context, ci bool) []agentDoctorChe
 	checks = append(checks, agentDoctorToolchains(ctx, p))
 	if !ci {
 		checks = append(checks, agentDoctorRuntimeBinary(p))
+		checks = append(checks, r.agentDoctorLoginExposure())
 	}
 	return checks
+}
+
+// agentDoctorLoginExposure says what an agent the daemon runs could reach.
+// Each conversation gets its own short-lived key for one slice, and its HOME
+// has no saved login, but the agent runs as this OS user and can still read
+// the daemon's own saved login by its path. That login should therefore be a
+// key limited to the daemon's slices, not the person's full sign-in.
+func (r Runner) agentDoctorLoginExposure() agentDoctorCheck {
+	const name = "agent isolation"
+	cfg, err := r.readPartialUserConfig()
+	if err != nil || strings.TrimSpace(cfg.Token) == "" {
+		return agentDoctorCheck{Name: name, Status: "warn", Detail: "not signed in; see signed in"}
+	}
+	path := r.userConfigPath()
+	if strings.HasPrefix(strings.TrimSpace(cfg.Token), "gsk_") {
+		return agentDoctorCheck{Name: name, Status: "ok", Detail: fmt.Sprintf("agents run as this OS user and can read the API key in %s; keep it limited to the daemon's slices (gs auth keys list shows its scope)", path)}
+	}
+	return agentDoctorCheck{Name: name, Status: "warn", Detail: fmt.Sprintf("agents get their own short-lived key, but they run as this OS user and can read your full sign-in in %s; run the daemon as a separate OS user signed in with a limited key (gs auth keys create --slice <account/slice> --role writer, then gs auth use-key)", path)}
 }
 
 func (r Runner) agentDoctorSignedIn() agentDoctorCheck {

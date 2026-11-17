@@ -255,6 +255,9 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 			if err != nil {
 				return err
 			}
+			if err := s.requireImportSubmitApprovals(ctx, patchset.ChangesetId, ref.CommitId); err != nil {
+				return err
+			}
 			if _, err := s.Changesets.Submit(ctx, patchset.ChangesetId, patchset.Id); err != nil {
 				return grpcError(err)
 			}
@@ -603,4 +606,50 @@ func importPublishTimeout(changedFileCount int) time.Duration {
 		return 30 * time.Minute
 	}
 	return timeout
+}
+
+// requireImportSubmitApprovals applies the submit rules that live outside the
+// store to an imported commit, as SubmitChangeset does through submitExtras:
+// a change under .gitslice needs an owner or admin of the account, and a
+// change to paths with owners (.gitslice/owners.yaml) needs their approval.
+// An import has no approvals, so the importer must hold them; otherwise the
+// import stops before this commit, and its draft changeset stays open for
+// review.
+func (s *RepositoryService) requireImportSubmitApprovals(ctx context.Context, changesetID, headCommitID string) error {
+	cs, err := s.Changesets.Get(ctx, changesetID)
+	if err != nil {
+		return grpcError(err)
+	}
+	rules := &ChangesetService{
+		Auth:        s.Auth,
+		Blobs:       s.Blobs,
+		Changesets:  s.Changesets,
+		Repository:  s.Repository,
+		Slices:      s.Slices,
+		ObjectStore: s.ObjectStore,
+	}
+	if err := rules.requireGitsliceApproval(ctx, cs, headCommitID); err != nil {
+		return importRequirementError(cs, err)
+	}
+	if err := rules.requirePathOwnersApproval(ctx, cs, headCommitID); err != nil {
+		return importRequirementError(cs, err)
+	}
+	return nil
+}
+
+func importRequirementError(cs *corev1.Changeset, err error) error {
+	label := firstNonEmptyImport(storage.ShortChangesetID(cs.GetId()), cs.GetId())
+	if st, ok := status.FromError(err); ok && st.Code() != codes.OK && st.Code() != codes.Unknown {
+		return status.Errorf(st.Code(), "import stopped: %s (changeset %s is left open for approval)", st.Message(), label)
+	}
+	return status.Errorf(codes.FailedPrecondition, "import stopped: %v (changeset %s is left open for approval)", err, label)
+}
+
+func firstNonEmptyImport(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }

@@ -218,7 +218,7 @@ func (r Runner) commitDiff(ctx context.Context, cfg UserConfig, conn *grpc.Clien
 			return nil, nil, nil, "", err
 		}
 	} else if len(newCommit.ParentIds) > 0 {
-		oldCommit, err = repo.GetCommit(authContext(ctx, cfg), &corev1.GetCommitRequest{CommitId: newCommit.ParentIds[0]})
+		oldCommit, err = parentCommitForDiff(authContext(ctx, cfg), repo, newCommit.ParentIds[0])
 		if err != nil {
 			return nil, nil, nil, "", err
 		}
@@ -343,4 +343,21 @@ func (r Runner) workspaceBaseDiffFile(ctx context.Context, repo corev1.Repositor
 		return diffutil.File{Path: p}, nil
 	}
 	return diffutil.File{Path: p, Exists: true, Data: data}, nil
+}
+
+// parentCommitForDiff fetches the commit a diff starts from. History is shared
+// by every account, so the previous commit is often another account's, which
+// the server hides (NotFound or PermissionDenied). The diff only needs its id
+// to read this commit's changed paths as they were, and reading those paths is
+// authorized on its own, so a hidden parent becomes a commit with just its id.
+func parentCommitForDiff(ctx context.Context, repo corev1.RepositoryServiceClient, parentID string) (*corev1.Commit, error) {
+	commit, err := repo.GetCommit(ctx, &corev1.GetCommitRequest{CommitId: parentID})
+	switch grpcstatus.Code(err) {
+	case codes.OK:
+		return commit, nil
+	case codes.NotFound, codes.PermissionDenied:
+		return &corev1.Commit{Id: parentID}, nil
+	default:
+		return nil, err
+	}
 }
