@@ -1,6 +1,6 @@
 # 36. Multi-Agent Collaboration on a Slice
 
-Status: proposal (2026-11-16). Nothing here is built.
+Status: proposal (2026-11-16); decisions recorded 2026-11-17. Nothing here is built.
 
 ## Goal
 
@@ -83,49 +83,59 @@ Approvals:
 The pieces are independent and can ship in order. Phase 1 fixes problems
 1–3 with small schema changes.
 
-### 1. Finer roles (phase 1)
+### 1. Roles (phase 1)
 
-The same five roles at both levels, account and slice, from least to most:
+Four roles at both levels, account and slice, from least to most:
 
 | Role | New? | Can |
 |---|---|---|
 | `reader` | | read, check out, clone |
-| `contributor` | new | create changesets and push patchsets **to its own changesets**; comment; its checks run **without secrets** until a maintainer allows them for that patchset |
-| `writer` | narrowed | contributor, plus: submit **its own** changesets (requirements still apply), checks with secrets, push with Git where the slice allows it |
-| `maintainer` | new | writer, plus: approve, update or submit **anyone's** changeset, tag, rerun checks, allow a contributor's checks to use secrets |
-| `admin` | | maintainer, plus: slice members and webhooks |
+| `contributor` | new | create changesets and push patchsets to changesets it owns (section 2); its checks run on the slice's CI daemon **without secrets** until a writer allows that patchset to use them; cannot submit or approve |
+| `writer` | | as today (submit, approve, tag, push with Git, checks with secrets, rerun checks, allow a contributor's patchset to use secrets), but only on changesets it owns (section 2); it may approve anyone's |
+| `admin` | | writer, plus slice members, webhooks, and acting on **any** changeset (for one whose owner is gone) |
+
+There is no maintainer role. With writers approving, the only extra power it
+had was acting on other people's changesets, which changeset ownership
+(section 2) and admins cover.
 
 The account-only powers (definition, CI daemon, secrets, deletion,
 `.gitslice/` approval) stay with the account's owners and admins.
 
-Migration: every existing `writer` (and account `member`) row becomes
-`maintainer`, so nothing anyone can do today changes. `gs slice share`
-defaults to `writer` for new shares, and agents added to someone else's
-slice should usually start as `contributor`.
+No migration: existing roles keep their names. The one change existing
+writers see is section 2: they can no longer push to, submit or abandon a
+changeset they don't own. Agents added to someone else's slice should
+usually start as `contributor`.
 
 `authz.Action` grows from three actions to named capabilities (`read`,
-`propose`, `submit_own`, `review`, `submit_any`, `tag`, `use_secrets`,
-`manage_members`), and each RPC names the one it needs. That keeps role
+`propose`, `submit`, `review`, `tag`, `use_secrets`, `manage_members`,
+`act_on_any_changeset`), and each RPC names the one it needs. That keeps role
 changes in one table (`roleAllows`) instead of in every service.
 
-Contributors' checks: a contributor's patchset runs its checks with no
-secrets, and checks that need secrets wait (status `needs_approval`) until a
-maintainer runs `gs check allow <changeset>`. That covers the patchset, not
-later ones, like GitHub's approval for pull requests from forks. It reuses
-the per-patchset approval behind `patchsetApprovedForGitsliceSecrets`.
+Contributors' checks: a contributor's patchset runs its checks on the
+slice's CI daemon with no secrets. Checks that need secrets wait (status
+`needs_approval`) until a writer runs `gs check allow <changeset>`. That
+covers the patchset, not later ones, like GitHub's approval for pull
+requests from forks. It reuses the per-patchset approval behind
+`patchsetApprovedForGitsliceSecrets`.
 
 ### 2. Changeset ownership (phase 1)
 
-A changeset's author owns it. Only these may push a patchset, edit, submit
-or abandon it:
+These subjects **own** a changeset, and only they may push a patchset to,
+edit, submit or abandon it, each within their role (a contributor still
+can't submit):
 
-- the author;
-- collaborators the author adds (`gs cs collaborators add <cs> <user>`);
-- the slice's maintainers and admins.
+- its author;
+- the author's **controller** (section 3): a person can do anything to their
+  agents' changesets that the agent could. They act with the **agent's** role
+  on the slice, even when they aren't a member of it themselves, since they
+  control the agent and could use its key anyway. The audit records the
+  person, not the agent;
+- collaborators the owners add (`gs cs collaborators add <cs> <user>`);
+- the slice's admins.
 
 Handing work over is explicit: `gs cs handoff <cs> <user>` makes another
-subject the owner and keeps the original author in the history.
-`getChangesetForAction` checks this in one place.
+subject the author and keeps the original author in the history.
+`getChangesetForAction` checks all of this in one place.
 
 ### 3. Controllers and approval policy (phase 1)
 
@@ -141,14 +151,18 @@ claim or an explicit transfer.
 Approvals then count **controllers**, not subjects. An approval counts only
 when the approver's controller differs from the controller of the
 changeset's author and of every patchset author. One person's agents can't
-approve each other's work.
+approve each other's work, and a person's approval doesn't count on their
+own agents' changesets.
+
+An agent no one has claimed has no controller, and its approvals never
+count.
 
 Slices get two more submit requirements:
 
 - `required_human_approvals` (default 0): approvals from subjects of kind
   `user`.
-- `approvers` (optional): a group or role whose approvals count. For
-  example, "maintainers only", so a writer agent's approval doesn't count.
+- `approvers` (optional, phase 3 with groups): a group whose approvals
+  count.
 
 ### 4. Scoped, delegated credentials (phase 2)
 
@@ -158,7 +172,7 @@ subject's role and the grant:
 ```sql
 alter table api_keys
   add column slice_ids text[],        -- null: every slice the subject can reach
-  add column max_role text,           -- reader | contributor | writer | maintainer
+  add column max_role text,           -- reader | contributor | writer
   add column parent_key_id text,      -- set for keys minted from another key
   add column purpose text;            -- e.g. "daemon my-ci", "conversation cv_..."
 ```
@@ -231,10 +245,10 @@ The changeset page shows "web-agent (for nic) via my-ci, conversation …".
 
 ```bash
 gs slice share acme/payment web-agent --role contributor
-gs slice update acme/payment --required-human-approvals 1 --approvers maintainers
+gs slice update acme/payment --required-human-approvals 1
 gs cs collaborators add <cs> api-agent
 gs cs handoff <cs> bob
-gs check allow <cs>                     # maintainer: run this patchset's checks with secrets
+gs check allow <cs>                     # writer: run this contributor patchset's checks with secrets
 gs agent create release-bot --slice acme/payment --role writer
 gs auth keys create --slice acme/payment --role contributor --expires 7d
 gs intent 'acme/payment/api/**' --for 2h -m "refactor auth"
@@ -242,7 +256,7 @@ gs intent 'acme/payment/api/**' --for 2h -m "refactor auth"
 
 ## Phasing
 
-1. Roles (contributor, maintainer), changeset ownership, controllers, and
+1. The contributor role, changeset ownership, controllers, and
    controller-counted approvals with `required_human_approvals`. These are
    mostly `internal/authz`, `getChangesetForAction`, `FilterApprovalSubjects`
    and one migration. They close problems 1–3.
@@ -252,11 +266,10 @@ gs intent 'acme/payment/api/**' --for 2h -m "refactor auth"
 3. `owners.yaml`, groups, and path intents (problems 5 and 6).
 4. Audit fields come with whichever phase first records each actor.
 
-## Open questions
+## Decisions (2026-11-17)
 
-- Should `writer` keep approving? Under this proposal it can't, and only
-  maintainers approve. The alternative keeps approval with writers and
-  relies on controller counting.
-- Should a contributor's changeset run with the slice's CI daemon at all
-  before a maintainer allows it, or only on a secretless runner?
-- Should agent accounts that no one has claimed be able to approve anything?
+- Writers approve; there is no maintainer role.
+- A contributor's changesets run on the slice's CI daemon before anyone
+  allows them, without secrets.
+- An agent no one has claimed can't approve: its approvals never count.
+- A person can act on their agents' changesets with the agent's role.
