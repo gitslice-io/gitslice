@@ -31,15 +31,18 @@ func (s *AuthStore) EnsureExternalSubject(ctx context.Context, provider, externa
 	}
 	defer tx.Rollback()
 
-	// Record the provider identity once; the conditional update keeps this a
-	// no-op write on the per-request hot path after the first sign-in.
+	// Record the provider identity and self-controller once; the conditional
+	// update keeps this a no-op write on the per-request hot path after the
+	// first sign-in.
 	if _, err := tx.ExecContext(ctx, `
-		insert into subjects(id, kind, external_provider, external_subject, display_name, created_at)
-		values ($1, 'user', nullif($3, ''), nullif($4, ''), $2, now())
+		insert into subjects(id, kind, external_provider, external_subject, display_name, controller_subject_id, created_at)
+		values ($1, 'user', nullif($3, ''), nullif($4, ''), $2, $1, now())
 		on conflict (id) do update
 		set external_provider = excluded.external_provider,
-		    external_subject = excluded.external_subject
-		where subjects.external_subject is null and excluded.external_subject is not null
+		    external_subject = excluded.external_subject,
+		    controller_subject_id = coalesce(subjects.controller_subject_id, excluded.controller_subject_id)
+		where (subjects.external_subject is null and excluded.external_subject is not null)
+		   or (subjects.kind = 'user' and subjects.controller_subject_id is null)
 	`, subjectID, displayName, strings.TrimSpace(provider), strings.TrimSpace(externalID)); err != nil {
 		return "", err
 	}

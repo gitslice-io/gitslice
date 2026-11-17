@@ -274,6 +274,13 @@ func (s *AuthStore) AcceptClaim(ctx context.Context, subjectID, agentSubjectID s
 	`, agentSubjectID, subjectID); err != nil {
 		return "", err
 	}
+	if _, err := tx.ExecContext(ctx, `
+		update subjects
+		set controller_subject_id = $2
+		where id = $1
+	`, agentSubjectID, subjectID); err != nil {
+		return "", err
+	}
 	if err := tx.Commit(); err != nil {
 		return "", err
 	}

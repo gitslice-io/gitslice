@@ -281,3 +281,124 @@ func TestUpdateSliceDefinitionRejectsHomeIncludedPathChange(t *testing.T) {
 		t.Fatalf("home visibility = %q, want private", updated.Visibility)
 	}
 }
+
+func TestCreateAndUpdateSliceRequiredHumanApprovals(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+	seedData := []byte("seed\n")
+	seedHash := objectid.RawContentHash(seedData)
+	mem.PutObject(filesystem.BlobKey(seedHash), seedData)
+	mem.PutCommitWithFiles("commit_human_approvals_seed", []storage.FileEntry{{
+		Path:        "/acme/human-approvals/seed.txt",
+		BlobID:      objectid.BlobID(seedData),
+		ContentHash: seedHash,
+		Mode:        0o100644,
+		Size:        int64(len(seedData)),
+	}}, []string{"/acme/human-approvals/seed.txt"})
+	ref := &corev1.SliceRef{Account: "acme", Slice: "human-approvals"}
+
+	if _, err := handlers.Slice.CreateSlice(ctx, &corev1.CreateSliceRequest{
+		Ref:                    ref,
+		IncludedPaths:          []string{"/acme/human-approvals"},
+		Visibility:             "private",
+		RequiredHumanApprovals: -1,
+	}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("CreateSlice negative required_human_approvals code = %v, want InvalidArgument (err=%v)", status.Code(err), err)
+	}
+
+	created, err := handlers.Slice.CreateSlice(ctx, &corev1.CreateSliceRequest{
+		Ref:                    ref,
+		IncludedPaths:          []string{"/acme/human-approvals"},
+		Visibility:             "private",
+		RequiredApprovals:      2,
+		RequiredHumanApprovals: 1,
+	})
+	if err != nil {
+		t.Fatalf("CreateSlice failed: %v", err)
+	}
+	if created.GetDefinition().GetRequiredHumanApprovals() != 1 {
+		t.Fatalf("created RequiredHumanApprovals = %d, want 1", created.GetDefinition().GetRequiredHumanApprovals())
+	}
+
+	resolved, err := handlers.Slice.ResolveSlice(ctx, &corev1.ResolveSliceRequest{Ref: ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.GetDefinition().GetRequiredHumanApprovals() != 1 {
+		t.Fatalf("ResolveSlice RequiredHumanApprovals = %d, want 1", resolved.GetDefinition().GetRequiredHumanApprovals())
+	}
+
+	if _, err := handlers.Slice.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                created.GetId(),
+		ExpectedDefinitionHash: created.GetDefinitionHash(),
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths:          []string{"/acme/human-approvals"},
+			Visibility:             "private",
+			RequiredApprovals:      2,
+			RequiredHumanApprovals: -1,
+		},
+	}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("UpdateSliceDefinition negative required_human_approvals code = %v, want InvalidArgument (err=%v)", status.Code(err), err)
+	}
+
+	updated, err := handlers.Slice.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                created.GetId(),
+		ExpectedDefinitionHash: created.GetDefinitionHash(),
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths:          []string{"/acme/human-approvals"},
+			Visibility:             "private",
+			RequiredApprovals:      2,
+			RequiredHumanApprovals: 2,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSliceDefinition to 2 failed: %v", err)
+	}
+	if updated.GetRequiredHumanApprovals() != 2 {
+		t.Fatalf("updated RequiredHumanApprovals = %d, want 2", updated.GetRequiredHumanApprovals())
+	}
+
+	// Lowering back to 0 must restore the exact legacy hash when required_human_approvals == 0.
+	gotAfterUpdate, err := handlers.Slice.ResolveSlice(ctx, &corev1.ResolveSliceRequest{Ref: ref})
+	if err != nil {
+		t.Fatal(err)
+	}
+	zeroDef, err := handlers.Slice.UpdateSliceDefinition(ctx, &corev1.UpdateSliceDefinitionRequest{
+		SliceId:                created.GetId(),
+		ExpectedDefinitionHash: gotAfterUpdate.GetDefinitionHash(),
+		Definition: &corev1.SliceDefinition{
+			IncludedPaths:          []string{"/acme/human-approvals"},
+			Visibility:             "private",
+			RequiredApprovals:      2,
+			RequiredHumanApprovals: 0,
+		},
+	})
+	if err != nil {
+		t.Fatalf("UpdateSliceDefinition back to 0 failed: %v", err)
+	}
+	if zeroDef.GetRequiredHumanApprovals() != 0 {
+		t.Fatalf("zeroDef RequiredHumanApprovals = %d, want 0", zeroDef.GetRequiredHumanApprovals())
+	}
+
+	versionsResp, err := handlers.Slice.ListSliceDefinitionVersions(ctx, &corev1.ListSliceDefinitionVersionsRequest{SliceId: created.GetId(), PageSize: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versionsResp.GetVersions()) != 3 {
+		t.Fatalf("versions count = %d, want 3", len(versionsResp.GetVersions()))
+	}
+	if got := []int32{versionsResp.GetVersions()[0].GetRequiredHumanApprovals(), versionsResp.GetVersions()[1].GetRequiredHumanApprovals(), versionsResp.GetVersions()[2].GetRequiredHumanApprovals()}; got[0] != 0 || got[1] != 2 || got[2] != 1 {
+		t.Fatalf("version required_human_approvals = %v, want [0 2 1]", got)
+	}
+	if versionsResp.GetVersions()[0].GetDefinitionHash() == versionsResp.GetVersions()[1].GetDefinitionHash() ||
+		versionsResp.GetVersions()[1].GetDefinitionHash() == versionsResp.GetVersions()[2].GetDefinitionHash() {
+		t.Fatalf("expected distinct definition hashes when required_human_approvals changes: %+v", versionsResp.GetVersions())
+	}
+	gotZero, err := handlers.Slice.GetSlice(ctx, &corev1.GetSliceRequest{SliceId: created.GetId()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotZero.GetDefinition().GetRequiredHumanApprovals() != 0 {
+		t.Fatalf("GetSlice RequiredHumanApprovals = %d, want 0", gotZero.GetDefinition().GetRequiredHumanApprovals())
+	}
+}

@@ -263,3 +263,92 @@ func TestPathOperationsRefuseCrossSliceProtectedBypassAndGitslicePaths(t *testin
 	})
 	wantPathOpCode(t, err, codes.FailedPrecondition)
 }
+
+func TestPathOperationBlocksRequiredHumanApprovalsBypass(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+
+	srcSlice := &corev1.SliceRef{Account: "acme", Slice: "outside-human"}
+	mem.PutSliceWithHumanApprovals(srcSlice, []string{"/acme/outside-human"}, "private", 0, 0, nil)
+	parentSlice := &corev1.SliceRef{Account: "acme", Slice: "payment"}
+	mem.PutSliceWithHumanApprovals(parentSlice, []string{"/acme/payment"}, "private", 0, 0, nil)
+
+	seedFile := func(slice *corev1.SliceRef, filePath, content string) {
+		t.Helper()
+		ref, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		upload, err := handlers.Blob.UploadBlob(ctx, &corev1.UploadBlobRequest{
+			Data:  []byte(content),
+			Slice: slice,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cs, err := handlers.Changeset.CreateChangeset(ctx, &corev1.CreateChangesetRequest{
+			AuthoringSlice: slice,
+			TargetRef:      storage.DefaultTargetRef,
+			BaseCommitId:   ref.CommitId,
+			Title:          "seed " + filePath,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ps, err := handlers.Changeset.UpdateChangeset(ctx, &corev1.UpdateChangesetRequest{
+			ChangesetId:  cs.Id,
+			BaseCommitId: ref.CommitId,
+			FileEdits: []*corev1.FileEdit{{
+				Op:          "add",
+				Path:        filePath,
+				BlobId:      upload.BlobId,
+				ContentHash: upload.ContentHash,
+				Mode:        0o100644,
+			}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := handlers.Changeset.SubmitChangeset(ctx, &corev1.SubmitChangesetRequest{
+			ChangesetId:               cs.Id,
+			ExpectedCurrentPatchsetId: ps.Id,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := mem.Changesets.PublishPending(ctx, 10); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	seedFile(srcSlice, "/acme/outside-human/src.txt", "from outside\n")
+	seedFile(parentSlice, "/acme/payment/outside.txt", "parent file\n")
+
+	// Cross-slice CopyPath into a slice requiring human approvals is rejected.
+	humanDst := &corev1.SliceRef{Account: "acme", Slice: "human-dst"}
+	mem.PutSliceWithHumanApprovals(humanDst, []string{"/acme/human-dst"}, "private", 0, 1, nil)
+	if _, err := handlers.Changeset.CopyPath(ctx, &corev1.CopyPathRequest{
+		Slice:           humanDst,
+		SourceSlice:     srcSlice,
+		SourcePath:      "/acme/outside-human/src.txt",
+		DestinationPath: "/acme/human-dst/src.txt",
+	}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("cross-slice CopyPath into required_human_approvals>0 slice code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
+	}
+
+	// Parent-slice CopyPath/MovePath from outside a protected human-gated sub-slice into it is also rejected.
+	mem.PutSliceWithHumanApprovals(&corev1.SliceRef{Account: "acme", Slice: "human-sub"}, []string{"/acme/payment/humanlib"}, "private", 0, 1, nil)
+	if _, err := handlers.Changeset.CopyPath(ctx, &corev1.CopyPathRequest{
+		Slice:           parentSlice,
+		SourcePath:      "/acme/payment/outside.txt",
+		DestinationPath: "/acme/payment/humanlib/copied.txt",
+	}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("parent CopyPath into required_human_approvals>0 sub-slice code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
+	}
+	if _, err := handlers.Changeset.MovePath(ctx, &corev1.MovePathRequest{
+		Slice:           parentSlice,
+		SourcePath:      "/acme/payment/outside.txt",
+		DestinationPath: "/acme/payment/humanlib/moved.txt",
+	}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("parent MovePath into required_human_approvals>0 sub-slice code = %v, want FailedPrecondition (err=%v)", status.Code(err), err)
+	}
+}

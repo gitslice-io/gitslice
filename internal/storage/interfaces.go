@@ -78,6 +78,8 @@ type AuthStore interface {
 	// SubjectIDForUsername returns the subject whose personal account has the
 	// given slug, or ErrNotFound.
 	SubjectIDForUsername(ctx context.Context, username string) (string, error)
+	// SubjectsByIDs returns subjects keyed by subject id; unknown ids are omitted.
+	SubjectsByIDs(ctx context.Context, subjectIDs []string) (map[string]Subject, error)
 	// AccountKind returns "personal" or "organization", or ErrNotFound.
 	AccountKind(ctx context.Context, accountSlug string) (string, error)
 	// CreateOrganization creates an organization account with owner
@@ -353,7 +355,9 @@ type RepositoryStore interface {
 
 type SliceStore interface {
 	Create(ctx context.Context, subjectID string, ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) (*corev1.Slice, error)
+	CreateDefinition(ctx context.Context, subjectID string, ref *corev1.SliceRef, definition *corev1.SliceDefinition) (*corev1.Slice, error)
 	ValidateDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) ([]string, string, int32, []string, error)
+	ValidateSliceDefinition(ref *corev1.SliceRef, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error)
 	Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error)
 	Get(ctx context.Context, sliceID string) (*corev1.Slice, error)
 	// List lists an account's slices in name order, up to limit, starting after

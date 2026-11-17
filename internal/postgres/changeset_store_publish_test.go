@@ -832,7 +832,7 @@ func TestSubmitRejectsArchivedOrDeletedSliceAndPatchsetSelfApproval(t *testing.T
 	}
 
 	// Add a genuine third-party approval, then verify archived slices reject submit.
-	if _, err := store.db.ExecContext(ctx, `insert into subjects(id, kind, display_name) values ('user_carol', 'user', 'Carol') on conflict do nothing`); err != nil {
+	if _, err := store.db.ExecContext(ctx, `insert into subjects(id, kind, display_name, controller_subject_id) values ('user_carol', 'user', 'Carol', 'user_carol') on conflict do nothing`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := store.Changesets().Approve(ctx, cs.Id, "user_carol"); err != nil {

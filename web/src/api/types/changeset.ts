@@ -2,6 +2,7 @@ import { type Int64String, type SliceRef } from "./common";
 
 export interface SubmitRequirements {
   requiredApprovals?: number;
+  requiredHumanApprovals?: number;
   requiredChecks?: string[];
   pathLockIds?: string[];
   sourceSliceDefinitionHash?: string;

@@ -16,46 +16,51 @@ import (
 )
 
 type sliceOutput struct {
-	ID                string   `json:"id"`
-	Ref               string   `json:"ref"`
-	Account           string   `json:"account"`
-	Slice             string   `json:"slice"`
-	Version           int64    `json:"version"`
-	Visibility        string   `json:"visibility"`
-	CIDaemonID        string   `json:"ci_daemon_id,omitempty"`
-	CIDaemonName      string   `json:"ci_daemon_name,omitempty"`
-	CIDaemonIDs       []string `json:"ci_daemon_ids,omitempty"`
-	CIDaemonNames     []string `json:"ci_daemon_names,omitempty"`
-	IncludedPaths     []string `json:"included_paths"`
-	RequiredApprovals int32    `json:"required_approvals"`
-	RequiredChecks    []string `json:"required_checks"`
-	DefinitionHash    string   `json:"definition_hash"`
-	Archived          bool     `json:"archived,omitempty"`
-	Description       string   `json:"description,omitempty"`
-	MergeOnSubmit     bool     `json:"merge_on_submit"`
-	FormerNames       []string `json:"former_names,omitempty"`
-	WebURL            string   `json:"web_url,omitempty"`
+	ID                     string   `json:"id"`
+	Ref                    string   `json:"ref"`
+	Account                string   `json:"account"`
+	Slice                  string   `json:"slice"`
+	Version                int64    `json:"version"`
+	Visibility             string   `json:"visibility"`
+	CIDaemonID             string   `json:"ci_daemon_id,omitempty"`
+	CIDaemonName           string   `json:"ci_daemon_name,omitempty"`
+	CIDaemonIDs            []string `json:"ci_daemon_ids,omitempty"`
+	CIDaemonNames          []string `json:"ci_daemon_names,omitempty"`
+	IncludedPaths          []string `json:"included_paths"`
+	RequiredApprovals      int32    `json:"required_approvals"`
+	RequiredHumanApprovals int32    `json:"required_human_approvals"`
+	RequiredChecks         []string `json:"required_checks"`
+	DefinitionHash         string   `json:"definition_hash"`
+	Archived               bool     `json:"archived,omitempty"`
+	Description            string   `json:"description,omitempty"`
+	MergeOnSubmit          bool     `json:"merge_on_submit"`
+	FormerNames            []string `json:"former_names,omitempty"`
+	WebURL                 string   `json:"web_url,omitempty"`
 }
 
 type sliceDefinitionVersionOutput struct {
-	SliceID           string   `json:"slice_id"`
-	Version           int64    `json:"version"`
-	DefinitionHash    string   `json:"definition_hash"`
-	Visibility        string   `json:"visibility"`
-	IncludedPaths     []string `json:"included_paths"`
-	RequiredApprovals int32    `json:"required_approvals"`
-	RequiredChecks    []string `json:"required_checks"`
-	CreatedBy         string   `json:"created_by"`
-	CreatedAt         string   `json:"created_at"`
+	SliceID                string   `json:"slice_id"`
+	Version                int64    `json:"version"`
+	DefinitionHash         string   `json:"definition_hash"`
+	Visibility             string   `json:"visibility"`
+	IncludedPaths          []string `json:"included_paths"`
+	RequiredApprovals      int32    `json:"required_approvals"`
+	RequiredHumanApprovals int32    `json:"required_human_approvals"`
+	RequiredChecks         []string `json:"required_checks"`
+	CreatedBy              string   `json:"created_by"`
+	CreatedAt              string   `json:"created_at"`
 }
 
-func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, visibility string, requiredApprovals int, requiredChecks []string, description string) error {
+func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, visibility string, requiredApprovals, requiredHumanApprovals int, requiredChecks []string, description string) error {
 	includedPaths, err := expandSliceIncludedPaths(includedPaths)
 	if err != nil {
 		return err
 	}
 	if requiredApprovals < 0 {
 		return userError("invalid_args", "required approvals must be zero or greater", "Pass --required-approvals 0 or higher.")
+	}
+	if requiredHumanApprovals < 0 {
+		return userError("invalid_args", "required human approvals must be zero or greater", "Pass --required-human-approvals 0 or higher.")
 	}
 	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
@@ -70,12 +75,13 @@ func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRe
 		includedPaths = defaultSliceIncludedPaths(ref)
 	}
 	slice, err := corev1.NewSliceServiceClient(conn).CreateSlice(callCtx, &corev1.CreateSliceRequest{
-		Ref:               ref,
-		IncludedPaths:     includedPaths,
-		Visibility:        visibility,
-		RequiredApprovals: int32(requiredApprovals),
-		RequiredChecks:    requiredChecks,
-		Description:       description,
+		Ref:                    ref,
+		IncludedPaths:          includedPaths,
+		Visibility:             visibility,
+		RequiredApprovals:      int32(requiredApprovals),
+		RequiredHumanApprovals: int32(requiredHumanApprovals),
+		RequiredChecks:         requiredChecks,
+		Description:            description,
 	})
 	if err != nil {
 		// A slice covers paths that hold files already; a new account's files
@@ -172,6 +178,9 @@ func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account s
 			fmt.Fprintf(r.Stdout, "    visibility: %s\n", slice.Visibility)
 			fmt.Fprintf(r.Stdout, "    included paths: %s\n", strings.Join(slice.IncludedPaths, ", "))
 			fmt.Fprintf(r.Stdout, "    required approvals: %d\n", slice.RequiredApprovals)
+			if slice.RequiredHumanApprovals > 0 {
+				fmt.Fprintf(r.Stdout, "    required human approvals: %d\n", slice.RequiredHumanApprovals)
+			}
 			if len(slice.RequiredChecks) > 0 {
 				fmt.Fprintf(r.Stdout, "    required checks: %s\n", strings.Join(slice.RequiredChecks, ", "))
 			}
@@ -275,6 +284,7 @@ func (r Runner) runSliceHistory(ctx context.Context, opts commandOptions, sliceR
 		fmt.Fprintf(r.Stdout, "    visibility: %s\n", version.Visibility)
 		fmt.Fprintf(r.Stdout, "    included_paths: %s\n", strings.Join(version.IncludedPaths, ", "))
 		fmt.Fprintf(r.Stdout, "    required_approvals: %d\n", version.RequiredApprovals)
+		fmt.Fprintf(r.Stdout, "    required_human_approvals: %d\n", version.RequiredHumanApprovals)
 		if len(version.RequiredChecks) > 0 {
 			fmt.Fprintf(r.Stdout, "    required_checks: %s\n", strings.Join(version.RequiredChecks, ", "))
 		} else {
@@ -290,16 +300,19 @@ func (r Runner) runSliceHistory(ctx context.Context, opts commandOptions, sliceR
 	return nil
 }
 
-func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, includesChanged bool, visibility string, visibilityChanged bool, requiredApprovals int, requiredApprovalsChanged bool, requiredChecks []string, requiredChecksChanged bool, clearRequiredChecks bool, description *string, mergeOnSubmit *bool) error {
+func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, includesChanged bool, visibility string, visibilityChanged bool, requiredApprovals int, requiredApprovalsChanged bool, requiredHumanApprovals int, requiredHumanApprovalsChanged bool, requiredChecks []string, requiredChecksChanged bool, clearRequiredChecks bool, description *string, mergeOnSubmit *bool) error {
 	if requiredChecksChanged && clearRequiredChecks {
 		return userError("invalid_args", "required checks can be replaced or cleared, not both", "Use --required-check or --clear-required-checks.")
 	}
-	definitionChanged := includesChanged || visibilityChanged || requiredApprovalsChanged || requiredChecksChanged || clearRequiredChecks
+	definitionChanged := includesChanged || visibilityChanged || requiredApprovalsChanged || requiredHumanApprovalsChanged || requiredChecksChanged || clearRequiredChecks
 	if !definitionChanged && description == nil && mergeOnSubmit == nil {
-		return userError("invalid_args", "no slice updates requested", "Pass --include, --visibility, --required-approvals, --required-check, --clear-required-checks, --description, or --merge-on-submit.")
+		return userError("invalid_args", "no slice updates requested", "Pass --include, --visibility, --required-approvals, --required-human-approvals, --required-check, --clear-required-checks, --description, or --merge-on-submit.")
 	}
 	if requiredApprovals < 0 {
 		return userError("invalid_args", "required approvals must be zero or greater", "Pass --required-approvals 0 or higher.")
+	}
+	if requiredHumanApprovals < 0 {
+		return userError("invalid_args", "required human approvals must be zero or greater", "Pass --required-human-approvals 0 or higher.")
 	}
 	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
@@ -331,6 +344,10 @@ func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRe
 	if requiredApprovalsChanged {
 		nextRequiredApprovals = int32(requiredApprovals)
 	}
+	nextRequiredHumanApprovals := current.Definition.RequiredHumanApprovals
+	if requiredHumanApprovalsChanged {
+		nextRequiredHumanApprovals = int32(requiredHumanApprovals)
+	}
 	nextRequiredChecks := append([]string{}, current.Definition.RequiredChecks...)
 	if clearRequiredChecks {
 		nextRequiredChecks = nil
@@ -342,10 +359,11 @@ func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRe
 			SliceId:                current.Id,
 			ExpectedDefinitionHash: current.DefinitionHash,
 			Definition: &corev1.SliceDefinition{
-				IncludedPaths:     nextIncluded,
-				Visibility:        nextVisibility,
-				RequiredApprovals: nextRequiredApprovals,
-				RequiredChecks:    nextRequiredChecks,
+				IncludedPaths:          nextIncluded,
+				Visibility:             nextVisibility,
+				RequiredApprovals:      nextRequiredApprovals,
+				RequiredHumanApprovals: nextRequiredHumanApprovals,
+				RequiredChecks:         nextRequiredChecks,
 			},
 		})
 		if err != nil {
@@ -475,6 +493,7 @@ func writeSliceText(w io.Writer, slice *corev1.Slice) error {
 		fmt.Fprintf(w, "ci_daemons: %s\n", strings.Join(members, ", "))
 	}
 	fmt.Fprintf(w, "required_approvals: %d\n", out.RequiredApprovals)
+	fmt.Fprintf(w, "required_human_approvals: %d\n", out.RequiredHumanApprovals)
 	if out.MergeOnSubmit {
 		fmt.Fprintln(w, "merge_on_submit: on (a stale changeset is merged onto the latest base at submit)")
 	} else {
@@ -520,6 +539,7 @@ func sliceToOutput(slice *corev1.Slice) sliceOutput {
 		out.Visibility = slice.Definition.Visibility
 		out.IncludedPaths = append([]string{}, slice.Definition.IncludedPaths...)
 		out.RequiredApprovals = slice.Definition.RequiredApprovals
+		out.RequiredHumanApprovals = slice.Definition.RequiredHumanApprovals
 		out.RequiredChecks = append([]string{}, slice.Definition.RequiredChecks...)
 	}
 	return out
@@ -530,15 +550,16 @@ func sliceDefinitionVersionToOutput(version *corev1.SliceDefinitionVersion) slic
 		return sliceDefinitionVersionOutput{}
 	}
 	return sliceDefinitionVersionOutput{
-		SliceID:           version.SliceId,
-		Version:           version.Version,
-		DefinitionHash:    version.DefinitionHash,
-		Visibility:        version.Visibility,
-		IncludedPaths:     append([]string{}, version.IncludedPaths...),
-		RequiredApprovals: version.RequiredApprovals,
-		RequiredChecks:    append([]string{}, version.RequiredChecks...),
-		CreatedBy:         version.CreatedBy,
-		CreatedAt:         version.CreatedAt,
+		SliceID:                version.SliceId,
+		Version:                version.Version,
+		DefinitionHash:         version.DefinitionHash,
+		Visibility:             version.Visibility,
+		IncludedPaths:          append([]string{}, version.IncludedPaths...),
+		RequiredApprovals:      version.RequiredApprovals,
+		RequiredHumanApprovals: version.RequiredHumanApprovals,
+		RequiredChecks:         append([]string{}, version.RequiredChecks...),
+		CreatedBy:              version.CreatedBy,
+		CreatedAt:              version.CreatedAt,
 	}
 }
 

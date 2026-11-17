@@ -96,7 +96,7 @@ func TestRPCWorkspaceValidationUsesAllCustomSliceIncludedPaths(t *testing.T) {
 	assertPathCoverage(t, validation.Coverage, "/acme/backend/rpc_backend.go", home.Id, backend.Id)
 	assertPathCoverage(t, validation.Coverage, "/acme/payment/shared/rpc_shared.go", home.Id, payment.Id, backend.Id)
 	assertPathCoverage(t, validation.Coverage, "/acme/payment/shared/deep/rpc_shared_deep.go", home.Id, payment.Id, backend.Id)
-	wantHash := storage.SubmitRequirementsHash(backend.Definition.IncludedPaths, backend.Definition.RequiredApprovals, backend.Definition.RequiredChecks)
+	wantHash := storage.SubmitRequirementsHash(backend.Definition.IncludedPaths, backend.Definition.RequiredApprovals, backend.Definition.RequiredHumanApprovals, backend.Definition.RequiredChecks)
 	if validation.SubmitRequirements == nil || validation.SubmitRequirements.SourceSliceDefinitionHash != wantHash {
 		t.Fatalf("unexpected submit requirements: %#v", validation.SubmitRequirements)
 	}
@@ -159,7 +159,7 @@ func TestRPCChangesetCanWriteCustomSliceSecondIncludedPath(t *testing.T) {
 	}
 	assertStringSet(t, patchset.ChangedPaths, filePath)
 	assertPathCoverage(t, patchset.Coverage, filePath, home.Id, payment.Id, backend.Id)
-	wantHash := storage.SubmitRequirementsHash(backend.Definition.IncludedPaths, backend.Definition.RequiredApprovals, backend.Definition.RequiredChecks)
+	wantHash := storage.SubmitRequirementsHash(backend.Definition.IncludedPaths, backend.Definition.RequiredApprovals, backend.Definition.RequiredHumanApprovals, backend.Definition.RequiredChecks)
 	if patchset.SubmitRequirements == nil || patchset.SubmitRequirements.SourceSliceDefinitionHash != wantHash {
 		t.Fatalf("unexpected patchset submit requirements: %#v", patchset.SubmitRequirements)
 	}

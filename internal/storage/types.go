@@ -16,8 +16,10 @@ var (
 )
 
 type Subject struct {
-	ID          string
-	DisplayName string
+	ID                  string
+	Kind                string
+	ControllerSubjectID string
+	DisplayName         string
 }
 
 // APIKeyPrefix marks a long-lived API key (see design/20_agent_signup_and_claim.md).

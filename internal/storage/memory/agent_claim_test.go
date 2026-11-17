@@ -39,9 +39,28 @@ func TestAgentClaimFlow(t *testing.T) {
 		t.Fatalf("claims = %+v, %v", claims, err)
 	}
 
+	beforeSubjects, err := stores.Auth.SubjectsByIDs(ctx, []string{human, agent.SubjectID})
+	if err != nil {
+		t.Fatalf("SubjectsByIDs before AcceptClaim = %v", err)
+	}
+	if beforeSubjects[human].Kind != "user" || beforeSubjects[human].ControllerSubjectID != human {
+		t.Fatalf("human subject before claim = %+v, want kind=user controller=%s", beforeSubjects[human], human)
+	}
+	if beforeSubjects[agent.SubjectID].Kind != "agent" || beforeSubjects[agent.SubjectID].ControllerSubjectID != "" {
+		t.Fatalf("agent subject before claim = %+v, want kind=agent unclaimed", beforeSubjects[agent.SubjectID])
+	}
+
 	account, err := stores.Auth.AcceptClaim(ctx, human, agent.SubjectID)
 	if err != nil || account != "release-bot" {
 		t.Fatalf("AcceptClaim = %q, %v", account, err)
+	}
+
+	afterSubjects, err := stores.Auth.SubjectsByIDs(ctx, []string{human, agent.SubjectID})
+	if err != nil {
+		t.Fatalf("SubjectsByIDs after AcceptClaim = %v", err)
+	}
+	if afterSubjects[agent.SubjectID].Kind != "agent" || afterSubjects[agent.SubjectID].ControllerSubjectID != human {
+		t.Fatalf("agent subject after claim = %+v, want kind=agent controller=%s", afterSubjects[agent.SubjectID], human)
 	}
 	if role, err := stores.Auth.AccountRole(ctx, human, "release-bot"); err != nil || role != "owner" {
 		t.Fatalf("human role = %q, %v; want owner", role, err)

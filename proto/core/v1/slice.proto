@@ -147,6 +147,7 @@ message SliceDefinition {
   string visibility = 4;
   int32 required_approvals = 5;
   repeated string required_checks = 6;
+  int32 required_human_approvals = 7;
 }
 
 message SliceDefinitionVersion {
@@ -159,6 +160,7 @@ message SliceDefinitionVersion {
   repeated string required_checks = 7;
   string created_at = 8;
   string created_by = 9;
+  int32 required_human_approvals = 10;
 }
 
 message CreateSliceRequest {
@@ -168,6 +170,7 @@ message CreateSliceRequest {
   int32 required_approvals = 4;
   repeated string required_checks = 5;
   string description = 6;
+  int32 required_human_approvals = 7;
 }
 
 message ResolveSliceRequest {

@@ -57,11 +57,11 @@ func newPostgresTestStoreWithObjects(t *testing.T) (context.Context, *DB, *files
 func seedStoreTestFixture(t *testing.T, ctx context.Context, store *DB) {
 	t.Helper()
 	if _, err := store.db.ExecContext(ctx, `
-		insert into subjects(id, kind, display_name, created_at)
+		insert into subjects(id, kind, display_name, controller_subject_id, created_at)
 		values
-			('user_alice', 'user', 'Alice', now()),
-			('user_bob', 'user', 'Bob', now()),
-			('ci_bot', 'service_account', 'CI Bot', now())
+			('user_alice', 'user', 'Alice', 'user_alice', now()),
+			('user_bob', 'user', 'Bob', 'user_bob', now()),
+			('ci_bot', 'service_account', 'CI Bot', null, now())
 		on conflict (id) do nothing
 	`); err != nil {
 		t.Fatal(err)

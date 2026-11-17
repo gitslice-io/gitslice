@@ -19,13 +19,29 @@ type SliceStore struct {
 	Secrets *secretbox.Box
 }
 
+const sliceSelectColumns = `
+		slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
+		coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''),
+		slices.visibility, slices.included_paths, slices.required_approvals, slices.required_human_approvals, slices.required_checks,
+		slices.archived_at is not null, slices.description, slices.merge_on_submit,
+		coalesce((select json_agg(json_build_array(p.daemon_id, coalesce(nullif(d.label, ''), d.name, p.daemon_id)) order by p.position, p.added_at) from slice_ci_daemons p left join agent_daemons d on d.id = p.daemon_id where p.slice_id = slices.id), '[]'::json)`
+
 func (s *SliceStore) Create(ctx context.Context, subjectID string, ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) (*corev1.Slice, error) {
+	return s.CreateDefinition(ctx, subjectID, ref, &corev1.SliceDefinition{
+		IncludedPaths:     includedPaths,
+		Visibility:        visibility,
+		RequiredApprovals: requiredApprovals,
+		RequiredChecks:    requiredChecks,
+	})
+}
+
+func (s *SliceStore) CreateDefinition(ctx context.Context, subjectID string, ref *corev1.SliceRef, definition *corev1.SliceDefinition) (*corev1.Slice, error) {
 	ref, err := normalizeSliceRef(ref)
 	if err != nil {
 		return nil, err
 	}
 	subjectID = strings.TrimSpace(subjectID)
-	includedPaths, visibility, requiredApprovals, requiredChecks, err = s.ValidateDefinition(ref, includedPaths, visibility, requiredApprovals, requiredChecks)
+	validated, err := s.ValidateSliceDefinition(ref, definition)
 	if err != nil {
 		return nil, err
 	}
@@ -69,26 +85,26 @@ func (s *SliceStore) Create(ctx context.Context, subjectID string, ref *corev1.S
 	if err != nil {
 		return nil, err
 	}
-	includedJSON, err := encodeJSON(includedPaths)
+	includedJSON, err := encodeJSON(validated.IncludedPaths)
 	if err != nil {
 		return nil, err
 	}
-	requiredChecksJSON, err := encodeJSON(requiredChecks)
+	requiredChecksJSON, err := encodeJSON(validated.RequiredChecks)
 	if err != nil {
 		return nil, err
 	}
-	definitionHash := definitionHash(id, 1, includedPaths, visibility, requiredApprovals, requiredChecks)
+	definitionHash := definitionHashWithHuman(id, 1, validated.IncludedPaths, validated.Visibility, validated.RequiredApprovals, validated.RequiredHumanApprovals, validated.RequiredChecks)
 	_, err = tx.ExecContext(ctx, `
-		insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, required_approvals, required_checks, created_at, updated_at)
-		values ($1, $2, $3, 1, $4, $5, $6, $7, $8, now(), now())
-	`, id, accountID, ref.Slice, definitionHash, visibility, includedJSON, requiredApprovals, requiredChecksJSON)
+		insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, required_approvals, required_human_approvals, required_checks, created_at, updated_at)
+		values ($1, $2, $3, 1, $4, $5, $6, $7, $8, $9, now(), now())
+	`, id, accountID, ref.Slice, definitionHash, validated.Visibility, includedJSON, validated.RequiredApprovals, validated.RequiredHumanApprovals, requiredChecksJSON)
 	if err != nil {
 		return nil, err
 	}
-	if err := appendSliceDefinitionVersionTx(ctx, tx, id, 1, definitionHash, visibility, includedPaths, requiredApprovals, requiredChecks, subjectID); err != nil {
+	if err := appendSliceDefinitionVersionTx(ctx, tx, id, 1, definitionHash, validated.Visibility, validated.IncludedPaths, validated.RequiredApprovals, validated.RequiredHumanApprovals, validated.RequiredChecks, subjectID); err != nil {
 		return nil, err
 	}
-	if err := syncSliceIncludedPathsTx(ctx, tx, id, includedPaths); err != nil {
+	if err := syncSliceIncludedPathsTx(ctx, tx, id, validated.IncludedPaths); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -101,15 +117,17 @@ func (s *SliceStore) ValidateDefinition(ref *corev1.SliceRef, includedPaths []st
 	return validateSliceDefinition(ref, includedPaths, visibility, requiredApprovals, requiredChecks)
 }
 
+func (s *SliceStore) ValidateSliceDefinition(ref *corev1.SliceRef, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error) {
+	return validateSliceDefinitionProto(ref, definition)
+}
+
 func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error) {
 	ref, err := normalizeSliceRef(ref)
 	if err != nil {
 		return nil, err
 	}
 	row := s.db.QueryRowContext(ctx, `
-		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
-		       slices.archived_at is not null, slices.description, slices.merge_on_submit, coalesce((select json_agg(json_build_array(p.daemon_id, coalesce(nullif(d.label, ''), d.name, p.daemon_id)) order by p.position, p.added_at) from slice_ci_daemons p left join agent_daemons d on d.id = p.daemon_id where p.slice_id = slices.id), '[]'::json)
+		select `+sliceSelectColumns+`
 		from slices
 		join accounts on accounts.id = slices.account_id
 		where accounts.slug = $1 and slices.slug = $2 and slices.deleted_at is null
@@ -118,9 +136,7 @@ func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1
 	if errors.Is(err, ErrNotFound) {
 		// A renamed slice still answers to its earlier names.
 		row = s.db.QueryRowContext(ctx, `
-			select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-			       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
-			       slices.archived_at is not null, slices.description, slices.merge_on_submit, coalesce((select json_agg(json_build_array(p.daemon_id, coalesce(nullif(d.label, ''), d.name, p.daemon_id)) order by p.position, p.added_at) from slice_ci_daemons p left join agent_daemons d on d.id = p.daemon_id where p.slice_id = slices.id), '[]'::json)
+			select `+sliceSelectColumns+`
 			from slice_aliases
 			join slices on slices.id = slice_aliases.slice_id
 			join accounts on accounts.id = slices.account_id
@@ -136,9 +152,7 @@ func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1
 
 func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, error) {
 	row := s.db.QueryRowContext(ctx, `
-		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
-		       slices.archived_at is not null, slices.description, slices.merge_on_submit, coalesce((select json_agg(json_build_array(p.daemon_id, coalesce(nullif(d.label, ''), d.name, p.daemon_id)) order by p.position, p.added_at) from slice_ci_daemons p left join agent_daemons d on d.id = p.daemon_id where p.slice_id = slices.id), '[]'::json)
+		select `+sliceSelectColumns+`
 		from slices
 		join accounts on accounts.id = slices.account_id
 		where slices.id = $1
@@ -174,9 +188,7 @@ func (s *SliceStore) list(ctx context.Context, account, after string, limit int,
 		limit = 50
 	}
 	rows, err := s.db.QueryContext(ctx, `
-		select slices.id, accounts.slug, slices.slug, slices.version, slices.definition_hash,
-		       coalesce(slices.ci_daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = slices.ci_daemon_id), ''), slices.visibility, slices.included_paths, slices.required_approvals, slices.required_checks,
-		       slices.archived_at is not null, slices.description, slices.merge_on_submit, coalesce((select json_agg(json_build_array(p.daemon_id, coalesce(nullif(d.label, ''), d.name, p.daemon_id)) order by p.position, p.added_at) from slice_ci_daemons p left join agent_daemons d on d.id = p.daemon_id where p.slice_id = slices.id), '[]'::json),
+		select `+sliceSelectColumns+`,
 		       slices.created_at,
 		       coalesce((select max(c.updated_at) from changesets c
 		                 where c.authoring_slice_id = slices.id and c.status = 'submitted'), slices.created_at)
@@ -232,7 +244,7 @@ func (s *SliceStore) ListDefinitionVersions(ctx context.Context, sliceID string,
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		select slice_id, version, definition_hash, visibility, included_paths,
-		       required_approvals, required_checks, created_at, coalesce(created_by, '')
+		       required_approvals, required_human_approvals, required_checks, created_at, coalesce(created_by, '')
 		from slice_definition_versions
 		where slice_id = $1
 		order by version desc
@@ -270,20 +282,20 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, subjectID, sliceID, e
 	if err != nil {
 		return nil, err
 	}
-	includedPaths, visibility, requiredApprovals, requiredChecks, err := validateSliceDefinition(current.Ref, definition.IncludedPaths, definition.Visibility, definition.RequiredApprovals, definition.RequiredChecks)
+	validated, err := validateSliceDefinitionProto(current.Ref, definition)
 	if err != nil {
 		return nil, err
 	}
-	included, err := encodeJSON(includedPaths)
+	included, err := encodeJSON(validated.IncludedPaths)
 	if err != nil {
 		return nil, err
 	}
 	nextVersion := current.Definition.Version + 1
-	requiredChecksJSON, err := encodeJSON(requiredChecks)
+	requiredChecksJSON, err := encodeJSON(validated.RequiredChecks)
 	if err != nil {
 		return nil, err
 	}
-	nextHash := definitionHash(sliceID, nextVersion, includedPaths, visibility, requiredApprovals, requiredChecks)
+	nextHash := definitionHashWithHuman(sliceID, nextVersion, validated.IncludedPaths, validated.Visibility, validated.RequiredApprovals, validated.RequiredHumanApprovals, validated.RequiredChecks)
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -297,10 +309,11 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, subjectID, sliceID, e
 		    visibility = $3,
 		    included_paths = $4,
 		    required_approvals = $5,
-		    required_checks = $6,
+		    required_human_approvals = $6,
+		    required_checks = $7,
 		    updated_at = now()
-		where id = $7 and definition_hash = $8
-	`, nextVersion, nextHash, visibility, included, requiredApprovals, requiredChecksJSON, sliceID, expectedHash)
+		where id = $8 and definition_hash = $9
+	`, nextVersion, nextHash, validated.Visibility, included, validated.RequiredApprovals, validated.RequiredHumanApprovals, requiredChecksJSON, sliceID, expectedHash)
 	if err != nil {
 		return nil, err
 	}
@@ -311,10 +324,10 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, subjectID, sliceID, e
 	if affected == 0 {
 		return nil, ErrConflict
 	}
-	if err := appendSliceDefinitionVersionTx(ctx, tx, sliceID, nextVersion, nextHash, visibility, includedPaths, requiredApprovals, requiredChecks, subjectID); err != nil {
+	if err := appendSliceDefinitionVersionTx(ctx, tx, sliceID, nextVersion, nextHash, validated.Visibility, validated.IncludedPaths, validated.RequiredApprovals, validated.RequiredHumanApprovals, validated.RequiredChecks, subjectID); err != nil {
 		return nil, err
 	}
-	if err := syncSliceIncludedPathsTx(ctx, tx, sliceID, includedPaths); err != nil {
+	if err := syncSliceIncludedPathsTx(ctx, tx, sliceID, validated.IncludedPaths); err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -423,7 +436,7 @@ func (s *SliceStore) requireSliceExists(ctx context.Context, sliceID string) err
 	return nil
 }
 
-func appendSliceDefinitionVersionTx(ctx context.Context, tx *sql.Tx, sliceID string, version int64, definitionHash, visibility string, includedPaths []string, requiredApprovals int32, requiredChecks []string, createdBy string) error {
+func appendSliceDefinitionVersionTx(ctx context.Context, tx *sql.Tx, sliceID string, version int64, definitionHash, visibility string, includedPaths []string, requiredApprovals, requiredHumanApprovals int32, requiredChecks []string, createdBy string) error {
 	includedJSON, err := encodeJSON(includedPaths)
 	if err != nil {
 		return err
@@ -440,12 +453,13 @@ func appendSliceDefinitionVersionTx(ctx context.Context, tx *sql.Tx, sliceID str
 			visibility,
 			included_paths,
 			required_approvals,
+			required_human_approvals,
 			required_checks,
 			created_at,
 			created_by
 		)
-		values ($1, $2, $3, $4, $5, $6, $7, now(), nullif($8, ''))
-	`, sliceID, version, definitionHash, visibility, includedJSON, requiredApprovals, requiredChecksJSON, strings.TrimSpace(createdBy))
+		values ($1, $2, $3, $4, $5, $6, $7, $8, now(), nullif($9, ''))
+	`, sliceID, version, definitionHash, visibility, includedJSON, requiredApprovals, requiredHumanApprovals, requiredChecksJSON, strings.TrimSpace(createdBy))
 	return err
 }
 
@@ -466,12 +480,12 @@ func syncSliceIncludedPathsTx(ctx context.Context, tx *sql.Tx, sliceID string, p
 
 func scanSliceDefinitionVersion(row scanner) (*corev1.SliceDefinitionVersion, error) {
 	var (
-		out                              corev1.SliceDefinitionVersion
-		requiredApprovals                int32
-		includedJSON, requiredChecksJSON []byte
-		createdAt                        time.Time
+		out                                       corev1.SliceDefinitionVersion
+		requiredApprovals, requiredHumanApprovals int32
+		includedJSON, requiredChecksJSON          []byte
+		createdAt                                 time.Time
 	)
-	err := row.Scan(&out.SliceId, &out.Version, &out.DefinitionHash, &out.Visibility, &includedJSON, &requiredApprovals, &requiredChecksJSON, &createdAt, &out.CreatedBy)
+	err := row.Scan(&out.SliceId, &out.Version, &out.DefinitionHash, &out.Visibility, &includedJSON, &requiredApprovals, &requiredHumanApprovals, &requiredChecksJSON, &createdAt, &out.CreatedBy)
 	if err != nil {
 		return nil, err
 	}
@@ -485,6 +499,7 @@ func scanSliceDefinitionVersion(row scanner) (*corev1.SliceDefinitionVersion, er
 	}
 	out.IncludedPaths = included
 	out.RequiredApprovals = requiredApprovals
+	out.RequiredHumanApprovals = requiredHumanApprovals
 	out.RequiredChecks = requiredChecks
 	out.CreatedAt = formatTime(createdAt)
 	return &out, nil
@@ -495,10 +510,10 @@ func scanSlice(row scanner) (*corev1.Slice, error) {
 		id, account, slug, definitionHash, ciDaemonID, ciDaemonName, visibility, description string
 		archived, mergeOnSubmit                                                              bool
 		version                                                                              int64
-		requiredApprovals                                                                    int32
+		requiredApprovals, requiredHumanApprovals                                            int32
 		includedJSON, requiredChecksJSON, poolJSON                                           []byte
 	)
-	err := row.Scan(&id, &account, &slug, &version, &definitionHash, &ciDaemonID, &ciDaemonName, &visibility, &includedJSON, &requiredApprovals, &requiredChecksJSON, &archived, &description, &mergeOnSubmit, &poolJSON)
+	err := row.Scan(&id, &account, &slug, &version, &definitionHash, &ciDaemonID, &ciDaemonName, &visibility, &includedJSON, &requiredApprovals, &requiredHumanApprovals, &requiredChecksJSON, &archived, &description, &mergeOnSubmit, &poolJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -535,12 +550,13 @@ func scanSlice(row scanner) (*corev1.Slice, error) {
 		Description:    description,
 		MergeOnSubmit:  mergeOnSubmit,
 		Definition: &corev1.SliceDefinition{
-			SliceId:           id,
-			Version:           version,
-			IncludedPaths:     included,
-			Visibility:        visibility,
-			RequiredApprovals: requiredApprovals,
-			RequiredChecks:    requiredChecks,
+			SliceId:                id,
+			Version:                version,
+			IncludedPaths:          included,
+			Visibility:             visibility,
+			RequiredApprovals:      requiredApprovals,
+			RequiredHumanApprovals: requiredHumanApprovals,
+			RequiredChecks:         requiredChecks,
 		},
 	}, nil
 }

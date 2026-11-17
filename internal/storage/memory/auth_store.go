@@ -108,8 +108,21 @@ func (s *AuthStore) EnsureExternalSubject(ctx context.Context, provider, externa
 	if displayName == "" {
 		displayName = subjectID
 	}
-	if _, ok := s.b.subjects[subjectID]; !ok {
-		s.b.subjects[subjectID] = storage.Subject{ID: subjectID, DisplayName: displayName}
+	if existing, ok := s.b.subjects[subjectID]; !ok {
+		s.b.subjects[subjectID] = storage.Subject{
+			ID:                  subjectID,
+			Kind:                "user",
+			ControllerSubjectID: subjectID,
+			DisplayName:         displayName,
+		}
+	} else if existing.Kind == "" || (existing.Kind == "user" && existing.ControllerSubjectID == "") {
+		if existing.Kind == "" {
+			existing.Kind = "user"
+		}
+		if existing.Kind == "user" && existing.ControllerSubjectID == "" {
+			existing.ControllerSubjectID = subjectID
+		}
+		s.b.subjects[subjectID] = existing
 	}
 	if _, ok := s.b.externalIdentities[subjectID]; !ok {
 		s.b.externalIdentities[subjectID] = externalIdentity{provider: strings.TrimSpace(provider), externalID: externalID}
@@ -210,6 +223,10 @@ func (s *AuthStore) AcceptClaim(ctx context.Context, subjectID, agentSubjectID s
 	reg.claimedBy = subjectID
 	reg.claimedAt = time.Now().UTC()
 	s.b.agentRegistrations[agentSubjectID] = reg
+	if subj, ok := s.b.subjects[agentSubjectID]; ok {
+		subj.ControllerSubjectID = subjectID
+		s.b.subjects[agentSubjectID] = subj
+	}
 	return reg.account, nil
 }
 
@@ -248,6 +265,22 @@ func (s *AuthStore) ChooseUsername(ctx context.Context, subjectID, username stri
 	}
 	s.b.provisionPersonalAccountLocked(subjectID, username, username)
 	return username, nil
+}
+
+func (s *AuthStore) SubjectsByIDs(ctx context.Context, subjectIDs []string) (map[string]storage.Subject, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	out := make(map[string]storage.Subject, len(subjectIDs))
+	for _, subjectID := range subjectIDs {
+		subjectID = strings.TrimSpace(subjectID)
+		if subjectID == "" {
+			continue
+		}
+		if subj, ok := s.b.subjects[subjectID]; ok {
+			out[subjectID] = subj
+		}
+	}
+	return out, nil
 }
 
 func (s *AuthStore) SubjectIDForUsername(ctx context.Context, username string) (string, error) {
@@ -413,7 +446,12 @@ func (s *AuthStore) UsernamesForSubjects(ctx context.Context, subjectIDs []strin
 
 func (b *backend) provisionPersonalAccountLocked(subjectID, username, displayName string) {
 	if _, ok := b.subjects[subjectID]; !ok {
-		b.subjects[subjectID] = storage.Subject{ID: subjectID, DisplayName: displayName}
+		b.subjects[subjectID] = storage.Subject{
+			ID:                  subjectID,
+			Kind:                "user",
+			ControllerSubjectID: subjectID,
+			DisplayName:         displayName,
+		}
 	}
 	b.personalAccounts[subjectID] = username
 	b.addAccountLocked(subjectID, username)
@@ -477,6 +515,11 @@ func (s *AuthStore) RegisterAgent(ctx context.Context, in storage.RegisterAgentI
 	}
 	if s.b.accountSlugTakenLocked(username) {
 		return nil, fmt.Errorf("%w: username %q is not available", storage.ErrConflict, username)
+	}
+	s.b.subjects[subjectID] = storage.Subject{
+		ID:          subjectID,
+		Kind:        "agent",
+		DisplayName: displayName,
 	}
 	s.b.provisionPersonalAccountLocked(subjectID, username, displayName)
 	reg := agentRegistration{

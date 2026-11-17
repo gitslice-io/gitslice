@@ -147,14 +147,14 @@ func activeSliceRequirementsAndIncludedPathsTx(ctx context.Context, tx *sql.Tx, 
 }
 
 func sliceSubmitMetadataTx(ctx context.Context, tx *sql.Tx, sliceID string) (*corev1.SubmitRequirements, []string, bool, bool, error) {
-	var requiredApprovals int64
+	var requiredApprovals, requiredHumanApprovals int64
 	var includedJSON, requiredChecksJSON []byte
 	var archivedAt, deletedAt sql.NullTime
 	err := tx.QueryRowContext(ctx, `
-		select included_paths, required_approvals, required_checks, archived_at, deleted_at
+		select included_paths, required_approvals, required_human_approvals, required_checks, archived_at, deleted_at
 		from slices
 		where id = $1
-	`, sliceID).Scan(&includedJSON, &requiredApprovals, &requiredChecksJSON, &archivedAt, &deletedAt)
+	`, sliceID).Scan(&includedJSON, &requiredApprovals, &requiredHumanApprovals, &requiredChecksJSON, &archivedAt, &deletedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, false, false, ErrNotFound
 	}
@@ -170,14 +170,92 @@ func sliceSubmitMetadataTx(ctx context.Context, tx *sql.Tx, sliceID string) (*co
 		return nil, nil, false, false, err
 	}
 	return &corev1.SubmitRequirements{
-		RequiredApprovals: int32(requiredApprovals),
-		RequiredChecks:    requiredChecks,
+		RequiredApprovals:      int32(requiredApprovals),
+		RequiredHumanApprovals: int32(requiredHumanApprovals),
+		RequiredChecks:         requiredChecks,
 		SourceSliceDefinitionHash: storage.SubmitRequirementsHash(
 			included,
 			int32(requiredApprovals),
+			int32(requiredHumanApprovals),
 			requiredChecks,
 		),
 	}, included, archivedAt.Valid, deletedAt.Valid, nil
+}
+
+func nonMechanicalPatchsetAuthorsTx(ctx context.Context, tx *sql.Tx, changesetID string) ([]string, error) {
+	rows, err := tx.QueryContext(ctx, `
+		select distinct author_subject_id
+		from patchsets
+		where changeset_id = $1
+		  and coalesce(kind, '') <> $2
+		order by author_subject_id
+	`, changesetID, storage.SubmitMergeKind)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var authors []string
+	for rows.Next() {
+		var author string
+		if err := rows.Scan(&author); err != nil {
+			return nil, err
+		}
+		authors = append(authors, author)
+	}
+	return authors, rows.Err()
+}
+
+func querySubjectsByIDs(ctx context.Context, q publishQueryer, subjectIDs []string) (map[string]storage.Subject, error) {
+	ids := make([]string, 0, len(subjectIDs))
+	seen := make(map[string]struct{}, len(subjectIDs))
+	for _, id := range subjectIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	out := make(map[string]storage.Subject, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := q.QueryContext(ctx, `
+		select id, kind, coalesce(controller_subject_id, ''), display_name
+		from subjects
+		where id = any($1)
+	`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var subj storage.Subject
+		if err := rows.Scan(&subj.ID, &subj.Kind, &subj.ControllerSubjectID, &subj.DisplayName); err != nil {
+			return nil, err
+		}
+		out[subj.ID] = subj
+	}
+	return out, rows.Err()
+}
+
+func resolveSubjectList(byID map[string]storage.Subject, subjectIDs []string) []storage.Subject {
+	out := make([]storage.Subject, 0, len(subjectIDs))
+	for _, id := range subjectIDs {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if subj, ok := byID[id]; ok {
+			out = append(out, subj)
+		} else {
+			out = append(out, storage.Subject{ID: id})
+		}
+	}
+	return out
 }
 
 func approvalSubjectsTx(ctx context.Context, tx *sql.Tx, changesetID, patchsetID string) ([]string, error) {
@@ -250,7 +328,11 @@ func clearRequirementBlockTx(ctx context.Context, tx *sql.Tx, changesetID, patch
 		    updated_at = now()
 		where id = $1
 		  and current_patchset_id = $2
-		  and (submit_blocked_reason like 'required check %' or submit_blocked_reason like 'required approvals %')
+		  and (
+			submit_blocked_reason like 'required check %'
+			or submit_blocked_reason like 'required approvals %'
+			or submit_blocked_reason like 'required human approvals %'
+		  )
 	`, changesetID, patchsetID)
 	return err
 }

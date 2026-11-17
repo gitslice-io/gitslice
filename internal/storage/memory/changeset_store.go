@@ -383,11 +383,17 @@ func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurren
 		}
 	}
 	key := patchsetRequirementKey(changesetID, patchset.Id)
-	approvalSubjects := make([]string, 0, len(s.b.approvals[key]))
+	approvers := make([]storage.Subject, 0, len(s.b.approvals[key]))
 	for subjectID := range s.b.approvals[key] {
-		approvalSubjects = append(approvalSubjects, subjectID)
+		approvers = append(approvers, s.b.subjectOrIDLocked(subjectID))
 	}
-	approvalSubjects = storage.FilterApprovalSubjects(approvalSubjects, cs.Author, patchset.Author)
+	excludedAuthors := []storage.Subject{s.b.subjectOrIDLocked(cs.Author)}
+	for _, ps := range cs.Patchsets {
+		if ps == nil || ps.Kind == storage.SubmitMergeKind {
+			continue
+		}
+		excludedAuthors = append(excludedAuthors, s.b.subjectOrIDLocked(ps.Author))
+	}
 	checkStatuses := map[string]string{}
 	for checkName, status := range s.b.checkResults[key] {
 		checkStatuses[checkName] = status
@@ -400,7 +406,7 @@ func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurren
 		}
 		checkStatuses[checkName] = normalized
 	}
-	if reason := storage.EvaluateSubmitRequirements(latestReq, cs.Author, approvalSubjects, checkStatuses); reason != "" && !bypassRequirements {
+	if reason := storage.EvaluateSubmitRequirements(latestReq, excludedAuthors, approvers, checkStatuses); reason != "" && !bypassRequirements {
 		return nil, s.b.blockSubmitLocked(cs, reason)
 	}
 	cs.Status = "pending_publish"
@@ -543,14 +549,27 @@ func submitRequirementsForMemorySlice(slice *corev1.Slice) *corev1.SubmitRequire
 	}
 	if slice.Definition != nil {
 		req.RequiredApprovals = slice.Definition.RequiredApprovals
+		req.RequiredHumanApprovals = slice.Definition.RequiredHumanApprovals
 		req.RequiredChecks = append([]string(nil), slice.Definition.RequiredChecks...)
 		req.SourceSliceDefinitionHash = storage.SubmitRequirementsHash(
 			slice.Definition.IncludedPaths,
 			slice.Definition.RequiredApprovals,
+			slice.Definition.RequiredHumanApprovals,
 			slice.Definition.RequiredChecks,
 		)
 	}
 	return req
+}
+
+func (b *backend) subjectOrIDLocked(subjectID string) storage.Subject {
+	subjectID = strings.TrimSpace(subjectID)
+	if subjectID == "" {
+		return storage.Subject{}
+	}
+	if subj, ok := b.subjects[subjectID]; ok {
+		return subj
+	}
+	return storage.Subject{ID: subjectID}
 }
 
 func (b *backend) blockSubmitLocked(cs *corev1.Changeset, reason string) error {

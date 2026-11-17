@@ -11,23 +11,39 @@ import (
 )
 
 func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) ([]string, string, int32, []string, error) {
-	ref, err := normalizeSliceRef(ref)
+	def, err := validateSliceDefinitionProto(ref, &corev1.SliceDefinition{
+		IncludedPaths:     includedPaths,
+		Visibility:        visibility,
+		RequiredApprovals: requiredApprovals,
+		RequiredChecks:    requiredChecks,
+	})
 	if err != nil {
 		return nil, "", 0, nil, err
 	}
-	visibility = strings.TrimSpace(visibility)
+	return def.IncludedPaths, def.Visibility, def.RequiredApprovals, def.RequiredChecks, nil
+}
+
+func validateSliceDefinitionProto(ref *corev1.SliceRef, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error) {
+	if definition == nil {
+		return nil, storage.ErrInvalid
+	}
+	ref, err := normalizeSliceRef(ref)
+	if err != nil {
+		return nil, err
+	}
+	visibility := strings.TrimSpace(definition.Visibility)
 	if visibility == "" {
 		visibility = "private"
 	}
 	if visibility != "private" && visibility != "public" {
-		return nil, "", 0, nil, storage.ErrInvalid
+		return nil, storage.ErrInvalid
 	}
 	seen := map[string]struct{}{}
-	out := make([]string, 0, len(includedPaths))
-	for _, raw := range includedPaths {
+	out := make([]string, 0, len(definition.IncludedPaths))
+	for _, raw := range definition.IncludedPaths {
 		cleaned, err := canonicalIncludedPath(ref, raw)
 		if err != nil {
-			return nil, "", 0, nil, err
+			return nil, err
 		}
 		if _, ok := seen[cleaned]; ok {
 			continue
@@ -36,17 +52,17 @@ func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visib
 		out = append(out, cleaned)
 	}
 	if len(out) == 0 {
-		return nil, "", 0, nil, storage.ErrInvalid
+		return nil, storage.ErrInvalid
 	}
-	if requiredApprovals < 0 {
-		return nil, "", 0, nil, storage.ErrInvalid
+	if definition.RequiredApprovals < 0 || definition.RequiredHumanApprovals < 0 {
+		return nil, storage.ErrInvalid
 	}
-	checks := make([]string, 0, len(requiredChecks))
+	checks := make([]string, 0, len(definition.RequiredChecks))
 	checkSeen := map[string]struct{}{}
-	for _, raw := range requiredChecks {
+	for _, raw := range definition.RequiredChecks {
 		check := strings.TrimSpace(raw)
 		if check == "" || strings.Contains(check, ",") {
-			return nil, "", 0, nil, storage.ErrInvalid
+			return nil, storage.ErrInvalid
 		}
 		if _, ok := checkSeen[check]; ok {
 			continue
@@ -54,7 +70,13 @@ func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visib
 		checkSeen[check] = struct{}{}
 		checks = append(checks, check)
 	}
-	return out, visibility, requiredApprovals, checks, nil
+	return &corev1.SliceDefinition{
+		IncludedPaths:          out,
+		Visibility:             visibility,
+		RequiredApprovals:      definition.RequiredApprovals,
+		RequiredHumanApprovals: definition.RequiredHumanApprovals,
+		RequiredChecks:         checks,
+	}, nil
 }
 
 func canonicalIncludedPath(ref *corev1.SliceRef, raw string) (string, error) {

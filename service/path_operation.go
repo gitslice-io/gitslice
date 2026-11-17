@@ -49,7 +49,7 @@ func (s *ChangesetService) CopyPath(ctx context.Context, req *corev1.CopyPathReq
 			return nil, status.Errorf(codes.FailedPrecondition, "%s is outside slice %s/%s", source, sourceSlice.GetRef().GetAccount(), sourceSlice.GetRef().GetSlice())
 		}
 		def := slice.GetDefinition()
-		if def.GetRequiredApprovals() > 0 || len(def.GetRequiredChecks()) > 0 {
+		if def.GetRequiredApprovals() > 0 || def.GetRequiredHumanApprovals() > 0 || len(def.GetRequiredChecks()) > 0 {
 			return nil, status.Errorf(codes.FailedPrecondition, "slice %s/%s requires review or checks; use a changeset to copy paths from outside the slice", slice.GetRef().GetAccount(), slice.GetRef().GetSlice())
 		}
 		readable = []string{source}
@@ -123,7 +123,7 @@ func (s *ChangesetService) pathOperationTarget(ctx context.Context, subjectID st
 // slices are rejected before reaching SubmitBypassingRequirements.
 func (s *ChangesetService) landPathOperation(ctx context.Context, subjectID string, slice *corev1.Slice, edit *corev1.FileEdit, readable []string, title string) (*corev1.PathOperationResponse, error) {
 	def := slice.GetDefinition()
-	if len(readable) > 0 && (def.GetRequiredApprovals() > 0 || len(def.GetRequiredChecks()) > 0) {
+	if len(readable) > 0 && (def.GetRequiredApprovals() > 0 || def.GetRequiredHumanApprovals() > 0 || len(def.GetRequiredChecks()) > 0) {
 		return nil, status.Errorf(codes.FailedPrecondition, "slice %s/%s requires review or checks; use a changeset to copy paths from outside the slice", slice.GetRef().GetAccount(), slice.GetRef().GetSlice())
 	}
 	if triggers.TouchesGitsliceConfig(edit.GetOldPath()) || triggers.TouchesGitsliceConfig(edit.GetPath()) {
@@ -296,7 +296,7 @@ func (s *ChangesetService) ensurePathOperationWithinProtectedSlices(ctx context.
 				continue
 			}
 			def := other.GetDefinition()
-			if def.GetRequiredApprovals() <= 0 && len(def.GetRequiredChecks()) == 0 {
+			if def.GetRequiredApprovals() <= 0 && def.GetRequiredHumanApprovals() <= 0 && len(def.GetRequiredChecks()) == 0 {
 				continue
 			}
 			inc := def.GetIncludedPaths()

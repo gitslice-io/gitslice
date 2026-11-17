@@ -12,6 +12,18 @@ import (
 )
 
 func (s *SliceStore) Create(ctx context.Context, subjectID string, ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) (*corev1.Slice, error) {
+	return s.CreateDefinition(ctx, subjectID, ref, &corev1.SliceDefinition{
+		IncludedPaths:     includedPaths,
+		Visibility:        visibility,
+		RequiredApprovals: requiredApprovals,
+		RequiredChecks:    requiredChecks,
+	})
+}
+
+func (s *SliceStore) CreateDefinition(ctx context.Context, subjectID string, ref *corev1.SliceRef, definition *corev1.SliceDefinition) (*corev1.Slice, error) {
+	if definition == nil {
+		return nil, storage.ErrInvalid
+	}
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	if _, ok := s.b.sliceRefs[sliceRefKey(ref)]; ok {
@@ -20,11 +32,15 @@ func (s *SliceStore) Create(ctx context.Context, subjectID string, ref *corev1.S
 	if _, ok := s.b.sliceAliases[sliceRefKey(ref)]; ok {
 		return nil, fmt.Errorf("%w: slice name %s is reserved: a slice was renamed from it", storage.ErrConflict, sliceRefKey(ref))
 	}
-	return s.b.putSliceLocked(ref, includedPaths, visibility, requiredApprovals, requiredChecks, subjectID)
+	return s.b.putSliceLocked(ref, definition.IncludedPaths, definition.Visibility, definition.RequiredApprovals, definition.RequiredHumanApprovals, definition.RequiredChecks, subjectID)
 }
 
 func (s *SliceStore) ValidateDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) ([]string, string, int32, []string, error) {
 	return validateSliceDefinition(ref, includedPaths, visibility, requiredApprovals, requiredChecks)
+}
+
+func (s *SliceStore) ValidateSliceDefinition(ref *corev1.SliceRef, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error) {
+	return validateSliceDefinitionProto(ref, definition)
 }
 
 func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error) {
@@ -111,16 +127,17 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, subjectID, sliceID, e
 	if expectedHash != "" && current.DefinitionHash != expectedHash {
 		return nil, storage.ErrConflict
 	}
-	included, visibility, requiredApprovals, requiredChecks, err := validateSliceDefinition(current.Ref, definition.IncludedPaths, definition.Visibility, definition.RequiredApprovals, definition.RequiredChecks)
+	validated, err := validateSliceDefinitionProto(current.Ref, definition)
 	if err != nil {
 		return nil, err
 	}
 	current.Definition.Version++
-	current.Definition.IncludedPaths = included
-	current.Definition.Visibility = visibility
-	current.Definition.RequiredApprovals = requiredApprovals
-	current.Definition.RequiredChecks = append([]string(nil), requiredChecks...)
-	current.DefinitionHash = memoryDefinitionHash(sliceID, current.Definition.Version, included, visibility, requiredApprovals, requiredChecks)
+	current.Definition.IncludedPaths = validated.IncludedPaths
+	current.Definition.Visibility = validated.Visibility
+	current.Definition.RequiredApprovals = validated.RequiredApprovals
+	current.Definition.RequiredHumanApprovals = validated.RequiredHumanApprovals
+	current.Definition.RequiredChecks = append([]string(nil), validated.RequiredChecks...)
+	current.DefinitionHash = memoryDefinitionHash(sliceID, current.Definition.Version, validated.IncludedPaths, validated.Visibility, validated.RequiredApprovals, validated.RequiredHumanApprovals, validated.RequiredChecks)
 	s.b.appendSliceDefinitionVersionLocked(current, subjectID)
 	return cloneSlice(current).Definition, nil
 }

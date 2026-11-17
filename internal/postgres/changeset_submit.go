@@ -159,17 +159,30 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 			return nil, blockSubmitTx(ctx, tx, cs.ID, fmt.Sprintf("changed path %s is outside latest slice definition, refresh the changeset", p))
 		}
 	}
-	approvalSubjects, err := approvalSubjectsTx(ctx, tx, cs.ID, patchset.Id)
+	nonMechanicalAuthors, err := nonMechanicalPatchsetAuthorsTx(ctx, tx, cs.ID)
 	if err != nil {
 		return nil, err
 	}
-	approvalSubjects = storage.FilterApprovalSubjects(approvalSubjects, cs.Author, patchset.Author)
+	approvalSubjectIDs, err := approvalSubjectsTx(ctx, tx, cs.ID, patchset.Id)
+	if err != nil {
+		return nil, err
+	}
+	excludedIDs := append([]string{cs.Author}, nonMechanicalAuthors...)
+	allSubjectIDs := make([]string, 0, len(excludedIDs)+len(approvalSubjectIDs))
+	allSubjectIDs = append(allSubjectIDs, excludedIDs...)
+	allSubjectIDs = append(allSubjectIDs, approvalSubjectIDs...)
+	subjectsMap, err := querySubjectsByIDs(ctx, tx, allSubjectIDs)
+	if err != nil {
+		return nil, err
+	}
+	excludedAuthors := resolveSubjectList(subjectsMap, excludedIDs)
+	approvers := resolveSubjectList(subjectsMap, approvalSubjectIDs)
 	checkStatuses, err := checkStatusesTx(ctx, tx, cs.ID, patchset.Id)
 	if err != nil {
 		return nil, err
 	}
 	mergeCheckStatuses(checkStatuses, extraCheckStatuses)
-	if reason := storage.EvaluateSubmitRequirements(latestReq, cs.Author, approvalSubjects, checkStatuses); reason != "" && !bypassRequirements {
+	if reason := storage.EvaluateSubmitRequirements(latestReq, excludedAuthors, approvers, checkStatuses); reason != "" && !bypassRequirements {
 		return nil, blockSubmitTx(ctx, tx, cs.ID, reason)
 	}
 	var currentCommitID string

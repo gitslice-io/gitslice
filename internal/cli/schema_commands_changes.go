@@ -143,9 +143,9 @@ func schemaSliceCommands() []map[string]any {
 			"summary":        "create a slice",
 			"aliases":        []string{"gs slices create <slice|account:slice>"},
 			"args":           []string{"slice|account:slice"},
-			"flags":          []string{"--include", "--visibility", "--required-approvals", "--required-check"},
+			"flags":          []string{"--include", "--visibility", "--required-approvals", "--required-human-approvals", "--required-check"},
 			"writes_stdout":  true,
-			"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "required_approvals", "required_checks", "definition_hash"},
+			"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "required_approvals", "required_human_approvals", "required_checks", "definition_hash"},
 		},
 		{
 			"use":            "gs slice share <slice|account:slice> <username>",
@@ -189,7 +189,7 @@ func schemaSliceCommands() []map[string]any {
 			"aliases":        []string{"gs slices info <slice|account:slice>"},
 			"args":           []string{"slice|account:slice"},
 			"writes_stdout":  true,
-			"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "required_approvals", "required_checks", "definition_hash"},
+			"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "required_approvals", "required_human_approvals", "required_checks", "definition_hash"},
 		},
 		{
 			"use":            "gs slice paths <slice|account:slice>",
@@ -213,9 +213,9 @@ func schemaSliceCommands() []map[string]any {
 			"summary":        "update slice included paths, visibility, or submit settings",
 			"aliases":        []string{"gs slices update <slice|account:slice>"},
 			"args":           []string{"slice|account:slice"},
-			"flags":          []string{"--include", "--visibility", "--required-approvals", "--required-check", "--clear-required-checks", "--description", "--merge-on-submit"},
+			"flags":          []string{"--include", "--visibility", "--required-approvals", "--required-human-approvals", "--required-check", "--clear-required-checks", "--description", "--merge-on-submit"},
 			"writes_stdout":  true,
-			"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "required_approvals", "required_checks", "definition_hash"},
+			"machine_output": []string{"id", "ref", "account", "slice", "version", "visibility", "included_paths", "required_approvals", "required_human_approvals", "required_checks", "definition_hash"},
 		},
 		{
 			"use":            "gs slice delete <slice|account:slice>",

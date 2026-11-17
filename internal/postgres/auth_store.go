@@ -22,13 +22,13 @@ func (s *AuthStore) subjectForAPIKey(ctx context.Context, token string) (*Subjec
 	var keyID string
 	var lastUsedAt sql.NullTime
 	err := s.db.QueryRowContext(ctx, `
-		select api_keys.id, api_keys.last_used_at, subjects.id, subjects.display_name
+		select api_keys.id, api_keys.last_used_at, subjects.id, subjects.kind, coalesce(subjects.controller_subject_id, ''), subjects.display_name
 		from api_keys
 		join subjects on subjects.id = api_keys.subject_id
 		where api_keys.token_hash = $1
 		  and api_keys.revoked_at is null
 		  and (api_keys.expires_at is null or api_keys.expires_at > now())
-	`, tokenHash(token)).Scan(&keyID, &lastUsedAt, &subject.ID, &subject.DisplayName)
+	`, tokenHash(token)).Scan(&keyID, &lastUsedAt, &subject.ID, &subject.Kind, &subject.ControllerSubjectID, &subject.DisplayName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUnauthenticated
 	}
@@ -53,13 +53,13 @@ func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*Subject
 	}
 	var subject Subject
 	err := s.db.QueryRowContext(ctx, `
-		select subjects.id, subjects.display_name
+		select subjects.id, subjects.kind, coalesce(subjects.controller_subject_id, ''), subjects.display_name
 		from sessions
 		join subjects on subjects.id = sessions.subject_id
 		where sessions.token_hash = $1
 		  and sessions.revoked_at is null
 		  and sessions.expires_at > now()
-	`, tokenHash(token)).Scan(&subject.ID, &subject.DisplayName)
+	`, tokenHash(token)).Scan(&subject.ID, &subject.Kind, &subject.ControllerSubjectID, &subject.DisplayName)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUnauthenticated
 	}
@@ -67,6 +67,10 @@ func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*Subject
 		return nil, err
 	}
 	return &subject, nil
+}
+
+func (s *AuthStore) SubjectsByIDs(ctx context.Context, subjectIDs []string) (map[string]storage.Subject, error) {
+	return querySubjectsByIDs(ctx, s.db, subjectIDs)
 }
 
 func (s *AuthStore) EnsureAccountMember(ctx context.Context, subjectID, accountSlug string) error {

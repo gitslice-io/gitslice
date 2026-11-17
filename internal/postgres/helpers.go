@@ -90,14 +90,27 @@ func tokenHash(token string) string {
 }
 
 func definitionHash(sliceID string, version int64, included []string, visibility string, requiredApprovals int32, requiredChecks []string) string {
+	return definitionHashWithHuman(sliceID, version, included, visibility, requiredApprovals, 0, requiredChecks)
+}
+
+func definitionHashWithHuman(sliceID string, version int64, included []string, visibility string, requiredApprovals, requiredHumanApprovals int32, requiredChecks []string) string {
 	payload, _ := json.Marshal(struct {
-		SliceID           string   `json:"slice_id"`
-		Version           int64    `json:"version"`
-		Included          []string `json:"included_paths"`
-		Visibility        string   `json:"visibility"`
-		RequiredApprovals int32    `json:"required_approvals"`
-		RequiredChecks    []string `json:"required_checks"`
-	}{SliceID: sliceID, Version: version, Included: included, Visibility: visibility, RequiredApprovals: requiredApprovals, RequiredChecks: requiredChecks})
+		SliceID                string   `json:"slice_id"`
+		Version                int64    `json:"version"`
+		Included               []string `json:"included_paths"`
+		Visibility             string   `json:"visibility"`
+		RequiredApprovals      int32    `json:"required_approvals"`
+		RequiredHumanApprovals int32    `json:"required_human_approvals,omitempty"`
+		RequiredChecks         []string `json:"required_checks"`
+	}{
+		SliceID:                sliceID,
+		Version:                version,
+		Included:               included,
+		Visibility:             visibility,
+		RequiredApprovals:      requiredApprovals,
+		RequiredHumanApprovals: requiredHumanApprovals,
+		RequiredChecks:         requiredChecks,
+	})
 	sum := sha256.Sum256(payload)
 	return "sha256:" + hex.EncodeToString(sum[:])
 }

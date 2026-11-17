@@ -35,14 +35,26 @@ func NormalizeCheckStatus(status string) (string, bool) {
 	}
 }
 
-func EvaluateSubmitRequirements(req *corev1.SubmitRequirements, author string, approvalSubjectIDs []string, checkStatuses map[string]string) string {
+// EvaluateSubmitRequirements checks approval, human approval, and required check
+// policies for a changeset. excludedAuthors must contain the changeset author
+// and every non-mechanical (kind != SubmitMergeKind) patchset author.
+func EvaluateSubmitRequirements(req *corev1.SubmitRequirements, excludedAuthors []Subject, approvers []Subject, checkStatuses map[string]string) string {
 	if req == nil {
 		return ""
 	}
-	if req.RequiredApprovals > 0 {
-		count := DistinctNonAuthorApprovalCount(author, approvalSubjectIDs)
-		if count < req.RequiredApprovals {
-			return fmt.Sprintf("required approvals not satisfied: requires %d distinct non-author approval(s), has %d", req.RequiredApprovals, count)
+	if req.RequiredApprovals > 0 || req.RequiredHumanApprovals > 0 {
+		eligible := FilterApprovalSubjects(approvers, excludedAuthors...)
+		if req.RequiredApprovals > 0 {
+			count := DistinctControllerApprovalCount(eligible)
+			if count < req.RequiredApprovals {
+				return fmt.Sprintf("required approvals not satisfied: requires %d distinct non-author approval(s), has %d", req.RequiredApprovals, count)
+			}
+		}
+		if req.RequiredHumanApprovals > 0 {
+			count := DistinctHumanApprovalCount(eligible)
+			if count < req.RequiredHumanApprovals {
+				return fmt.Sprintf("required human approvals not satisfied: requires %d human approval(s), has %d", req.RequiredHumanApprovals, count)
+			}
 		}
 	}
 	for _, check := range req.RequiredChecks {
@@ -70,7 +82,9 @@ func EvaluateSubmitRequirements(req *corev1.SubmitRequirements, author string, a
 // reason describes the last submit attempt; a new check result or approval
 // for the patchset makes it stale.
 func IsRequirementBlock(reason string) bool {
-	return strings.HasPrefix(reason, "required check ") || strings.HasPrefix(reason, "required approvals ")
+	return strings.HasPrefix(reason, "required check ") ||
+		strings.HasPrefix(reason, "required approvals ") ||
+		strings.HasPrefix(reason, "required human approvals ")
 }
 
 // SubmitRequirementsHash hashes only the fields that gate whether a patchset is
@@ -79,7 +93,7 @@ func IsRequirementBlock(reason string) bool {
 // definition edits (e.g. flipping visibility) do not force open changesets to
 // refresh. Inputs are canonicalized (sorted) so ordering differences between
 // callers do not change the hash.
-func SubmitRequirementsHash(includedPaths []string, requiredApprovals int32, requiredChecks []string) string {
+func SubmitRequirementsHash(includedPaths []string, requiredApprovals, requiredHumanApprovals int32, requiredChecks []string) string {
 	included := make([]string, len(includedPaths))
 	copy(included, includedPaths)
 	sort.Strings(included)
@@ -95,52 +109,84 @@ func SubmitRequirementsHash(includedPaths []string, requiredApprovals int32, req
 	sort.Strings(checks)
 
 	payload, _ := json.Marshal(struct {
-		IncludedPaths     []string `json:"included_paths"`
-		RequiredApprovals int32    `json:"required_approvals"`
-		RequiredChecks    []string `json:"required_checks"`
+		IncludedPaths          []string `json:"included_paths"`
+		RequiredApprovals      int32    `json:"required_approvals"`
+		RequiredHumanApprovals int32    `json:"required_human_approvals,omitempty"`
+		RequiredChecks         []string `json:"required_checks"`
 	}{
-		IncludedPaths:     included,
-		RequiredApprovals: requiredApprovals,
-		RequiredChecks:    checks,
+		IncludedPaths:          included,
+		RequiredApprovals:      requiredApprovals,
+		RequiredHumanApprovals: requiredHumanApprovals,
+		RequiredChecks:         checks,
 	})
 	sum := sha256.Sum256(payload)
 	return "submitreq_sha256:" + hex.EncodeToString(sum[:])
 }
 
-func DistinctNonAuthorApprovalCount(author string, subjectIDs []string) int32 {
-	author = strings.TrimSpace(author)
-	seen := map[string]struct{}{}
-	for _, subjectID := range subjectIDs {
-		subjectID = strings.TrimSpace(subjectID)
-		if subjectID == "" || subjectID == author {
+// FilterApprovalSubjects keeps only approver subjects that have a non-empty
+// ControllerSubjectID (unclaimed agents never count) and whose subject ID and
+// ControllerSubjectID differ from every excluded author (for example the
+// changeset author and every non-mechanical patchset author).
+func FilterApprovalSubjects(approvers []Subject, excludedAuthors ...Subject) []Subject {
+	excludedIDs := make(map[string]struct{}, len(excludedAuthors))
+	excludedControllers := make(map[string]struct{}, len(excludedAuthors))
+	for _, author := range excludedAuthors {
+		if id := strings.TrimSpace(author.ID); id != "" {
+			excludedIDs[id] = struct{}{}
+		}
+		if ctrl := strings.TrimSpace(author.ControllerSubjectID); ctrl != "" {
+			excludedControllers[ctrl] = struct{}{}
+		}
+	}
+	out := make([]Subject, 0, len(approvers))
+	for _, approver := range approvers {
+		id := strings.TrimSpace(approver.ID)
+		ctrl := strings.TrimSpace(approver.ControllerSubjectID)
+		if id == "" || ctrl == "" {
 			continue
 		}
-		seen[subjectID] = struct{}{}
+		if _, skip := excludedIDs[id]; skip {
+			continue
+		}
+		if _, skip := excludedControllers[ctrl]; skip {
+			continue
+		}
+		out = append(out, Subject{
+			ID:                  id,
+			Kind:                strings.TrimSpace(approver.Kind),
+			ControllerSubjectID: ctrl,
+			DisplayName:         approver.DisplayName,
+		})
+	}
+	return out
+}
+
+// DistinctControllerApprovalCount counts distinct non-empty controller subject
+// IDs across eligible approvers.
+func DistinctControllerApprovalCount(approvers []Subject) int32 {
+	seen := map[string]struct{}{}
+	for _, approver := range approvers {
+		ctrl := strings.TrimSpace(approver.ControllerSubjectID)
+		if ctrl == "" {
+			continue
+		}
+		seen[ctrl] = struct{}{}
 	}
 	return int32(len(seen))
 }
 
-// FilterApprovalSubjects removes blank subjects and any excluded authors (for
-// example both the changeset author and the current patchset author) so
-// neither author can satisfy non-author approval requirements.
-func FilterApprovalSubjects(subjectIDs []string, excludedAuthors ...string) []string {
-	excluded := make(map[string]struct{}, len(excludedAuthors))
-	for _, author := range excludedAuthors {
-		author = strings.TrimSpace(author)
-		if author != "" {
-			excluded[author] = struct{}{}
-		}
-	}
-	out := make([]string, 0, len(subjectIDs))
-	for _, subjectID := range subjectIDs {
-		subjectID = strings.TrimSpace(subjectID)
-		if subjectID == "" {
+// DistinctHumanApprovalCount counts distinct eligible approvers of kind "user".
+func DistinctHumanApprovalCount(approvers []Subject) int32 {
+	seen := map[string]struct{}{}
+	for _, approver := range approvers {
+		if strings.TrimSpace(approver.Kind) != "user" || strings.TrimSpace(approver.ControllerSubjectID) == "" {
 			continue
 		}
-		if _, skip := excluded[subjectID]; skip {
+		id := strings.TrimSpace(approver.ID)
+		if id == "" {
 			continue
 		}
-		out = append(out, subjectID)
+		seen[id] = struct{}{}
 	}
-	return out
+	return int32(len(seen))
 }

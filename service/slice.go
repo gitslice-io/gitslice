@@ -36,18 +36,24 @@ func (s *SliceService) CreateSlice(ctx context.Context, req *corev1.CreateSliceR
 	if err := authorizeAccount(ctx, s.Auth, subjectID, ref.Account, authz.ActionAdmin); err != nil {
 		return nil, err
 	}
-	includedPaths, visibility, requiredApprovals, requiredChecks, err := s.Slices.ValidateDefinition(ref, req.IncludedPaths, req.Visibility, req.RequiredApprovals, req.RequiredChecks)
+	def, err := s.Slices.ValidateSliceDefinition(ref, &corev1.SliceDefinition{
+		IncludedPaths:          req.IncludedPaths,
+		Visibility:             req.Visibility,
+		RequiredApprovals:      req.RequiredApprovals,
+		RequiredHumanApprovals: req.RequiredHumanApprovals,
+		RequiredChecks:         req.RequiredChecks,
+	})
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := s.validateIncludedPathsExist(ctx, ref, includedPaths); err != nil {
+	if err := s.validateIncludedPathsExist(ctx, ref, def.IncludedPaths); err != nil {
 		return nil, err
 	}
 	description, err := normalizeSliceDescription(req.Description)
 	if err != nil {
 		return nil, err
 	}
-	slice, err := s.Slices.Create(ctx, subjectID, ref, includedPaths, visibility, requiredApprovals, requiredChecks)
+	slice, err := s.Slices.CreateDefinition(ctx, subjectID, ref, def)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -173,25 +179,20 @@ func (s *SliceService) UpdateSliceDefinition(ctx context.Context, req *corev1.Up
 	if req.Definition == nil {
 		return nil, status.Error(codes.InvalidArgument, "slice definition is required")
 	}
-	includedPaths, visibility, requiredApprovals, requiredChecks, err := s.Slices.ValidateDefinition(current.Ref, req.Definition.IncludedPaths, req.Definition.Visibility, req.Definition.RequiredApprovals, req.Definition.RequiredChecks)
+	def, err := s.Slices.ValidateSliceDefinition(current.Ref, req.Definition)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	// The home slice's included paths are managed by account provisioning and
 	// must not be edited; other definition fields (e.g. visibility) may change.
 	if isHomeSlice(current.Ref) &&
-		!sameStringSet(current.Definition.GetIncludedPaths(), includedPaths) {
+		!sameStringSet(current.Definition.GetIncludedPaths(), def.IncludedPaths) {
 		return nil, status.Error(codes.InvalidArgument, "the home slice's included paths cannot be changed")
 	}
-	if err := s.validateIncludedPathsExist(ctx, current.Ref, addedIncludedPaths(current.Definition, includedPaths)); err != nil {
+	if err := s.validateIncludedPathsExist(ctx, current.Ref, addedIncludedPaths(current.Definition, def.IncludedPaths)); err != nil {
 		return nil, err
 	}
-	definition, err := s.Slices.UpdateDefinition(ctx, subjectID, req.SliceId, req.ExpectedDefinitionHash, &corev1.SliceDefinition{
-		IncludedPaths:     includedPaths,
-		Visibility:        visibility,
-		RequiredApprovals: requiredApprovals,
-		RequiredChecks:    requiredChecks,
-	})
+	definition, err := s.Slices.UpdateDefinition(ctx, subjectID, req.SliceId, req.ExpectedDefinitionHash, def)
 	if err != nil {
 		return nil, grpcError(err)
 	}

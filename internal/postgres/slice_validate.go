@@ -46,27 +46,43 @@ func normalizeSlug(value, name string) (string, error) {
 }
 
 func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) ([]string, string, int32, []string, error) {
-	if ref == nil {
-		return nil, "", 0, nil, fmt.Errorf("%w: slice ref is required", ErrInvalid)
+	def, err := validateSliceDefinitionProto(ref, &corev1.SliceDefinition{
+		IncludedPaths:     includedPaths,
+		Visibility:        visibility,
+		RequiredApprovals: requiredApprovals,
+		RequiredChecks:    requiredChecks,
+	})
+	if err != nil {
+		return nil, "", 0, nil, err
 	}
-	visibility = strings.TrimSpace(visibility)
+	return def.IncludedPaths, def.Visibility, def.RequiredApprovals, def.RequiredChecks, nil
+}
+
+func validateSliceDefinitionProto(ref *corev1.SliceRef, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error) {
+	if ref == nil {
+		return nil, fmt.Errorf("%w: slice ref is required", ErrInvalid)
+	}
+	if definition == nil {
+		return nil, fmt.Errorf("%w: slice definition is required", ErrInvalid)
+	}
+	visibility := strings.TrimSpace(definition.Visibility)
 	if visibility == "" {
 		visibility = "private"
 	}
 	switch visibility {
 	case "private", "public":
 	default:
-		return nil, "", 0, nil, fmt.Errorf("%w: visibility must be private or public", ErrInvalid)
+		return nil, fmt.Errorf("%w: visibility must be private or public", ErrInvalid)
 	}
-	if len(includedPaths) == 0 {
-		return nil, "", 0, nil, fmt.Errorf("%w: included path is required", ErrInvalid)
+	if len(definition.IncludedPaths) == 0 {
+		return nil, fmt.Errorf("%w: included path is required", ErrInvalid)
 	}
-	out := make([]string, 0, len(includedPaths))
+	out := make([]string, 0, len(definition.IncludedPaths))
 	seen := map[string]struct{}{}
-	for _, raw := range includedPaths {
+	for _, raw := range definition.IncludedPaths {
 		cleaned, err := canonicalSliceIncludedPath(ref, raw)
 		if err != nil {
-			return nil, "", 0, nil, err
+			return nil, err
 		}
 		if _, ok := seen[cleaned]; ok {
 			continue
@@ -74,26 +90,35 @@ func validateSliceDefinition(ref *corev1.SliceRef, includedPaths []string, visib
 		seen[cleaned] = struct{}{}
 		out = append(out, cleaned)
 	}
-	normalizedApprovals, normalizedChecks, err := validateSubmitSettings(requiredApprovals, requiredChecks)
+	normalizedApprovals, normalizedHumanApprovals, normalizedChecks, err := validateSubmitSettings(definition.RequiredApprovals, definition.RequiredHumanApprovals, definition.RequiredChecks)
 	if err != nil {
-		return nil, "", 0, nil, err
+		return nil, err
 	}
-	return out, visibility, normalizedApprovals, normalizedChecks, nil
+	return &corev1.SliceDefinition{
+		IncludedPaths:          out,
+		Visibility:             visibility,
+		RequiredApprovals:      normalizedApprovals,
+		RequiredHumanApprovals: normalizedHumanApprovals,
+		RequiredChecks:         normalizedChecks,
+	}, nil
 }
 
-func validateSubmitSettings(requiredApprovals int32, requiredChecks []string) (int32, []string, error) {
+func validateSubmitSettings(requiredApprovals, requiredHumanApprovals int32, requiredChecks []string) (int32, int32, []string, error) {
 	if requiredApprovals < 0 {
-		return 0, nil, fmt.Errorf("%w: required approvals must be zero or greater", ErrInvalid)
+		return 0, 0, nil, fmt.Errorf("%w: required approvals must be zero or greater", ErrInvalid)
+	}
+	if requiredHumanApprovals < 0 {
+		return 0, 0, nil, fmt.Errorf("%w: required human approvals must be zero or greater", ErrInvalid)
 	}
 	checks := make([]string, 0, len(requiredChecks))
 	seen := map[string]struct{}{}
 	for _, raw := range requiredChecks {
 		check := strings.TrimSpace(raw)
 		if check == "" {
-			return 0, nil, fmt.Errorf("%w: required check name is required", ErrInvalid)
+			return 0, 0, nil, fmt.Errorf("%w: required check name is required", ErrInvalid)
 		}
 		if strings.Contains(check, ",") {
-			return 0, nil, fmt.Errorf("%w: required check %q must not contain commas; pass each check separately", ErrInvalid, check)
+			return 0, 0, nil, fmt.Errorf("%w: required check %q must not contain commas; pass each check separately", ErrInvalid, check)
 		}
 		if _, ok := seen[check]; ok {
 			continue
@@ -101,7 +126,7 @@ func validateSubmitSettings(requiredApprovals int32, requiredChecks []string) (i
 		seen[check] = struct{}{}
 		checks = append(checks, check)
 	}
-	return requiredApprovals, checks, nil
+	return requiredApprovals, requiredHumanApprovals, checks, nil
 }
 
 func canonicalSliceIncludedPath(ref *corev1.SliceRef, value string) (string, error) {

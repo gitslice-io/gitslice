@@ -35,6 +35,7 @@ export interface SliceDefinition {
   includedPaths?: string[];
   visibility?: string;
   requiredApprovals?: number;
+  requiredHumanApprovals?: number;
   requiredChecks?: string[];
 }
 
@@ -65,6 +66,7 @@ export interface CreateSliceRequest {
   includedPaths?: string[];
   visibility?: string;
   requiredApprovals?: number;
+  requiredHumanApprovals?: number;
   requiredChecks?: string[];
 }
 

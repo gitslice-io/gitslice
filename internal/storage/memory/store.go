@@ -268,9 +268,13 @@ func (s *Stores) PutSlice(ref *corev1.SliceRef, includedPaths []string, visibili
 }
 
 func (s *Stores) PutSliceWithSubmitSettings(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) *corev1.Slice {
+	return s.PutSliceWithHumanApprovals(ref, includedPaths, visibility, requiredApprovals, 0, requiredChecks)
+}
+
+func (s *Stores) PutSliceWithHumanApprovals(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals, requiredHumanApprovals int32, requiredChecks []string) *corev1.Slice {
 	s.backend.mu.Lock()
 	defer s.backend.mu.Unlock()
-	slice, _ := s.backend.putSliceLocked(ref, includedPaths, visibility, requiredApprovals, requiredChecks, "system")
+	slice, _ := s.backend.putSliceLocked(ref, includedPaths, visibility, requiredApprovals, requiredHumanApprovals, requiredChecks, "system")
 	return slice
 }
 
@@ -301,7 +305,12 @@ func (b *backend) addAccountRoleLocked(subjectID, accountSlug, role string) {
 		role = "member"
 	}
 	if _, ok := b.subjects[subjectID]; !ok {
-		b.subjects[subjectID] = storage.Subject{ID: subjectID, DisplayName: strings.TrimPrefix(subjectID, "user_")}
+		b.subjects[subjectID] = storage.Subject{
+			ID:                  subjectID,
+			Kind:                "user",
+			ControllerSubjectID: subjectID,
+			DisplayName:         strings.TrimPrefix(subjectID, "user_"),
+		}
 	}
 	if b.accountMembers[subjectID] == nil {
 		b.accountMembers[subjectID] = map[string]string{}
@@ -309,17 +318,23 @@ func (b *backend) addAccountRoleLocked(subjectID, accountSlug, role string) {
 	b.accountMembers[subjectID][accountSlug] = role
 	home := &corev1.SliceRef{Account: accountSlug, Slice: "home"}
 	if _, ok := b.sliceRefs[sliceRefKey(home)]; !ok {
-		_, _ = b.putSliceLocked(home, []string{"/" + accountSlug}, "private", 0, nil, subjectID)
+		_, _ = b.putSliceLocked(home, []string{"/" + accountSlug}, "private", 0, 0, nil, subjectID)
 	}
 	b.ensureAccountRootDirectoryLocked(accountSlug, subjectID)
 }
 
-func (b *backend) putSliceLocked(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string, createdBy string) (*corev1.Slice, error) {
+func (b *backend) putSliceLocked(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals, requiredHumanApprovals int32, requiredChecks []string, createdBy string) (*corev1.Slice, error) {
 	ref, err := normalizeSliceRef(ref)
 	if err != nil {
 		return nil, err
 	}
-	includedPaths, visibility, requiredApprovals, requiredChecks, err = validateSliceDefinition(ref, includedPaths, visibility, requiredApprovals, requiredChecks)
+	validated, err := validateSliceDefinitionProto(ref, &corev1.SliceDefinition{
+		IncludedPaths:          includedPaths,
+		Visibility:             visibility,
+		RequiredApprovals:      requiredApprovals,
+		RequiredHumanApprovals: requiredHumanApprovals,
+		RequiredChecks:         requiredChecks,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -328,18 +343,19 @@ func (b *backend) putSliceLocked(ref *corev1.SliceRef, includedPaths []string, v
 	if existing := b.slices[id]; existing != nil && existing.Definition != nil {
 		version = existing.Definition.Version + 1
 	}
-	definitionHash := memoryDefinitionHash(id, version, includedPaths, visibility, requiredApprovals, requiredChecks)
+	definitionHash := memoryDefinitionHash(id, version, validated.IncludedPaths, validated.Visibility, validated.RequiredApprovals, validated.RequiredHumanApprovals, validated.RequiredChecks)
 	slice := &corev1.Slice{
 		Id:             id,
 		Ref:            cloneSliceRef(ref),
 		DefinitionHash: definitionHash,
 		Definition: &corev1.SliceDefinition{
-			SliceId:           id,
-			Version:           version,
-			IncludedPaths:     append([]string(nil), includedPaths...),
-			Visibility:        visibility,
-			RequiredApprovals: requiredApprovals,
-			RequiredChecks:    append([]string(nil), requiredChecks...),
+			SliceId:                id,
+			Version:                version,
+			IncludedPaths:          append([]string(nil), validated.IncludedPaths...),
+			Visibility:             validated.Visibility,
+			RequiredApprovals:      validated.RequiredApprovals,
+			RequiredHumanApprovals: validated.RequiredHumanApprovals,
+			RequiredChecks:         append([]string(nil), validated.RequiredChecks...),
 		},
 	}
 	b.slices[id] = cloneSlice(slice)
@@ -353,15 +369,16 @@ func (b *backend) appendSliceDefinitionVersionLocked(slice *corev1.Slice, create
 		return
 	}
 	version := &corev1.SliceDefinitionVersion{
-		SliceId:           slice.Id,
-		Version:           slice.Definition.Version,
-		DefinitionHash:    slice.DefinitionHash,
-		Visibility:        slice.Definition.Visibility,
-		IncludedPaths:     append([]string(nil), slice.Definition.IncludedPaths...),
-		RequiredApprovals: slice.Definition.RequiredApprovals,
-		RequiredChecks:    append([]string(nil), slice.Definition.RequiredChecks...),
-		CreatedAt:         time.Now().UTC().Format(time.RFC3339Nano),
-		CreatedBy:         strings.TrimSpace(createdBy),
+		SliceId:                slice.Id,
+		Version:                slice.Definition.Version,
+		DefinitionHash:         slice.DefinitionHash,
+		Visibility:             slice.Definition.Visibility,
+		IncludedPaths:          append([]string(nil), slice.Definition.IncludedPaths...),
+		RequiredApprovals:      slice.Definition.RequiredApprovals,
+		RequiredHumanApprovals: slice.Definition.RequiredHumanApprovals,
+		RequiredChecks:         append([]string(nil), slice.Definition.RequiredChecks...),
+		CreatedAt:              time.Now().UTC().Format(time.RFC3339Nano),
+		CreatedBy:              strings.TrimSpace(createdBy),
 	}
 	b.sliceDefinitionVersions[slice.Id] = append(b.sliceDefinitionVersions[slice.Id], cloneSliceDefinitionVersion(version))
 }
@@ -473,15 +490,24 @@ func (b *backend) nextChangesetNumberLocked(sliceID string) int64 {
 	return max + 1
 }
 
-func memoryDefinitionHash(sliceID string, version int64, included []string, visibility string, requiredApprovals int32, requiredChecks []string) string {
+func memoryDefinitionHash(sliceID string, version int64, included []string, visibility string, requiredApprovals, requiredHumanApprovals int32, requiredChecks []string) string {
 	payload, _ := json.Marshal(struct {
-		SliceID           string   `json:"slice_id"`
-		Version           int64    `json:"version"`
-		Included          []string `json:"included_paths"`
-		Visibility        string   `json:"visibility"`
-		RequiredApprovals int32    `json:"required_approvals"`
-		RequiredChecks    []string `json:"required_checks"`
-	}{SliceID: sliceID, Version: version, Included: included, Visibility: visibility, RequiredApprovals: requiredApprovals, RequiredChecks: requiredChecks})
+		SliceID                string   `json:"slice_id"`
+		Version                int64    `json:"version"`
+		Included               []string `json:"included_paths"`
+		Visibility             string   `json:"visibility"`
+		RequiredApprovals      int32    `json:"required_approvals"`
+		RequiredHumanApprovals int32    `json:"required_human_approvals,omitempty"`
+		RequiredChecks         []string `json:"required_checks"`
+	}{
+		SliceID:                sliceID,
+		Version:                version,
+		Included:               included,
+		Visibility:             visibility,
+		RequiredApprovals:      requiredApprovals,
+		RequiredHumanApprovals: requiredHumanApprovals,
+		RequiredChecks:         requiredChecks,
+	})
 	sum := sha256.Sum256(payload)
 	return "mem_sha256:" + hex.EncodeToString(sum[:])
 }
