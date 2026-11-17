@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"gitslice.io/gitslice/internal/analytics"
+	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/proto/core/v1"
@@ -111,9 +112,18 @@ func (s *SliceService) ListSlices(ctx context.Context, req *corev1.ListSlicesReq
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	p, hasPrincipal := authctx.PrincipalFrom(ctx)
+	scoped := hasPrincipal && p.KeyID != "" && p.SubjectID == subjectID && p.HasSliceScope
 	member := false
 	if subjectID != "" {
-		if member, err = canAuthorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead); err != nil {
+		memberCtx := ctx
+		if scoped {
+			// A slice-scoped key may only list slices inside its scope that the
+			// underlying subject is allowed to read (including private slices of its
+			// own account), never unrelated slices of the account.
+			memberCtx = authctx.WithPrincipal(ctx, authctx.Principal{SubjectID: subjectID})
+		}
+		if member, err = canAuthorizeAccount(memberCtx, s.Auth, subjectID, account, authz.ActionRead); err != nil {
 			return nil, err
 		}
 	}
@@ -132,6 +142,41 @@ func (s *SliceService) ListSlices(ctx context.Context, req *corev1.ListSlicesReq
 		pageSize = defaultSlicePageSize
 	}
 	pageSize = min(pageSize, maxSlicePageSize)
+	if scoped {
+		if len(p.SliceIDs) == 0 {
+			return &corev1.ListSlicesResponse{AccountKind: kind}, nil
+		}
+		authorizer := authz.New(s.Auth)
+		var out []*corev1.Slice
+		next := ""
+		after := req.Cursor
+		batchLimit := maxSlicePageSize
+		for {
+			batch, err := list(ctx, account, after, batchLimit, req.IncludeArchived)
+			if err != nil {
+				return nil, grpcError(err)
+			}
+			for _, sl := range batch {
+				if p.AllowsSlice(sl.GetId()) && authorizer.Authorize(ctx, subjectID, sl, authz.ActionRead) == nil {
+					out = append(out, sl)
+					if len(out) > pageSize {
+						out = out[:pageSize]
+						next = out[pageSize-1].GetRef().GetSlice()
+						return &corev1.ListSlicesResponse{Slices: out, NextCursor: next, AccountKind: kind}, nil
+					}
+				}
+			}
+			if len(batch) < batchLimit {
+				break
+			}
+			nextAfter := batch[len(batch)-1].GetRef().GetSlice()
+			if nextAfter == "" || nextAfter == after {
+				break
+			}
+			after = nextAfter
+		}
+		return &corev1.ListSlicesResponse{Slices: out, NextCursor: next, AccountKind: kind}, nil
+	}
 	// One more than a page tells whether another page follows.
 	slices, err := list(ctx, account, req.Cursor, pageSize+1, req.IncludeArchived)
 	if err != nil {

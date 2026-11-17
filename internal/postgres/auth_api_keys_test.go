@@ -53,7 +53,7 @@ func TestAgentAPIKeysAreManagedByTheAgentAndItsOwners(t *testing.T) {
 	lostKeyID := keys[0].ID
 
 	// The owner replaces the lost key.
-	created, secret, createdFor, _, err := auth.CreateAPIKey(ctx, owner, "KeyBot", "replacement")
+	created, secret, createdFor, _, err := auth.CreateAPIKey(ctx, storage.CreateAPIKeyInput{ActorID: owner, AgentAccount: "KeyBot", Name: "replacement"})
 	if err != nil || createdFor != agent.SubjectID || created.Name != "replacement" || !strings.HasPrefix(secret, storage.APIKeyPrefix) {
 		t.Fatalf("CreateAPIKey = %+v %q for %q, %v", created, secret, createdFor, err)
 	}
@@ -80,7 +80,7 @@ func TestAgentAPIKeysAreManagedByTheAgentAndItsOwners(t *testing.T) {
 	}
 
 	// The agent can manage its own keys without naming itself.
-	if _, _, _, _, err := auth.CreateAPIKey(ctx, agent.SubjectID, "", ""); err != nil {
+	if _, _, _, _, err := auth.CreateAPIKey(ctx, storage.CreateAPIKeyInput{ActorID: agent.SubjectID}); err != nil {
 		t.Fatalf("an agent creating its own key: %v", err)
 	}
 	if _, _, listed, err := auth.ListAPIKeys(ctx, agent.SubjectID, ""); err != nil || len(listed) != 3 {
@@ -91,7 +91,7 @@ func TestAgentAPIKeysAreManagedByTheAgentAndItsOwners(t *testing.T) {
 	}
 
 	// Nobody else: not the stranger, not another agent, not a key of another agent.
-	if _, _, _, _, err := auth.CreateAPIKey(ctx, stranger, "keybot", ""); !errors.Is(err, ErrNotFound) {
+	if _, _, _, _, err := auth.CreateAPIKey(ctx, storage.CreateAPIKeyInput{ActorID: stranger, AgentAccount: "keybot"}); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("stranger creating a key: err = %v, want ErrNotFound", err)
 	}
 	if _, _, _, err := auth.ListAPIKeys(ctx, other.SubjectID, "keybot"); !errors.Is(err, ErrNotFound) {
@@ -109,14 +109,14 @@ func TestAgentAPIKeysAreManagedByTheAgentAndItsOwners(t *testing.T) {
 	}
 
 	// Names are checked, and an agent holds a limited number of active keys.
-	if _, _, _, _, err := auth.CreateAPIKey(ctx, owner, "keybot", strings.Repeat("x", storage.MaxAPIKeyNameLength+1)); !errors.Is(err, ErrInvalid) {
+	if _, _, _, _, err := auth.CreateAPIKey(ctx, storage.CreateAPIKeyInput{ActorID: owner, AgentAccount: "keybot", Name: strings.Repeat("x", storage.MaxAPIKeyNameLength+1)}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("a long name: err = %v, want ErrInvalid", err)
 	}
-	if _, _, _, _, err := auth.CreateAPIKey(ctx, owner, "keybot", "bad\x00name"); !errors.Is(err, ErrInvalid) {
+	if _, _, _, _, err := auth.CreateAPIKey(ctx, storage.CreateAPIKeyInput{ActorID: owner, AgentAccount: "keybot", Name: "bad\x00name"}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("a control character in the name: err = %v, want ErrInvalid", err)
 	}
 	for {
-		_, _, _, _, err := auth.CreateAPIKey(ctx, owner, "keybot", "filler")
+		_, _, _, _, err := auth.CreateAPIKey(ctx, storage.CreateAPIKeyInput{ActorID: owner, AgentAccount: "keybot", Name: "filler"})
 		if errors.Is(err, ErrConflict) {
 			break
 		}

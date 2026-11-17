@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
@@ -44,9 +45,32 @@ func (a Authorizer) AuthorizeAllowArchived(ctx context.Context, subjectID string
 	return a.authorize(ctx, subjectID, slice, action, true)
 }
 
+func keyGrantFor(ctx context.Context, subjectID string) (authctx.Principal, bool) {
+	p, ok := authctx.PrincipalFrom(ctx)
+	if !ok || p.KeyID == "" {
+		return authctx.Principal{}, false
+	}
+	if strings.TrimSpace(p.SubjectID) != strings.TrimSpace(subjectID) {
+		return authctx.Principal{}, false
+	}
+	return p, true
+}
+
 func (a Authorizer) authorize(ctx context.Context, subjectID string, slice *corev1.Slice, action Action, allowArchived bool) error {
 	if slice == nil || slice.Ref == nil || slice.Ref.Account == "" || slice.Definition == nil {
 		return storage.ErrInvalid
+	}
+	if !validAction(action) {
+		return storage.ErrInvalid
+	}
+	grant, hasGrant := keyGrantFor(ctx, subjectID)
+	if hasGrant {
+		if !grant.AllowsSlice(slice.Id) {
+			return storage.ErrUnauthorized
+		}
+		if grant.MaxRole != "" && !roleAllows(grant.MaxRole, action) {
+			return storage.ErrUnauthorized
+		}
 	}
 	visibility := strings.TrimSpace(slice.Definition.Visibility)
 	if visibility == "" {
@@ -58,9 +82,6 @@ func (a Authorizer) authorize(ctx context.Context, subjectID string, slice *core
 	if strings.TrimSpace(subjectID) == "" {
 		return storage.ErrUnauthenticated
 	}
-	if !validAction(action) {
-		return storage.ErrInvalid
-	}
 	// The account's role decides first; a role on the slice itself
 	// (design/26_slice_members.md) can only add to it.
 	allowed := false
@@ -68,16 +89,26 @@ func (a Authorizer) authorize(ctx context.Context, subjectID string, slice *core
 	if err != nil {
 		return err
 	}
-	if ok && roleAllows(role, action) {
-		allowed = true
+	if ok {
+		if hasGrant && grant.MaxRole != "" {
+			role = minRole(role, grant.MaxRole)
+		}
+		if roleAllows(role, action) {
+			allowed = true
+		}
 	}
 	if !allowed {
 		sliceRole, ok, err := a.SliceRole(ctx, subjectID, slice)
 		if err != nil {
 			return err
 		}
-		if ok && roleAllows(sliceRole, action) {
-			allowed = true
+		if ok {
+			if hasGrant && grant.MaxRole != "" {
+				sliceRole = minRole(sliceRole, grant.MaxRole)
+			}
+			if roleAllows(sliceRole, action) {
+				allowed = true
+			}
 		}
 	}
 	if !allowed {
@@ -89,14 +120,44 @@ func (a Authorizer) authorize(ctx context.Context, subjectID string, slice *core
 	return nil
 }
 
+// AuthorizeDelegated authorizes actorSubjectID on slice for action, falling
+// back to delegatedSubjectID when actorSubjectID lacks direct slice access,
+// while always enforcing actorSubjectID's credential grant as an upper bound.
+func (a Authorizer) AuthorizeDelegated(ctx context.Context, actorSubjectID, delegatedSubjectID string, slice *corev1.Slice, action Action) error {
+	if slice == nil || slice.Ref == nil || slice.Ref.Account == "" || slice.Definition == nil {
+		return storage.ErrInvalid
+	}
+	if !validAction(action) {
+		return storage.ErrInvalid
+	}
+	if grant, hasGrant := keyGrantFor(ctx, actorSubjectID); hasGrant {
+		if !grant.AllowsSlice(slice.Id) {
+			return storage.ErrUnauthorized
+		}
+		if grant.MaxRole != "" && !roleAllows(grant.MaxRole, action) {
+			return storage.ErrUnauthorized
+		}
+	}
+	actorErr := a.Authorize(ctx, actorSubjectID, slice, action)
+	if actorErr == nil || !errors.Is(actorErr, storage.ErrUnauthorized) {
+		return actorErr
+	}
+	return a.Authorize(ctx, delegatedSubjectID, slice, action)
+}
+
 // EffectiveRole returns the subject's higher role across the slice's account
-// and the slice itself, or ("", false, nil) when it holds neither.
+// and the slice itself, bounded by any key grant in ctx, or ("", false, nil)
+// when it holds neither or the key does not cover the slice.
 func (a Authorizer) EffectiveRole(ctx context.Context, subjectID string, slice *corev1.Slice) (string, bool, error) {
 	if slice == nil || strings.TrimSpace(subjectID) == "" {
 		return "", false, nil
 	}
 	if a.Auth == nil {
 		return "", false, storage.ErrInvalid
+	}
+	grant, hasGrant := keyGrantFor(ctx, subjectID)
+	if hasGrant && !grant.AllowsSlice(slice.Id) {
+		return "", false, nil
 	}
 	var acctRole string
 	var acctOK bool
@@ -111,16 +172,24 @@ func (a Authorizer) EffectiveRole(ctx context.Context, subjectID string, slice *
 	if err != nil {
 		return "", false, err
 	}
+	var effective string
 	switch {
 	case !acctOK && !sliceOK:
 		return "", false, nil
 	case acctOK && !sliceOK:
-		return acctRole, true, nil
+		effective = acctRole
 	case !acctOK && sliceOK:
-		return sliceRole, true, nil
+		effective = sliceRole
 	default:
-		return higherRole(acctRole, sliceRole), true, nil
+		effective = higherRole(acctRole, sliceRole)
 	}
+	if hasGrant && grant.MaxRole != "" {
+		effective = minRole(effective, grant.MaxRole)
+		if effective == "" {
+			return "", false, nil
+		}
+	}
+	return effective, true, nil
 }
 
 // SliceRole returns the role the subject was given on the slice itself, if
@@ -187,6 +256,14 @@ func (a Authorizer) AuthorizeAccount(ctx context.Context, subjectID, account str
 	if !validAction(action) {
 		return storage.ErrInvalid
 	}
+	if grant, hasGrant := keyGrantFor(ctx, subjectID); hasGrant {
+		if grant.HasSliceScope {
+			return storage.ErrUnauthorized
+		}
+		if grant.MaxRole != "" && !roleAllows(grant.MaxRole, action) {
+			return storage.ErrUnauthorized
+		}
+	}
 	role, ok, err := a.accountRole(ctx, subjectID, account)
 	if err != nil {
 		return err
@@ -240,4 +317,15 @@ func higherRole(a, b string) string {
 		return b
 	}
 	return a
+}
+
+func minRole(a, b string) string {
+	ta, tb := roleTier(a), roleTier(b)
+	if ta == 0 || tb == 0 {
+		return ""
+	}
+	if ta <= tb {
+		return strings.ToLower(strings.TrimSpace(a))
+	}
+	return strings.ToLower(strings.TrimSpace(b))
 }

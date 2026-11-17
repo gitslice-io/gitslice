@@ -7,16 +7,18 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"gitslice.io/gitslice/internal/authctx"
 	"golang.org/x/sync/singleflight"
 )
 
 // A client making many calls in a row (the web app, a service account) would
 // otherwise pay a signature check, and a subject lookup or upsert, on every
-// call. cachedSubjectResolver remembers a resolved signed token (a JWT: a
+// call. cachedPrincipalResolver remembers a resolved signed token (a JWT: a
 // Clerk session token or a service token) for subjectCacheTTL, never past its
 // own expiry. Such tokens are valid by signature and expiry alone, so caching
 // them extends nothing. Credentials checked against the database (API keys,
@@ -30,8 +32,13 @@ const (
 
 type subjectCacheEntry struct {
 	key       [sha256.Size]byte
-	subjectID string
+	principal authctx.Principal
 	expires   time.Time
+}
+
+func cloneCachedPrincipal(p authctx.Principal) *authctx.Principal {
+	p.SliceIDs = slices.Clone(p.SliceIDs)
+	return &p
 }
 
 func cachedSubjectResolver(resolve subjectResolver, now func() time.Time) subjectResolver {
@@ -39,6 +46,21 @@ func cachedSubjectResolver(resolve subjectResolver, now func() time.Time) subjec
 }
 
 func newCachedSubjectResolver(resolve subjectResolver, now func() time.Time, maxEntries int) subjectResolver {
+	cached := newCachedPrincipalResolver(toPrincipalResolver(resolve), now, maxEntries)
+	return func(ctx context.Context, token string) (string, error) {
+		p, err := cached(ctx, token)
+		if err != nil {
+			return "", err
+		}
+		return p.SubjectID, nil
+	}
+}
+
+func cachedPrincipalResolver(resolve principalResolver, now func() time.Time) principalResolver {
+	return newCachedPrincipalResolver(resolve, now, subjectCacheMaxEntries)
+}
+
+func newCachedPrincipalResolver(resolve principalResolver, now func() time.Time, maxEntries int) principalResolver {
 	if maxEntries <= 0 {
 		maxEntries = subjectCacheMaxEntries
 	}
@@ -49,29 +71,30 @@ func newCachedSubjectResolver(resolve subjectResolver, now func() time.Time, max
 		sf      singleflight.Group
 	)
 
-	lookup := func(key [sha256.Size]byte, at time.Time) (string, bool) {
+	lookup := func(key [sha256.Size]byte, at time.Time) (*authctx.Principal, bool) {
 		mu.Lock()
 		defer mu.Unlock()
 		elem, ok := entries[key]
 		if !ok {
-			return "", false
+			return nil, false
 		}
 		entry := elem.Value.(*subjectCacheEntry)
 		if !at.Before(entry.expires) {
 			lru.Remove(elem)
 			delete(entries, key)
-			return "", false
+			return nil, false
 		}
 		lru.MoveToFront(elem)
-		return entry.subjectID, true
+		return cloneCachedPrincipal(entry.principal), true
 	}
 
-	store := func(key [sha256.Size]byte, subjectID string, at, expires time.Time) {
+	store := func(key [sha256.Size]byte, principal authctx.Principal, at, expires time.Time) {
 		mu.Lock()
 		defer mu.Unlock()
+		stored := *cloneCachedPrincipal(principal)
 		if elem, ok := entries[key]; ok {
 			entry := elem.Value.(*subjectCacheEntry)
-			entry.subjectID = subjectID
+			entry.principal = stored
 			entry.expires = expires
 			lru.MoveToFront(elem)
 			return
@@ -95,41 +118,41 @@ func newCachedSubjectResolver(resolve subjectResolver, now func() time.Time, max
 		}
 		entries[key] = lru.PushFront(&subjectCacheEntry{
 			key:       key,
-			subjectID: subjectID,
+			principal: stored,
 			expires:   expires,
 		})
 	}
 
-	return func(ctx context.Context, token string) (string, error) {
+	return func(ctx context.Context, token string) (*authctx.Principal, error) {
 		if ctx == nil {
 			ctx = context.Background()
 		}
 		if err := ctx.Err(); err != nil {
-			return "", err
+			return nil, err
 		}
 
 		key := sha256.Sum256([]byte(token))
-		if subjectID, ok := lookup(key, now()); ok {
-			return subjectID, nil
+		if principal, ok := lookup(key, now()); ok {
+			return principal, nil
 		}
 
 		// Coalesce concurrent cold-cache lookups for the same token digest
 		// without storing the raw bearer secret in the singleflight key map.
 		sfKey := hex.EncodeToString(key[:])
 		ch := sf.DoChan(sfKey, func() (any, error) {
-			if subjectID, ok := lookup(key, now()); ok {
-				return subjectID, nil
+			if principal, ok := lookup(key, now()); ok {
+				return principal, nil
 			}
 			callCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), subjectResolveCallTimeout)
 			defer cancel()
 
-			subjectID, err := resolve(callCtx, token)
-			if err != nil || subjectID == "" {
-				return subjectID, err
+			principal, err := resolve(callCtx, token)
+			if err != nil || principal == nil || principal.SubjectID == "" {
+				return principal, err
 			}
 			exp, signed := jwtExpiry(token)
 			if !signed {
-				return subjectID, nil
+				return cloneCachedPrincipal(*principal), nil
 			}
 			at := now()
 			expires := at.Add(subjectCacheTTL)
@@ -137,20 +160,23 @@ func newCachedSubjectResolver(resolve subjectResolver, now func() time.Time, max
 				expires = exp
 			}
 			if at.Before(expires) {
-				store(key, subjectID, at, expires)
+				store(key, *principal, at, expires)
 			}
-			return subjectID, nil
+			return cloneCachedPrincipal(*principal), nil
 		})
 
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return nil, ctx.Err()
 		case res := <-ch:
 			if res.Err != nil {
-				return "", res.Err
+				return nil, res.Err
 			}
-			subjectID, _ := res.Val.(string)
-			return subjectID, nil
+			principal, _ := res.Val.(*authctx.Principal)
+			if principal == nil {
+				return nil, nil
+			}
+			return cloneCachedPrincipal(*principal), nil
 		}
 	}
 }

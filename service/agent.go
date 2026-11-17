@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -336,6 +337,15 @@ func (s *AgentService) ListConversations(ctx context.Context, req *corev1.ListCo
 	convs, err := s.Agents.ListConversations(ctx, filter)
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if p, hasPrincipal := authctx.PrincipalFrom(ctx); hasPrincipal && p.KeyID != "" && p.SubjectID == subjectID && p.HasSliceScope {
+		filtered := make([]*corev1.Conversation, 0, len(convs))
+		for _, conv := range convs {
+			if p.AllowsSlice(conv.GetSliceId()) {
+				filtered = append(filtered, conv)
+			}
+		}
+		convs = filtered
 	}
 	for _, conv := range convs {
 		s.annotateConversation(conv)

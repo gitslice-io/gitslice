@@ -107,6 +107,9 @@ func (s *AuthService) RespondToInvitation(ctx context.Context, req *corev1.Respo
 	if err != nil {
 		return nil, err
 	}
+	if err := requireUnrestrictedKey(ctx, subjectID); err != nil {
+		return nil, err
+	}
 	account := strings.TrimSpace(req.GetAccount())
 	if !req.GetAccept() {
 		if err := s.Auth.DeleteAccountInvitation(ctx, account, subjectID); err != nil {
@@ -203,6 +206,9 @@ func (s *AuthService) authorizeProfileChange(ctx context.Context, subjectID, acc
 	}
 	if kind == storage.AccountKindOrganization {
 		return s.authorizeMemberChange(ctx, subjectID, account, "", "")
+	}
+	if err := requireUnrestrictedKey(ctx, subjectID); err != nil {
+		return err
 	}
 	if s.isOperator(subjectID) {
 		return nil

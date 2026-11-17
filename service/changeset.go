@@ -573,17 +573,8 @@ func isControllerOfSubject(ctx context.Context, auth storage.AuthStore, actorSub
 }
 
 func authorizeWithDelegation(ctx context.Context, auth storage.AuthStore, actorSubjectID, delegatedSubjectID string, slice *corev1.Slice, action authz.Action) error {
-	authorizer := authz.New(auth)
-	actorErr := authorizer.Authorize(ctx, actorSubjectID, slice, action)
-	if actorErr == nil {
-		return nil
+	if err := authz.New(auth).AuthorizeDelegated(ctx, actorSubjectID, delegatedSubjectID, slice, action); err != nil {
+		return grpcError(err)
 	}
-	if !errors.Is(actorErr, storage.ErrUnauthorized) {
-		return grpcError(actorErr)
-	}
-	delegatedErr := authorizer.Authorize(ctx, delegatedSubjectID, slice, action)
-	if delegatedErr == nil {
-		return nil
-	}
-	return grpcError(delegatedErr)
+	return nil
 }

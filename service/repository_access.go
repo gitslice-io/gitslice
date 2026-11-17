@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"strings"
 
+	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
@@ -61,7 +63,43 @@ func ensurePathRead(ctx context.Context, auth storage.AuthStore, sliceStore stor
 	return reads.check(ctx, account, p)
 }
 
+func (s *RepositoryService) readableScopedPrefixes(ctx context.Context, subjectID string, sliceIDs []string) ([]string, error) {
+	if s.Slices == nil || len(sliceIDs) == 0 {
+		return nil, nil
+	}
+	authorizer := authz.New(s.Auth)
+	seen := make(map[string]struct{}, len(sliceIDs))
+	var prefixes []string
+	for _, sliceID := range sliceIDs {
+		slice, err := s.Slices.Get(ctx, sliceID)
+		if err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				continue
+			}
+			return nil, grpcError(err)
+		}
+		if authorizer.Authorize(ctx, subjectID, slice, authz.ActionRead) != nil {
+			continue
+		}
+		for _, raw := range slice.GetDefinition().GetIncludedPaths() {
+			p, err := repositoryReadPath(raw)
+			if err != nil || p == "" || p == "/" {
+				continue
+			}
+			if _, ok := seen[p]; ok {
+				continue
+			}
+			seen[p] = struct{}{}
+			prefixes = append(prefixes, p)
+		}
+	}
+	return prefixes, nil
+}
+
 func (s *RepositoryService) readableAccountPrefixes(ctx context.Context, subjectID string) ([]string, error) {
+	if p, ok := authctx.PrincipalFrom(ctx); ok && p.KeyID != "" && p.SubjectID == subjectID && p.HasSliceScope {
+		return s.readableScopedPrefixes(ctx, subjectID, p.SliceIDs)
+	}
 	slugs, err := s.Auth.ListSubjectAccountSlugs(ctx, subjectID)
 	if err != nil {
 		return nil, grpcError(err)
@@ -100,6 +138,9 @@ func (s *RepositoryService) ensureCommitRead(ctx context.Context, subjectID stri
 			return err
 		}
 		if strings.TrimSpace(subjectID) == "" {
+			return status.Error(codes.PermissionDenied, "commit is not readable")
+		}
+		if p, ok := authctx.PrincipalFrom(ctx); ok && p.KeyID != "" && p.SubjectID == subjectID && p.HasSliceScope {
 			return status.Error(codes.PermissionDenied, "commit is not readable")
 		}
 		prefixes, err := s.readableAccountPrefixes(ctx, subjectID)
@@ -141,9 +182,28 @@ func (s *RepositoryService) ensureCommitRead(ctx context.Context, subjectID stri
 }
 
 func (s *RepositoryService) filterReadableRootEntries(ctx context.Context, subjectID string, entries []storage.TreeEntry) ([]storage.TreeEntry, error) {
+	var allowedAccounts map[string]struct{}
+	if p, ok := authctx.PrincipalFrom(ctx); ok && p.KeyID != "" && p.SubjectID == subjectID && p.HasSliceScope {
+		prefixes, err := s.readableScopedPrefixes(ctx, subjectID, p.SliceIDs)
+		if err != nil {
+			return nil, err
+		}
+		allowedAccounts = make(map[string]struct{}, len(prefixes))
+		for _, prefix := range prefixes {
+			if slug := accountSlugForRepositoryPath(prefix); slug != "" {
+				allowedAccounts[slug] = struct{}{}
+			}
+		}
+	}
 	out := make([]storage.TreeEntry, 0, len(entries))
 	for _, entry := range entries {
 		if entry.Kind != "directory" || entry.Name == "" {
+			continue
+		}
+		if allowedAccounts != nil {
+			if _, ok := allowedAccounts[entry.Name]; ok {
+				out = append(out, entry)
+			}
 			continue
 		}
 		ok, err := canAuthorizeAccount(ctx, s.Auth, subjectID, entry.Name, authz.ActionRead)

@@ -3,10 +3,12 @@ package memory
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
 	"gitslice.io/gitslice/internal/storage"
 )
@@ -563,24 +565,73 @@ func (s *AuthStore) ListOwnedAgents(ctx context.Context, subjectID string) ([]st
 	return out, nil
 }
 
-func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*storage.Subject, error) {
+func (s *AuthStore) AuthenticateToken(ctx context.Context, token string) (*authctx.Principal, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	token = strings.TrimSpace(token)
 	if strings.HasPrefix(token, storage.APIKeyPrefix) {
-		subjectID := s.b.apiKeys[memoryTokenHash(token)]
+		hash := memoryTokenHash(token)
+		subjectID := s.b.apiKeys[hash]
 		if subjectID == "" {
 			return nil, storage.ErrUnauthenticated
 		}
-		subject := s.b.subjects[subjectID]
-		return &subject, nil
+		var leaf *memoryAPIKey
+		for _, rec := range s.b.apiKeyRecords {
+			if rec.hash == hash {
+				leaf = rec
+				break
+			}
+		}
+		if leaf == nil {
+			return nil, storage.ErrUnauthenticated
+		}
+		now := time.Now().UTC()
+		if !s.b.apiKeyChainActiveLocked(leaf.key.ID, now) {
+			return nil, storage.ErrUnauthenticated
+		}
+		subject := s.b.subjects[leaf.key.SubjectID]
+		return &authctx.Principal{
+			SubjectID:           leaf.key.SubjectID,
+			SubjectKind:         subject.Kind,
+			ControllerSubjectID: subject.ControllerSubjectID,
+			KeyID:               leaf.key.ID,
+			HasSliceScope:       leaf.key.HasSliceScope,
+			SliceIDs:            slices.Clone(leaf.key.SliceIDs),
+			MaxRole:             leaf.key.MaxRole,
+			Purpose:             leaf.key.Purpose,
+			DaemonID:            leaf.key.DaemonID,
+			ConversationID:      leaf.key.ConversationID,
+		}, nil
 	}
 	subjectID := s.b.sessions[token]
 	if subjectID == "" {
 		return nil, storage.ErrUnauthenticated
 	}
 	subject := s.b.subjects[subjectID]
-	return &subject, nil
+	return &authctx.Principal{
+		SubjectID:           subjectID,
+		SubjectKind:         subject.Kind,
+		ControllerSubjectID: subject.ControllerSubjectID,
+	}, nil
+}
+
+func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*storage.Subject, error) {
+	principal, err := s.AuthenticateToken(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	subjects, err := s.SubjectsByIDs(ctx, []string{principal.SubjectID})
+	if err != nil {
+		return nil, err
+	}
+	if subj, ok := subjects[principal.SubjectID]; ok {
+		return &subj, nil
+	}
+	return &storage.Subject{
+		ID:                  principal.SubjectID,
+		Kind:                principal.SubjectKind,
+		ControllerSubjectID: principal.ControllerSubjectID,
+	}, nil
 }
 
 func (s *AuthStore) EnsureAccountMember(ctx context.Context, subjectID, accountSlug string) error {

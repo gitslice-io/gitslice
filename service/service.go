@@ -73,7 +73,7 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 		hub:         hub,
 	}
 	return &Handlers{
-		Auth: &AuthService{Auth: stores.Auth, Analytics: analyticsClient, ObjectStore: objectStore},
+		Auth: &AuthService{Auth: stores.Auth, Slices: stores.Slices, Analytics: analyticsClient, ObjectStore: objectStore},
 		Repository: &RepositoryService{
 			Auth:        stores.Auth,
 			Blobs:       stores.Blobs,

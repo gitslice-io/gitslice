@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/usernames"
 	"gitslice.io/gitslice/proto/core/v1"
@@ -33,6 +34,9 @@ func (s *AuthService) isOperator(subjectID string) bool {
 func (s *AuthService) CreateOrganization(ctx context.Context, req *corev1.CreateOrganizationRequest) (*corev1.CreateOrganizationResponse, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireUnrestrictedKey(ctx, subjectID); err != nil {
 		return nil, err
 	}
 	operator := s.isOperator(subjectID)
@@ -108,10 +112,13 @@ func (s *AuthService) ListAccountMembers(ctx context.Context, req *corev1.ListAc
 	if err != nil {
 		return nil, accountLookupError(err, account)
 	}
-	if !s.isOperator(subjectID) {
+	if !s.isOperator(subjectID) || hasRestrictedKey(ctx, subjectID) {
 		if _, err := s.Auth.AccountRole(ctx, subjectID, account); err != nil {
 			// Non-members cannot tell whether the account exists.
 			return nil, accountLookupError(storage.ErrNotFound, account)
+		}
+		if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead); err != nil {
+			return nil, err
 		}
 	}
 	members, err := s.Auth.ListAccountMembers(ctx, account)
@@ -184,7 +191,7 @@ func (s *AuthService) RemoveAccountMember(ctx context.Context, req *corev1.Remov
 // memberships; granting, revoking or modifying the owner role needs an owner
 // (or operator).
 func (s *AuthService) authorizeMemberChange(ctx context.Context, subjectID, account, currentRole, newRole string) error {
-	if s.isOperator(subjectID) {
+	if s.isOperator(subjectID) && !hasRestrictedKey(ctx, subjectID) {
 		if _, err := s.Auth.AccountKind(ctx, account); err != nil {
 			return accountLookupError(err, account)
 		}
@@ -193,6 +200,9 @@ func (s *AuthService) authorizeMemberChange(ctx context.Context, subjectID, acco
 	callerRole, err := s.Auth.AccountRole(ctx, subjectID, account)
 	if err != nil {
 		return accountLookupError(storage.ErrNotFound, account)
+	}
+	if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionAdmin); err != nil {
+		return err
 	}
 	switch callerRole {
 	case "owner":

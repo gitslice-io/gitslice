@@ -126,11 +126,11 @@ func Run(ctx context.Context, cfg Config) error {
 			slog.Warn("failed to close analytics client", "error", err)
 		}
 	}()
-	resolveSubject, err := newSubjectResolver(db.Auth(), cfg)
+	resolvePrincipal, err := newPrincipalResolver(db.Auth(), cfg)
 	if err != nil {
 		return err
 	}
-	resolveSubject = cachedSubjectResolver(resolveSubject, time.Now)
+	resolvePrincipal = cachedPrincipalResolver(resolvePrincipal, time.Now)
 	db.SetTreeStore(treestore.New(objectStore))
 	if cfg.RunMigrations {
 		if err := db.Migrate(ctx); err != nil {
@@ -244,8 +244,8 @@ func Run(ctx context.Context, cfg Config) error {
 		go handlers.Blob.RunGitBlobBackfill(ctx)
 	}
 	limiters := newServerLimiters(cfg)
-	grpcServer := newGRPCServer(resolveSubject, handlers, limiters)
-	apiHandler := newConnectHandler(resolveSubject, handlers, limiters)
+	grpcServer := newPrincipalGRPCServer(resolvePrincipal, handlers, limiters)
+	apiHandler := newPrincipalConnectHandler(resolvePrincipal, handlers, limiters)
 	gitCacheRoot := cfg.GitCacheRoot
 	if gitCacheRoot == "" {
 		if cfg.ObjectStoreRoot != "" {
@@ -263,7 +263,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
-	gitcompatHandler := gitcompat.NewHandler(gitcompat.SubjectResolver(resolveSubject), projector, handlers.Blob, handlers.Changeset)
+	gitcompatHandler := gitcompat.NewHandlerWithPrincipal(gitcompat.PrincipalResolver(resolvePrincipal), projector, handlers.Blob, handlers.Changeset)
 	// Covers (internal/gitcompat/cover.go) are built in a request the server
 	// sends itself, at its own URL; without one they are built in-process.
 	if key := cfg.internalKey(); key != nil {
@@ -471,6 +471,22 @@ func isStreamingHTTPRequest(r *http.Request) bool {
 // abstracts over the dev/fake session store and external providers such as Clerk.
 type subjectResolver func(ctx context.Context, token string) (string, error)
 
+// principalResolver maps a verified bearer token to an authenticated Principal.
+type principalResolver func(ctx context.Context, token string) (*authctx.Principal, error)
+
+func toPrincipalResolver(resolve subjectResolver) principalResolver {
+	if resolve == nil {
+		return nil
+	}
+	return func(ctx context.Context, token string) (*authctx.Principal, error) {
+		subjectID, err := resolve(ctx, token)
+		if err != nil {
+			return nil, err
+		}
+		return &authctx.Principal{SubjectID: subjectID}, nil
+	}
+}
+
 // newObjectStore selects the object store backend from config: Cloudflare R2 when
 // OBJECT_STORE_TYPE=r2, otherwise the prototype filesystem store. An optional
 // benchmark latency wrapper remains inside the cache installed by callers.
@@ -496,9 +512,26 @@ func newObjectStore(cfg Config) (service.ObjectStore, error) {
 }
 
 // newSubjectResolver builds the token->subject resolver for the configured auth
-// provider. With AUTH_PROVIDER=clerk it verifies Clerk session JWTs and
-// JIT-provisions a subject; otherwise it resolves dev/fake session tokens.
+// provider.
 func newSubjectResolver(auth storage.AuthStore, cfg Config) (subjectResolver, error) {
+	resolve, err := newPrincipalResolver(auth, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return func(ctx context.Context, token string) (string, error) {
+		principal, err := resolve(ctx, token)
+		if err != nil {
+			return "", err
+		}
+		return principal.SubjectID, nil
+	}, nil
+}
+
+// newPrincipalResolver builds the token->principal resolver for the configured
+// auth provider. With AUTH_PROVIDER=clerk it verifies Clerk session JWTs and
+// JIT-provisions a subject; otherwise it resolves dev/fake session tokens and
+// API keys via AuthStore.AuthenticateToken.
+func newPrincipalResolver(auth storage.AuthStore, cfg Config) (principalResolver, error) {
 	// Optional asymmetric-key service-token path for automated testing and
 	// service accounts. Disabled unless GITSLICE_SERVICE_JWT_PUBLIC_KEY is set.
 	serviceVerifier, err := servicetoken.NewVerifier(cfg.ServiceToken)
@@ -506,31 +539,35 @@ func newSubjectResolver(auth storage.AuthStore, cfg Config) (subjectResolver, er
 		return nil, err
 	}
 
-	var primary subjectResolver
+	var primary principalResolver
 	if cfg.AuthProvider == "clerk" {
 		clerkVerifier, err := clerk.NewVerifier(cfg.Clerk)
 		if err != nil {
 			return nil, err
 		}
-		primary = func(ctx context.Context, token string) (string, error) {
-			if subject, err := auth.SubjectForToken(ctx, token); err == nil {
-				return subject.ID, nil
+		primary = func(ctx context.Context, token string) (*authctx.Principal, error) {
+			if principal, err := auth.AuthenticateToken(ctx, token); err == nil {
+				return principal, nil
 			} else if !errors.Is(err, storage.ErrUnauthenticated) {
-				return "", err
+				return nil, err
 			}
 			claims, err := clerkVerifier.Verify(ctx, token)
 			if err != nil {
-				return "", fmt.Errorf("%w: %v", storage.ErrUnauthenticated, err)
+				return nil, fmt.Errorf("%w: %v", storage.ErrUnauthenticated, err)
 			}
-			return auth.EnsureExternalSubject(ctx, storage.ProviderClerk, claims.Subject, claims.Email)
+			subjectID, err := auth.EnsureExternalSubject(ctx, storage.ProviderClerk, claims.Subject, claims.Email)
+			if err != nil {
+				return nil, err
+			}
+			return &authctx.Principal{
+				SubjectID:           subjectID,
+				SubjectKind:         "user",
+				ControllerSubjectID: subjectID,
+			}, nil
 		}
 	} else {
-		primary = func(ctx context.Context, token string) (string, error) {
-			subject, err := auth.SubjectForToken(ctx, token)
-			if err != nil {
-				return "", err
-			}
-			return subject.ID, nil
+		primary = func(ctx context.Context, token string) (*authctx.Principal, error) {
+			return auth.AuthenticateToken(ctx, token)
 		}
 	}
 
@@ -539,31 +576,45 @@ func newSubjectResolver(auth storage.AuthStore, cfg Config) (subjectResolver, er
 	}
 	// Try the strict service-token verifier first; a token not signed by the
 	// configured key simply falls through to the primary provider.
-	return func(ctx context.Context, token string) (string, error) {
+	return func(ctx context.Context, token string) (*authctx.Principal, error) {
 		if claims, err := serviceVerifier.Verify(ctx, token); err == nil {
 			subjectID, err := auth.EnsureExternalSubject(ctx, storage.ProviderService, claims.Subject, claims.Email)
-			if err != nil || !claims.EmailVerified {
-				return subjectID, err
+			if err != nil {
+				return nil, err
 			}
-			// Test-only affordance: a service token may vouch for its email.
-			if err := auth.SetVerifiedEmails(ctx, subjectID, storage.ProviderService, []string{claims.Email}); err != nil {
-				return "", err
+			if claims.EmailVerified {
+				// Test-only affordance: a service token may vouch for its email.
+				if err := auth.SetVerifiedEmails(ctx, subjectID, storage.ProviderService, []string{claims.Email}); err != nil {
+					return nil, err
+				}
 			}
-			return subjectID, nil
+			return &authctx.Principal{
+				SubjectID:           subjectID,
+				SubjectKind:         "user",
+				ControllerSubjectID: subjectID,
+			}, nil
 		}
 		return primary(ctx, token)
 	}, nil
 }
 
 func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, cfgs ...Config) *grpc.Server {
+	return NewPrincipalGRPCServer(toPrincipalResolver(resolve), handlers, cfgs...)
+}
+
+func NewPrincipalGRPCServer(resolve principalResolver, handlers *service.Handlers, cfgs ...Config) *grpc.Server {
 	var cfg Config
 	if len(cfgs) > 0 {
 		cfg = cfgs[0]
 	}
-	return newGRPCServer(resolve, handlers, newServerLimiters(cfg))
+	return newPrincipalGRPCServer(resolve, handlers, newServerLimiters(cfg))
 }
 
 func newGRPCServer(resolve subjectResolver, handlers *service.Handlers, limiters *serverLimiters) *grpc.Server {
+	return newPrincipalGRPCServer(toPrincipalResolver(resolve), handlers, limiters)
+}
+
+func newPrincipalGRPCServer(resolve principalResolver, handlers *service.Handlers, limiters *serverLimiters) *grpc.Server {
 	grpcServer := grpc.NewServer(
 		grpc.MaxRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
 		grpc.MaxSendMsgSize(rpclimits.MaxUnaryMessageBytes),
@@ -575,7 +626,7 @@ func newGRPCServer(resolve subjectResolver, handlers *service.Handlers, limiters
 			requestIDUnaryInterceptor(),
 			grpcMetricsUnaryInterceptor(),
 			limiters.grpcPreAuthUnaryInterceptor(),
-			authInterceptor(resolve),
+			principalAuthInterceptor(resolve),
 			limiters.grpcSubjectUnaryInterceptor(),
 			limiters.agentSignupUnaryInterceptor(),
 			limiters.triggerRunFailureUnaryInterceptor(),
@@ -584,7 +635,7 @@ func newGRPCServer(resolve subjectResolver, handlers *service.Handlers, limiters
 			requestIDStreamInterceptor(),
 			grpcMetricsStreamInterceptor(),
 			limiters.grpcPreAuthStreamInterceptor(),
-			authStreamInterceptor(resolve),
+			principalAuthStreamInterceptor(resolve),
 			limiters.grpcSubjectStreamInterceptor(),
 		),
 	)
@@ -609,6 +660,10 @@ func newGRPCServer(resolve subjectResolver, handlers *service.Handlers, limiters
 }
 
 func authStreamInterceptor(resolve subjectResolver) grpc.StreamServerInterceptor {
+	return principalAuthStreamInterceptor(toPrincipalResolver(resolve))
+}
+
+func principalAuthStreamInterceptor(resolve principalResolver) grpc.StreamServerInterceptor {
 	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		if isPublicMethod(info.FullMethod) {
 			return handler(srv, stream)
@@ -634,6 +689,10 @@ func (s *contextServerStream) Context() context.Context {
 }
 
 func authInterceptor(resolve subjectResolver) grpc.UnaryServerInterceptor {
+	return principalAuthInterceptor(toPrincipalResolver(resolve))
+}
+
+func principalAuthInterceptor(resolve principalResolver) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		if isPublicMethod(info.FullMethod) {
 			return handler(ctx, req)
@@ -667,7 +726,7 @@ func bearerToken(ctx context.Context) (string, error) {
 	return token, nil
 }
 
-func authenticatedContext(ctx context.Context, resolve subjectResolver) (context.Context, error) {
+func authenticatedContext(ctx context.Context, resolve principalResolver) (context.Context, error) {
 	token, ok, err := optionalBearerToken(ctx)
 	if err != nil {
 		return nil, err
@@ -675,11 +734,14 @@ func authenticatedContext(ctx context.Context, resolve subjectResolver) (context
 	if !ok {
 		return ctx, nil
 	}
-	subjectID, err := resolve(ctx, token)
+	principal, err := resolve(ctx, token)
 	if err != nil {
 		return nil, grpcAuthError(err)
 	}
-	return authctx.WithSubjectID(ctx, subjectID), nil
+	if principal == nil {
+		return nil, status.Error(codes.Unauthenticated, "missing authenticated principal")
+	}
+	return authctx.WithPrincipal(ctx, *principal), nil
 }
 
 func optionalBearerToken(ctx context.Context) (string, bool, error) {

@@ -16,6 +16,7 @@ import (
 
 type AuthService struct {
 	Auth      storage.AuthStore
+	Slices    storage.SliceStore
 	Analytics analytics.Client
 	// AgentSignupEnabled gates the unauthenticated RegisterAgent RPC. Off by
 	// default; see design/20_agent_signup_and_claim.md.
@@ -63,6 +64,9 @@ func (s *AuthService) PollCliLogin(ctx context.Context, req *corev1.PollCliLogin
 func (s *AuthService) CompleteCliLogin(ctx context.Context, req *corev1.CompleteCliLoginRequest) (*corev1.CompleteCliLoginResponse, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireUnrestrictedKey(ctx, subjectID); err != nil {
 		return nil, err
 	}
 	if err := s.Auth.CompleteCliLogin(ctx, req.Code, subjectID); err != nil {
@@ -143,6 +147,9 @@ func (s *AuthService) ChooseUsername(ctx context.Context, req *corev1.ChooseUser
 	if err != nil {
 		return nil, err
 	}
+	if err := requireUnrestrictedKey(ctx, subjectID); err != nil {
+		return nil, err
+	}
 	account, err := s.Auth.ChooseUsername(ctx, subjectID, req.Username)
 	if err != nil {
 		return nil, grpcError(err)
@@ -182,6 +189,9 @@ func (s *AuthService) ListPendingClaims(ctx context.Context, req *corev1.ListPen
 	if err != nil {
 		return nil, err
 	}
+	if err := requireUnrestrictedKey(ctx, subjectID); err != nil {
+		return nil, err
+	}
 	if err := s.refreshVerifiedEmails(ctx, subjectID); err != nil {
 		return nil, err
 	}
@@ -211,6 +221,9 @@ func (s *AuthService) ListPendingClaims(ctx context.Context, req *corev1.ListPen
 func (s *AuthService) AcceptClaim(ctx context.Context, req *corev1.AcceptClaimRequest) (*corev1.AcceptClaimResponse, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireUnrestrictedKey(ctx, subjectID); err != nil {
 		return nil, err
 	}
 	agentSubjectID := strings.TrimSpace(req.GetAgentSubjectId())
@@ -293,4 +306,16 @@ func requireSubject(ctx context.Context) (string, error) {
 func optionalSubject(ctx context.Context) string {
 	subjectID, _ := authctx.SubjectID(ctx)
 	return subjectID
+}
+
+func hasRestrictedKey(ctx context.Context, subjectID string) bool {
+	p, ok := authctx.PrincipalFrom(ctx)
+	return ok && strings.TrimSpace(p.SubjectID) == strings.TrimSpace(subjectID) && p.HasKeyGrant()
+}
+
+func requireUnrestrictedKey(ctx context.Context, subjectID string) error {
+	if hasRestrictedKey(ctx, subjectID) {
+		return status.Error(codes.PermissionDenied, "scoped or role-capped API keys cannot perform account-wide actions")
+	}
+	return nil
 }

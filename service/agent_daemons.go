@@ -41,9 +41,10 @@ func (s *AgentService) ListDaemons(ctx context.Context, req *corev1.ListDaemonsR
 	}
 	seen := map[string]bool{}
 	var daemons []*corev1.AgentDaemon
+	manageable := !hasRestrictedKey(ctx, subjectID)
 	for _, d := range own {
 		seen[d.Id] = true
-		d.Mine, d.Manageable = true, true
+		d.Mine, d.Manageable = true, manageable
 		daemons = append(daemons, d)
 	}
 	for _, d := range shared {
@@ -99,6 +100,9 @@ func (s *AgentService) ExposeDaemon(ctx context.Context, req *corev1.ExposeDaemo
 	if err != nil {
 		return nil, err
 	}
+	if err := requireUnrestrictedKey(ctx, subjectID); err != nil {
+		return nil, err
+	}
 	daemon, mine, err := s.manageableDaemon(ctx, subjectID, strings.TrimSpace(req.GetDaemonId()))
 	if err != nil {
 		return nil, err
@@ -119,6 +123,9 @@ func (s *AgentService) ExposeDaemon(ctx context.Context, req *corev1.ExposeDaemo
 func (s *AgentService) UnexposeDaemon(ctx context.Context, req *corev1.UnexposeDaemonRequest) (*corev1.AgentDaemon, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireUnrestrictedKey(ctx, subjectID); err != nil {
 		return nil, err
 	}
 	daemon, mine, err := s.manageableDaemon(ctx, subjectID, strings.TrimSpace(req.GetDaemonId()))
@@ -160,6 +167,9 @@ func (s *AgentService) daemonForManager(ctx context.Context, subjectID string, d
 func (s *AgentService) RenameDaemon(ctx context.Context, req *corev1.RenameDaemonRequest) (*corev1.AgentDaemon, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := requireUnrestrictedKey(ctx, subjectID); err != nil {
 		return nil, err
 	}
 	daemonID := strings.TrimSpace(req.GetDaemonId())
@@ -223,7 +233,7 @@ func manageableDaemon(ctx context.Context, auth storage.AuthStore, agents storag
 	if err != nil {
 		return nil, false, grpcError(err)
 	}
-	if owner == subjectID {
+	if owner == subjectID && !hasRestrictedKey(ctx, subjectID) {
 		return daemon, true, nil
 	}
 	if daemon.Account != "" {

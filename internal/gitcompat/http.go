@@ -41,8 +41,12 @@ var (
 // provider as the gRPC server (dev sessions or Clerk).
 type SubjectResolver func(ctx context.Context, token string) (string, error)
 
+// PrincipalResolver maps a verified bearer/basic-auth token to an
+// authenticated Principal (carrying API key grants when used).
+type PrincipalResolver func(ctx context.Context, token string) (*authctx.Principal, error)
+
 type Handler struct {
-	resolve    SubjectResolver
+	resolve    PrincipalResolver
 	projector  *Projector
 	blobs      BlobAPI
 	changesets ChangesetAPI
@@ -63,6 +67,20 @@ type ChangesetAPI interface {
 }
 
 func NewHandler(resolve SubjectResolver, projector *Projector, blobs BlobAPI, changesets ChangesetAPI) *Handler {
+	var principalResolve PrincipalResolver
+	if resolve != nil {
+		principalResolve = func(ctx context.Context, token string) (*authctx.Principal, error) {
+			subjectID, err := resolve(ctx, token)
+			if err != nil {
+				return nil, err
+			}
+			return &authctx.Principal{SubjectID: subjectID}, nil
+		}
+	}
+	return NewHandlerWithPrincipal(principalResolve, projector, blobs, changesets)
+}
+
+func NewHandlerWithPrincipal(resolve PrincipalResolver, projector *Projector, blobs BlobAPI, changesets ChangesetAPI) *Handler {
 	return &Handler{resolve: resolve, projector: projector, blobs: blobs, changesets: changesets}
 }
 
@@ -103,11 +121,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// are present but invalid are rejected rather than downgraded to anonymous.
 	subjectID := ""
 	if token := requestToken(r); token != "" {
-		subjectID, err = h.resolve(r.Context(), token)
-		if err != nil {
+		if h.resolve == nil {
 			writeAuthChallenge(w)
 			return
 		}
+		principal, err := h.resolve(r.Context(), token)
+		if err != nil || principal == nil {
+			writeAuthChallenge(w)
+			return
+		}
+		subjectID = principal.SubjectID
+		r = r.WithContext(authctx.WithPrincipal(r.Context(), *principal))
 	} else if receivePack {
 		writeAuthChallenge(w)
 		return
@@ -453,7 +477,11 @@ func (h *Handler) handleReceivePack(w http.ResponseWriter, r *http.Request, subj
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	result := h.applyReceivePack(r.Context(), authctx.WithSubjectID(r.Context(), subjectID), repoPath, projection, account, slice, req)
+	authCtx := r.Context()
+	if _, ok := authctx.SubjectID(authCtx); !ok && subjectID != "" {
+		authCtx = authctx.WithSubjectID(authCtx, subjectID)
+	}
+	result := h.applyReceivePack(r.Context(), authCtx, repoPath, projection, account, slice, req)
 	writeReceivePackResult(w, req.capabilities, result)
 }
 

@@ -130,7 +130,7 @@ func feedbackContextValues(in map[string]string) (map[string]string, error) {
 
 // onTeam reports whether the subject reads and answers everyone's feedback.
 func (s *FeedbackService) onTeam(ctx context.Context, subjectID string) (bool, error) {
-	if slices.Contains(s.OperatorSubjects, subjectID) {
+	if slices.Contains(s.OperatorSubjects, subjectID) && !hasRestrictedKey(ctx, subjectID) {
 		return true, nil
 	}
 	if strings.TrimSpace(s.Account) == "" {

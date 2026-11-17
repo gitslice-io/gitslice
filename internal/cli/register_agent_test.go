@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/storage/memory"
 	"gitslice.io/gitslice/server"
 	"gitslice.io/gitslice/service"
@@ -38,17 +39,13 @@ func startAgentSignupServerWithStores(t *testing.T, enabled bool, staticTokens m
 		Checks:     mem.Checks,
 	}, mem.Objects, nil)
 	handlers.Auth.AgentSignupEnabled = enabled
-	resolve := func(ctx context.Context, token string) (string, error) {
+	resolve := func(ctx context.Context, token string) (*authctx.Principal, error) {
 		if subjectID, ok := staticTokens[token]; ok {
-			return subjectID, nil
+			return &authctx.Principal{SubjectID: subjectID, SubjectKind: "user", ControllerSubjectID: subjectID}, nil
 		}
-		subject, err := mem.Auth.SubjectForToken(ctx, token)
-		if err != nil {
-			return "", err
-		}
-		return subject.ID, nil
+		return mem.Auth.AuthenticateToken(ctx, token)
 	}
-	grpcServer := server.NewGRPCServer(resolve, handlers, server.Config{AgentSignupPerHour: 5})
+	grpcServer := server.NewPrincipalGRPCServer(resolve, handlers, server.Config{AgentSignupPerHour: 5})
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

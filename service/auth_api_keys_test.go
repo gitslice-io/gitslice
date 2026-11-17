@@ -89,12 +89,20 @@ func TestOwnerReplacesALostAgentKey(t *testing.T) {
 			_, err := handlers.Auth.RevokeApiKey(strangerCtx, &corev1.RevokeApiKeyRequest{Agent: "release-bot", KeyId: created.Key.Id})
 			return err
 		},
-		"yourself, not an agent": func() error {
-			_, err := handlers.Auth.CreateApiKey(strangerCtx, &corev1.CreateApiKeyRequest{})
+		"nonexistent agent": func() error {
+			_, err := handlers.Auth.CreateApiKey(strangerCtx, &corev1.CreateApiKeyRequest{Agent: "no-such-agent"})
 			return err
 		},
 	} {
 		wantCode(t, call(), codes.NotFound, "stranger: "+name)
+	}
+	// A user can mint an API key for themselves by omitting --agent.
+	selfKey, err := handlers.Auth.CreateApiKey(strangerCtx, &corev1.CreateApiKeyRequest{Name: "self"})
+	if err != nil || !strings.HasPrefix(selfKey.Secret, storage.APIKeyPrefix) || selfKey.AgentSubjectId != stranger {
+		t.Fatalf("user self CreateApiKey = %+v, %v", selfKey, err)
+	}
+	if got, err := mem.Auth.SubjectForToken(ctx, selfKey.Secret); err != nil || got.ID != stranger {
+		t.Fatalf("self key should sign in as %s: %+v, %v", stranger, got, err)
 	}
 	if _, err := mem.Auth.SubjectForToken(ctx, created.Secret); err != nil {
 		t.Fatalf("the stranger's attempts must not touch the key: %v", err)

@@ -120,8 +120,12 @@ func TestOwnerReplacesALostAgentKey(t *testing.T) {
 	if out, err := run(fresh, "auth", "keys", "create", "--name", "rotation"); err != nil || !strings.HasPrefix(strings.TrimSpace(out), storage.APIKeyPrefix) {
 		t.Fatalf("an agent creating its own key: %v\n%s", err, out)
 	}
-	// A person who owns no agent named so is told what to do.
-	if _, err := run(human, "auth", "keys", "create"); err == nil || !strings.Contains(err.Error(), "no agent account you own or are signed in as") {
-		t.Fatalf("a human with no --agent: err = %v", err)
+	// A signed-in human can also create a key for themselves without --agent, while
+	// naming an unknown --agent explains what to do.
+	if out, err := run(human, "auth", "keys", "create", "--name", "human-self"); err != nil || !strings.HasPrefix(strings.TrimSpace(out), storage.APIKeyPrefix) {
+		t.Fatalf("a human creating its own key: %v\n%s", err, out)
+	}
+	if _, err := run(human, "auth", "keys", "create", "--agent", "unknown-agent"); err == nil || !strings.Contains(err.Error(), "no agent account you own") {
+		t.Fatalf("an unknown --agent: err = %v", err)
 	}
 }

@@ -19,13 +19,21 @@ import (
 )
 
 func NewConnectHandler(resolve subjectResolver, handlers *service.Handlers) http.Handler {
-	return newConnectHandler(resolve, handlers, nil)
+	return NewPrincipalConnectHandler(toPrincipalResolver(resolve), handlers)
+}
+
+func NewPrincipalConnectHandler(resolve principalResolver, handlers *service.Handlers) http.Handler {
+	return newPrincipalConnectHandler(resolve, handlers, nil)
 }
 
 func newConnectHandler(resolve subjectResolver, handlers *service.Handlers, limiters *serverLimiters) http.Handler {
+	return newPrincipalConnectHandler(toPrincipalResolver(resolve), handlers, limiters)
+}
+
+func newPrincipalConnectHandler(resolve principalResolver, handlers *service.Handlers, limiters *serverLimiters) http.Handler {
 	mux := http.NewServeMux()
 	mount := func(pattern string, handler http.Handler) {
-		mux.Handle(pattern, connectAuthMiddlewareWithLimiters(resolve, limiters)(handler))
+		mux.Handle(pattern, connectPrincipalAuthMiddlewareWithLimiters(resolve, limiters)(handler))
 	}
 	// Shared-link preview images; anonymous by design (see social_image.go).
 	mux.Handle("/og/", newSocialImageHandler(handlers.Slice))
@@ -49,10 +57,10 @@ func newConnectHandler(resolve subjectResolver, handlers *service.Handlers, limi
 }
 
 func connectAuthMiddleware(resolve subjectResolver) func(http.Handler) http.Handler {
-	return connectAuthMiddlewareWithLimiters(resolve, nil)
+	return connectPrincipalAuthMiddlewareWithLimiters(toPrincipalResolver(resolve), nil)
 }
 
-func connectAuthMiddlewareWithLimiters(resolve subjectResolver, limiters *serverLimiters) func(http.Handler) http.Handler {
+func connectPrincipalAuthMiddlewareWithLimiters(resolve principalResolver, limiters *serverLimiters) func(http.Handler) http.Handler {
 	errorWriter := connect.NewErrorWriter()
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -82,17 +90,21 @@ func connectAuthMiddlewareWithLimiters(resolve subjectResolver, limiters *server
 				next.ServeHTTP(w, r)
 				return
 			}
-			subjectID, err := resolve(r.Context(), token)
+			principal, err := resolve(r.Context(), token)
 			if err != nil {
 				_ = errorWriter.Write(w, r, connectAuthError(err))
 				return
 			}
-			if limiters != nil && limiters.subject != nil && !limiters.subject.Allow("subject:"+subjectID) {
+			if principal == nil {
+				_ = errorWriter.Write(w, r, connect.NewError(connect.CodeUnauthenticated, errors.New("missing authenticated principal")))
+				return
+			}
+			if limiters != nil && limiters.subject != nil && !limiters.subject.Allow("subject:"+principal.SubjectID) {
 				ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
 				_ = errorWriter.Write(w, r, connect.NewError(connect.CodeResourceExhausted, errors.New("rate limit exceeded")))
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(authctx.WithSubjectID(r.Context(), subjectID)))
+			next.ServeHTTP(w, r.WithContext(authctx.WithPrincipal(r.Context(), *principal)))
 		})
 	}
 }

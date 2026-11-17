@@ -3,11 +3,13 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/treestore"
 )
@@ -17,23 +19,63 @@ type AuthStore struct {
 	trees *treestore.Store
 }
 
-func (s *AuthStore) subjectForAPIKey(ctx context.Context, token string) (*Subject, error) {
-	var subject Subject
-	var keyID string
+func (s *AuthStore) principalForAPIKey(ctx context.Context, token string) (*authctx.Principal, error) {
+	var principal authctx.Principal
 	var lastUsedAt sql.NullTime
+	var sliceIDsJSON string
 	err := s.db.QueryRowContext(ctx, `
-		select api_keys.id, api_keys.last_used_at, subjects.id, subjects.kind, coalesce(subjects.controller_subject_id, ''), subjects.display_name
-		from api_keys
-		join subjects on subjects.id = api_keys.subject_id
-		where api_keys.token_hash = $1
-		  and api_keys.revoked_at is null
-		  and (api_keys.expires_at is null or api_keys.expires_at > now())
-	`, tokenHash(token)).Scan(&keyID, &lastUsedAt, &subject.ID, &subject.Kind, &subject.ControllerSubjectID, &subject.DisplayName)
+		with recursive chain as (
+			select k.id, k.subject_id, k.last_used_at, k.slice_ids, k.max_role,
+			       k.parent_key_id, k.purpose, k.daemon_id, k.conversation_id,
+			       0 as depth,
+			       array[k.id] as visited
+			from api_keys k
+			where k.token_hash = $1
+			  and k.revoked_at is null
+			  and (k.expires_at is null or k.expires_at > now())
+			union all
+			select p.id, p.subject_id, p.last_used_at, p.slice_ids, p.max_role,
+			       p.parent_key_id, p.purpose, p.daemon_id, p.conversation_id,
+			       c.depth + 1,
+			       c.visited || p.id
+			from api_keys p
+			join chain c on p.id = c.parent_key_id
+			where p.revoked_at is null
+			  and (p.expires_at is null or p.expires_at > now())
+			  and not (p.id = any(c.visited))
+		)
+		select leaf.id, leaf.last_used_at,
+		       leaf.slice_ids is not null,
+		       coalesce(to_json(leaf.slice_ids)::text, '[]'),
+		       coalesce(leaf.max_role, ''),
+		       leaf.purpose, leaf.daemon_id, leaf.conversation_id,
+		       subjects.id, subjects.kind, coalesce(subjects.controller_subject_id, '')
+		from chain leaf
+		join subjects on subjects.id = leaf.subject_id
+		where leaf.depth = 0
+		  and exists (
+			select 1 from chain root
+			where root.parent_key_id is null
+		  )
+	`, tokenHash(token)).Scan(
+		&principal.KeyID, &lastUsedAt,
+		&principal.HasSliceScope, &sliceIDsJSON, &principal.MaxRole,
+		&principal.Purpose, &principal.DaemonID, &principal.ConversationID,
+		&principal.SubjectID, &principal.SubjectKind, &principal.ControllerSubjectID,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUnauthenticated
 	}
 	if err != nil {
 		return nil, err
+	}
+	if principal.HasSliceScope {
+		if err := json.Unmarshal([]byte(sliceIDsJSON), &principal.SliceIDs); err != nil {
+			return nil, err
+		}
+		if principal.SliceIDs == nil {
+			principal.SliceIDs = []string{}
+		}
 	}
 	if !lastUsedAt.Valid || time.Since(lastUsedAt.Time) >= apiKeyLastUsedGranularity {
 		// Best effort: a failed usage stamp must not fail authentication.
@@ -42,31 +84,50 @@ func (s *AuthStore) subjectForAPIKey(ctx context.Context, token string) (*Subjec
 			set last_used_at = now()
 			where id = $1
 			  and (last_used_at is null or last_used_at < now() - $2::interval)
-		`, keyID, fmt.Sprintf("%d seconds", int(apiKeyLastUsedGranularity/time.Second)))
+		`, principal.KeyID, fmt.Sprintf("%d seconds", int(apiKeyLastUsedGranularity/time.Second)))
 	}
-	return &subject, nil
+	return &principal, nil
 }
 
-func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*Subject, error) {
+func (s *AuthStore) AuthenticateToken(ctx context.Context, token string) (*authctx.Principal, error) {
 	if strings.HasPrefix(token, storage.APIKeyPrefix) {
-		return s.subjectForAPIKey(ctx, token)
+		return s.principalForAPIKey(ctx, token)
 	}
-	var subject Subject
+	var principal authctx.Principal
 	err := s.db.QueryRowContext(ctx, `
-		select subjects.id, subjects.kind, coalesce(subjects.controller_subject_id, ''), subjects.display_name
+		select subjects.id, subjects.kind, coalesce(subjects.controller_subject_id, '')
 		from sessions
 		join subjects on subjects.id = sessions.subject_id
 		where sessions.token_hash = $1
 		  and sessions.revoked_at is null
 		  and sessions.expires_at > now()
-	`, tokenHash(token)).Scan(&subject.ID, &subject.Kind, &subject.ControllerSubjectID, &subject.DisplayName)
+	`, tokenHash(token)).Scan(&principal.SubjectID, &principal.SubjectKind, &principal.ControllerSubjectID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrUnauthenticated
 	}
 	if err != nil {
 		return nil, err
 	}
-	return &subject, nil
+	return &principal, nil
+}
+
+func (s *AuthStore) SubjectForToken(ctx context.Context, token string) (*Subject, error) {
+	principal, err := s.AuthenticateToken(ctx, token)
+	if err != nil {
+		return nil, err
+	}
+	subjects, err := s.SubjectsByIDs(ctx, []string{principal.SubjectID})
+	if err != nil {
+		return nil, err
+	}
+	if subj, ok := subjects[principal.SubjectID]; ok {
+		return &subj, nil
+	}
+	return &Subject{
+		ID:                  principal.SubjectID,
+		Kind:                principal.SubjectKind,
+		ControllerSubjectID: principal.ControllerSubjectID,
+	}, nil
 }
 
 func (s *AuthStore) SubjectsByIDs(ctx context.Context, subjectIDs []string) (map[string]storage.Subject, error) {

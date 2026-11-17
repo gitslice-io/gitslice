@@ -73,15 +73,37 @@ const (
 
 // RegisteredAgent is the result of RegisterAgent. APIKey is the plaintext key and
 // is only available here; stores keep only its hash.
-// APIKey is the record of one agent API key. It never holds the secret.
+// APIKey is the record of one API key (user or agent). It never holds the secret.
 type APIKey struct {
-	ID         string
-	SubjectID  string
-	Name       string
-	CreatedAt  time.Time
-	LastUsedAt time.Time // zero until first used
-	ExpiresAt  time.Time // zero: no expiry
-	RevokedAt  time.Time // zero unless revoked
+	ID             string
+	SubjectID      string
+	Name           string
+	CreatedAt      time.Time
+	LastUsedAt     time.Time // zero until first used
+	ExpiresAt      time.Time // zero: no expiry
+	RevokedAt      time.Time // zero unless revoked
+	HasSliceScope  bool
+	SliceIDs       []string
+	MaxRole        string
+	ParentKeyID    string
+	Purpose        string
+	DaemonID       string
+	ConversationID string
+}
+
+// CreateAPIKeyInput specifies the parameters for issuing an API key.
+type CreateAPIKeyInput struct {
+	ActorID        string
+	AgentAccount   string
+	Name           string
+	HasSliceScope  bool
+	SliceIDs       []string
+	MaxRole        string
+	ExpiresAt      time.Time // zero: no explicit expiry requested (inherits parent if any)
+	ParentKeyID    string    // set when minted via another API key
+	Purpose        string
+	DaemonID       string
+	ConversationID string
 }
 
 // Active reports whether the key still authenticates at now.

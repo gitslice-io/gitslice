@@ -363,7 +363,7 @@ message UpdateAccountProfileRequest {
   string website = 4;
 }
 
-// ApiKey describes one of an agent's API keys. It never carries the secret.
+// ApiKey describes an API key. It never carries the secret.
 message ApiKey {
   string id = 1;
   string name = 2;
@@ -374,6 +374,20 @@ message ApiKey {
   string expires_at = 5;
   // Empty unless the key was revoked.
   string revoked_at = 6;
+  // Slice IDs this key is limited to; empty when unrestricted.
+  repeated string slice_ids = 7;
+  // Human-readable "<account>/<slice>" refs corresponding to slice_ids.
+  repeated string slices = 8;
+  // Role ceiling ("reader", "contributor", or "writer"); empty when uncapped.
+  string max_role = 9;
+  // Set when this key was minted from another API key.
+  string parent_key_id = 10;
+  // Optional purpose note (e.g. "daemon my-ci", "conversation cv_...").
+  string purpose = 11;
+  // Optional daemon id associated with this key.
+  string daemon_id = 12;
+  // Optional conversation id associated with this key.
+  string conversation_id = 13;
 }
 
 message ListApiKeysRequest {
@@ -388,10 +402,22 @@ message ListApiKeysResponse {
 }
 
 message CreateApiKeyRequest {
-  // The agent's account (username). Empty means the caller.
+  // The agent's account (username). Empty means the caller (user or agent).
   string agent = 1;
   // A label for the key, up to 64 characters. Defaults to "key".
   string name = 2;
+  // Optional "<account>/<slice>" (or "<account>:<slice>") refs to limit this key to.
+  repeated string slices = 3;
+  // Optional role ceiling: "reader", "contributor", or "writer".
+  string max_role = 4;
+  // Optional lifetime in seconds from creation; <= 0 means no explicit expiry.
+  int64 expires_in_seconds = 5;
+  // Optional purpose note.
+  string purpose = 6;
+  // Optional daemon id.
+  string daemon_id = 7;
+  // Optional conversation id.
+  string conversation_id = 8;
 }
 
 message CreateApiKeyResponse {

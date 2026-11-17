@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -118,8 +119,13 @@ func (s *SliceService) ListSharedSlices(ctx context.Context, req *corev1.ListSha
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	p, hasPrincipal := authctx.PrincipalFrom(ctx)
+	hasSliceScope := hasPrincipal && p.KeyID != "" && p.SubjectID == subjectID && p.HasSliceScope
 	out := &corev1.ListSharedSlicesResponse{}
 	for _, item := range shared {
+		if hasSliceScope && !p.AllowsSlice(item.Slice.GetId()) {
+			continue
+		}
 		out.Slices = append(out.Slices, &corev1.SharedSlice{Slice: item.Slice, Role: item.Role})
 	}
 	return out, nil
