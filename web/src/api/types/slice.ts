@@ -1,4 +1,4 @@
-import { type SliceRef, type Int64String } from "./common";
+import { type ActorAttribution, type SliceRef, type Int64String } from "./common";
 
 export interface Slice {
   id?: string;
@@ -185,4 +185,30 @@ export interface SharedSlice {
 
 export interface ListSharedSlicesResponse {
   slices?: SharedSlice[];
+}
+
+export interface Tag {
+  slice?: SliceRef;
+  name?: string;
+  commitId?: string;
+  definitionVersion?: Int64String;
+  message?: string;
+  createdBy?: string;
+  createdAt?: string;
+  attribution?: ActorAttribution;
+}
+
+export interface CreateTagRequest {
+  slice?: SliceRef;
+  name?: string;
+  commitId?: string;
+  message?: string;
+}
+
+export interface ListTagsRequest {
+  slice?: SliceRef;
+}
+
+export interface ListTagsResponse {
+  tags?: Tag[];
 }

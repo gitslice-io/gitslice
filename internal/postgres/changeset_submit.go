@@ -244,18 +244,29 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 	if affected == 0 {
 		return nil, ErrConflict
 	}
+	submitAttr := resolveAttributionQuery(ctx, tx, "")
 	_, err = tx.ExecContext(ctx, `
 		update changesets
 		set status = 'pending_publish',
 		    submit_blocked_reason = '',
+		    submitted_by_subject_id = $2,
+		    submitted_controller_subject_id = $3,
+		    submitted_key_id = $4,
+		    submitted_daemon_id = $5,
+		    submitted_conversation_id = $6,
 		    updated_at = now()
 		where id = $1
-	`, cs.ID)
+	`, cs.ID, submitAttr.ActingSubjectID, submitAttr.ControllerSubjectID, submitAttr.KeyID, submitAttr.DaemonID, submitAttr.ConversationID)
 	if err != nil {
 		return nil, err
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: "pending_publish", PendingPublishId: pendingID}, nil
+	return &corev1.SubmitChangesetResponse{
+		TargetRef:        cs.TargetRef,
+		Status:           "pending_publish",
+		PendingPublishId: pendingID,
+		Attribution:      submitAttr.ToProto(),
+	}, nil
 }

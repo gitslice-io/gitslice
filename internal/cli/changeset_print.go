@@ -22,14 +22,33 @@ func printChangesetDetails(w io.Writer, cs *corev1.Changeset, explain bool) {
 	if cs.Description != "" {
 		fmt.Fprintf(w, "description:\n%s\n", indentLines(cs.Description, "  "))
 	}
-	if cs.Author != "" {
-		fmt.Fprintf(w, "author: %s\n", cs.Author)
+	authorLine := storage.FormatActorAttribution(effectiveChangesetAttribution(cs), cs.Author)
+	if authorLine != "" {
+		fmt.Fprintf(w, "author: %s\n", authorLine)
 	}
 	if cs.OriginalAuthor != "" {
 		fmt.Fprintf(w, "original_author: %s\n", cs.OriginalAuthor)
 	}
 	if len(cs.Collaborators) > 0 {
 		fmt.Fprintf(w, "collaborators: %s\n", strings.Join(cs.Collaborators, ", "))
+	}
+	if subLine := storage.FormatActorAttribution(cs.GetSubmittedAttribution(), ""); subLine != "" {
+		fmt.Fprintf(w, "submitted_by: %s\n", subLine)
+	}
+	if len(cs.GetApprovals()) > 0 {
+		appLabels := make([]string, 0, len(cs.GetApprovals()))
+		for _, app := range cs.GetApprovals() {
+			if app == nil {
+				continue
+			}
+			lbl := storage.FormatActorAttribution(app.GetAttribution(), firstNonEmpty(app.GetUsername(), app.GetSubjectId()))
+			if lbl != "" {
+				appLabels = append(appLabels, lbl)
+			}
+		}
+		if len(appLabels) > 0 {
+			fmt.Fprintf(w, "approved_by: %s\n", strings.Join(appLabels, ", "))
+		}
 	}
 	fmt.Fprintf(w, "authoring_slice: %s\n", changesetSliceLabel(cs.AuthoringSlice))
 	if cs.TargetRef != "" {
@@ -80,7 +99,13 @@ func printPatchsetsColor(w io.Writer, cs *corev1.Changeset, color bool) {
 		changed := patchsetChangedPaths(patchset)
 		number := colorize(color, ansiYellow, fmt.Sprintf("%d", patchset.Number))
 		current = colorize(color, ansiGreen, current)
-		fmt.Fprintf(w, "  %s%s changed=%d\n", number, current, len(changed))
+		psActor := storage.FormatActorAttribution(patchset.GetAttribution(), patchset.GetAuthor())
+		csActor := storage.FormatActorAttribution(effectiveChangesetAttribution(cs), cs.GetAuthor())
+		psSuffix := ""
+		if psActor != "" && (psActor != csActor || patchset.GetAttribution().GetDaemonId() != "" || patchset.GetAttribution().GetConversationId() != "") {
+			psSuffix = fmt.Sprintf(" by %s", psActor)
+		}
+		fmt.Fprintf(w, "  %s%s changed=%d%s\n", number, current, len(changed), psSuffix)
 		if len(changed) > 0 {
 			printIndentedPathsColor(w, changed, "    ", color)
 		}
@@ -243,4 +268,33 @@ func indentLines(text, indent string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+func effectiveChangesetAttribution(cs *corev1.Changeset) *corev1.ActorAttribution {
+	if cs == nil {
+		return nil
+	}
+	base := cs.GetAttribution()
+	ps := currentPatchset(cs)
+	psAttr := ps.GetAttribution()
+	if base == nil || strings.TrimSpace(base.GetActingSubjectId()) == "" {
+		if psAttr != nil {
+			return psAttr
+		}
+		return base
+	}
+	if psAttr == nil || strings.TrimSpace(psAttr.GetActingSubjectId()) != strings.TrimSpace(base.GetActingSubjectId()) {
+		return base
+	}
+	merged := &corev1.ActorAttribution{
+		ActingSubjectId:     base.GetActingSubjectId(),
+		ActingUsername:      base.GetActingUsername(),
+		ControllerSubjectId: base.GetControllerSubjectId(),
+		ControllerUsername:  base.GetControllerUsername(),
+		KeyId:               base.GetKeyId(),
+		DaemonId:            firstNonEmpty(base.GetDaemonId(), psAttr.GetDaemonId()),
+		DaemonName:          firstNonEmpty(base.GetDaemonName(), psAttr.GetDaemonName()),
+		ConversationId:      firstNonEmpty(base.GetConversationId(), psAttr.GetConversationId()),
+	}
+	return merged
 }

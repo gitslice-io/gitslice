@@ -44,11 +44,24 @@ func (s *ChangesetStore) Approve(ctx context.Context, changesetID, subjectID str
 	if status != "draft" {
 		return nil, ErrConflict
 	}
+	attr := resolveAttributionQuery(ctx, tx, subjectID)
 	_, err = tx.ExecContext(ctx, `
-		insert into approvals(changeset_id, patchset_id, subject_id, created_at)
-		values ($1, $2, $3, now())
+		insert into approvals(
+			changeset_id, patchset_id, subject_id, created_at,
+			acting_subject_id, controller_subject_id, key_id, daemon_id, conversation_id
+		)
+		values ($1, $2, $3, now(), $4, $5, $6, $7, $8)
 		on conflict do nothing
-	`, changesetID, patchsetID, subjectID)
+	`, changesetID, patchsetID, subjectID, attr.ActingSubjectID, attr.ControllerSubjectID, attr.KeyID, attr.DaemonID, attr.ConversationID)
+	if err != nil {
+		return nil, err
+	}
+	storedApproval, err := scanChangesetApproval(tx.QueryRowContext(ctx, `
+		select patchset_id, subject_id, created_at,
+		       acting_subject_id, controller_subject_id, key_id, daemon_id, conversation_id
+		from approvals
+		where changeset_id = $1 and patchset_id = $2 and subject_id = $3
+	`, changesetID, patchsetID, subjectID))
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +71,12 @@ func (s *ChangesetStore) Approve(ctx context.Context, changesetID, subjectID str
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
-	return &corev1.ApproveChangesetResponse{ChangesetId: changesetID, PatchsetId: patchsetID, SubjectId: subjectID}, nil
+	return &corev1.ApproveChangesetResponse{
+		ChangesetId: changesetID,
+		PatchsetId:  patchsetID,
+		SubjectId:   subjectID,
+		Attribution: storedApproval.GetAttribution(),
+	}, nil
 }
 
 func (s *ChangesetStore) ReportCheckResult(ctx context.Context, changesetID, subjectID, checkName, resultStatus string) (*corev1.ReportCheckResultResponse, error) {

@@ -31,8 +31,9 @@ type Tag struct {
 	DefinitionVersion int64  `protobuf:"varint,4,opt,name=definition_version,json=definitionVersion,proto3" json:"definition_version,omitempty"`
 	Message           string `protobuf:"bytes,5,opt,name=message,proto3" json:"message,omitempty"`
 	// Username of the creator, or their subject id when they have none.
-	CreatedBy     string `protobuf:"bytes,6,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
-	CreatedAt     string `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	CreatedBy     string            `protobuf:"bytes,6,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
+	CreatedAt     string            `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	Attribution   *ActorAttribution `protobuf:"bytes,8,opt,name=attribution,proto3" json:"attribution,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -114,6 +115,13 @@ func (x *Tag) GetCreatedAt() string {
 		return x.CreatedAt
 	}
 	return ""
+}
+
+func (x *Tag) GetAttribution() *ActorAttribution {
+	if x != nil {
+		return x.Attribution
+	}
+	return nil
 }
 
 type CreateTagRequest struct {
@@ -2747,7 +2755,7 @@ var File_proto_core_v1_slice_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\n" +
-	"\x19proto/core/v1/slice.proto\x12\x10gitslice.core.v1\x1a\x1aproto/core/v1/common.proto\"\xef\x01\n" +
+	"\x19proto/core/v1/slice.proto\x12\x10gitslice.core.v1\x1a\x1aproto/core/v1/common.proto\"\xb5\x02\n" +
 	"\x03Tag\x120\n" +
 	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1b\n" +
@@ -2757,7 +2765,8 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\n" +
 	"created_by\x18\x06 \x01(\tR\tcreatedBy\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\a \x01(\tR\tcreatedAt\"\x8f\x01\n" +
+	"created_at\x18\a \x01(\tR\tcreatedAt\x12D\n" +
+	"\vattribution\x18\b \x01(\v2\".gitslice.core.v1.ActorAttributionR\vattribution\"\x8f\x01\n" +
 	"\x10CreateTagRequest\x120\n" +
 	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1b\n" +
@@ -3049,98 +3058,100 @@ var file_proto_core_v1_slice_proto_goTypes = []any{
 	(*SharedSlice)(nil),                         // 39: gitslice.core.v1.SharedSlice
 	(*ListSharedSlicesResponse)(nil),            // 40: gitslice.core.v1.ListSharedSlicesResponse
 	(*SliceRef)(nil),                            // 41: gitslice.core.v1.SliceRef
-	(*Empty)(nil),                               // 42: gitslice.core.v1.Empty
+	(*ActorAttribution)(nil),                    // 42: gitslice.core.v1.ActorAttribution
+	(*Empty)(nil),                               // 43: gitslice.core.v1.Empty
 }
 var file_proto_core_v1_slice_proto_depIdxs = []int32{
 	41, // 0: gitslice.core.v1.Tag.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 1: gitslice.core.v1.CreateTagRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 2: gitslice.core.v1.ListTagsRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	0,  // 3: gitslice.core.v1.ListTagsResponse.tags:type_name -> gitslice.core.v1.Tag
-	41, // 4: gitslice.core.v1.Slice.ref:type_name -> gitslice.core.v1.SliceRef
-	5,  // 5: gitslice.core.v1.Slice.definition:type_name -> gitslice.core.v1.SliceDefinition
-	41, // 6: gitslice.core.v1.CreateSliceRequest.ref:type_name -> gitslice.core.v1.SliceRef
-	41, // 7: gitslice.core.v1.ResolveSliceRequest.ref:type_name -> gitslice.core.v1.SliceRef
-	4,  // 8: gitslice.core.v1.ListSlicesResponse.slices:type_name -> gitslice.core.v1.Slice
-	6,  // 9: gitslice.core.v1.ListSliceDefinitionVersionsResponse.versions:type_name -> gitslice.core.v1.SliceDefinitionVersion
-	5,  // 10: gitslice.core.v1.UpdateSliceDefinitionRequest.definition:type_name -> gitslice.core.v1.SliceDefinition
-	41, // 11: gitslice.core.v1.SetSliceCIDaemonRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 12: gitslice.core.v1.SetSliceSecretRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 13: gitslice.core.v1.DeleteSliceSecretRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 14: gitslice.core.v1.ListSliceSecretsRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	20, // 15: gitslice.core.v1.ListSliceSecretsResponse.secrets:type_name -> gitslice.core.v1.SliceSecret
-	41, // 16: gitslice.core.v1.SliceSecret.shared_with:type_name -> gitslice.core.v1.SliceRef
-	41, // 17: gitslice.core.v1.RenameSliceRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 18: gitslice.core.v1.SetSliceArchivedRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 19: gitslice.core.v1.SliceGitMirror.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 20: gitslice.core.v1.GetSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 21: gitslice.core.v1.SetSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 22: gitslice.core.v1.DeleteSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 23: gitslice.core.v1.PushSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 24: gitslice.core.v1.SetSliceMergeOnSubmitRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 25: gitslice.core.v1.SetSliceDescriptionRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 26: gitslice.core.v1.ListSliceMembersRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 27: gitslice.core.v1.ListSliceMembersResponse.slice:type_name -> gitslice.core.v1.SliceRef
-	32, // 28: gitslice.core.v1.ListSliceMembersResponse.members:type_name -> gitslice.core.v1.SliceMember
-	33, // 29: gitslice.core.v1.ListSliceMembersResponse.group_members:type_name -> gitslice.core.v1.SliceGroupMember
-	41, // 30: gitslice.core.v1.SetSliceMemberRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	41, // 31: gitslice.core.v1.RemoveSliceMemberRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	4,  // 32: gitslice.core.v1.SharedSlice.slice:type_name -> gitslice.core.v1.Slice
-	39, // 33: gitslice.core.v1.ListSharedSlicesResponse.slices:type_name -> gitslice.core.v1.SharedSlice
-	7,  // 34: gitslice.core.v1.SliceService.CreateSlice:input_type -> gitslice.core.v1.CreateSliceRequest
-	8,  // 35: gitslice.core.v1.SliceService.ResolveSlice:input_type -> gitslice.core.v1.ResolveSliceRequest
-	9,  // 36: gitslice.core.v1.SliceService.GetSlice:input_type -> gitslice.core.v1.GetSliceRequest
-	10, // 37: gitslice.core.v1.SliceService.ListSlices:input_type -> gitslice.core.v1.ListSlicesRequest
-	12, // 38: gitslice.core.v1.SliceService.ListSliceDefinitionVersions:input_type -> gitslice.core.v1.ListSliceDefinitionVersionsRequest
-	14, // 39: gitslice.core.v1.SliceService.UpdateSliceDefinition:input_type -> gitslice.core.v1.UpdateSliceDefinitionRequest
-	15, // 40: gitslice.core.v1.SliceService.SetSliceCIDaemon:input_type -> gitslice.core.v1.SetSliceCIDaemonRequest
-	16, // 41: gitslice.core.v1.SliceService.SetSliceSecret:input_type -> gitslice.core.v1.SetSliceSecretRequest
-	17, // 42: gitslice.core.v1.SliceService.DeleteSliceSecret:input_type -> gitslice.core.v1.DeleteSliceSecretRequest
-	18, // 43: gitslice.core.v1.SliceService.ListSliceSecrets:input_type -> gitslice.core.v1.ListSliceSecretsRequest
-	21, // 44: gitslice.core.v1.SliceService.DeleteSlice:input_type -> gitslice.core.v1.DeleteSliceRequest
-	23, // 45: gitslice.core.v1.SliceService.RenameSlice:input_type -> gitslice.core.v1.RenameSliceRequest
-	24, // 46: gitslice.core.v1.SliceService.SetSliceArchived:input_type -> gitslice.core.v1.SetSliceArchivedRequest
-	31, // 47: gitslice.core.v1.SliceService.SetSliceDescription:input_type -> gitslice.core.v1.SetSliceDescriptionRequest
-	30, // 48: gitslice.core.v1.SliceService.SetSliceMergeOnSubmit:input_type -> gitslice.core.v1.SetSliceMergeOnSubmitRequest
-	26, // 49: gitslice.core.v1.SliceService.GetSliceGitMirror:input_type -> gitslice.core.v1.GetSliceGitMirrorRequest
-	27, // 50: gitslice.core.v1.SliceService.SetSliceGitMirror:input_type -> gitslice.core.v1.SetSliceGitMirrorRequest
-	28, // 51: gitslice.core.v1.SliceService.DeleteSliceGitMirror:input_type -> gitslice.core.v1.DeleteSliceGitMirrorRequest
-	29, // 52: gitslice.core.v1.SliceService.PushSliceGitMirror:input_type -> gitslice.core.v1.PushSliceGitMirrorRequest
-	1,  // 53: gitslice.core.v1.SliceService.CreateTag:input_type -> gitslice.core.v1.CreateTagRequest
-	2,  // 54: gitslice.core.v1.SliceService.ListTags:input_type -> gitslice.core.v1.ListTagsRequest
-	34, // 55: gitslice.core.v1.SliceService.ListSliceMembers:input_type -> gitslice.core.v1.ListSliceMembersRequest
-	36, // 56: gitslice.core.v1.SliceService.SetSliceMember:input_type -> gitslice.core.v1.SetSliceMemberRequest
-	37, // 57: gitslice.core.v1.SliceService.RemoveSliceMember:input_type -> gitslice.core.v1.RemoveSliceMemberRequest
-	38, // 58: gitslice.core.v1.SliceService.ListSharedSlices:input_type -> gitslice.core.v1.ListSharedSlicesRequest
-	4,  // 59: gitslice.core.v1.SliceService.CreateSlice:output_type -> gitslice.core.v1.Slice
-	4,  // 60: gitslice.core.v1.SliceService.ResolveSlice:output_type -> gitslice.core.v1.Slice
-	4,  // 61: gitslice.core.v1.SliceService.GetSlice:output_type -> gitslice.core.v1.Slice
-	11, // 62: gitslice.core.v1.SliceService.ListSlices:output_type -> gitslice.core.v1.ListSlicesResponse
-	13, // 63: gitslice.core.v1.SliceService.ListSliceDefinitionVersions:output_type -> gitslice.core.v1.ListSliceDefinitionVersionsResponse
-	5,  // 64: gitslice.core.v1.SliceService.UpdateSliceDefinition:output_type -> gitslice.core.v1.SliceDefinition
-	4,  // 65: gitslice.core.v1.SliceService.SetSliceCIDaemon:output_type -> gitslice.core.v1.Slice
-	42, // 66: gitslice.core.v1.SliceService.SetSliceSecret:output_type -> gitslice.core.v1.Empty
-	42, // 67: gitslice.core.v1.SliceService.DeleteSliceSecret:output_type -> gitslice.core.v1.Empty
-	19, // 68: gitslice.core.v1.SliceService.ListSliceSecrets:output_type -> gitslice.core.v1.ListSliceSecretsResponse
-	22, // 69: gitslice.core.v1.SliceService.DeleteSlice:output_type -> gitslice.core.v1.DeleteSliceResponse
-	4,  // 70: gitslice.core.v1.SliceService.RenameSlice:output_type -> gitslice.core.v1.Slice
-	4,  // 71: gitslice.core.v1.SliceService.SetSliceArchived:output_type -> gitslice.core.v1.Slice
-	4,  // 72: gitslice.core.v1.SliceService.SetSliceDescription:output_type -> gitslice.core.v1.Slice
-	4,  // 73: gitslice.core.v1.SliceService.SetSliceMergeOnSubmit:output_type -> gitslice.core.v1.Slice
-	25, // 74: gitslice.core.v1.SliceService.GetSliceGitMirror:output_type -> gitslice.core.v1.SliceGitMirror
-	25, // 75: gitslice.core.v1.SliceService.SetSliceGitMirror:output_type -> gitslice.core.v1.SliceGitMirror
-	42, // 76: gitslice.core.v1.SliceService.DeleteSliceGitMirror:output_type -> gitslice.core.v1.Empty
-	25, // 77: gitslice.core.v1.SliceService.PushSliceGitMirror:output_type -> gitslice.core.v1.SliceGitMirror
-	0,  // 78: gitslice.core.v1.SliceService.CreateTag:output_type -> gitslice.core.v1.Tag
-	3,  // 79: gitslice.core.v1.SliceService.ListTags:output_type -> gitslice.core.v1.ListTagsResponse
-	35, // 80: gitslice.core.v1.SliceService.ListSliceMembers:output_type -> gitslice.core.v1.ListSliceMembersResponse
-	32, // 81: gitslice.core.v1.SliceService.SetSliceMember:output_type -> gitslice.core.v1.SliceMember
-	42, // 82: gitslice.core.v1.SliceService.RemoveSliceMember:output_type -> gitslice.core.v1.Empty
-	40, // 83: gitslice.core.v1.SliceService.ListSharedSlices:output_type -> gitslice.core.v1.ListSharedSlicesResponse
-	59, // [59:84] is the sub-list for method output_type
-	34, // [34:59] is the sub-list for method input_type
-	34, // [34:34] is the sub-list for extension type_name
-	34, // [34:34] is the sub-list for extension extendee
-	0,  // [0:34] is the sub-list for field type_name
+	42, // 1: gitslice.core.v1.Tag.attribution:type_name -> gitslice.core.v1.ActorAttribution
+	41, // 2: gitslice.core.v1.CreateTagRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 3: gitslice.core.v1.ListTagsRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	0,  // 4: gitslice.core.v1.ListTagsResponse.tags:type_name -> gitslice.core.v1.Tag
+	41, // 5: gitslice.core.v1.Slice.ref:type_name -> gitslice.core.v1.SliceRef
+	5,  // 6: gitslice.core.v1.Slice.definition:type_name -> gitslice.core.v1.SliceDefinition
+	41, // 7: gitslice.core.v1.CreateSliceRequest.ref:type_name -> gitslice.core.v1.SliceRef
+	41, // 8: gitslice.core.v1.ResolveSliceRequest.ref:type_name -> gitslice.core.v1.SliceRef
+	4,  // 9: gitslice.core.v1.ListSlicesResponse.slices:type_name -> gitslice.core.v1.Slice
+	6,  // 10: gitslice.core.v1.ListSliceDefinitionVersionsResponse.versions:type_name -> gitslice.core.v1.SliceDefinitionVersion
+	5,  // 11: gitslice.core.v1.UpdateSliceDefinitionRequest.definition:type_name -> gitslice.core.v1.SliceDefinition
+	41, // 12: gitslice.core.v1.SetSliceCIDaemonRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 13: gitslice.core.v1.SetSliceSecretRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 14: gitslice.core.v1.DeleteSliceSecretRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 15: gitslice.core.v1.ListSliceSecretsRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	20, // 16: gitslice.core.v1.ListSliceSecretsResponse.secrets:type_name -> gitslice.core.v1.SliceSecret
+	41, // 17: gitslice.core.v1.SliceSecret.shared_with:type_name -> gitslice.core.v1.SliceRef
+	41, // 18: gitslice.core.v1.RenameSliceRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 19: gitslice.core.v1.SetSliceArchivedRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 20: gitslice.core.v1.SliceGitMirror.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 21: gitslice.core.v1.GetSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 22: gitslice.core.v1.SetSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 23: gitslice.core.v1.DeleteSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 24: gitslice.core.v1.PushSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 25: gitslice.core.v1.SetSliceMergeOnSubmitRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 26: gitslice.core.v1.SetSliceDescriptionRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 27: gitslice.core.v1.ListSliceMembersRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 28: gitslice.core.v1.ListSliceMembersResponse.slice:type_name -> gitslice.core.v1.SliceRef
+	32, // 29: gitslice.core.v1.ListSliceMembersResponse.members:type_name -> gitslice.core.v1.SliceMember
+	33, // 30: gitslice.core.v1.ListSliceMembersResponse.group_members:type_name -> gitslice.core.v1.SliceGroupMember
+	41, // 31: gitslice.core.v1.SetSliceMemberRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 32: gitslice.core.v1.RemoveSliceMemberRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	4,  // 33: gitslice.core.v1.SharedSlice.slice:type_name -> gitslice.core.v1.Slice
+	39, // 34: gitslice.core.v1.ListSharedSlicesResponse.slices:type_name -> gitslice.core.v1.SharedSlice
+	7,  // 35: gitslice.core.v1.SliceService.CreateSlice:input_type -> gitslice.core.v1.CreateSliceRequest
+	8,  // 36: gitslice.core.v1.SliceService.ResolveSlice:input_type -> gitslice.core.v1.ResolveSliceRequest
+	9,  // 37: gitslice.core.v1.SliceService.GetSlice:input_type -> gitslice.core.v1.GetSliceRequest
+	10, // 38: gitslice.core.v1.SliceService.ListSlices:input_type -> gitslice.core.v1.ListSlicesRequest
+	12, // 39: gitslice.core.v1.SliceService.ListSliceDefinitionVersions:input_type -> gitslice.core.v1.ListSliceDefinitionVersionsRequest
+	14, // 40: gitslice.core.v1.SliceService.UpdateSliceDefinition:input_type -> gitslice.core.v1.UpdateSliceDefinitionRequest
+	15, // 41: gitslice.core.v1.SliceService.SetSliceCIDaemon:input_type -> gitslice.core.v1.SetSliceCIDaemonRequest
+	16, // 42: gitslice.core.v1.SliceService.SetSliceSecret:input_type -> gitslice.core.v1.SetSliceSecretRequest
+	17, // 43: gitslice.core.v1.SliceService.DeleteSliceSecret:input_type -> gitslice.core.v1.DeleteSliceSecretRequest
+	18, // 44: gitslice.core.v1.SliceService.ListSliceSecrets:input_type -> gitslice.core.v1.ListSliceSecretsRequest
+	21, // 45: gitslice.core.v1.SliceService.DeleteSlice:input_type -> gitslice.core.v1.DeleteSliceRequest
+	23, // 46: gitslice.core.v1.SliceService.RenameSlice:input_type -> gitslice.core.v1.RenameSliceRequest
+	24, // 47: gitslice.core.v1.SliceService.SetSliceArchived:input_type -> gitslice.core.v1.SetSliceArchivedRequest
+	31, // 48: gitslice.core.v1.SliceService.SetSliceDescription:input_type -> gitslice.core.v1.SetSliceDescriptionRequest
+	30, // 49: gitslice.core.v1.SliceService.SetSliceMergeOnSubmit:input_type -> gitslice.core.v1.SetSliceMergeOnSubmitRequest
+	26, // 50: gitslice.core.v1.SliceService.GetSliceGitMirror:input_type -> gitslice.core.v1.GetSliceGitMirrorRequest
+	27, // 51: gitslice.core.v1.SliceService.SetSliceGitMirror:input_type -> gitslice.core.v1.SetSliceGitMirrorRequest
+	28, // 52: gitslice.core.v1.SliceService.DeleteSliceGitMirror:input_type -> gitslice.core.v1.DeleteSliceGitMirrorRequest
+	29, // 53: gitslice.core.v1.SliceService.PushSliceGitMirror:input_type -> gitslice.core.v1.PushSliceGitMirrorRequest
+	1,  // 54: gitslice.core.v1.SliceService.CreateTag:input_type -> gitslice.core.v1.CreateTagRequest
+	2,  // 55: gitslice.core.v1.SliceService.ListTags:input_type -> gitslice.core.v1.ListTagsRequest
+	34, // 56: gitslice.core.v1.SliceService.ListSliceMembers:input_type -> gitslice.core.v1.ListSliceMembersRequest
+	36, // 57: gitslice.core.v1.SliceService.SetSliceMember:input_type -> gitslice.core.v1.SetSliceMemberRequest
+	37, // 58: gitslice.core.v1.SliceService.RemoveSliceMember:input_type -> gitslice.core.v1.RemoveSliceMemberRequest
+	38, // 59: gitslice.core.v1.SliceService.ListSharedSlices:input_type -> gitslice.core.v1.ListSharedSlicesRequest
+	4,  // 60: gitslice.core.v1.SliceService.CreateSlice:output_type -> gitslice.core.v1.Slice
+	4,  // 61: gitslice.core.v1.SliceService.ResolveSlice:output_type -> gitslice.core.v1.Slice
+	4,  // 62: gitslice.core.v1.SliceService.GetSlice:output_type -> gitslice.core.v1.Slice
+	11, // 63: gitslice.core.v1.SliceService.ListSlices:output_type -> gitslice.core.v1.ListSlicesResponse
+	13, // 64: gitslice.core.v1.SliceService.ListSliceDefinitionVersions:output_type -> gitslice.core.v1.ListSliceDefinitionVersionsResponse
+	5,  // 65: gitslice.core.v1.SliceService.UpdateSliceDefinition:output_type -> gitslice.core.v1.SliceDefinition
+	4,  // 66: gitslice.core.v1.SliceService.SetSliceCIDaemon:output_type -> gitslice.core.v1.Slice
+	43, // 67: gitslice.core.v1.SliceService.SetSliceSecret:output_type -> gitslice.core.v1.Empty
+	43, // 68: gitslice.core.v1.SliceService.DeleteSliceSecret:output_type -> gitslice.core.v1.Empty
+	19, // 69: gitslice.core.v1.SliceService.ListSliceSecrets:output_type -> gitslice.core.v1.ListSliceSecretsResponse
+	22, // 70: gitslice.core.v1.SliceService.DeleteSlice:output_type -> gitslice.core.v1.DeleteSliceResponse
+	4,  // 71: gitslice.core.v1.SliceService.RenameSlice:output_type -> gitslice.core.v1.Slice
+	4,  // 72: gitslice.core.v1.SliceService.SetSliceArchived:output_type -> gitslice.core.v1.Slice
+	4,  // 73: gitslice.core.v1.SliceService.SetSliceDescription:output_type -> gitslice.core.v1.Slice
+	4,  // 74: gitslice.core.v1.SliceService.SetSliceMergeOnSubmit:output_type -> gitslice.core.v1.Slice
+	25, // 75: gitslice.core.v1.SliceService.GetSliceGitMirror:output_type -> gitslice.core.v1.SliceGitMirror
+	25, // 76: gitslice.core.v1.SliceService.SetSliceGitMirror:output_type -> gitslice.core.v1.SliceGitMirror
+	43, // 77: gitslice.core.v1.SliceService.DeleteSliceGitMirror:output_type -> gitslice.core.v1.Empty
+	25, // 78: gitslice.core.v1.SliceService.PushSliceGitMirror:output_type -> gitslice.core.v1.SliceGitMirror
+	0,  // 79: gitslice.core.v1.SliceService.CreateTag:output_type -> gitslice.core.v1.Tag
+	3,  // 80: gitslice.core.v1.SliceService.ListTags:output_type -> gitslice.core.v1.ListTagsResponse
+	35, // 81: gitslice.core.v1.SliceService.ListSliceMembers:output_type -> gitslice.core.v1.ListSliceMembersResponse
+	32, // 82: gitslice.core.v1.SliceService.SetSliceMember:output_type -> gitslice.core.v1.SliceMember
+	43, // 83: gitslice.core.v1.SliceService.RemoveSliceMember:output_type -> gitslice.core.v1.Empty
+	40, // 84: gitslice.core.v1.SliceService.ListSharedSlices:output_type -> gitslice.core.v1.ListSharedSlicesResponse
+	60, // [60:85] is the sub-list for method output_type
+	35, // [35:60] is the sub-list for method input_type
+	35, // [35:35] is the sub-list for extension type_name
+	35, // [35:35] is the sub-list for extension extendee
+	0,  // [0:35] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_slice_proto_init() }

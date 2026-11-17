@@ -75,6 +75,9 @@ message Changeset {
   int64 sibling_order = 25;
   string original_author = 26;
   repeated string collaborators = 27;
+  ActorAttribution attribution = 28;
+  ActorAttribution submitted_attribution = 29;
+  repeated ChangesetApproval approvals = 30;
 }
 
 message Patchset {
@@ -105,6 +108,15 @@ message Patchset {
   // prev_patchset.authoring_conversation_seq < seq <= authoring_conversation_seq.
   string authoring_conversation_id = 22;
   int64 authoring_conversation_seq = 23;
+  ActorAttribution attribution = 24;
+}
+
+message ChangesetApproval {
+  string patchset_id = 1;
+  string subject_id = 2;
+  string username = 3;
+  string created_at = 4;
+  ActorAttribution attribution = 5;
 }
 
 message ChangesetStack {
@@ -303,6 +315,7 @@ message ApproveChangesetResponse {
   string changeset_id = 1;
   string patchset_id = 2;
   string subject_id = 3;
+  ActorAttribution attribution = 4;
 }
 
 message ReportCheckResultRequest {
@@ -325,6 +338,7 @@ message SubmitChangesetResponse {
   string status = 4;
   string pending_publish_id = 5;
   string changeset_handle = 6;
+  ActorAttribution attribution = 7;
 }
 
 message UpdateChangesetInfoRequest {

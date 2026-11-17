@@ -66,15 +66,18 @@ func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *core
 		return nil, err
 	}
 	now := time.Now().UTC()
+	attr := resolveAttributionQuery(ctx, tx, subjectID)
 	_, err = tx.ExecContext(ctx, `
 			insert into changesets(
 				id, number, authoring_account, authoring_slice, authoring_slice_id, author_subject_id,
 				target_ref, base_commit_id, title, description, status, affected_paths,
-				current_patchset_number, created_at, updated_at
+				current_patchset_number, created_at, updated_at,
+				acting_subject_id, controller_subject_id, key_id, daemon_id, conversation_id
 			)
-			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11, 0, $12, $12)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11, 0, $12, $12, $13, $14, $15, $16, $17)
 		`, id, number, req.AuthoringSlice.Account, req.AuthoringSlice.Slice, slice.Id, subjectID,
-		targetRef, baseCommitID, title, description, empty, now)
+		targetRef, baseCommitID, title, description, empty, now,
+		attr.ActingSubjectID, attr.ControllerSubjectID, attr.KeyID, attr.DaemonID, attr.ConversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -114,8 +117,13 @@ func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.C
 	if err != nil {
 		return nil, err
 	}
+	approvals, err := s.listApprovals(ctx, changesetID)
+	if err != nil {
+		return nil, err
+	}
 	cs.Patchsets = patchsets
 	cs.Collaborators = collaborators
+	cs.Approvals = approvals
 	storage.PopulateChangesetHandles(cs)
 	if current := currentPatchset(cs); current != nil {
 		cs.SubmitRequirements = current.SubmitRequirements
@@ -134,7 +142,9 @@ const changesetRowColumns = `c.id, c.authoring_account, c.authoring_slice, c.aut
 			       c.commit_id, p.id, c.number, c.submit_blocked_reason,
 			       c.stack_id, c.stack_order, c.parent_changeset_id, c.parent_patchset_id,
 			       case when c.parent_changeset_id is null then 'commit' else 'patchset' end,
-			       c.stack_depth, c.sibling_order`
+			       c.stack_depth, c.sibling_order,
+			       c.acting_subject_id, c.controller_subject_id, c.key_id, c.daemon_id, c.conversation_id,
+			       c.submitted_by_subject_id, c.submitted_controller_subject_id, c.submitted_key_id, c.submitted_daemon_id, c.submitted_conversation_id`
 
 func scanChangesetRow(row rowScanner) (*corev1.Changeset, []byte, error) {
 	var cs corev1.Changeset
@@ -142,13 +152,23 @@ func scanChangesetRow(row rowScanner) (*corev1.Changeset, []byte, error) {
 	var stackID, parentChangesetID, parentPatchsetID sql.NullString
 	var stackOrder, stackDepth, siblingOrder sql.NullInt64
 	var affectedJSON, submitRequirementsJSON []byte
+	var createdAttr, submittedAttr storage.ActorAttribution
 	if err := row.Scan(&cs.Id, &account, &slice, &cs.Author, &cs.OriginalAuthor, &cs.TargetRef,
 		&cs.BaseCommitId, &cs.Title, &cs.Description, &cs.Status, &affectedJSON,
 		&cs.CurrentPatchsetNumber, &currentPatchsetID, &commitID, &pendingPublishID, &cs.Number, &cs.SubmitBlockedReason,
 		&stackID, &stackOrder, &parentChangesetID, &parentPatchsetID, &cs.BaseKind, &stackDepth, &siblingOrder,
+		&createdAttr.ActingSubjectID, &createdAttr.ControllerSubjectID, &createdAttr.KeyID, &createdAttr.DaemonID, &createdAttr.ConversationID,
+		&submittedAttr.ActingSubjectID, &submittedAttr.ControllerSubjectID, &submittedAttr.KeyID, &submittedAttr.DaemonID, &submittedAttr.ConversationID,
 		&submitRequirementsJSON); err != nil {
 		return nil, nil, err
 	}
+	if createdAttr.ActingSubjectID == "" && cs.OriginalAuthor != "" {
+		createdAttr.ActingSubjectID = cs.OriginalAuthor
+	} else if createdAttr.ActingSubjectID == "" {
+		createdAttr.ActingSubjectID = cs.Author
+	}
+	cs.Attribution = createdAttr.ToProto()
+	cs.SubmittedAttribution = submittedAttr.ToProto()
 	if account.Valid || slice.Valid {
 		cs.AuthoringSlice = &corev1.SliceRef{Account: account.String, Slice: slice.String}
 	}
@@ -318,6 +338,10 @@ func (s *ChangesetStore) getManyByIDs(ctx context.Context, ids []string) ([]*cor
 	if err != nil {
 		return nil, err
 	}
+	approvalsByCS, err := s.listApprovalsForChangesets(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]*corev1.Changeset, 0, len(ids))
 	for _, id := range ids {
 		cs := byID[id]
@@ -326,6 +350,7 @@ func (s *ChangesetStore) getManyByIDs(ctx context.Context, ids []string) ([]*cor
 		}
 		cs.Patchsets = patchsetsByCS[id]
 		cs.Collaborators = collaboratorsByCS[id]
+		cs.Approvals = approvalsByCS[id]
 		storage.PopulateChangesetHandles(cs)
 		if current := currentPatchset(cs); current != nil {
 			cs.SubmitRequirements = current.SubmitRequirements

@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/common.proto.
  */
 export const file_proto_core_v1_common: GenFile = /*@__PURE__*/
-  fileDesc("Chpwcm90by9jb3JlL3YxL2NvbW1vbi5wcm90bxIQZ2l0c2xpY2UuY29yZS52MSIHCgVFbXB0eSIqCghTbGljZVJlZhIPCgdhY2NvdW50GAEgASgJEg0KBXNsaWNlGAIgASgJIr4BCglUcmVlRW50cnkSDAoEcGF0aBgBIAEoCRIMCgRuYW1lGAIgASgJEikKBGtpbmQYAyABKA4yGy5naXRzbGljZS5jb3JlLnYxLkVudHJ5S2luZBIMCgRtb2RlGAQgASgNEg8KB3RyZWVfaWQYBSABKAkSDwoHYmxvYl9pZBgGIAEoCRIWCg5zeW1saW5rX3RhcmdldBgHIAEoCRIMCgRzaXplGAggASgDEhQKDGNvbnRlbnRfaGFzaBgJIAEoCSpuCglFbnRyeUtpbmQSGgoWRU5UUllfS0lORF9VTlNQRUNJRklFRBAAEhMKD0VOVFJZX0tJTkRfRklMRRABEhgKFEVOVFJZX0tJTkRfRElSRUNUT1JZEAISFgoSRU5UUllfS0lORF9TWU1MSU5LEANCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw");
+  fileDesc("Chpwcm90by9jb3JlL3YxL2NvbW1vbi5wcm90bxIQZ2l0c2xpY2UuY29yZS52MSIHCgVFbXB0eSIqCghTbGljZVJlZhIPCgdhY2NvdW50GAEgASgJEg0KBXNsaWNlGAIgASgJIr4BCglUcmVlRW50cnkSDAoEcGF0aBgBIAEoCRIMCgRuYW1lGAIgASgJEikKBGtpbmQYAyABKA4yGy5naXRzbGljZS5jb3JlLnYxLkVudHJ5S2luZBIMCgRtb2RlGAQgASgNEg8KB3RyZWVfaWQYBSABKAkSDwoHYmxvYl9pZBgGIAEoCRIWCg5zeW1saW5rX3RhcmdldBgHIAEoCRIMCgRzaXplGAggASgDEhQKDGNvbnRlbnRfaGFzaBgJIAEoCSLTAQoQQWN0b3JBdHRyaWJ1dGlvbhIZChFhY3Rpbmdfc3ViamVjdF9pZBgBIAEoCRIXCg9hY3RpbmdfdXNlcm5hbWUYAiABKAkSHQoVY29udHJvbGxlcl9zdWJqZWN0X2lkGAMgASgJEhsKE2NvbnRyb2xsZXJfdXNlcm5hbWUYBCABKAkSDgoGa2V5X2lkGAUgASgJEhEKCWRhZW1vbl9pZBgGIAEoCRITCgtkYWVtb25fbmFtZRgHIAEoCRIXCg9jb252ZXJzYXRpb25faWQYCCABKAkqbgoJRW50cnlLaW5kEhoKFkVOVFJZX0tJTkRfVU5TUEVDSUZJRUQQABITCg9FTlRSWV9LSU5EX0ZJTEUQARIYChRFTlRSWV9LSU5EX0RJUkVDVE9SWRACEhYKEkVOVFJZX0tJTkRfU1lNTElOSxADQitaKWdpdHNsaWNlLmlvL2dpdHNsaWNlL3Byb3RvL2NvcmUvdjE7Y29yZXYxYgZwcm90bzM");
 
 /**
  * @generated from message gitslice.core.v1.Empty
@@ -103,6 +103,58 @@ export type TreeEntry = Message<"gitslice.core.v1.TreeEntry"> & {
  */
 export const TreeEntrySchema: GenMessage<TreeEntry> = /*@__PURE__*/
   messageDesc(file_proto_core_v1_common, 2);
+
+/**
+ * @generated from message gitslice.core.v1.ActorAttribution
+ */
+export type ActorAttribution = Message<"gitslice.core.v1.ActorAttribution"> & {
+  /**
+   * @generated from field: string acting_subject_id = 1;
+   */
+  actingSubjectId: string;
+
+  /**
+   * @generated from field: string acting_username = 2;
+   */
+  actingUsername: string;
+
+  /**
+   * @generated from field: string controller_subject_id = 3;
+   */
+  controllerSubjectId: string;
+
+  /**
+   * @generated from field: string controller_username = 4;
+   */
+  controllerUsername: string;
+
+  /**
+   * @generated from field: string key_id = 5;
+   */
+  keyId: string;
+
+  /**
+   * @generated from field: string daemon_id = 6;
+   */
+  daemonId: string;
+
+  /**
+   * @generated from field: string daemon_name = 7;
+   */
+  daemonName: string;
+
+  /**
+   * @generated from field: string conversation_id = 8;
+   */
+  conversationId: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.ActorAttribution.
+ * Use `create(ActorAttributionSchema)` to create a new message.
+ */
+export const ActorAttributionSchema: GenMessage<ActorAttribution> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_common, 3);
 
 /**
  * @generated from enum gitslice.core.v1.EntryKind

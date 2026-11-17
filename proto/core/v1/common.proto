@@ -29,3 +29,14 @@ message TreeEntry {
   int64 size = 8;
   string content_hash = 9;
 }
+
+message ActorAttribution {
+  string acting_subject_id = 1;
+  string acting_username = 2;
+  string controller_subject_id = 3;
+  string controller_username = 4;
+  string key_id = 5;
+  string daemon_id = 6;
+  string daemon_name = 7;
+  string conversation_id = 8;
+}

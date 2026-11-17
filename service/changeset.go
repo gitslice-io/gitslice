@@ -78,7 +78,8 @@ func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.Crea
 		ParentChangesetId: req.ParentChangesetId,
 		ParentPatchsetId:  req.ParentPatchsetId,
 	}
-	cs, err := s.Changesets.Create(ctx, subjectID, createReq)
+	storeCtx, _ := withCapturedAttribution(ctx, s.Auth, subjectID)
+	cs, err := s.Changesets.Create(storeCtx, subjectID, createReq)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -178,40 +179,51 @@ func (s *ChangesetService) resolveAuthors(ctx context.Context, changesets ...*co
 				addSubject(patchset.Author)
 			}
 		}
-	}
-	if len(subjectIDs) == 0 {
-		return nil
-	}
-
-	usernames, err := s.Auth.UsernamesForSubjects(ctx, subjectIDs)
-	if err != nil {
-		return err
-	}
-	for _, cs := range changesets {
-		if cs == nil {
-			continue
-		}
-		if username := usernames[strings.TrimSpace(cs.Author)]; username != "" {
-			cs.Author = username
-		}
-		if username := usernames[strings.TrimSpace(cs.OriginalAuthor)]; username != "" {
-			cs.OriginalAuthor = username
-		}
-		for i, collab := range cs.Collaborators {
-			if username := usernames[strings.TrimSpace(collab)]; username != "" {
-				cs.Collaborators[i] = username
+		for _, app := range cs.Approvals {
+			if app != nil {
+				addSubject(app.SubjectId)
 			}
 		}
-		for _, patchset := range cs.Patchsets {
-			if patchset == nil {
+	}
+	if len(subjectIDs) > 0 && s.Auth != nil {
+		usernames, err := s.Auth.UsernamesForSubjects(ctx, subjectIDs)
+		if err != nil {
+			return err
+		}
+		for _, cs := range changesets {
+			if cs == nil {
 				continue
 			}
-			if username := usernames[strings.TrimSpace(patchset.Author)]; username != "" {
-				patchset.Author = username
+			if username := usernames[strings.TrimSpace(cs.Author)]; username != "" {
+				cs.Author = username
+			}
+			if username := usernames[strings.TrimSpace(cs.OriginalAuthor)]; username != "" {
+				cs.OriginalAuthor = username
+			}
+			for i, collab := range cs.Collaborators {
+				if username := usernames[strings.TrimSpace(collab)]; username != "" {
+					cs.Collaborators[i] = username
+				}
+			}
+			for _, patchset := range cs.Patchsets {
+				if patchset == nil {
+					continue
+				}
+				if username := usernames[strings.TrimSpace(patchset.Author)]; username != "" {
+					patchset.Author = username
+				}
+			}
+			for _, app := range cs.Approvals {
+				if app == nil {
+					continue
+				}
+				if username := usernames[strings.TrimSpace(app.SubjectId)]; username != "" {
+					app.Username = username
+				}
 			}
 		}
 	}
-	return nil
+	return enrichActorAttributions(ctx, s.Auth, s.Agents, collectChangesetAttributions(changesets...)...)
 }
 
 func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.SubmitChangesetRequest) (*corev1.SubmitChangesetResponse, error) {
@@ -227,6 +239,7 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	ctx, _ = withCapturedAttribution(ctx, s.Auth, subjectID)
 	emitSubmitted := cs.Status != "pending_publish" && cs.Status != "submitted"
 	res, err := s.submitPatchset(ctx, cs.Id, acceptedExpectedPatchset(cs, req.ExpectedCurrentPatchsetId), extraCheckStatuses)
 	if isStaleBase(err) {
@@ -239,6 +252,11 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	}
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if res != nil && res.Attribution != nil {
+		if err := enrichActorAttributions(ctx, s.Auth, s.Agents, res.Attribution); err != nil {
+			return nil, grpcError(err)
+		}
 	}
 	if emitSubmitted {
 		s.captureChangesetSubmitted(ctx, cs)
@@ -301,9 +319,15 @@ func (s *ChangesetService) ApproveChangeset(ctx context.Context, req *corev1.App
 	if err != nil {
 		return nil, err
 	}
-	res, err := s.Changesets.Approve(ctx, cs.Id, subjectID)
+	storeCtx, _ := withCapturedAttribution(ctx, s.Auth, subjectID)
+	res, err := s.Changesets.Approve(storeCtx, cs.Id, subjectID)
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if res != nil && res.Attribution != nil {
+		if err := enrichActorAttributions(ctx, s.Auth, s.Agents, res.Attribution); err != nil {
+			return nil, grpcError(err)
+		}
 	}
 	return res, nil
 }

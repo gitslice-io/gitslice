@@ -118,6 +118,7 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 			Changesets:  stores.Changesets,
 			Repository:  stores.Repository,
 			Slices:      stores.Slices,
+			Agents:      stores.Agents,
 			Checks:      stores.Checks,
 			ObjectStore: objectStore,
 			validator:   validator,

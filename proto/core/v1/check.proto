@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package gitslice.core.v1;
 
+import "proto/core/v1/common.proto";
+
 option go_package = "gitslice.io/gitslice/proto/core/v1;corev1";
 
 service CheckService {
@@ -95,4 +97,5 @@ message AllowPatchsetSecretsResponse {
   string allowed_by_subject_id = 3;
   string allowed_at = 4;
   repeated CheckRun rerun_checks = 5;
+  ActorAttribution attribution = 6;
 }

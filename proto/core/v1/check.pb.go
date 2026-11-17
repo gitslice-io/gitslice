@@ -675,6 +675,7 @@ type AllowPatchsetSecretsResponse struct {
 	AllowedBySubjectId string                 `protobuf:"bytes,3,opt,name=allowed_by_subject_id,json=allowedBySubjectId,proto3" json:"allowed_by_subject_id,omitempty"`
 	AllowedAt          string                 `protobuf:"bytes,4,opt,name=allowed_at,json=allowedAt,proto3" json:"allowed_at,omitempty"`
 	RerunChecks        []*CheckRun            `protobuf:"bytes,5,rep,name=rerun_checks,json=rerunChecks,proto3" json:"rerun_checks,omitempty"`
+	Attribution        *ActorAttribution      `protobuf:"bytes,6,opt,name=attribution,proto3" json:"attribution,omitempty"`
 	unknownFields      protoimpl.UnknownFields
 	sizeCache          protoimpl.SizeCache
 }
@@ -744,11 +745,18 @@ func (x *AllowPatchsetSecretsResponse) GetRerunChecks() []*CheckRun {
 	return nil
 }
 
+func (x *AllowPatchsetSecretsResponse) GetAttribution() *ActorAttribution {
+	if x != nil {
+		return x.Attribution
+	}
+	return nil
+}
+
 var File_proto_core_v1_check_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_check_proto_rawDesc = "" +
 	"\n" +
-	"\x19proto/core/v1/check.proto\x12\x10gitslice.core.v1\"\xa4\x05\n" +
+	"\x19proto/core/v1/check.proto\x12\x10gitslice.core.v1\x1a\x1aproto/core/v1/common.proto\"\xa4\x05\n" +
 	"\bCheckRun\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fchangeset_id\x18\x02 \x01(\tR\vchangesetId\x12\x1f\n" +
@@ -811,7 +819,7 @@ const file_proto_core_v1_check_proto_rawDesc = "" +
 	"\x1bAllowPatchsetSecretsRequest\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12\x1f\n" +
 	"\vpatchset_id\x18\x02 \x01(\tR\n" +
-	"patchsetId\"\xf3\x01\n" +
+	"patchsetId\"\xb9\x02\n" +
 	"\x1cAllowPatchsetSecretsResponse\x12!\n" +
 	"\fchangeset_id\x18\x01 \x01(\tR\vchangesetId\x12\x1f\n" +
 	"\vpatchset_id\x18\x02 \x01(\tR\n" +
@@ -819,7 +827,8 @@ const file_proto_core_v1_check_proto_rawDesc = "" +
 	"\x15allowed_by_subject_id\x18\x03 \x01(\tR\x12allowedBySubjectId\x12\x1d\n" +
 	"\n" +
 	"allowed_at\x18\x04 \x01(\tR\tallowedAt\x12=\n" +
-	"\frerun_checks\x18\x05 \x03(\v2\x1a.gitslice.core.v1.CheckRunR\vrerunChecks2\xe3\x03\n" +
+	"\frerun_checks\x18\x05 \x03(\v2\x1a.gitslice.core.v1.CheckRunR\vrerunChecks\x12D\n" +
+	"\vattribution\x18\x06 \x01(\v2\".gitslice.core.v1.ActorAttributionR\vattribution2\xe3\x03\n" +
 	"\fCheckService\x12`\n" +
 	"\rListCheckRuns\x12&.gitslice.core.v1.ListCheckRunsRequest\x1a'.gitslice.core.v1.ListCheckRunsResponse\x12O\n" +
 	"\vGetCheckRun\x12$.gitslice.core.v1.GetCheckRunRequest\x1a\x1a.gitslice.core.v1.CheckRun\x12M\n" +
@@ -852,26 +861,28 @@ var file_proto_core_v1_check_proto_goTypes = []any{
 	(*StreamCheckRunRequest)(nil),        // 7: gitslice.core.v1.StreamCheckRunRequest
 	(*AllowPatchsetSecretsRequest)(nil),  // 8: gitslice.core.v1.AllowPatchsetSecretsRequest
 	(*AllowPatchsetSecretsResponse)(nil), // 9: gitslice.core.v1.AllowPatchsetSecretsResponse
+	(*ActorAttribution)(nil),             // 10: gitslice.core.v1.ActorAttribution
 }
 var file_proto_core_v1_check_proto_depIdxs = []int32{
-	1, // 0: gitslice.core.v1.CheckRun.annotations:type_name -> gitslice.core.v1.CheckAnnotation
-	0, // 1: gitslice.core.v1.ListCheckRunsResponse.runs:type_name -> gitslice.core.v1.CheckRun
-	0, // 2: gitslice.core.v1.AllowPatchsetSecretsResponse.rerun_checks:type_name -> gitslice.core.v1.CheckRun
-	3, // 3: gitslice.core.v1.CheckService.ListCheckRuns:input_type -> gitslice.core.v1.ListCheckRunsRequest
-	5, // 4: gitslice.core.v1.CheckService.GetCheckRun:input_type -> gitslice.core.v1.GetCheckRunRequest
-	6, // 5: gitslice.core.v1.CheckService.RerunCheck:input_type -> gitslice.core.v1.RerunCheckRequest
-	7, // 6: gitslice.core.v1.CheckService.StreamCheckRun:input_type -> gitslice.core.v1.StreamCheckRunRequest
-	8, // 7: gitslice.core.v1.CheckService.AllowPatchsetSecrets:input_type -> gitslice.core.v1.AllowPatchsetSecretsRequest
-	4, // 8: gitslice.core.v1.CheckService.ListCheckRuns:output_type -> gitslice.core.v1.ListCheckRunsResponse
-	0, // 9: gitslice.core.v1.CheckService.GetCheckRun:output_type -> gitslice.core.v1.CheckRun
-	0, // 10: gitslice.core.v1.CheckService.RerunCheck:output_type -> gitslice.core.v1.CheckRun
-	2, // 11: gitslice.core.v1.CheckService.StreamCheckRun:output_type -> gitslice.core.v1.CheckRunLog
-	9, // 12: gitslice.core.v1.CheckService.AllowPatchsetSecrets:output_type -> gitslice.core.v1.AllowPatchsetSecretsResponse
-	8, // [8:13] is the sub-list for method output_type
-	3, // [3:8] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	1,  // 0: gitslice.core.v1.CheckRun.annotations:type_name -> gitslice.core.v1.CheckAnnotation
+	0,  // 1: gitslice.core.v1.ListCheckRunsResponse.runs:type_name -> gitslice.core.v1.CheckRun
+	0,  // 2: gitslice.core.v1.AllowPatchsetSecretsResponse.rerun_checks:type_name -> gitslice.core.v1.CheckRun
+	10, // 3: gitslice.core.v1.AllowPatchsetSecretsResponse.attribution:type_name -> gitslice.core.v1.ActorAttribution
+	3,  // 4: gitslice.core.v1.CheckService.ListCheckRuns:input_type -> gitslice.core.v1.ListCheckRunsRequest
+	5,  // 5: gitslice.core.v1.CheckService.GetCheckRun:input_type -> gitslice.core.v1.GetCheckRunRequest
+	6,  // 6: gitslice.core.v1.CheckService.RerunCheck:input_type -> gitslice.core.v1.RerunCheckRequest
+	7,  // 7: gitslice.core.v1.CheckService.StreamCheckRun:input_type -> gitslice.core.v1.StreamCheckRunRequest
+	8,  // 8: gitslice.core.v1.CheckService.AllowPatchsetSecrets:input_type -> gitslice.core.v1.AllowPatchsetSecretsRequest
+	4,  // 9: gitslice.core.v1.CheckService.ListCheckRuns:output_type -> gitslice.core.v1.ListCheckRunsResponse
+	0,  // 10: gitslice.core.v1.CheckService.GetCheckRun:output_type -> gitslice.core.v1.CheckRun
+	0,  // 11: gitslice.core.v1.CheckService.RerunCheck:output_type -> gitslice.core.v1.CheckRun
+	2,  // 12: gitslice.core.v1.CheckService.StreamCheckRun:output_type -> gitslice.core.v1.CheckRunLog
+	9,  // 13: gitslice.core.v1.CheckService.AllowPatchsetSecrets:output_type -> gitslice.core.v1.AllowPatchsetSecretsResponse
+	9,  // [9:14] is the sub-list for method output_type
+	4,  // [4:9] is the sub-list for method input_type
+	4,  // [4:4] is the sub-list for extension type_name
+	4,  // [4:4] is the sub-list for extension extendee
+	0,  // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_check_proto_init() }
@@ -879,6 +890,7 @@ func file_proto_core_v1_check_proto_init() {
 	if File_proto_core_v1_check_proto != nil {
 		return
 	}
+	file_proto_core_v1_common_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{

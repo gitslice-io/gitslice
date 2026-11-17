@@ -528,6 +528,7 @@ type SliceTag struct {
 	Message           string
 	CreatedBy         string // subject id
 	CreatedAt         string // RFC 3339
+	Attribution       ActorAttribution
 }
 
 // ValidSliceSecretName reports whether name matches ^[A-Z_][A-Z0-9_]*$.
@@ -597,6 +598,7 @@ type PatchsetSecretAllowance struct {
 	PatchsetID         string
 	AllowedBySubjectID string
 	CreatedAt          time.Time
+	Attribution        ActorAttribution
 }
 
 // CheckStore persists check runs and replayable check logs. Terminal passed,

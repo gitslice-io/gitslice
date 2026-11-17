@@ -19,6 +19,7 @@ type ChangesetStackService struct {
 	Changesets  storage.ChangesetStore
 	Repository  storage.RepositoryStore
 	Slices      storage.SliceStore
+	Agents      storage.AgentStore
 	Checks      storage.CheckStore
 	ObjectStore ObjectStore
 	validator   diffValidator
@@ -110,7 +111,8 @@ func (s *ChangesetStackService) AddStackEntry(ctx context.Context, req *corev1.A
 	if err := s.authorizeAddEntry(ctx, subjectID, stack, req.ParentChangesetId); err != nil {
 		return nil, err
 	}
-	cs, err := s.Changesets.Create(ctx, subjectID, &corev1.CreateChangesetRequest{
+	storeCtx, _ := withCapturedAttribution(ctx, s.Auth, subjectID)
+	cs, err := s.Changesets.Create(storeCtx, subjectID, &corev1.CreateChangesetRequest{
 		AuthoringSlice:    stack.AuthoringSlice,
 		TargetRef:         stack.TargetRef,
 		BaseCommitId:      stack.BaseCommitId,
@@ -452,6 +454,7 @@ func (s *ChangesetStackService) SubmitStack(ctx context.Context, req *corev1.Sub
 	if err := s.authorizeStackEntries(ctx, subjectID, entries, authz.ActionSubmit, true); err != nil {
 		return nil, err
 	}
+	ctx, _ = withCapturedAttribution(ctx, s.Auth, subjectID)
 	response := &corev1.SubmitStackResponse{StackId: stack.Id, Status: "submitted"}
 	blocked := false
 	for _, entry := range entries {
@@ -721,7 +724,7 @@ func (s *ChangesetStackService) resolveStackAuthors(ctx context.Context, stack *
 }
 
 func (s *ChangesetStackService) resolveChangesetAuthors(ctx context.Context, changesets ...*corev1.Changeset) error {
-	changesetService := ChangesetService{Auth: s.Auth}
+	changesetService := ChangesetService{Auth: s.Auth, Agents: s.Agents}
 	return changesetService.resolveAuthors(ctx, changesets...)
 }
 
@@ -831,6 +834,7 @@ func (s *ChangesetStackService) changesetService() ChangesetService {
 		Changesets:  s.Changesets,
 		Repository:  s.Repository,
 		Slices:      s.Slices,
+		Agents:      s.Agents,
 		Checks:      s.Checks,
 		ObjectStore: s.ObjectStore,
 		validator:   s.validator,

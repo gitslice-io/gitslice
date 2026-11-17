@@ -13,19 +13,21 @@ import (
 )
 
 type changesetOutput struct {
-	ChangesetID         string                     `json:"changeset_id"`
-	PatchsetID          string                     `json:"patchset_id,omitempty"`
-	PatchsetNumber      int64                      `json:"patchset_number,omitempty"`
-	Status              string                     `json:"status,omitempty"`
-	Author              string                     `json:"author,omitempty"`
-	OriginalAuthor      string                     `json:"original_author,omitempty"`
-	Collaborators       []string                   `json:"collaborators,omitempty"`
-	SubmitBlockedReason string                     `json:"submit_blocked_reason,omitempty"`
-	SubmitRequirements  *corev1.SubmitRequirements `json:"submit_requirements,omitempty"`
-	StackID             string                     `json:"dependency_id,omitempty"`
-	Title               string                     `json:"title,omitempty"`
-	Description         string                     `json:"description,omitempty"`
-	WebURL              string                     `json:"web_url,omitempty"`
+	ChangesetID          string                     `json:"changeset_id"`
+	PatchsetID           string                     `json:"patchset_id,omitempty"`
+	PatchsetNumber       int64                      `json:"patchset_number,omitempty"`
+	Status               string                     `json:"status,omitempty"`
+	Author               string                     `json:"author,omitempty"`
+	OriginalAuthor       string                     `json:"original_author,omitempty"`
+	Collaborators        []string                   `json:"collaborators,omitempty"`
+	Attribution          *corev1.ActorAttribution   `json:"attribution,omitempty"`
+	SubmittedAttribution *corev1.ActorAttribution   `json:"submitted_attribution,omitempty"`
+	SubmitBlockedReason  string                     `json:"submit_blocked_reason,omitempty"`
+	SubmitRequirements   *corev1.SubmitRequirements `json:"submit_requirements,omitempty"`
+	StackID              string                     `json:"dependency_id,omitempty"`
+	Title                string                     `json:"title,omitempty"`
+	Description          string                     `json:"description,omitempty"`
+	WebURL               string                     `json:"web_url,omitempty"`
 	// Submit is what gs create --submit did with the changeset.
 	Submit *submitDependenciesOutput `json:"submit,omitempty"`
 	// Checks are the current patchset's check runs (gs cs status), the
@@ -94,17 +96,19 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		return err
 	}
 	output := changesetOutput{
-		ChangesetID:         cs.Id,
-		PatchsetID:          cs.CurrentPatchsetId,
-		PatchsetNumber:      cs.CurrentPatchsetNumber,
-		Status:              cs.Status,
-		Author:              cs.Author,
-		OriginalAuthor:      cs.OriginalAuthor,
-		Collaborators:       cs.Collaborators,
-		SubmitBlockedReason: displaySubmitBlockedReason(cs.SubmitBlockedReason),
-		SubmitRequirements:  currentPatchsetSubmitRequirements(cs),
-		Title:               cs.Title,
-		Description:         cs.Description,
+		ChangesetID:          cs.Id,
+		PatchsetID:           cs.CurrentPatchsetId,
+		PatchsetNumber:       cs.CurrentPatchsetNumber,
+		Status:               cs.Status,
+		Author:               cs.Author,
+		OriginalAuthor:       cs.OriginalAuthor,
+		Collaborators:        cs.Collaborators,
+		Attribution:          effectiveChangesetAttribution(cs),
+		SubmittedAttribution: cs.SubmittedAttribution,
+		SubmitBlockedReason:  displaySubmitBlockedReason(cs.SubmitBlockedReason),
+		SubmitRequirements:   currentPatchsetSubmitRequirements(cs),
+		Title:                cs.Title,
+		Description:          cs.Description,
 	}
 	if cs.Status != "submitted" && cs.Status != "abandoned" {
 		output.Checks = currentPatchsetChecks(authContext(ctx, cfg), conn, cs.Id, cs.CurrentPatchsetId)

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"gitslice.io/gitslice/internal/analytics"
+	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -70,11 +71,14 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 		BaseTreeId:            baseTreeID,
 		StackParentPatchsetId: basePatchsetID,
 	}
-	if err := s.applyAuthoringConversation(ctx, patchset, slice.Id, req.ConversationId); err != nil {
+	psAttr := captureActorAttribution(ctx, s.Auth, subjectID)
+	if err := s.applyAuthoringConversation(ctx, patchset, slice.Id, req.ConversationId, &psAttr); err != nil {
 		return nil, err
 	}
+	patchset.Attribution = psAttr.ToProto()
+	storeCtx := storage.WithActorAttribution(ctx, psAttr)
 	priorPatchsetID := cs.CurrentPatchsetId
-	patchset, err = s.Changesets.AddPatchset(ctx, cs.Id, req.ExpectedCurrentPatchsetId, patchset)
+	patchset, err = s.Changesets.AddPatchset(storeCtx, cs.Id, req.ExpectedCurrentPatchsetId, patchset)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -90,7 +94,7 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 		}
 		s.dispatchCIChecks(ctx, cs, slice, patchset, req.BundledCheckRuns)
 	}
-	if patchset.Author != "" {
+	if patchset.Author != "" && s.Auth != nil {
 		usernames, err := s.Auth.UsernamesForSubjects(ctx, []string{patchset.Author})
 		if err != nil {
 			return nil, grpcError(err)
@@ -98,6 +102,9 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 		if username := usernames[patchset.Author]; username != "" {
 			patchset.Author = username
 		}
+	}
+	if err := enrichActorAttributions(ctx, s.Auth, s.Agents, patchset.Attribution); err != nil {
+		return nil, grpcError(err)
 	}
 	if createdPatchset {
 		captureAnalytics(ctx, s.Analytics, analytics.EventPatchsetPushed, map[string]any{
@@ -250,8 +257,18 @@ func (s *ChangesetService) recordBundledCheckRuns(ctx context.Context, cs *corev
 // patchset, recording the conversation's current latest event seq as the cutoff
 // so the patchset's exchange is the events in (prevCutoff, seq]. The conversation
 // must belong to the same slice as the changeset.
-func (s *ChangesetService) applyAuthoringConversation(ctx context.Context, patchset *corev1.Patchset, sliceID, conversationID string) error {
+func (s *ChangesetService) applyAuthoringConversation(ctx context.Context, patchset *corev1.Patchset, sliceID, conversationID string, attr *storage.ActorAttribution) error {
 	conversationID = strings.TrimSpace(conversationID)
+	if p, ok := authctx.PrincipalFrom(ctx); ok && strings.TrimSpace(p.ConversationID) != "" {
+		boundConv := strings.TrimSpace(p.ConversationID)
+		if conversationID != "" && conversationID != boundConv {
+			return status.Error(codes.PermissionDenied, "API key is bound to a different conversation")
+		}
+		conversationID = boundConv
+	}
+	if conversationID == "" && attr != nil && attr.ConversationID != "" {
+		conversationID = attr.ConversationID
+	}
 	if conversationID == "" || s.Agents == nil {
 		return nil
 	}
@@ -268,6 +285,12 @@ func (s *ChangesetService) applyAuthoringConversation(ctx context.Context, patch
 	}
 	patchset.AuthoringConversationId = conversationID
 	patchset.AuthoringConversationSeq = seq
+	if attr != nil {
+		attr.ConversationID = conv.GetId()
+		if attr.DaemonID == "" && strings.TrimSpace(conv.GetDaemonId()) != "" {
+			attr.DaemonID = strings.TrimSpace(conv.GetDaemonId())
+		}
+	}
 	return nil
 }
 

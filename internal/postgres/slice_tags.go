@@ -11,11 +11,19 @@ import (
 )
 
 func (s *SliceStore) CreateTag(ctx context.Context, tag storage.SliceTag) (*storage.SliceTag, bool, error) {
+	attr := tag.Attribution.Normalize()
+	if attr.ActingSubjectID == "" {
+		attr = resolveAttributionQuery(ctx, s.db, tag.CreatedBy)
+	}
 	res, err := s.db.ExecContext(ctx, `
-		insert into slice_tags(slice_id, name, commit_id, definition_version, message, created_by, created_at)
-		values ($1, $2, $3, $4, $5, $6, now())
+		insert into slice_tags(
+			slice_id, name, commit_id, definition_version, message, created_by, created_at,
+			acting_subject_id, controller_subject_id, key_id, daemon_id, conversation_id
+		)
+		values ($1, $2, $3, $4, $5, $6, now(), $7, $8, $9, $10, $11)
 		on conflict (slice_id, name) do nothing
-	`, tag.SliceID, tag.Name, tag.CommitID, tag.DefinitionVersion, tag.Message, tag.CreatedBy)
+	`, tag.SliceID, tag.Name, tag.CommitID, tag.DefinitionVersion, tag.Message, tag.CreatedBy,
+		attr.ActingSubjectID, attr.ControllerSubjectID, attr.KeyID, attr.DaemonID, attr.ConversationID)
 	if err != nil {
 		return nil, false, err
 	}
@@ -35,7 +43,8 @@ func (s *SliceStore) CreateTag(ctx context.Context, tag storage.SliceTag) (*stor
 
 func (s *SliceStore) ListTags(ctx context.Context, sliceID string) ([]storage.SliceTag, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select slice_id, name, commit_id, definition_version, message, created_by, created_at
+		select slice_id, name, commit_id, definition_version, message, created_by, created_at,
+		       acting_subject_id, controller_subject_id, key_id, daemon_id, conversation_id
 		from slice_tags
 		where slice_id = $1
 		order by created_at desc, name
@@ -57,7 +66,8 @@ func (s *SliceStore) ListTags(ctx context.Context, sliceID string) ([]storage.Sl
 
 func (s *SliceStore) getTag(ctx context.Context, sliceID, name string) (*storage.SliceTag, error) {
 	row := s.db.QueryRowContext(ctx, `
-		select slice_id, name, commit_id, definition_version, message, created_by, created_at
+		select slice_id, name, commit_id, definition_version, message, created_by, created_at,
+		       acting_subject_id, controller_subject_id, key_id, daemon_id, conversation_id
 		from slice_tags
 		where slice_id = $1 and name = $2
 	`, sliceID, name)
@@ -74,9 +84,16 @@ func (s *SliceStore) getTag(ctx context.Context, sliceID, name string) (*storage
 func scanSliceTag(row scanner) (storage.SliceTag, error) {
 	var tag storage.SliceTag
 	var createdAt time.Time
-	if err := row.Scan(&tag.SliceID, &tag.Name, &tag.CommitID, &tag.DefinitionVersion, &tag.Message, &tag.CreatedBy, &createdAt); err != nil {
+	if err := row.Scan(
+		&tag.SliceID, &tag.Name, &tag.CommitID, &tag.DefinitionVersion, &tag.Message, &tag.CreatedBy, &createdAt,
+		&tag.Attribution.ActingSubjectID, &tag.Attribution.ControllerSubjectID, &tag.Attribution.KeyID, &tag.Attribution.DaemonID, &tag.Attribution.ConversationID,
+	); err != nil {
 		return tag, err
 	}
+	if tag.Attribution.ActingSubjectID == "" {
+		tag.Attribution.ActingSubjectID = tag.CreatedBy
+	}
+	tag.Attribution = tag.Attribution.Normalize()
 	tag.CreatedAt = formatTime(createdAt)
 	return tag, nil
 }

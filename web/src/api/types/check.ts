@@ -1,4 +1,4 @@
-import { type Int64String } from "./common";
+import { type ActorAttribution, type Int64String } from "./common";
 
 export interface CheckRun {
   id?: string;
@@ -77,4 +77,5 @@ export interface AllowPatchsetSecretsResponse {
   allowedBySubjectId?: string;
   allowedAt?: string;
   rerunChecks?: CheckRun[];
+  attribution?: ActorAttribution;
 }

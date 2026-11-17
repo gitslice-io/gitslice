@@ -1,6 +1,6 @@
 # 36. Multi-Agent Collaboration on a Slice
 
-Status: proposal (2026-11-16); decisions recorded 2026-11-17. Nothing here is built.
+Status: implemented (2026-11-17)
 
 ## Goal
 

@@ -25,3 +25,14 @@ export interface TreeEntry {
   size?: Int64String;
   contentHash?: string;
 }
+
+export interface ActorAttribution {
+  actingSubjectId?: string;
+  actingUsername?: string;
+  controllerSubjectId?: string;
+  controllerUsername?: string;
+  keyId?: string;
+  daemonId?: string;
+  daemonName?: string;
+  conversationId?: string;
+}

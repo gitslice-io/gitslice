@@ -259,6 +259,11 @@ func (s *SliceStore) CreateTag(ctx context.Context, tag storage.SliceTag) (*stor
 		}
 		return &existing, false, nil
 	}
+	if tag.Attribution.ActingSubjectID == "" {
+		tag.Attribution = s.b.resolveAttributionLocked(ctx, tag.CreatedBy)
+	} else {
+		tag.Attribution = tag.Attribution.Normalize()
+	}
 	tag.CreatedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	s.b.sliceTags[tag.SliceID][tag.Name] = tag
 	return &tag, true, nil

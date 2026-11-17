@@ -55,13 +55,15 @@ func (s *SliceService) CreateTag(ctx context.Context, req *corev1.CreateTagReque
 	if slice.Definition != nil {
 		version = slice.Definition.Version
 	}
-	tag, _, err := s.Slices.CreateTag(ctx, storage.SliceTag{
+	storeCtx, tagAttr := withCapturedAttribution(ctx, s.Auth, subjectID)
+	tag, _, err := s.Slices.CreateTag(storeCtx, storage.SliceTag{
 		SliceID:           slice.Id,
 		Name:              name,
 		CommitID:          commitID,
 		DefinitionVersion: version,
 		Message:           strings.TrimSpace(req.GetMessage()),
 		CreatedBy:         subjectID,
+		Attribution:       tagAttr,
 	})
 	if errors.Is(err, storage.ErrConflict) {
 		return nil, status.Error(codes.AlreadyExists, err.Error())
@@ -107,10 +109,19 @@ func (s *SliceService) tagsProto(ctx context.Context, ref *corev1.SliceRef, tags
 		return nil, err
 	}
 	out := make([]*corev1.Tag, 0, len(tags))
+	attrs := make([]*corev1.ActorAttribution, 0, len(tags))
 	for _, tag := range tags {
 		createdBy := tag.CreatedBy
 		if username := usernames[tag.CreatedBy]; username != "" {
 			createdBy = username
+		}
+		attr := tag.Attribution
+		if attr.ActingSubjectID == "" {
+			attr.ActingSubjectID = tag.CreatedBy
+		}
+		attrProto := attr.ToProto()
+		if attrProto != nil {
+			attrs = append(attrs, attrProto)
 		}
 		out = append(out, &corev1.Tag{
 			Slice:             ref,
@@ -120,7 +131,11 @@ func (s *SliceService) tagsProto(ctx context.Context, ref *corev1.SliceRef, tags
 			Message:           tag.Message,
 			CreatedBy:         createdBy,
 			CreatedAt:         tag.CreatedAt,
+			Attribution:       attrProto,
 		})
+	}
+	if err := enrichActorAttributions(ctx, s.Auth, s.Agents, attrs...); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

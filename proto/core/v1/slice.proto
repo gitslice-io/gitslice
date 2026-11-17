@@ -88,6 +88,7 @@ message Tag {
   // Username of the creator, or their subject id when they have none.
   string created_by = 6;
   string created_at = 7;
+  ActorAttribution attribution = 8;
 }
 
 message CreateTagRequest {

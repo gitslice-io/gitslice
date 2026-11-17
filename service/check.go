@@ -177,7 +177,8 @@ func (s *CheckService) AllowPatchsetSecrets(ctx context.Context, req *corev1.All
 		}
 	}
 
-	allowance, created, err := s.Checks.AllowPatchsetSecrets(ctx, cs.GetId(), patchset.GetId(), subjectID)
+	storeCtx, _ := withCapturedAttribution(ctx, s.Auth, subjectID)
+	allowance, created, err := s.Checks.AllowPatchsetSecrets(storeCtx, cs.GetId(), patchset.GetId(), subjectID)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -190,12 +191,17 @@ func (s *CheckService) AllowPatchsetSecrets(ctx context.Context, req *corev1.All
 		}
 		s.annotateDaemons(ctx, rerunChecks...)
 	}
+	attrProto := allowance.Attribution.ToProto()
+	if err := enrichActorAttributions(ctx, s.Auth, s.Agents, attrProto); err != nil {
+		return nil, grpcError(err)
+	}
 	return &corev1.AllowPatchsetSecretsResponse{
 		ChangesetId:        allowance.ChangesetID,
 		PatchsetId:         allowance.PatchsetID,
 		AllowedBySubjectId: allowance.AllowedBySubjectID,
 		AllowedAt:          formatTime(allowance.CreatedAt),
 		RerunChecks:        rerunChecks,
+		Attribution:        attrProto,
 	}, nil
 }
 

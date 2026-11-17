@@ -1,4 +1,4 @@
-import { type Int64String, type SliceRef } from "./common";
+import { type ActorAttribution, type Int64String, type SliceRef } from "./common";
 
 export interface SubmitRequirements {
   requiredApprovals?: number;
@@ -79,6 +79,15 @@ export interface Patchset {
   stackParentPatchsetId?: string;
   authoringConversationId?: string;
   authoringConversationSeq?: Int64String;
+  attribution?: ActorAttribution;
+}
+
+export interface ChangesetApproval {
+  patchsetId?: string;
+  subjectId?: string;
+  username?: string;
+  createdAt?: string;
+  attribution?: ActorAttribution;
 }
 
 export interface Changeset {
@@ -109,6 +118,9 @@ export interface Changeset {
   siblingOrder?: Int64String;
   originalAuthor?: string;
   collaborators?: string[];
+  attribution?: ActorAttribution;
+  submittedAttribution?: ActorAttribution;
+  approvals?: ChangesetApproval[];
 }
 
 export interface ChangesetStack {
@@ -255,6 +267,7 @@ export interface ApproveChangesetResponse {
   changesetId?: string;
   patchsetId?: string;
   subjectId?: string;
+  attribution?: ActorAttribution;
 }
 
 export interface CreateChangesetRequest {
@@ -320,6 +333,7 @@ export interface SubmitChangesetResponse {
   status?: string;
   pendingPublishId?: string;
   changesetHandle?: string;
+  attribution?: ActorAttribution;
 }
 
 export interface CopyPathRequest {

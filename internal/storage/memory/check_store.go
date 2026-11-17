@@ -371,6 +371,7 @@ func (s *CheckStore) AllowPatchsetSecrets(ctx context.Context, changesetID, patc
 		PatchsetID:         patchsetID,
 		AllowedBySubjectID: allowedBySubjectID,
 		CreatedAt:          time.Now().UTC(),
+		Attribution:        s.b.resolveAttributionLocked(ctx, allowedBySubjectID),
 	}
 	s.b.patchsetSecretAllowance[key] = allowance
 	return allowance, true, nil

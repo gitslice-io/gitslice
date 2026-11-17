@@ -9564,3 +9564,20 @@ pages are code-split, analytics waits for the page to load.
 **Verification**
 - `gofmt -l`, `go vet ./...`, `go build ./cmd/...`, and Go unit suites (`./internal/authz/...`, `./internal/storage/...`, `./service/...`, `./internal/cli/...`, `./server/...`).
 - Live PostgreSQL suites (`./internal/postgres`, `./tests/rpc`, `./tests/cli`) and `web` `npm run build && npm test`.
+
+## 2026-11-17 — Multi-agent collaboration phases 2–4 (scoped keys, delegated agents, groups, path owners, advisory intents, audit attribution)
+
+**Why**
+- Complete `design/36_multi_agent_collaboration.md` so credentials can be attenuated per slice/role/run, account groups and `.gitslice/owners.yaml` path owners govern reviews, agents can advertise advisory path reservations before editing, and every audited mutation records who acted, on whose behalf, and with which key, daemon, and conversation.
+
+**What changed**
+- **Scoped and child API keys (Diff 5, migration `0056`)**: Added `slice_ids`, `max_role`, `parent_key_id`, `purpose`, `daemon_id`, and `conversation_id` on `api_keys` plus `authctx.Principal` grant enforcement across gRPC, Connect HTTP, and Git Smart HTTP (`AuthorizeAccount` blocked on slice-scoped keys, slice scope & role ceiling enforced on reads/writes/delegation, recursive ancestor expiry/revocation cascade, `gs auth keys create --slice --role --expires --purpose`).
+- **Delegated agents and per-run child keys (Diff 6, migration `0057`)**: Added `AuthService.CreateDelegatedAgent` (`gs agent create <name> [--slice ...] [--role ...]`), conversation `role` (`reader|contributor|writer`), daemon `--slice` scoping, and fail-closed per-conversation child API key minting/renewal/revocation in isolated `run-homes/<conv.id>` (including lazy FUSE mounts and isolated temp `HOME` for host checks).
+- **Account groups and slice `approvers` (Diff 7, migration `0058`)**: Added `account_groups`, `account_group_members`, `slice_group_members`, and `approvers_group` (`@account/name`), `AuthService` group CRUD (`gs group create|list|show|delete|add|rm`), group sharing on slices (`gs slice share/unshare/members`), and live group-filtered `approvers` submit gating prior to controller deduplication and human-approval counting.
+- **Path owners `.gitslice/owners.yaml` (Diff 8)**: Added `internal/owners` and `service/owners_submit.go` reading `.gitslice/owners.yaml` strictly from the target ref's landed commit tree (nearest-file precedence stopping at `/<account>/.gitslice/owners.yaml`), implicit `.gitslice/**` account-admin approval gate, claimed-agent + controller-dedup + self-ownership evaluation, early `UpdateChangeset` validation, and `CopyPath`/`MovePath` + Git HTTP push enforcement.
+- **Advisory path intents (Diff 9, migration `0059`)**: Added `path_intents`, `internal/intents`, `ChangesetService` `CreatePathIntent`/`ListPathIntents`/`DeletePathIntent` RPCs, auto-linking on `CreateChangeset`/`UpdateChangeset` and transactional auto-clear on land (`PublishPending`) and `Abandon`, `gs intent` CLI (`declare`/`list`/`clear`), and non-blocking overlap warnings in `gs status`, `gs sync`, and `gs create`.
+- **Audit attribution and display (Diff 10, migration `0060`)**: Added `ActorAttribution` (`acting_subject_id`, `controller_subject_id`, `key_id`, `daemon_id`, `conversation_id` + resolved usernames and daemon display names) across `changesets` (creation and submit), `patchsets`, `approvals`, `slice_tags`, and `patchset_secret_allowances` (preserving human `acting_subject_id` under controller delegation and enforcing key-bound conversation IDs), surfaced in `gs show` and Web `ChangesetMetaLine.tsx` (`"web-agent (for nic) via my-ci, conversation …"`). Marked `design/36_multi_agent_collaboration.md` implemented.
+
+**Verification**
+- `gofmt -l`, `go vet ./...`, `go build ./cmd/...`, `go test -count=1 ./internal/cli -run TestSchema`, and full `env -u GITSLICE_TEST_DATABASE_URL go test -count=1 ./...`.
+- Live PostgreSQL suites (`./internal/postgres`, `./tests/rpc`, `./tests/cli`) and Docker `web/` `npm run build && npm test`.

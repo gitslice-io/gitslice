@@ -505,21 +505,35 @@ func (s *CheckStore) AllowPatchsetSecrets(ctx context.Context, changesetID, patc
 		return storage.PatchsetSecretAllowance{}, false, err
 	}
 
+	attr := resolveAttributionQuery(ctx, tx, allowedBySubjectID)
 	var out storage.PatchsetSecretAllowance
 	created := true
 	err = tx.QueryRowContext(ctx, `
-		insert into patchset_secret_allowances(changeset_id, patchset_id, allowed_by_subject_id)
-		values ($1, $2, $3)
+		insert into patchset_secret_allowances(
+			changeset_id, patchset_id, allowed_by_subject_id,
+			acting_subject_id, controller_subject_id, key_id, daemon_id, conversation_id
+		)
+		values ($1, $2, $3, $4, $5, $6, $7, $8)
 		on conflict (changeset_id, patchset_id) do nothing
-		returning changeset_id, patchset_id, allowed_by_subject_id, created_at
-	`, changesetID, patchsetID, allowedBySubjectID).Scan(&out.ChangesetID, &out.PatchsetID, &out.AllowedBySubjectID, &out.CreatedAt)
+		returning changeset_id, patchset_id, allowed_by_subject_id, created_at,
+		          acting_subject_id, controller_subject_id, key_id, daemon_id, conversation_id
+	`, changesetID, patchsetID, allowedBySubjectID,
+		attr.ActingSubjectID, attr.ControllerSubjectID, attr.KeyID, attr.DaemonID, attr.ConversationID,
+	).Scan(
+		&out.ChangesetID, &out.PatchsetID, &out.AllowedBySubjectID, &out.CreatedAt,
+		&out.Attribution.ActingSubjectID, &out.Attribution.ControllerSubjectID, &out.Attribution.KeyID, &out.Attribution.DaemonID, &out.Attribution.ConversationID,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		created = false
 		err = tx.QueryRowContext(ctx, `
-			select changeset_id, patchset_id, allowed_by_subject_id, created_at
+			select changeset_id, patchset_id, allowed_by_subject_id, created_at,
+			       acting_subject_id, controller_subject_id, key_id, daemon_id, conversation_id
 			from patchset_secret_allowances
 			where changeset_id = $1 and patchset_id = $2
-		`, changesetID, patchsetID).Scan(&out.ChangesetID, &out.PatchsetID, &out.AllowedBySubjectID, &out.CreatedAt)
+		`, changesetID, patchsetID).Scan(
+			&out.ChangesetID, &out.PatchsetID, &out.AllowedBySubjectID, &out.CreatedAt,
+			&out.Attribution.ActingSubjectID, &out.Attribution.ControllerSubjectID, &out.Attribution.KeyID, &out.Attribution.DaemonID, &out.Attribution.ConversationID,
+		)
 	}
 	if err != nil {
 		return storage.PatchsetSecretAllowance{}, false, err
@@ -527,6 +541,10 @@ func (s *CheckStore) AllowPatchsetSecrets(ctx context.Context, changesetID, patc
 	if err := tx.Commit(); err != nil {
 		return storage.PatchsetSecretAllowance{}, false, err
 	}
+	if out.Attribution.ActingSubjectID == "" {
+		out.Attribution.ActingSubjectID = out.AllowedBySubjectID
+	}
+	out.Attribution = out.Attribution.Normalize()
 	out.CreatedAt = out.CreatedAt.UTC()
 	return out, created, nil
 }
@@ -539,16 +557,24 @@ func (s *CheckStore) GetPatchsetSecretAllowance(ctx context.Context, changesetID
 	}
 	var out storage.PatchsetSecretAllowance
 	err := s.db.QueryRowContext(ctx, `
-		select changeset_id, patchset_id, allowed_by_subject_id, created_at
+		select changeset_id, patchset_id, allowed_by_subject_id, created_at,
+		       acting_subject_id, controller_subject_id, key_id, daemon_id, conversation_id
 		from patchset_secret_allowances
 		where changeset_id = $1 and patchset_id = $2
-	`, changesetID, patchsetID).Scan(&out.ChangesetID, &out.PatchsetID, &out.AllowedBySubjectID, &out.CreatedAt)
+	`, changesetID, patchsetID).Scan(
+		&out.ChangesetID, &out.PatchsetID, &out.AllowedBySubjectID, &out.CreatedAt,
+		&out.Attribution.ActingSubjectID, &out.Attribution.ControllerSubjectID, &out.Attribution.KeyID, &out.Attribution.DaemonID, &out.Attribution.ConversationID,
+	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return storage.PatchsetSecretAllowance{}, storage.ErrNotFound
 	}
 	if err != nil {
 		return storage.PatchsetSecretAllowance{}, err
 	}
+	if out.Attribution.ActingSubjectID == "" {
+		out.Attribution.ActingSubjectID = out.AllowedBySubjectID
+	}
+	out.Attribution = out.Attribution.Normalize()
 	out.CreatedAt = out.CreatedAt.UTC()
 	return out, nil
 }

@@ -38,6 +38,7 @@ func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *core
 	id := s.b.nextIDLocked("cs")
 	number := s.b.nextChangesetNumberLocked(sliceID)
 	ref := cloneSliceRef(req.AuthoringSlice)
+	attr := s.b.resolveAttributionLocked(ctx, subjectID)
 	cs := &corev1.Changeset{
 		Id:             id,
 		AuthoringSlice: ref,
@@ -48,6 +49,7 @@ func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *core
 		Title:          title,
 		Description:    description,
 		Number:         number,
+		Attribution:    attr.ToProto(),
 	}
 	if req.StackId != "" {
 		if err := s.b.attachChangesetToStackLocked(cs, req.StackId, req.ParentChangesetId, req.ParentPatchsetId); err != nil {
@@ -201,11 +203,30 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 		slice := s.b.slices[sliceID]
 		next.SubmitRequirements = submitRequirementsForMemorySlice(slice)
 	}
+	psAttr := s.b.resolveAttributionLocked(ctx, next.Author)
+	if psAttr.ConversationID == "" && strings.TrimSpace(next.AuthoringConversationId) != "" {
+		psAttr.ConversationID = strings.TrimSpace(next.AuthoringConversationId)
+	}
+	if next.Attribution != nil {
+		explicit := storage.ActorAttributionFromProto(next.Attribution)
+		if explicit.ActingSubjectID != "" {
+			psAttr = explicit
+		}
+	}
+	next.Attribution = psAttr.ToProto()
 	cs.Patchsets = append(cs.Patchsets, next)
 	cs.CurrentPatchsetId = next.Id
 	cs.CurrentPatchsetNumber = next.Number
 	cs.AffectedPaths = append([]string(nil), next.ChangedPaths...)
 	cs.SubmitBlockedReason = ""
+	if cs.Attribution != nil && cs.Attribution.ActingSubjectId == psAttr.ActingSubjectID {
+		if cs.Attribution.DaemonId == "" && psAttr.DaemonID != "" {
+			cs.Attribution.DaemonId = psAttr.DaemonID
+		}
+		if cs.Attribution.ConversationId == "" && psAttr.ConversationID != "" {
+			cs.Attribution.ConversationId = psAttr.ConversationID
+		}
+	}
 	if cs.StackId != "" {
 		if stack := s.b.stacks[cs.StackId]; stack != nil {
 			if entry := stackEntryByChangeset(stack, cs.Id); entry != nil {
@@ -239,13 +260,36 @@ func (s *ChangesetStore) Approve(ctx context.Context, changesetID, subjectID str
 	if cs.Status != "draft" {
 		return nil, storage.ErrConflict
 	}
+	subID := strings.TrimSpace(subjectID)
 	key := patchsetRequirementKey(changesetID, patchset.Id)
 	if s.b.approvals[key] == nil {
 		s.b.approvals[key] = map[string]struct{}{}
 	}
-	s.b.approvals[key][strings.TrimSpace(subjectID)] = struct{}{}
+	s.b.approvals[key][subID] = struct{}{}
+	var storedAttr *corev1.ActorAttribution
+	for _, existing := range cs.Approvals {
+		if existing.GetPatchsetId() == patchset.Id && existing.GetSubjectId() == subID {
+			storedAttr = existing.GetAttribution()
+			break
+		}
+	}
+	if storedAttr == nil {
+		attr := s.b.resolveAttributionLocked(ctx, subID)
+		storedAttr = attr.ToProto()
+		cs.Approvals = append(cs.Approvals, &corev1.ChangesetApproval{
+			PatchsetId:  patchset.Id,
+			SubjectId:   subID,
+			CreatedAt:   time.Now().UTC().Format(time.RFC3339),
+			Attribution: storedAttr,
+		})
+	}
 	clearRequirementBlockLocked(cs, patchset.Id)
-	return &corev1.ApproveChangesetResponse{ChangesetId: changesetID, PatchsetId: patchset.Id, SubjectId: strings.TrimSpace(subjectID)}, nil
+	return &corev1.ApproveChangesetResponse{
+		ChangesetId: changesetID,
+		PatchsetId:  patchset.Id,
+		SubjectId:   subID,
+		Attribution: cloneChangeset(&corev1.Changeset{Attribution: storedAttr}).GetAttribution(),
+	}, nil
 }
 
 func (s *ChangesetStore) ReportCheckResult(ctx context.Context, changesetID, subjectID, checkName, resultStatus string) (*corev1.ReportCheckResultResponse, error) {
@@ -528,12 +572,21 @@ func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurren
 	if reason := storage.EvaluateSubmitRequirementsWithGroup(latestReq, excludedAuthors, approvers, checkStatuses, approverGroupMembers); reason != "" && !bypassRequirements {
 		return nil, s.b.blockSubmitLocked(cs, reason)
 	}
+	submitAttr := s.b.resolveAttributionLocked(ctx, "")
 	cs.Status = "pending_publish"
 	cs.SubmitBlockedReason = ""
+	if submitAttr.ActingSubjectID != "" {
+		cs.SubmittedAttribution = submitAttr.ToProto()
+	}
 	s.b.pendingAcceptedAt[cs.Id] = time.Now()
 	s.b.nextPendingSeq++
 	s.b.pendingSequence[cs.Id] = s.b.nextPendingSeq
-	return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: cs.Status, PendingPublishId: cs.Id}, nil
+	return &corev1.SubmitChangesetResponse{
+		TargetRef:        cs.TargetRef,
+		Status:           cs.Status,
+		PendingPublishId: cs.Id,
+		Attribution:      cloneChangeset(&corev1.Changeset{Attribution: cs.SubmittedAttribution}).GetAttribution(),
+	}, nil
 }
 
 func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (published int, err error) {
