@@ -1176,6 +1176,7 @@ type SubmitRequirements struct {
 	SourceSliceDefinitionHash string                 `protobuf:"bytes,4,opt,name=source_slice_definition_hash,json=sourceSliceDefinitionHash,proto3" json:"source_slice_definition_hash,omitempty"`
 	SourcePathLockSetHash     string                 `protobuf:"bytes,5,opt,name=source_path_lock_set_hash,json=sourcePathLockSetHash,proto3" json:"source_path_lock_set_hash,omitempty"`
 	RequiredHumanApprovals    int32                  `protobuf:"varint,6,opt,name=required_human_approvals,json=requiredHumanApprovals,proto3" json:"required_human_approvals,omitempty"`
+	Approvers                 string                 `protobuf:"bytes,7,opt,name=approvers,proto3" json:"approvers,omitempty"`
 	unknownFields             protoimpl.UnknownFields
 	sizeCache                 protoimpl.SizeCache
 }
@@ -1250,6 +1251,13 @@ func (x *SubmitRequirements) GetRequiredHumanApprovals() int32 {
 		return x.RequiredHumanApprovals
 	}
 	return 0
+}
+
+func (x *SubmitRequirements) GetApprovers() string {
+	if x != nil {
+		return x.Approvers
+	}
+	return ""
 }
 
 type CreateChangesetRequest struct {
@@ -3769,14 +3777,15 @@ const file_proto_core_v1_changeset_proto_rawDesc = "" +
 	" \x01(\tR\x11remoteContentHash\"@\n" +
 	"\fPathSetEntry\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x1c\n" +
-	"\trecursive\x18\x02 \x01(\bR\trecursive\"\xc5\x02\n" +
+	"\trecursive\x18\x02 \x01(\bR\trecursive\"\xe3\x02\n" +
 	"\x12SubmitRequirements\x12-\n" +
 	"\x12required_approvals\x18\x01 \x01(\x05R\x11requiredApprovals\x12'\n" +
 	"\x0frequired_checks\x18\x02 \x03(\tR\x0erequiredChecks\x12\"\n" +
 	"\rpath_lock_ids\x18\x03 \x03(\tR\vpathLockIds\x12?\n" +
 	"\x1csource_slice_definition_hash\x18\x04 \x01(\tR\x19sourceSliceDefinitionHash\x128\n" +
 	"\x19source_path_lock_set_hash\x18\x05 \x01(\tR\x15sourcePathLockSetHash\x128\n" +
-	"\x18required_human_approvals\x18\x06 \x01(\x05R\x16requiredHumanApprovals\"\xd3\x02\n" +
+	"\x18required_human_approvals\x18\x06 \x01(\x05R\x16requiredHumanApprovals\x12\x1c\n" +
+	"\tapprovers\x18\a \x01(\tR\tapprovers\"\xd3\x02\n" +
 	"\x16CreateChangesetRequest\x12C\n" +
 	"\x0fauthoring_slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x0eauthoringSlice\x12\x1d\n" +
 	"\n" +

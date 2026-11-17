@@ -190,6 +190,30 @@ func (a connectAuthAdapter) CreateDelegatedAgent(ctx context.Context, req *conne
 	return connectResponse(a.svc.CreateDelegatedAgent(ctx, req.Msg))
 }
 
+func (a connectAuthAdapter) CreateGroup(ctx context.Context, req *connect.Request[corev1.CreateGroupRequest]) (*connect.Response[corev1.AccountGroup], error) {
+	return connectResponse(a.svc.CreateGroup(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) GetGroup(ctx context.Context, req *connect.Request[corev1.GetGroupRequest]) (*connect.Response[corev1.AccountGroup], error) {
+	return connectResponse(a.svc.GetGroup(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) ListGroups(ctx context.Context, req *connect.Request[corev1.ListGroupsRequest]) (*connect.Response[corev1.ListGroupsResponse], error) {
+	return connectResponse(a.svc.ListGroups(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) DeleteGroup(ctx context.Context, req *connect.Request[corev1.DeleteGroupRequest]) (*connect.Response[corev1.Empty], error) {
+	return connectResponse(a.svc.DeleteGroup(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) AddGroupMember(ctx context.Context, req *connect.Request[corev1.AddGroupMemberRequest]) (*connect.Response[corev1.AccountGroup], error) {
+	return connectResponse(a.svc.AddGroupMember(ctx, req.Msg))
+}
+
+func (a connectAuthAdapter) RemoveGroupMember(ctx context.Context, req *connect.Request[corev1.RemoveGroupMemberRequest]) (*connect.Response[corev1.AccountGroup], error) {
+	return connectResponse(a.svc.RemoveGroupMember(ctx, req.Msg))
+}
+
 func (a connectAuthAdapter) CreateOrganization(ctx context.Context, req *connect.Request[corev1.CreateOrganizationRequest]) (*connect.Response[corev1.CreateOrganizationResponse], error) {
 	return connectResponse(a.svc.CreateOrganization(ctx, req.Msg))
 }

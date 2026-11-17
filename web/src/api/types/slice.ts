@@ -37,6 +37,7 @@ export interface SliceDefinition {
   requiredApprovals?: number;
   requiredHumanApprovals?: number;
   requiredChecks?: string[];
+  approvers?: string;
 }
 
 export interface ResolveSliceRequest {
@@ -68,6 +69,7 @@ export interface CreateSliceRequest {
   requiredApprovals?: number;
   requiredHumanApprovals?: number;
   requiredChecks?: string[];
+  approvers?: string;
 }
 
 export interface UpdateSliceDefinitionRequest {
@@ -142,6 +144,16 @@ export interface SliceMember {
   createdAt?: string;
 }
 
+export interface SliceGroupMember {
+  groupId?: string;
+  account?: string;
+  name?: string;
+  handle?: string;
+  role?: string;
+  addedBy?: string;
+  createdAt?: string;
+}
+
 export interface ListSliceMembersRequest {
   slice?: SliceRef;
 }
@@ -149,6 +161,7 @@ export interface ListSliceMembersRequest {
 export interface ListSliceMembersResponse {
   slice?: SliceRef;
   members?: SliceMember[];
+  groupMembers?: SliceGroupMember[];
 }
 
 export interface SetSliceMemberRequest {

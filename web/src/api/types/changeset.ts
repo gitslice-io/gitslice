@@ -7,6 +7,7 @@ export interface SubmitRequirements {
   pathLockIds?: string[];
   sourceSliceDefinitionHash?: string;
   sourcePathLockSetHash?: string;
+  approvers?: string;
 }
 
 export interface FileEdit {

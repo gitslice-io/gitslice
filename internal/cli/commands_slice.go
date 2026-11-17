@@ -17,15 +17,16 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	sliceCreateVisibility := "private"
 	sliceCreateRequiredApprovals := 0
 	sliceCreateRequiredHumanApprovals := 0
+	sliceCreateApprovers := ""
 	var sliceCreateIncludes []string
 	var sliceCreateRequiredChecks []string
 	sliceCreateDescription := ""
 	sliceCreateCmd := &cobra.Command{
 		Use:   "create <slice|account:slice>",
 		Short: "Create a slice",
-		Args:  exactArgs(1, "gs slice create <slice|account:slice> [--include /account/path] [--visibility private|public] [--required-approvals n] [--required-human-approvals n] [--required-check name] [--description text]"),
+		Args:  exactArgs(1, "gs slice create <slice|account:slice> [--include /account/path] [--visibility private|public] [--required-approvals n] [--required-human-approvals n] [--required-check name] [--approvers @account/group] [--description text]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runSliceCreate(cmd.Context(), *opts, args[0], sliceCreateIncludes, sliceCreateVisibility, sliceCreateRequiredApprovals, sliceCreateRequiredHumanApprovals, sliceCreateRequiredChecks, sliceCreateDescription)
+			return r.runSliceCreate(cmd.Context(), *opts, args[0], sliceCreateIncludes, sliceCreateVisibility, sliceCreateRequiredApprovals, sliceCreateRequiredHumanApprovals, sliceCreateRequiredChecks, sliceCreateApprovers, sliceCreateDescription)
 		},
 	}
 	sliceCreateCmd.Flags().StringArrayVar(&sliceCreateIncludes, "include", nil, "included global path; repeat for multiple paths")
@@ -33,6 +34,7 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	sliceCreateCmd.Flags().IntVar(&sliceCreateRequiredApprovals, "required-approvals", sliceCreateRequiredApprovals, "distinct non-author approvals required before submit")
 	sliceCreateCmd.Flags().IntVar(&sliceCreateRequiredHumanApprovals, "required-human-approvals", sliceCreateRequiredHumanApprovals, "distinct human (user) approvals required before submit")
 	sliceCreateCmd.Flags().StringArrayVar(&sliceCreateRequiredChecks, "required-check", nil, "check name required to pass before submit; repeat for multiple checks")
+	sliceCreateCmd.Flags().StringVar(&sliceCreateApprovers, "approvers", "", "account group (@account/name) eligible to satisfy required approvals")
 	sliceCreateCmd.Flags().StringVar(&sliceCreateDescription, "description", "", "a short note shown on the slice's page, such as what it holds or which project it mirrors (up to 500 characters)")
 	sliceListShared := false
 	sliceListArchived := false
@@ -80,6 +82,7 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	sliceUpdateRequiredApprovals := 0
 	sliceUpdateRequiredHumanApprovals := 0
 	sliceUpdateClearRequiredChecks := false
+	sliceUpdateApprovers := ""
 	sliceUpdateMergeOnSubmit := ""
 	var sliceUpdateIncludes []string
 	var sliceUpdateRequiredChecks []string
@@ -87,13 +90,14 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	sliceUpdateCmd := &cobra.Command{
 		Use:   "update <slice|account:slice>",
 		Short: "Update slice included paths, visibility, submit settings or description",
-		Args:  exactArgs(1, "gs slice update <slice|account:slice> [--include /account/path] [--visibility private|public] [--required-approvals n] [--required-human-approvals n] [--required-check name] [--description text] [--merge-on-submit on|off]"),
+		Args:  exactArgs(1, "gs slice update <slice|account:slice> [--include /account/path] [--visibility private|public] [--required-approvals n] [--required-human-approvals n] [--required-check name] [--approvers @account/group] [--description text] [--merge-on-submit on|off]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			visibilityChanged := cmd.Flags().Changed("visibility")
 			includesChanged := cmd.Flags().Changed("include")
 			requiredApprovalsChanged := cmd.Flags().Changed("required-approvals")
 			requiredHumanApprovalsChanged := cmd.Flags().Changed("required-human-approvals")
 			requiredChecksChanged := cmd.Flags().Changed("required-check")
+			approversChanged := cmd.Flags().Changed("approvers")
 			var description *string
 			if cmd.Flags().Changed("description") {
 				description = &sliceUpdateDescription
@@ -106,7 +110,7 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 				}
 				mergeOnSubmit = &enabled
 			}
-			return r.runSliceUpdate(cmd.Context(), *opts, args[0], sliceUpdateIncludes, includesChanged, sliceUpdateVisibility, visibilityChanged, sliceUpdateRequiredApprovals, requiredApprovalsChanged, sliceUpdateRequiredHumanApprovals, requiredHumanApprovalsChanged, sliceUpdateRequiredChecks, requiredChecksChanged, sliceUpdateClearRequiredChecks, description, mergeOnSubmit)
+			return r.runSliceUpdate(cmd.Context(), *opts, args[0], sliceUpdateIncludes, includesChanged, sliceUpdateVisibility, visibilityChanged, sliceUpdateRequiredApprovals, requiredApprovalsChanged, sliceUpdateRequiredHumanApprovals, requiredHumanApprovalsChanged, sliceUpdateRequiredChecks, requiredChecksChanged, sliceUpdateClearRequiredChecks, sliceUpdateApprovers, approversChanged, description, mergeOnSubmit)
 		},
 	}
 	sliceUpdateCmd.Flags().StringArrayVar(&sliceUpdateIncludes, "include", nil, "replacement included global path; repeat for multiple paths")
@@ -115,6 +119,7 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 	sliceUpdateCmd.Flags().IntVar(&sliceUpdateRequiredHumanApprovals, "required-human-approvals", sliceUpdateRequiredHumanApprovals, "replacement distinct human (user) approvals required before submit")
 	sliceUpdateCmd.Flags().StringArrayVar(&sliceUpdateRequiredChecks, "required-check", nil, "replacement required check name; repeat for multiple checks")
 	sliceUpdateCmd.Flags().BoolVar(&sliceUpdateClearRequiredChecks, "clear-required-checks", sliceUpdateClearRequiredChecks, "remove all required checks")
+	sliceUpdateCmd.Flags().StringVar(&sliceUpdateApprovers, "approvers", "", "replacement account group (@account/name) eligible to satisfy required approvals; --approvers '' clears it")
 	sliceUpdateCmd.Flags().StringVar(&sliceUpdateDescription, "description", "", "replacement description shown on the slice's page; --description '' clears it")
 	sliceUpdateCmd.Flags().StringVar(&sliceUpdateMergeOnSubmit, "merge-on-submit", "", "on: a changeset whose base went stale is merged onto the latest base at submit (a new patchset that reruns CI); off: it is refused until synced")
 	sliceDeleteYes := false

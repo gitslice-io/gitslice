@@ -107,14 +107,29 @@ func (s *SliceStore) RemoveMember(ctx context.Context, sliceID, subjectID string
 func (s *SliceStore) ListShared(ctx context.Context, subjectID string) ([]storage.SharedSlice, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
+	subjectID = strings.TrimSpace(subjectID)
 	var out []storage.SharedSlice
-	for sliceID, members := range s.b.sliceMembers {
-		m, ok := members[strings.TrimSpace(subjectID)]
-		slice := s.b.slices[sliceID]
-		if !ok || slice == nil || s.b.retiredSlices[sliceID] || slice.Archived {
+	for sliceID, slice := range s.b.slices {
+		if slice == nil || s.b.retiredSlices[sliceID] || slice.Archived {
 			continue
 		}
-		out = append(out, storage.SharedSlice{Slice: cloneSlice(slice), Role: m.role})
+		var bestRole string
+		bestRank := len(storage.SliceRoles)
+		if m, ok := s.b.sliceMembers[sliceID][subjectID]; ok {
+			if r := storage.SliceRoleRank(m.role); r < bestRank {
+				bestRank = r
+				bestRole = m.role
+			}
+		}
+		if groupRole, ok := s.b.subjectSliceGroupRoleLocked(subjectID, sliceID); ok {
+			if r := storage.SliceRoleRank(groupRole); r < bestRank {
+				bestRole = groupRole
+			}
+		}
+		if bestRole == "" {
+			continue
+		}
+		out = append(out, storage.SharedSlice{Slice: cloneSlice(slice), Role: bestRole})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i].Slice.GetRef(), out[j].Slice.GetRef()
@@ -124,4 +139,80 @@ func (s *SliceStore) ListShared(ctx context.Context, subjectID string) ([]storag
 		return a.GetSlice() < b.GetSlice()
 	})
 	return out, nil
+}
+
+func (b *backend) sliceGroupMemberLocked(sliceID string, g *memAccountGroup, m memSliceGroupMember) storage.SliceGroupMember {
+	return storage.SliceGroupMember{
+		SliceID:     sliceID,
+		GroupID:     g.id,
+		Account:     g.account,
+		Name:        g.name,
+		Handle:      storage.FormatGroupHandle(g.account, g.name),
+		Role:        m.role,
+		AddedBy:     m.addedBy,
+		CreatedAt:   m.createdAt,
+		MemberCount: int32(len(g.members)),
+	}
+}
+
+func (s *SliceStore) ListGroupMembers(ctx context.Context, sliceID string) ([]storage.SliceGroupMember, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	sliceID = strings.TrimSpace(sliceID)
+	var out []storage.SliceGroupMember
+	for groupID, m := range s.b.sliceGroupMembers[sliceID] {
+		g := s.b.accountGroups[groupID]
+		if g == nil {
+			continue
+		}
+		out = append(out, s.b.sliceGroupMemberLocked(sliceID, g, m))
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Account != out[j].Account {
+			return out[i].Account < out[j].Account
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
+}
+
+func (s *SliceStore) SetGroupMember(ctx context.Context, sliceID, groupID, role, addedBy string) (*storage.SliceGroupMember, error) {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if storage.SliceRoleRank(role) >= len(storage.SliceRoles) {
+		return nil, fmt.Errorf("%w: invalid slice role %q", storage.ErrInvalid, role)
+	}
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	sliceID, groupID = strings.TrimSpace(sliceID), strings.TrimSpace(groupID)
+	if s.b.slices[sliceID] == nil {
+		return nil, storage.ErrNotFound
+	}
+	g := s.b.accountGroups[groupID]
+	if g == nil {
+		return nil, storage.ErrNotFound
+	}
+	groups := s.b.sliceGroupMembers[sliceID]
+	if groups == nil {
+		groups = map[string]memSliceGroupMember{}
+		s.b.sliceGroupMembers[sliceID] = groups
+	}
+	m, ok := groups[groupID]
+	if !ok {
+		m = memSliceGroupMember{addedBy: addedBy, createdAt: time.Now().UTC()}
+	}
+	m.role = role
+	groups[groupID] = m
+	out := s.b.sliceGroupMemberLocked(sliceID, g, m)
+	return &out, nil
+}
+
+func (s *SliceStore) RemoveGroupMember(ctx context.Context, sliceID, groupID string) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	groups := s.b.sliceGroupMembers[strings.TrimSpace(sliceID)]
+	if _, ok := groups[strings.TrimSpace(groupID)]; !ok {
+		return storage.ErrNotFound
+	}
+	delete(groups, strings.TrimSpace(groupID))
+	return nil
 }

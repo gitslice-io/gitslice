@@ -94,6 +94,10 @@ func definitionHash(sliceID string, version int64, included []string, visibility
 }
 
 func definitionHashWithHuman(sliceID string, version int64, included []string, visibility string, requiredApprovals, requiredHumanApprovals int32, requiredChecks []string) string {
+	return definitionHashWithApprovers(sliceID, version, included, visibility, requiredApprovals, requiredHumanApprovals, requiredChecks, "")
+}
+
+func definitionHashWithApprovers(sliceID string, version int64, included []string, visibility string, requiredApprovals, requiredHumanApprovals int32, requiredChecks []string, approvers string) string {
 	payload, _ := json.Marshal(struct {
 		SliceID                string   `json:"slice_id"`
 		Version                int64    `json:"version"`
@@ -102,6 +106,7 @@ func definitionHashWithHuman(sliceID string, version int64, included []string, v
 		RequiredApprovals      int32    `json:"required_approvals"`
 		RequiredHumanApprovals int32    `json:"required_human_approvals,omitempty"`
 		RequiredChecks         []string `json:"required_checks"`
+		Approvers              string   `json:"approvers,omitempty"`
 	}{
 		SliceID:                sliceID,
 		Version:                version,
@@ -110,6 +115,7 @@ func definitionHashWithHuman(sliceID string, version int64, included []string, v
 		RequiredApprovals:      requiredApprovals,
 		RequiredHumanApprovals: requiredHumanApprovals,
 		RequiredChecks:         requiredChecks,
+		Approvers:              strings.ToLower(strings.TrimSpace(approvers)),
 	})
 	sum := sha256.Sum256(payload)
 	return "sha256:" + hex.EncodeToString(sum[:])

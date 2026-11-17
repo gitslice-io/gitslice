@@ -32,7 +32,7 @@ func (s *SliceStore) CreateDefinition(ctx context.Context, subjectID string, ref
 	if _, ok := s.b.sliceAliases[sliceRefKey(ref)]; ok {
 		return nil, fmt.Errorf("%w: slice name %s is reserved: a slice was renamed from it", storage.ErrConflict, sliceRefKey(ref))
 	}
-	return s.b.putSliceLocked(ref, definition.IncludedPaths, definition.Visibility, definition.RequiredApprovals, definition.RequiredHumanApprovals, definition.RequiredChecks, subjectID)
+	return s.b.putSliceLocked(ref, definition.IncludedPaths, definition.Visibility, definition.RequiredApprovals, definition.RequiredHumanApprovals, definition.RequiredChecks, definition.Approvers, subjectID)
 }
 
 func (s *SliceStore) ValidateDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) ([]string, string, int32, []string, error) {
@@ -89,6 +89,9 @@ func (s *SliceStore) list(account, after string, limit int, publicOnly bool, sha
 			continue
 		}
 		_, shared := s.b.sliceMembers[slice.Id][sharedWith]
+		if !shared && sharedWith != "" {
+			_, shared = s.b.subjectSliceGroupRoleLocked(sharedWith, slice.Id)
+		}
 		if slice.Ref.Account == account && slice.Ref.Slice > after && (!publicOnly || slice.GetDefinition().GetVisibility() == "public" || (sharedWith != "" && shared)) {
 			out = append(out, s.withCIDaemonName(cloneSlice(slice)))
 		}
@@ -137,7 +140,8 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, subjectID, sliceID, e
 	current.Definition.RequiredApprovals = validated.RequiredApprovals
 	current.Definition.RequiredHumanApprovals = validated.RequiredHumanApprovals
 	current.Definition.RequiredChecks = append([]string(nil), validated.RequiredChecks...)
-	current.DefinitionHash = memoryDefinitionHash(sliceID, current.Definition.Version, validated.IncludedPaths, validated.Visibility, validated.RequiredApprovals, validated.RequiredHumanApprovals, validated.RequiredChecks)
+	current.Definition.Approvers = validated.Approvers
+	current.DefinitionHash = memoryDefinitionHash(sliceID, current.Definition.Version, validated.IncludedPaths, validated.Visibility, validated.RequiredApprovals, validated.RequiredHumanApprovals, validated.RequiredChecks, validated.Approvers)
 	s.b.appendSliceDefinitionVersionLocked(current, subjectID)
 	return cloneSlice(current).Definition, nil
 }
@@ -224,6 +228,7 @@ func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 	}
 	delete(s.b.slices, sliceID)
 	delete(s.b.sliceDefinitionVersions, sliceID)
+	delete(s.b.sliceGroupMembers, sliceID)
 	return nil
 }
 

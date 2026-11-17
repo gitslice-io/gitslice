@@ -187,6 +187,7 @@ message SubmitRequirements {
   string source_slice_definition_hash = 4;
   string source_path_lock_set_hash = 5;
   int32 required_human_approvals = 6;
+  string approvers = 7;
 }
 
 message CreateChangesetRequest {

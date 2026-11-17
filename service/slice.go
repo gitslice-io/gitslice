@@ -43,9 +43,13 @@ func (s *SliceService) CreateSlice(ctx context.Context, req *corev1.CreateSliceR
 		RequiredApprovals:      req.RequiredApprovals,
 		RequiredHumanApprovals: req.RequiredHumanApprovals,
 		RequiredChecks:         req.RequiredChecks,
+		Approvers:              req.Approvers,
 	})
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if err := s.validateSliceApprovers(ctx, subjectID, ref.Account, def.Approvers); err != nil {
+		return nil, err
 	}
 	if err := s.validateIncludedPathsExist(ctx, ref, def.IncludedPaths); err != nil {
 		return nil, err
@@ -227,6 +231,11 @@ func (s *SliceService) UpdateSliceDefinition(ctx context.Context, req *corev1.Up
 	def, err := s.Slices.ValidateSliceDefinition(current.Ref, req.Definition)
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if def.Approvers != "" && def.Approvers != current.GetDefinition().GetApprovers() {
+		if err := s.validateSliceApprovers(ctx, subjectID, current.Ref.Account, def.Approvers); err != nil {
+			return nil, err
+		}
 	}
 	// The home slice's included paths are managed by account provisioning and
 	// must not be edited; other definition fields (e.g. visibility) may change.
@@ -476,6 +485,33 @@ func (s *SliceService) validateIncludedPathsExist(ctx context.Context, ref *core
 
 func isHomeSlice(ref *corev1.SliceRef) bool {
 	return ref != nil && ref.Slice == "home"
+}
+
+func (s *SliceService) validateSliceApprovers(ctx context.Context, subjectID, sliceAccount, approvers string) error {
+	approvers = strings.TrimSpace(approvers)
+	if approvers == "" {
+		return nil
+	}
+	groupAccount, groupName, err := storage.ParseGroupRefStrict(approvers)
+	if err != nil {
+		return grpcError(err)
+	}
+	if groupAccount != sliceAccount {
+		canRead, err := canAuthorizeAccount(ctx, s.Auth, subjectID, groupAccount, authz.ActionRead)
+		if err != nil {
+			return err
+		}
+		if !canRead {
+			return status.Errorf(codes.NotFound, "no group named %s", storage.FormatGroupHandle(groupAccount, groupName))
+		}
+	}
+	if _, err := s.Auth.GetGroup(ctx, groupAccount, groupName); err != nil {
+		if errors.Is(err, storage.ErrNotFound) {
+			return status.Errorf(codes.NotFound, "no group named %s", storage.FormatGroupHandle(groupAccount, groupName))
+		}
+		return grpcError(err)
+	}
+	return nil
 }
 
 // sameStringSet reports whether a and b contain the same elements regardless of

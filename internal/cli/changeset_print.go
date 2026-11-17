@@ -123,6 +123,9 @@ func printSubmitRequirements(w io.Writer, req *corev1.SubmitRequirements) {
 	if req.RequiredHumanApprovals > 0 {
 		fmt.Fprintf(w, "  required_human_approvals: %d\n", req.RequiredHumanApprovals)
 	}
+	if req.Approvers != "" {
+		fmt.Fprintf(w, "  approvers: %s\n", req.Approvers)
+	}
 	printRequirementField(w, "required_checks", req.RequiredChecks)
 	printRequirementField(w, "path_lock_ids", req.PathLockIds)
 	if req.SourceSliceDefinitionHash != "" {
@@ -131,7 +134,7 @@ func printSubmitRequirements(w io.Writer, req *corev1.SubmitRequirements) {
 	if req.SourcePathLockSetHash != "" {
 		fmt.Fprintf(w, "  source_path_lock_set_hash: %s\n", req.SourcePathLockSetHash)
 	}
-	if req.RequiredApprovals == 0 && req.RequiredHumanApprovals == 0 && len(req.RequiredChecks) == 0 && len(req.PathLockIds) == 0 && req.SourceSliceDefinitionHash == "" && req.SourcePathLockSetHash == "" {
+	if req.RequiredApprovals == 0 && req.RequiredHumanApprovals == 0 && req.Approvers == "" && len(req.RequiredChecks) == 0 && len(req.PathLockIds) == 0 && req.SourceSliceDefinitionHash == "" && req.SourcePathLockSetHash == "" {
 		fmt.Fprintln(w, "  none")
 	}
 }

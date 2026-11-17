@@ -4,7 +4,7 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { SliceRef } from "./common_pb";
+import type { EmptySchema, SliceRef } from "./common_pb";
 import { file_proto_core_v1_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/auth.proto.
  */
 export const file_proto_core_v1_auth: GenFile = /*@__PURE__*/
-  fileDesc("Chhwcm90by9jb3JlL3YxL2F1dGgucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEiFgoUU3RhcnRDbGlMb2dpblJlcXVlc3QiWAoVU3RhcnRDbGlMb2dpblJlc3BvbnNlEgwKBGNvZGUYASABKAkSEgoKZXhwaXJlc19hdBgCIAEoCRIdChVwb2xsX2ludGVydmFsX3NlY29uZHMYAyABKAUiIwoTUG9sbENsaUxvZ2luUmVxdWVzdBIMCgRjb2RlGAEgASgJIkkKFFBvbGxDbGlMb2dpblJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRINCgV0b2tlbhgCIAEoCRISCgpzdWJqZWN0X2lkGAMgASgJIicKF0NvbXBsZXRlQ2xpTG9naW5SZXF1ZXN0EgwKBGNvZGUYASABKAkiLgoYQ29tcGxldGVDbGlMb2dpblJlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkiFgoUR2V0QXV0aFN0YXR1c1JlcXVlc3QijwEKFUdldEF1dGhTdGF0dXNSZXNwb25zZRISCgpzdWJqZWN0X2lkGAEgASgJEhAKCGFjY291bnRzGAIgAygJEhYKDm5lZWRzX3VzZXJuYW1lGAMgASgIEjgKC21lbWJlcnNoaXBzGAQgAygLMiMuZ2l0c2xpY2UuY29yZS52MS5BY2NvdW50TWVtYmVyc2hpcCJAChFBY2NvdW50TWVtYmVyc2hpcBIPCgdhY2NvdW50GAEgASgJEgwKBGtpbmQYAiABKAkSDAoEcm9sZRgDIAEoCSIxCh1DaGVja1VzZXJuYW1lQXZhaWxhYmxlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCSJXCh5DaGVja1VzZXJuYW1lQXZhaWxhYmxlUmVzcG9uc2USEQoJYXZhaWxhYmxlGAEgASgIEhIKCm5vcm1hbGl6ZWQYAiABKAkSDgoGcmVhc29uGAMgASgJIikKFUNob29zZVVzZXJuYW1lUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCSI9ChZDaG9vc2VVc2VybmFtZVJlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkSDwoHYWNjb3VudBgCIAEoCSJvChRSZWdpc3RlckFnZW50UmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRITCgtvd25lcl9lbWFpbBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSGgoScmVnaXN0cmF0aW9uX3Rva2VuGAQgASgJIk0KFVJlZ2lzdGVyQWdlbnRSZXNwb25zZRISCgpzdWJqZWN0X2lkGAEgASgJEg8KB2FjY291bnQYAiABKAkSDwoHYXBpX2tleRgDIAEoCSJ+CgxQZW5kaW5nQ2xhaW0SGAoQYWdlbnRfc3ViamVjdF9pZBgBIAEoCRIaChJhZ2VudF9kaXNwbGF5X25hbWUYAiABKAkSDwoHYWNjb3VudBgDIAEoCRITCgtvd25lcl9lbWFpbBgEIAEoCRISCgpjcmVhdGVkX2F0GAUgASgJIhoKGExpc3RQZW5kaW5nQ2xhaW1zUmVxdWVzdCJkChlMaXN0UGVuZGluZ0NsYWltc1Jlc3BvbnNlEi4KBmNsYWltcxgBIAMoCzIeLmdpdHNsaWNlLmNvcmUudjEuUGVuZGluZ0NsYWltEhcKD3ZlcmlmaWVkX2VtYWlscxgCIAMoCSIuChJBY2NlcHRDbGFpbVJlcXVlc3QSGAoQYWdlbnRfc3ViamVjdF9pZBgBIAEoCSImChNBY2NlcHRDbGFpbVJlc3BvbnNlEg8KB2FjY291bnQYASABKAkilgEKCk93bmVkQWdlbnQSGAoQYWdlbnRfc3ViamVjdF9pZBgBIAEoCRIaChJhZ2VudF9kaXNwbGF5X25hbWUYAiABKAkSDwoHYWNjb3VudBgDIAEoCRIVCg1yZWdpc3RlcmVkX2F0GAQgASgJEhIKCmNsYWltZWRfYXQYBSABKAkSFgoObGFzdF9hY3RpdmVfYXQYBiABKAkiGAoWTGlzdE93bmVkQWdlbnRzUmVxdWVzdCJHChdMaXN0T3duZWRBZ2VudHNSZXNwb25zZRIsCgZhZ2VudHMYASADKAsyHC5naXRzbGljZS5jb3JlLnYxLk93bmVkQWdlbnQiQgoZQ3JlYXRlT3JnYW5pemF0aW9uUmVxdWVzdBIMCgRzbHVnGAEgASgJEhcKD293bmVyX3VzZXJuYW1lcxgCIAMoCSJfChpDcmVhdGVPcmdhbml6YXRpb25SZXNwb25zZRIPCgdhY2NvdW50GAEgASgJEjAKB21lbWJlcnMYAiADKAsyHy5naXRzbGljZS5jb3JlLnYxLkFjY291bnRNZW1iZXIiZwoNQWNjb3VudE1lbWJlchIQCgh1c2VybmFtZRgBIAEoCRISCgpzdWJqZWN0X2lkGAIgASgJEgwKBHJvbGUYAyABKAkSFAoMZGlzcGxheV9uYW1lGAQgASgJEgwKBGtpbmQYBSABKAkiLAoZTGlzdEFjY291bnRNZW1iZXJzUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJIm0KGkxpc3RBY2NvdW50TWVtYmVyc1Jlc3BvbnNlEg8KB2FjY291bnQYASABKAkSDAoEa2luZBgCIAEoCRIwCgdtZW1iZXJzGAMgAygLMh8uZ2l0c2xpY2UuY29yZS52MS5BY2NvdW50TWVtYmVyIkoKF1NldEFjY291bnRNZW1iZXJSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSDAoEcm9sZRgDIAEoCSJLChhTZXRBY2NvdW50TWVtYmVyUmVzcG9uc2USLwoGbWVtYmVyGAEgASgLMh8uZ2l0c2xpY2UuY29yZS52MS5BY2NvdW50TWVtYmVyIj8KGlJlbW92ZUFjY291bnRNZW1iZXJSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSEAoIdXNlcm5hbWUYAiABKAkiHQobUmVtb3ZlQWNjb3VudE1lbWJlclJlc3BvbnNlImwKEUFjY291bnRJbnZpdGF0aW9uEg8KB2FjY291bnQYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSDAoEcm9sZRgDIAEoCRISCgppbnZpdGVkX2J5GAQgASgJEhIKCmNyZWF0ZWRfYXQYBSABKAkiTQoaSW52aXRlQWNjb3VudE1lbWJlclJlcXVlc3QSDwoHYWNjb3VudBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJIlYKG0ludml0ZUFjY291bnRNZW1iZXJSZXNwb25zZRI3CgppbnZpdGF0aW9uGAEgASgLMiMuZ2l0c2xpY2UuY29yZS52MS5BY2NvdW50SW52aXRhdGlvbiIwCh1MaXN0QWNjb3VudEludml0YXRpb25zUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJIloKHkxpc3RBY2NvdW50SW52aXRhdGlvbnNSZXNwb25zZRI4CgtpbnZpdGF0aW9ucxgBIAMoCzIjLmdpdHNsaWNlLmNvcmUudjEuQWNjb3VudEludml0YXRpb24iGgoYTGlzdE15SW52aXRhdGlvbnNSZXF1ZXN0IlUKGUxpc3RNeUludml0YXRpb25zUmVzcG9uc2USOAoLaW52aXRhdGlvbnMYASADKAsyIy5naXRzbGljZS5jb3JlLnYxLkFjY291bnRJbnZpdGF0aW9uIj0KGlJlc3BvbmRUb0ludml0YXRpb25SZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSDgoGYWNjZXB0GAIgASgIIlYKG1Jlc3BvbmRUb0ludml0YXRpb25SZXNwb25zZRI3CgptZW1iZXJzaGlwGAEgASgLMiMuZ2l0c2xpY2UuY29yZS52MS5BY2NvdW50TWVtYmVyc2hpcCJDCh5DYW5jZWxBY2NvdW50SW52aXRhdGlvblJlcXVlc3QSDwoHYWNjb3VudBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCSIhCh9DYW5jZWxBY2NvdW50SW52aXRhdGlvblJlc3BvbnNlIpcBCg5BY2NvdW50UHJvZmlsZRIPCgdhY2NvdW50GAEgASgJEgwKBGtpbmQYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJEhMKC2Rlc2NyaXB0aW9uGAQgASgJEg8KB3dlYnNpdGUYBSABKAkSEgoKY3JlYXRlZF9hdBgGIAEoCRIWCg5hdmF0YXJfdmVyc2lvbhgHIAEoCSIrChhHZXRBY2NvdW50UHJvZmlsZVJlcXVlc3QSDwoHYWNjb3VudBgBIAEoCSI5ChdTZXRBY2NvdW50QXZhdGFyUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEg0KBWltYWdlGAIgASgMImoKG1VwZGF0ZUFjY291bnRQcm9maWxlUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRIPCgd3ZWJzaXRlGAQgASgJIv0BCgZBcGlLZXkSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRISCgpjcmVhdGVkX2F0GAMgASgJEhQKDGxhc3RfdXNlZF9hdBgEIAEoCRISCgpleHBpcmVzX2F0GAUgASgJEhIKCnJldm9rZWRfYXQYBiABKAkSEQoJc2xpY2VfaWRzGAcgAygJEg4KBnNsaWNlcxgIIAMoCRIQCghtYXhfcm9sZRgJIAEoCRIVCg1wYXJlbnRfa2V5X2lkGAogASgJEg8KB3B1cnBvc2UYCyABKAkSEQoJZGFlbW9uX2lkGAwgASgJEhcKD2NvbnZlcnNhdGlvbl9pZBgNIAEoCSIjChJMaXN0QXBpS2V5c1JlcXVlc3QSDQoFYWdlbnQYASABKAkiaAoTTGlzdEFwaUtleXNSZXNwb25zZRIYChBhZ2VudF9zdWJqZWN0X2lkGAEgASgJEg8KB2FjY291bnQYAiABKAkSJgoEa2V5cxgDIAMoCzIYLmdpdHNsaWNlLmNvcmUudjEuQXBpS2V5Iq0BChNDcmVhdGVBcGlLZXlSZXF1ZXN0Eg0KBWFnZW50GAEgASgJEgwKBG5hbWUYAiABKAkSDgoGc2xpY2VzGAMgAygJEhAKCG1heF9yb2xlGAQgASgJEhoKEmV4cGlyZXNfaW5fc2Vjb25kcxgFIAEoAxIPCgdwdXJwb3NlGAYgASgJEhEKCWRhZW1vbl9pZBgHIAEoCRIXCg9jb252ZXJzYXRpb25faWQYCCABKAkieAoUQ3JlYXRlQXBpS2V5UmVzcG9uc2USJQoDa2V5GAEgASgLMhguZ2l0c2xpY2UuY29yZS52MS5BcGlLZXkSDgoGc2VjcmV0GAIgASgJEhgKEGFnZW50X3N1YmplY3RfaWQYAyABKAkSDwoHYWNjb3VudBgEIAEoCSI0ChNSZXZva2VBcGlLZXlSZXF1ZXN0Eg0KBWFnZW50GAEgASgJEg4KBmtleV9pZBgCIAEoCSI9ChRSZXZva2VBcGlLZXlSZXNwb25zZRIlCgNrZXkYASABKAsyGC5naXRzbGljZS5jb3JlLnYxLkFwaUtleSJ+ChtDcmVhdGVEZWxlZ2F0ZWRBZ2VudFJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEikKBXNsaWNlGAMgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIMCgRyb2xlGAQgASgJIrkBChxDcmVhdGVEZWxlZ2F0ZWRBZ2VudFJlc3BvbnNlEhgKEGFnZW50X3N1YmplY3RfaWQYASABKAkSDwoHYWNjb3VudBgCIAEoCRIlCgNrZXkYAyABKAsyGC5naXRzbGljZS5jb3JlLnYxLkFwaUtleRIOCgZzZWNyZXQYBCABKAkSKQoFc2xpY2UYBSABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgwKBHJvbGUYBiABKAky4xUKC0F1dGhTZXJ2aWNlEmAKDVN0YXJ0Q2xpTG9naW4SJi5naXRzbGljZS5jb3JlLnYxLlN0YXJ0Q2xpTG9naW5SZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5TdGFydENsaUxvZ2luUmVzcG9uc2USXQoMUG9sbENsaUxvZ2luEiUuZ2l0c2xpY2UuY29yZS52MS5Qb2xsQ2xpTG9naW5SZXF1ZXN0GiYuZ2l0c2xpY2UuY29yZS52MS5Qb2xsQ2xpTG9naW5SZXNwb25zZRJpChBDb21wbGV0ZUNsaUxvZ2luEikuZ2l0c2xpY2UuY29yZS52MS5Db21wbGV0ZUNsaUxvZ2luUmVxdWVzdBoqLmdpdHNsaWNlLmNvcmUudjEuQ29tcGxldGVDbGlMb2dpblJlc3BvbnNlEmAKDUdldEF1dGhTdGF0dXMSJi5naXRzbGljZS5jb3JlLnYxLkdldEF1dGhTdGF0dXNSZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5HZXRBdXRoU3RhdHVzUmVzcG9uc2USewoWQ2hlY2tVc2VybmFtZUF2YWlsYWJsZRIvLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlcXVlc3QaMC5naXRzbGljZS5jb3JlLnYxLkNoZWNrVXNlcm5hbWVBdmFpbGFibGVSZXNwb25zZRJjCg5DaG9vc2VVc2VybmFtZRInLmdpdHNsaWNlLmNvcmUudjEuQ2hvb3NlVXNlcm5hbWVSZXF1ZXN0GiguZ2l0c2xpY2UuY29yZS52MS5DaG9vc2VVc2VybmFtZVJlc3BvbnNlEmAKDVJlZ2lzdGVyQWdlbnQSJi5naXRzbGljZS5jb3JlLnYxLlJlZ2lzdGVyQWdlbnRSZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5SZWdpc3RlckFnZW50UmVzcG9uc2USbAoRTGlzdFBlbmRpbmdDbGFpbXMSKi5naXRzbGljZS5jb3JlLnYxLkxpc3RQZW5kaW5nQ2xhaW1zUmVxdWVzdBorLmdpdHNsaWNlLmNvcmUudjEuTGlzdFBlbmRpbmdDbGFpbXNSZXNwb25zZRJaCgtBY2NlcHRDbGFpbRIkLmdpdHNsaWNlLmNvcmUudjEuQWNjZXB0Q2xhaW1SZXF1ZXN0GiUuZ2l0c2xpY2UuY29yZS52MS5BY2NlcHRDbGFpbVJlc3BvbnNlEmYKD0xpc3RPd25lZEFnZW50cxIoLmdpdHNsaWNlLmNvcmUudjEuTGlzdE93bmVkQWdlbnRzUmVxdWVzdBopLmdpdHNsaWNlLmNvcmUudjEuTGlzdE93bmVkQWdlbnRzUmVzcG9uc2USWgoLTGlzdEFwaUtleXMSJC5naXRzbGljZS5jb3JlLnYxLkxpc3RBcGlLZXlzUmVxdWVzdBolLmdpdHNsaWNlLmNvcmUudjEuTGlzdEFwaUtleXNSZXNwb25zZRJdCgxDcmVhdGVBcGlLZXkSJS5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZUFwaUtleVJlcXVlc3QaJi5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZUFwaUtleVJlc3BvbnNlEl0KDFJldm9rZUFwaUtleRIlLmdpdHNsaWNlLmNvcmUudjEuUmV2b2tlQXBpS2V5UmVxdWVzdBomLmdpdHNsaWNlLmNvcmUudjEuUmV2b2tlQXBpS2V5UmVzcG9uc2USbwoSQ3JlYXRlT3JnYW5pemF0aW9uEisuZ2l0c2xpY2UuY29yZS52MS5DcmVhdGVPcmdhbml6YXRpb25SZXF1ZXN0GiwuZ2l0c2xpY2UuY29yZS52MS5DcmVhdGVPcmdhbml6YXRpb25SZXNwb25zZRJvChJMaXN0QWNjb3VudE1lbWJlcnMSKy5naXRzbGljZS5jb3JlLnYxLkxpc3RBY2NvdW50TWVtYmVyc1JlcXVlc3QaLC5naXRzbGljZS5jb3JlLnYxLkxpc3RBY2NvdW50TWVtYmVyc1Jlc3BvbnNlEmkKEFNldEFjY291bnRNZW1iZXISKS5naXRzbGljZS5jb3JlLnYxLlNldEFjY291bnRNZW1iZXJSZXF1ZXN0GiouZ2l0c2xpY2UuY29yZS52MS5TZXRBY2NvdW50TWVtYmVyUmVzcG9uc2UScgoTUmVtb3ZlQWNjb3VudE1lbWJlchIsLmdpdHNsaWNlLmNvcmUudjEuUmVtb3ZlQWNjb3VudE1lbWJlclJlcXVlc3QaLS5naXRzbGljZS5jb3JlLnYxLlJlbW92ZUFjY291bnRNZW1iZXJSZXNwb25zZRJyChNJbnZpdGVBY2NvdW50TWVtYmVyEiwuZ2l0c2xpY2UuY29yZS52MS5JbnZpdGVBY2NvdW50TWVtYmVyUmVxdWVzdBotLmdpdHNsaWNlLmNvcmUudjEuSW52aXRlQWNjb3VudE1lbWJlclJlc3BvbnNlEnsKFkxpc3RBY2NvdW50SW52aXRhdGlvbnMSLy5naXRzbGljZS5jb3JlLnYxLkxpc3RBY2NvdW50SW52aXRhdGlvbnNSZXF1ZXN0GjAuZ2l0c2xpY2UuY29yZS52MS5MaXN0QWNjb3VudEludml0YXRpb25zUmVzcG9uc2USbAoRTGlzdE15SW52aXRhdGlvbnMSKi5naXRzbGljZS5jb3JlLnYxLkxpc3RNeUludml0YXRpb25zUmVxdWVzdBorLmdpdHNsaWNlLmNvcmUudjEuTGlzdE15SW52aXRhdGlvbnNSZXNwb25zZRJyChNSZXNwb25kVG9JbnZpdGF0aW9uEiwuZ2l0c2xpY2UuY29yZS52MS5SZXNwb25kVG9JbnZpdGF0aW9uUmVxdWVzdBotLmdpdHNsaWNlLmNvcmUudjEuUmVzcG9uZFRvSW52aXRhdGlvblJlc3BvbnNlEn4KF0NhbmNlbEFjY291bnRJbnZpdGF0aW9uEjAuZ2l0c2xpY2UuY29yZS52MS5DYW5jZWxBY2NvdW50SW52aXRhdGlvblJlcXVlc3QaMS5naXRzbGljZS5jb3JlLnYxLkNhbmNlbEFjY291bnRJbnZpdGF0aW9uUmVzcG9uc2USYQoRR2V0QWNjb3VudFByb2ZpbGUSKi5naXRzbGljZS5jb3JlLnYxLkdldEFjY291bnRQcm9maWxlUmVxdWVzdBogLmdpdHNsaWNlLmNvcmUudjEuQWNjb3VudFByb2ZpbGUSZwoUVXBkYXRlQWNjb3VudFByb2ZpbGUSLS5naXRzbGljZS5jb3JlLnYxLlVwZGF0ZUFjY291bnRQcm9maWxlUmVxdWVzdBogLmdpdHNsaWNlLmNvcmUudjEuQWNjb3VudFByb2ZpbGUSXwoQU2V0QWNjb3VudEF2YXRhchIpLmdpdHNsaWNlLmNvcmUudjEuU2V0QWNjb3VudEF2YXRhclJlcXVlc3QaIC5naXRzbGljZS5jb3JlLnYxLkFjY291bnRQcm9maWxlEnUKFENyZWF0ZURlbGVnYXRlZEFnZW50Ei0uZ2l0c2xpY2UuY29yZS52MS5DcmVhdGVEZWxlZ2F0ZWRBZ2VudFJlcXVlc3QaLi5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZURlbGVnYXRlZEFnZW50UmVzcG9uc2VCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw", [file_proto_core_v1_common]);
+  fileDesc("Chhwcm90by9jb3JlL3YxL2F1dGgucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEiFgoUU3RhcnRDbGlMb2dpblJlcXVlc3QiWAoVU3RhcnRDbGlMb2dpblJlc3BvbnNlEgwKBGNvZGUYASABKAkSEgoKZXhwaXJlc19hdBgCIAEoCRIdChVwb2xsX2ludGVydmFsX3NlY29uZHMYAyABKAUiIwoTUG9sbENsaUxvZ2luUmVxdWVzdBIMCgRjb2RlGAEgASgJIkkKFFBvbGxDbGlMb2dpblJlc3BvbnNlEg4KBnN0YXR1cxgBIAEoCRINCgV0b2tlbhgCIAEoCRISCgpzdWJqZWN0X2lkGAMgASgJIicKF0NvbXBsZXRlQ2xpTG9naW5SZXF1ZXN0EgwKBGNvZGUYASABKAkiLgoYQ29tcGxldGVDbGlMb2dpblJlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkiFgoUR2V0QXV0aFN0YXR1c1JlcXVlc3QijwEKFUdldEF1dGhTdGF0dXNSZXNwb25zZRISCgpzdWJqZWN0X2lkGAEgASgJEhAKCGFjY291bnRzGAIgAygJEhYKDm5lZWRzX3VzZXJuYW1lGAMgASgIEjgKC21lbWJlcnNoaXBzGAQgAygLMiMuZ2l0c2xpY2UuY29yZS52MS5BY2NvdW50TWVtYmVyc2hpcCJAChFBY2NvdW50TWVtYmVyc2hpcBIPCgdhY2NvdW50GAEgASgJEgwKBGtpbmQYAiABKAkSDAoEcm9sZRgDIAEoCSIxCh1DaGVja1VzZXJuYW1lQXZhaWxhYmxlUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCSJXCh5DaGVja1VzZXJuYW1lQXZhaWxhYmxlUmVzcG9uc2USEQoJYXZhaWxhYmxlGAEgASgIEhIKCm5vcm1hbGl6ZWQYAiABKAkSDgoGcmVhc29uGAMgASgJIikKFUNob29zZVVzZXJuYW1lUmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCSI9ChZDaG9vc2VVc2VybmFtZVJlc3BvbnNlEhIKCnN1YmplY3RfaWQYASABKAkSDwoHYWNjb3VudBgCIAEoCSJvChRSZWdpc3RlckFnZW50UmVxdWVzdBIQCgh1c2VybmFtZRgBIAEoCRITCgtvd25lcl9lbWFpbBgCIAEoCRIUCgxkaXNwbGF5X25hbWUYAyABKAkSGgoScmVnaXN0cmF0aW9uX3Rva2VuGAQgASgJIk0KFVJlZ2lzdGVyQWdlbnRSZXNwb25zZRISCgpzdWJqZWN0X2lkGAEgASgJEg8KB2FjY291bnQYAiABKAkSDwoHYXBpX2tleRgDIAEoCSJ+CgxQZW5kaW5nQ2xhaW0SGAoQYWdlbnRfc3ViamVjdF9pZBgBIAEoCRIaChJhZ2VudF9kaXNwbGF5X25hbWUYAiABKAkSDwoHYWNjb3VudBgDIAEoCRITCgtvd25lcl9lbWFpbBgEIAEoCRISCgpjcmVhdGVkX2F0GAUgASgJIhoKGExpc3RQZW5kaW5nQ2xhaW1zUmVxdWVzdCJkChlMaXN0UGVuZGluZ0NsYWltc1Jlc3BvbnNlEi4KBmNsYWltcxgBIAMoCzIeLmdpdHNsaWNlLmNvcmUudjEuUGVuZGluZ0NsYWltEhcKD3ZlcmlmaWVkX2VtYWlscxgCIAMoCSIuChJBY2NlcHRDbGFpbVJlcXVlc3QSGAoQYWdlbnRfc3ViamVjdF9pZBgBIAEoCSImChNBY2NlcHRDbGFpbVJlc3BvbnNlEg8KB2FjY291bnQYASABKAkilgEKCk93bmVkQWdlbnQSGAoQYWdlbnRfc3ViamVjdF9pZBgBIAEoCRIaChJhZ2VudF9kaXNwbGF5X25hbWUYAiABKAkSDwoHYWNjb3VudBgDIAEoCRIVCg1yZWdpc3RlcmVkX2F0GAQgASgJEhIKCmNsYWltZWRfYXQYBSABKAkSFgoObGFzdF9hY3RpdmVfYXQYBiABKAkiGAoWTGlzdE93bmVkQWdlbnRzUmVxdWVzdCJHChdMaXN0T3duZWRBZ2VudHNSZXNwb25zZRIsCgZhZ2VudHMYASADKAsyHC5naXRzbGljZS5jb3JlLnYxLk93bmVkQWdlbnQiQgoZQ3JlYXRlT3JnYW5pemF0aW9uUmVxdWVzdBIMCgRzbHVnGAEgASgJEhcKD293bmVyX3VzZXJuYW1lcxgCIAMoCSJfChpDcmVhdGVPcmdhbml6YXRpb25SZXNwb25zZRIPCgdhY2NvdW50GAEgASgJEjAKB21lbWJlcnMYAiADKAsyHy5naXRzbGljZS5jb3JlLnYxLkFjY291bnRNZW1iZXIiZwoNQWNjb3VudE1lbWJlchIQCgh1c2VybmFtZRgBIAEoCRISCgpzdWJqZWN0X2lkGAIgASgJEgwKBHJvbGUYAyABKAkSFAoMZGlzcGxheV9uYW1lGAQgASgJEgwKBGtpbmQYBSABKAkiLAoZTGlzdEFjY291bnRNZW1iZXJzUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJIm0KGkxpc3RBY2NvdW50TWVtYmVyc1Jlc3BvbnNlEg8KB2FjY291bnQYASABKAkSDAoEa2luZBgCIAEoCRIwCgdtZW1iZXJzGAMgAygLMh8uZ2l0c2xpY2UuY29yZS52MS5BY2NvdW50TWVtYmVyIkoKF1NldEFjY291bnRNZW1iZXJSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSDAoEcm9sZRgDIAEoCSJLChhTZXRBY2NvdW50TWVtYmVyUmVzcG9uc2USLwoGbWVtYmVyGAEgASgLMh8uZ2l0c2xpY2UuY29yZS52MS5BY2NvdW50TWVtYmVyIj8KGlJlbW92ZUFjY291bnRNZW1iZXJSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSEAoIdXNlcm5hbWUYAiABKAkiHQobUmVtb3ZlQWNjb3VudE1lbWJlclJlc3BvbnNlImwKEUFjY291bnRJbnZpdGF0aW9uEg8KB2FjY291bnQYASABKAkSEAoIdXNlcm5hbWUYAiABKAkSDAoEcm9sZRgDIAEoCRISCgppbnZpdGVkX2J5GAQgASgJEhIKCmNyZWF0ZWRfYXQYBSABKAkiTQoaSW52aXRlQWNjb3VudE1lbWJlclJlcXVlc3QSDwoHYWNjb3VudBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCRIMCgRyb2xlGAMgASgJIlYKG0ludml0ZUFjY291bnRNZW1iZXJSZXNwb25zZRI3CgppbnZpdGF0aW9uGAEgASgLMiMuZ2l0c2xpY2UuY29yZS52MS5BY2NvdW50SW52aXRhdGlvbiIwCh1MaXN0QWNjb3VudEludml0YXRpb25zUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJIloKHkxpc3RBY2NvdW50SW52aXRhdGlvbnNSZXNwb25zZRI4CgtpbnZpdGF0aW9ucxgBIAMoCzIjLmdpdHNsaWNlLmNvcmUudjEuQWNjb3VudEludml0YXRpb24iGgoYTGlzdE15SW52aXRhdGlvbnNSZXF1ZXN0IlUKGUxpc3RNeUludml0YXRpb25zUmVzcG9uc2USOAoLaW52aXRhdGlvbnMYASADKAsyIy5naXRzbGljZS5jb3JlLnYxLkFjY291bnRJbnZpdGF0aW9uIj0KGlJlc3BvbmRUb0ludml0YXRpb25SZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSDgoGYWNjZXB0GAIgASgIIlYKG1Jlc3BvbmRUb0ludml0YXRpb25SZXNwb25zZRI3CgptZW1iZXJzaGlwGAEgASgLMiMuZ2l0c2xpY2UuY29yZS52MS5BY2NvdW50TWVtYmVyc2hpcCJDCh5DYW5jZWxBY2NvdW50SW52aXRhdGlvblJlcXVlc3QSDwoHYWNjb3VudBgBIAEoCRIQCgh1c2VybmFtZRgCIAEoCSIhCh9DYW5jZWxBY2NvdW50SW52aXRhdGlvblJlc3BvbnNlIpcBCg5BY2NvdW50UHJvZmlsZRIPCgdhY2NvdW50GAEgASgJEgwKBGtpbmQYAiABKAkSFAoMZGlzcGxheV9uYW1lGAMgASgJEhMKC2Rlc2NyaXB0aW9uGAQgASgJEg8KB3dlYnNpdGUYBSABKAkSEgoKY3JlYXRlZF9hdBgGIAEoCRIWCg5hdmF0YXJfdmVyc2lvbhgHIAEoCSIrChhHZXRBY2NvdW50UHJvZmlsZVJlcXVlc3QSDwoHYWNjb3VudBgBIAEoCSI5ChdTZXRBY2NvdW50QXZhdGFyUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEg0KBWltYWdlGAIgASgMImoKG1VwZGF0ZUFjY291bnRQcm9maWxlUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEhQKDGRpc3BsYXlfbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCRIPCgd3ZWJzaXRlGAQgASgJIv0BCgZBcGlLZXkSCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRISCgpjcmVhdGVkX2F0GAMgASgJEhQKDGxhc3RfdXNlZF9hdBgEIAEoCRISCgpleHBpcmVzX2F0GAUgASgJEhIKCnJldm9rZWRfYXQYBiABKAkSEQoJc2xpY2VfaWRzGAcgAygJEg4KBnNsaWNlcxgIIAMoCRIQCghtYXhfcm9sZRgJIAEoCRIVCg1wYXJlbnRfa2V5X2lkGAogASgJEg8KB3B1cnBvc2UYCyABKAkSEQoJZGFlbW9uX2lkGAwgASgJEhcKD2NvbnZlcnNhdGlvbl9pZBgNIAEoCSIjChJMaXN0QXBpS2V5c1JlcXVlc3QSDQoFYWdlbnQYASABKAkiaAoTTGlzdEFwaUtleXNSZXNwb25zZRIYChBhZ2VudF9zdWJqZWN0X2lkGAEgASgJEg8KB2FjY291bnQYAiABKAkSJgoEa2V5cxgDIAMoCzIYLmdpdHNsaWNlLmNvcmUudjEuQXBpS2V5Iq0BChNDcmVhdGVBcGlLZXlSZXF1ZXN0Eg0KBWFnZW50GAEgASgJEgwKBG5hbWUYAiABKAkSDgoGc2xpY2VzGAMgAygJEhAKCG1heF9yb2xlGAQgASgJEhoKEmV4cGlyZXNfaW5fc2Vjb25kcxgFIAEoAxIPCgdwdXJwb3NlGAYgASgJEhEKCWRhZW1vbl9pZBgHIAEoCRIXCg9jb252ZXJzYXRpb25faWQYCCABKAkieAoUQ3JlYXRlQXBpS2V5UmVzcG9uc2USJQoDa2V5GAEgASgLMhguZ2l0c2xpY2UuY29yZS52MS5BcGlLZXkSDgoGc2VjcmV0GAIgASgJEhgKEGFnZW50X3N1YmplY3RfaWQYAyABKAkSDwoHYWNjb3VudBgEIAEoCSI0ChNSZXZva2VBcGlLZXlSZXF1ZXN0Eg0KBWFnZW50GAEgASgJEg4KBmtleV9pZBgCIAEoCSI9ChRSZXZva2VBcGlLZXlSZXNwb25zZRIlCgNrZXkYASABKAsyGC5naXRzbGljZS5jb3JlLnYxLkFwaUtleSJ+ChtDcmVhdGVEZWxlZ2F0ZWRBZ2VudFJlcXVlc3QSEAoIdXNlcm5hbWUYASABKAkSFAoMZGlzcGxheV9uYW1lGAIgASgJEikKBXNsaWNlGAMgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIMCgRyb2xlGAQgASgJIrkBChxDcmVhdGVEZWxlZ2F0ZWRBZ2VudFJlc3BvbnNlEhgKEGFnZW50X3N1YmplY3RfaWQYASABKAkSDwoHYWNjb3VudBgCIAEoCRIlCgNrZXkYAyABKAsyGC5naXRzbGljZS5jb3JlLnYxLkFwaUtleRIOCgZzZWNyZXQYBCABKAkSKQoFc2xpY2UYBSABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgwKBHJvbGUYBiABKAkihAEKEkFjY291bnRHcm91cE1lbWJlchIQCgh1c2VybmFtZRgBIAEoCRISCgpzdWJqZWN0X2lkGAIgASgJEhQKDGRpc3BsYXlfbmFtZRgDIAEoCRIMCgRraW5kGAQgASgJEhAKCGFkZGVkX2J5GAUgASgJEhIKCmNyZWF0ZWRfYXQYBiABKAki5wEKDEFjY291bnRHcm91cBIKCgJpZBgBIAEoCRIPCgdhY2NvdW50GAIgASgJEgwKBG5hbWUYAyABKAkSDgoGaGFuZGxlGAQgASgJEhMKC2Rlc2NyaXB0aW9uGAUgASgJEhIKCmNyZWF0ZWRfYnkYBiABKAkSEgoKY3JlYXRlZF9hdBgHIAEoCRISCgp1cGRhdGVkX2F0GAggASgJEjUKB21lbWJlcnMYCSADKAsyJC5naXRzbGljZS5jb3JlLnYxLkFjY291bnRHcm91cE1lbWJlchIUCgxtZW1iZXJfY291bnQYCiABKAUiSAoSQ3JlYXRlR3JvdXBSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSDAoEbmFtZRgCIAEoCRITCgtkZXNjcmlwdGlvbhgDIAEoCSIwCg9HZXRHcm91cFJlcXVlc3QSDwoHYWNjb3VudBgBIAEoCRIMCgRuYW1lGAIgASgJIiQKEUxpc3RHcm91cHNSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkiVQoSTGlzdEdyb3Vwc1Jlc3BvbnNlEg8KB2FjY291bnQYASABKAkSLgoGZ3JvdXBzGAIgAygLMh4uZ2l0c2xpY2UuY29yZS52MS5BY2NvdW50R3JvdXAiMwoSRGVsZXRlR3JvdXBSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSDAoEbmFtZRgCIAEoCSJIChVBZGRHcm91cE1lbWJlclJlcXVlc3QSDwoHYWNjb3VudBgBIAEoCRIMCgRuYW1lGAIgASgJEhAKCHVzZXJuYW1lGAMgASgJIksKGFJlbW92ZUdyb3VwTWVtYmVyUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEgwKBG5hbWUYAiABKAkSEAoIdXNlcm5hbWUYAyABKAky6hkKC0F1dGhTZXJ2aWNlEmAKDVN0YXJ0Q2xpTG9naW4SJi5naXRzbGljZS5jb3JlLnYxLlN0YXJ0Q2xpTG9naW5SZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5TdGFydENsaUxvZ2luUmVzcG9uc2USXQoMUG9sbENsaUxvZ2luEiUuZ2l0c2xpY2UuY29yZS52MS5Qb2xsQ2xpTG9naW5SZXF1ZXN0GiYuZ2l0c2xpY2UuY29yZS52MS5Qb2xsQ2xpTG9naW5SZXNwb25zZRJpChBDb21wbGV0ZUNsaUxvZ2luEikuZ2l0c2xpY2UuY29yZS52MS5Db21wbGV0ZUNsaUxvZ2luUmVxdWVzdBoqLmdpdHNsaWNlLmNvcmUudjEuQ29tcGxldGVDbGlMb2dpblJlc3BvbnNlEmAKDUdldEF1dGhTdGF0dXMSJi5naXRzbGljZS5jb3JlLnYxLkdldEF1dGhTdGF0dXNSZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5HZXRBdXRoU3RhdHVzUmVzcG9uc2USewoWQ2hlY2tVc2VybmFtZUF2YWlsYWJsZRIvLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tVc2VybmFtZUF2YWlsYWJsZVJlcXVlc3QaMC5naXRzbGljZS5jb3JlLnYxLkNoZWNrVXNlcm5hbWVBdmFpbGFibGVSZXNwb25zZRJjCg5DaG9vc2VVc2VybmFtZRInLmdpdHNsaWNlLmNvcmUudjEuQ2hvb3NlVXNlcm5hbWVSZXF1ZXN0GiguZ2l0c2xpY2UuY29yZS52MS5DaG9vc2VVc2VybmFtZVJlc3BvbnNlEmAKDVJlZ2lzdGVyQWdlbnQSJi5naXRzbGljZS5jb3JlLnYxLlJlZ2lzdGVyQWdlbnRSZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5SZWdpc3RlckFnZW50UmVzcG9uc2USbAoRTGlzdFBlbmRpbmdDbGFpbXMSKi5naXRzbGljZS5jb3JlLnYxLkxpc3RQZW5kaW5nQ2xhaW1zUmVxdWVzdBorLmdpdHNsaWNlLmNvcmUudjEuTGlzdFBlbmRpbmdDbGFpbXNSZXNwb25zZRJaCgtBY2NlcHRDbGFpbRIkLmdpdHNsaWNlLmNvcmUudjEuQWNjZXB0Q2xhaW1SZXF1ZXN0GiUuZ2l0c2xpY2UuY29yZS52MS5BY2NlcHRDbGFpbVJlc3BvbnNlEmYKD0xpc3RPd25lZEFnZW50cxIoLmdpdHNsaWNlLmNvcmUudjEuTGlzdE93bmVkQWdlbnRzUmVxdWVzdBopLmdpdHNsaWNlLmNvcmUudjEuTGlzdE93bmVkQWdlbnRzUmVzcG9uc2USWgoLTGlzdEFwaUtleXMSJC5naXRzbGljZS5jb3JlLnYxLkxpc3RBcGlLZXlzUmVxdWVzdBolLmdpdHNsaWNlLmNvcmUudjEuTGlzdEFwaUtleXNSZXNwb25zZRJdCgxDcmVhdGVBcGlLZXkSJS5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZUFwaUtleVJlcXVlc3QaJi5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZUFwaUtleVJlc3BvbnNlEl0KDFJldm9rZUFwaUtleRIlLmdpdHNsaWNlLmNvcmUudjEuUmV2b2tlQXBpS2V5UmVxdWVzdBomLmdpdHNsaWNlLmNvcmUudjEuUmV2b2tlQXBpS2V5UmVzcG9uc2USbwoSQ3JlYXRlT3JnYW5pemF0aW9uEisuZ2l0c2xpY2UuY29yZS52MS5DcmVhdGVPcmdhbml6YXRpb25SZXF1ZXN0GiwuZ2l0c2xpY2UuY29yZS52MS5DcmVhdGVPcmdhbml6YXRpb25SZXNwb25zZRJvChJMaXN0QWNjb3VudE1lbWJlcnMSKy5naXRzbGljZS5jb3JlLnYxLkxpc3RBY2NvdW50TWVtYmVyc1JlcXVlc3QaLC5naXRzbGljZS5jb3JlLnYxLkxpc3RBY2NvdW50TWVtYmVyc1Jlc3BvbnNlEmkKEFNldEFjY291bnRNZW1iZXISKS5naXRzbGljZS5jb3JlLnYxLlNldEFjY291bnRNZW1iZXJSZXF1ZXN0GiouZ2l0c2xpY2UuY29yZS52MS5TZXRBY2NvdW50TWVtYmVyUmVzcG9uc2UScgoTUmVtb3ZlQWNjb3VudE1lbWJlchIsLmdpdHNsaWNlLmNvcmUudjEuUmVtb3ZlQWNjb3VudE1lbWJlclJlcXVlc3QaLS5naXRzbGljZS5jb3JlLnYxLlJlbW92ZUFjY291bnRNZW1iZXJSZXNwb25zZRJyChNJbnZpdGVBY2NvdW50TWVtYmVyEiwuZ2l0c2xpY2UuY29yZS52MS5JbnZpdGVBY2NvdW50TWVtYmVyUmVxdWVzdBotLmdpdHNsaWNlLmNvcmUudjEuSW52aXRlQWNjb3VudE1lbWJlclJlc3BvbnNlEnsKFkxpc3RBY2NvdW50SW52aXRhdGlvbnMSLy5naXRzbGljZS5jb3JlLnYxLkxpc3RBY2NvdW50SW52aXRhdGlvbnNSZXF1ZXN0GjAuZ2l0c2xpY2UuY29yZS52MS5MaXN0QWNjb3VudEludml0YXRpb25zUmVzcG9uc2USbAoRTGlzdE15SW52aXRhdGlvbnMSKi5naXRzbGljZS5jb3JlLnYxLkxpc3RNeUludml0YXRpb25zUmVxdWVzdBorLmdpdHNsaWNlLmNvcmUudjEuTGlzdE15SW52aXRhdGlvbnNSZXNwb25zZRJyChNSZXNwb25kVG9JbnZpdGF0aW9uEiwuZ2l0c2xpY2UuY29yZS52MS5SZXNwb25kVG9JbnZpdGF0aW9uUmVxdWVzdBotLmdpdHNsaWNlLmNvcmUudjEuUmVzcG9uZFRvSW52aXRhdGlvblJlc3BvbnNlEn4KF0NhbmNlbEFjY291bnRJbnZpdGF0aW9uEjAuZ2l0c2xpY2UuY29yZS52MS5DYW5jZWxBY2NvdW50SW52aXRhdGlvblJlcXVlc3QaMS5naXRzbGljZS5jb3JlLnYxLkNhbmNlbEFjY291bnRJbnZpdGF0aW9uUmVzcG9uc2USYQoRR2V0QWNjb3VudFByb2ZpbGUSKi5naXRzbGljZS5jb3JlLnYxLkdldEFjY291bnRQcm9maWxlUmVxdWVzdBogLmdpdHNsaWNlLmNvcmUudjEuQWNjb3VudFByb2ZpbGUSZwoUVXBkYXRlQWNjb3VudFByb2ZpbGUSLS5naXRzbGljZS5jb3JlLnYxLlVwZGF0ZUFjY291bnRQcm9maWxlUmVxdWVzdBogLmdpdHNsaWNlLmNvcmUudjEuQWNjb3VudFByb2ZpbGUSXwoQU2V0QWNjb3VudEF2YXRhchIpLmdpdHNsaWNlLmNvcmUudjEuU2V0QWNjb3VudEF2YXRhclJlcXVlc3QaIC5naXRzbGljZS5jb3JlLnYxLkFjY291bnRQcm9maWxlEnUKFENyZWF0ZURlbGVnYXRlZEFnZW50Ei0uZ2l0c2xpY2UuY29yZS52MS5DcmVhdGVEZWxlZ2F0ZWRBZ2VudFJlcXVlc3QaLi5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZURlbGVnYXRlZEFnZW50UmVzcG9uc2USUwoLQ3JlYXRlR3JvdXASJC5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZUdyb3VwUmVxdWVzdBoeLmdpdHNsaWNlLmNvcmUudjEuQWNjb3VudEdyb3VwEk0KCEdldEdyb3VwEiEuZ2l0c2xpY2UuY29yZS52MS5HZXRHcm91cFJlcXVlc3QaHi5naXRzbGljZS5jb3JlLnYxLkFjY291bnRHcm91cBJXCgpMaXN0R3JvdXBzEiMuZ2l0c2xpY2UuY29yZS52MS5MaXN0R3JvdXBzUmVxdWVzdBokLmdpdHNsaWNlLmNvcmUudjEuTGlzdEdyb3Vwc1Jlc3BvbnNlEkwKC0RlbGV0ZUdyb3VwEiQuZ2l0c2xpY2UuY29yZS52MS5EZWxldGVHcm91cFJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLkVtcHR5ElkKDkFkZEdyb3VwTWVtYmVyEicuZ2l0c2xpY2UuY29yZS52MS5BZGRHcm91cE1lbWJlclJlcXVlc3QaHi5naXRzbGljZS5jb3JlLnYxLkFjY291bnRHcm91cBJfChFSZW1vdmVHcm91cE1lbWJlchIqLmdpdHNsaWNlLmNvcmUudjEuUmVtb3ZlR3JvdXBNZW1iZXJSZXF1ZXN0Gh4uZ2l0c2xpY2UuY29yZS52MS5BY2NvdW50R3JvdXBCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw", [file_proto_core_v1_common]);
 
 /**
  * @generated from message gitslice.core.v1.StartCliLoginRequest
@@ -1523,6 +1523,278 @@ export const CreateDelegatedAgentResponseSchema: GenMessage<CreateDelegatedAgent
   messageDesc(file_proto_core_v1_auth, 55);
 
 /**
+ * @generated from message gitslice.core.v1.AccountGroupMember
+ */
+export type AccountGroupMember = Message<"gitslice.core.v1.AccountGroupMember"> & {
+  /**
+   * @generated from field: string username = 1;
+   */
+  username: string;
+
+  /**
+   * @generated from field: string subject_id = 2;
+   */
+  subjectId: string;
+
+  /**
+   * @generated from field: string display_name = 3;
+   */
+  displayName: string;
+
+  /**
+   * person or agent.
+   *
+   * @generated from field: string kind = 4;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: string added_by = 5;
+   */
+  addedBy: string;
+
+  /**
+   * @generated from field: string created_at = 6;
+   */
+  createdAt: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.AccountGroupMember.
+ * Use `create(AccountGroupMemberSchema)` to create a new message.
+ */
+export const AccountGroupMemberSchema: GenMessage<AccountGroupMember> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 56);
+
+/**
+ * @generated from message gitslice.core.v1.AccountGroup
+ */
+export type AccountGroup = Message<"gitslice.core.v1.AccountGroup"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string account = 2;
+   */
+  account: string;
+
+  /**
+   * @generated from field: string name = 3;
+   */
+  name: string;
+
+  /**
+   * Canonical "@account/name" reference.
+   *
+   * @generated from field: string handle = 4;
+   */
+  handle: string;
+
+  /**
+   * @generated from field: string description = 5;
+   */
+  description: string;
+
+  /**
+   * @generated from field: string created_by = 6;
+   */
+  createdBy: string;
+
+  /**
+   * @generated from field: string created_at = 7;
+   */
+  createdAt: string;
+
+  /**
+   * @generated from field: string updated_at = 8;
+   */
+  updatedAt: string;
+
+  /**
+   * @generated from field: repeated gitslice.core.v1.AccountGroupMember members = 9;
+   */
+  members: AccountGroupMember[];
+
+  /**
+   * @generated from field: int32 member_count = 10;
+   */
+  memberCount: number;
+};
+
+/**
+ * Describes the message gitslice.core.v1.AccountGroup.
+ * Use `create(AccountGroupSchema)` to create a new message.
+ */
+export const AccountGroupSchema: GenMessage<AccountGroup> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 57);
+
+/**
+ * @generated from message gitslice.core.v1.CreateGroupRequest
+ */
+export type CreateGroupRequest = Message<"gitslice.core.v1.CreateGroupRequest"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string description = 3;
+   */
+  description: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.CreateGroupRequest.
+ * Use `create(CreateGroupRequestSchema)` to create a new message.
+ */
+export const CreateGroupRequestSchema: GenMessage<CreateGroupRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 58);
+
+/**
+ * @generated from message gitslice.core.v1.GetGroupRequest
+ */
+export type GetGroupRequest = Message<"gitslice.core.v1.GetGroupRequest"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.GetGroupRequest.
+ * Use `create(GetGroupRequestSchema)` to create a new message.
+ */
+export const GetGroupRequestSchema: GenMessage<GetGroupRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 59);
+
+/**
+ * @generated from message gitslice.core.v1.ListGroupsRequest
+ */
+export type ListGroupsRequest = Message<"gitslice.core.v1.ListGroupsRequest"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.ListGroupsRequest.
+ * Use `create(ListGroupsRequestSchema)` to create a new message.
+ */
+export const ListGroupsRequestSchema: GenMessage<ListGroupsRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 60);
+
+/**
+ * @generated from message gitslice.core.v1.ListGroupsResponse
+ */
+export type ListGroupsResponse = Message<"gitslice.core.v1.ListGroupsResponse"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+
+  /**
+   * @generated from field: repeated gitslice.core.v1.AccountGroup groups = 2;
+   */
+  groups: AccountGroup[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.ListGroupsResponse.
+ * Use `create(ListGroupsResponseSchema)` to create a new message.
+ */
+export const ListGroupsResponseSchema: GenMessage<ListGroupsResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 61);
+
+/**
+ * @generated from message gitslice.core.v1.DeleteGroupRequest
+ */
+export type DeleteGroupRequest = Message<"gitslice.core.v1.DeleteGroupRequest"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.DeleteGroupRequest.
+ * Use `create(DeleteGroupRequestSchema)` to create a new message.
+ */
+export const DeleteGroupRequestSchema: GenMessage<DeleteGroupRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 62);
+
+/**
+ * @generated from message gitslice.core.v1.AddGroupMemberRequest
+ */
+export type AddGroupMemberRequest = Message<"gitslice.core.v1.AddGroupMemberRequest"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string username = 3;
+   */
+  username: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.AddGroupMemberRequest.
+ * Use `create(AddGroupMemberRequestSchema)` to create a new message.
+ */
+export const AddGroupMemberRequestSchema: GenMessage<AddGroupMemberRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 63);
+
+/**
+ * @generated from message gitslice.core.v1.RemoveGroupMemberRequest
+ */
+export type RemoveGroupMemberRequest = Message<"gitslice.core.v1.RemoveGroupMemberRequest"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * @generated from field: string username = 3;
+   */
+  username: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.RemoveGroupMemberRequest.
+ * Use `create(RemoveGroupMemberRequestSchema)` to create a new message.
+ */
+export const RemoveGroupMemberRequestSchema: GenMessage<RemoveGroupMemberRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_auth, 64);
+
+/**
  * @generated from service gitslice.core.v1.AuthService
  */
 export const AuthService: GenService<{
@@ -1802,6 +2074,69 @@ export const AuthService: GenService<{
     methodKind: "unary";
     input: typeof CreateDelegatedAgentRequestSchema;
     output: typeof CreateDelegatedAgentResponseSchema;
+  },
+  /**
+   * CreateGroup creates an account-level group (@account/name). Account owners
+   * and admins may call it.
+   *
+   * @generated from rpc gitslice.core.v1.AuthService.CreateGroup
+   */
+  createGroup: {
+    methodKind: "unary";
+    input: typeof CreateGroupRequestSchema;
+    output: typeof AccountGroupSchema;
+  },
+  /**
+   * GetGroup returns one account group and its members. Account members and
+   * slice admins referencing the account's groups may call it.
+   *
+   * @generated from rpc gitslice.core.v1.AuthService.GetGroup
+   */
+  getGroup: {
+    methodKind: "unary";
+    input: typeof GetGroupRequestSchema;
+    output: typeof AccountGroupSchema;
+  },
+  /**
+   * ListGroups lists an account's groups. Account members and slice admins
+   * in the account may call it.
+   *
+   * @generated from rpc gitslice.core.v1.AuthService.ListGroups
+   */
+  listGroups: {
+    methodKind: "unary";
+    input: typeof ListGroupsRequestSchema;
+    output: typeof ListGroupsResponseSchema;
+  },
+  /**
+   * DeleteGroup removes an account group and any slice grants referencing it.
+   *
+   * @generated from rpc gitslice.core.v1.AuthService.DeleteGroup
+   */
+  deleteGroup: {
+    methodKind: "unary";
+    input: typeof DeleteGroupRequestSchema;
+    output: typeof EmptySchema;
+  },
+  /**
+   * AddGroupMember adds a user or agent subject to an account group.
+   *
+   * @generated from rpc gitslice.core.v1.AuthService.AddGroupMember
+   */
+  addGroupMember: {
+    methodKind: "unary";
+    input: typeof AddGroupMemberRequestSchema;
+    output: typeof AccountGroupSchema;
+  },
+  /**
+   * RemoveGroupMember removes a user or agent subject from an account group.
+   *
+   * @generated from rpc gitslice.core.v1.AuthService.RemoveGroupMember
+   */
+  removeGroupMember: {
+    methodKind: "unary";
+    input: typeof RemoveGroupMemberRequestSchema;
+    output: typeof AccountGroupSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_proto_core_v1_auth, 0);

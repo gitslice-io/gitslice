@@ -40,9 +40,16 @@ func (s *SliceService) ListSliceMembers(ctx context.Context, req *corev1.ListSli
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	groupMembers, err := s.Slices.ListGroupMembers(ctx, slice.Id)
+	if err != nil {
+		return nil, grpcError(err)
+	}
 	out := &corev1.ListSliceMembersResponse{Slice: slice.Ref}
 	for i := range members {
 		out.Members = append(out.Members, sliceMemberProto(&members[i]))
+	}
+	for i := range groupMembers {
+		out.GroupMembers = append(out.GroupMembers, sliceGroupMemberProto(&groupMembers[i]))
 	}
 	return out, nil
 }
@@ -64,11 +71,39 @@ func (s *SliceService) SetSliceMember(ctx context.Context, req *corev1.SetSliceM
 	if err != nil {
 		return nil, err
 	}
-	memberID, err := s.subjectForUsername(ctx, req.GetUsername())
+	addedBy, err := s.usernameOf(ctx, subjectID)
 	if err != nil {
 		return nil, err
 	}
-	addedBy, err := s.usernameOf(ctx, subjectID)
+	target := strings.TrimSpace(req.GetUsername())
+	if strings.HasPrefix(target, "@") {
+		groupAccount, groupName, err := storage.ParseGroupRefStrict(target)
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		if groupAccount != slice.GetRef().GetAccount() {
+			canRead, err := canAuthorizeAccount(ctx, s.Auth, subjectID, groupAccount, authz.ActionRead)
+			if err != nil {
+				return nil, err
+			}
+			if !canRead {
+				return nil, status.Errorf(codes.NotFound, "no group named %s", storage.FormatGroupHandle(groupAccount, groupName))
+			}
+		}
+		group, err := s.Auth.GetGroup(ctx, groupAccount, groupName)
+		if err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				return nil, status.Errorf(codes.NotFound, "no group named %s", storage.FormatGroupHandle(groupAccount, groupName))
+			}
+			return nil, grpcError(err)
+		}
+		gm, err := s.Slices.SetGroupMember(ctx, slice.Id, group.ID, role, addedBy)
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		return sliceGroupMemberAsMemberProto(gm), nil
+	}
+	memberID, err := s.subjectForUsername(ctx, target)
 	if err != nil {
 		return nil, err
 	}
@@ -88,9 +123,33 @@ func (s *SliceService) RemoveSliceMember(ctx context.Context, req *corev1.Remove
 	if err != nil {
 		return nil, err
 	}
+	target := strings.TrimSpace(req.GetUsername())
+	if strings.HasPrefix(target, "@") {
+		if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionManageMembers); err != nil {
+			return nil, err
+		}
+		groupAccount, groupName, err := storage.ParseGroupRefStrict(target)
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		group, err := s.Auth.GetGroup(ctx, groupAccount, groupName)
+		if err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				return nil, status.Error(codes.NotFound, "not a member of this slice")
+			}
+			return nil, grpcError(err)
+		}
+		if err := s.Slices.RemoveGroupMember(ctx, slice.Id, group.ID); err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				return nil, status.Error(codes.NotFound, "not a member of this slice")
+			}
+			return nil, grpcError(err)
+		}
+		return &corev1.Empty{}, nil
+	}
 	memberID := subjectID
-	if username := strings.TrimSpace(req.GetUsername()); username != "" {
-		if memberID, err = s.subjectForUsername(ctx, username); err != nil {
+	if target != "" {
+		if memberID, err = s.subjectForUsername(ctx, target); err != nil {
 			return nil, err
 		}
 	}
@@ -227,6 +286,37 @@ func sliceMemberProto(m *storage.SliceMember) *corev1.SliceMember {
 		Role:        m.Role,
 		DisplayName: m.DisplayName,
 		Kind:        kind,
+		AddedBy:     m.AddedBy,
+	}
+	if !m.CreatedAt.IsZero() {
+		out.CreatedAt = m.CreatedAt.UTC().Format(time.RFC3339)
+	}
+	return out
+}
+
+func sliceGroupMemberProto(m *storage.SliceGroupMember) *corev1.SliceGroupMember {
+	out := &corev1.SliceGroupMember{
+		GroupId:     m.GroupID,
+		Account:     m.Account,
+		Name:        m.Name,
+		Handle:      m.Handle,
+		Role:        m.Role,
+		AddedBy:     m.AddedBy,
+		MemberCount: m.MemberCount,
+	}
+	if !m.CreatedAt.IsZero() {
+		out.CreatedAt = m.CreatedAt.UTC().Format(time.RFC3339)
+	}
+	return out
+}
+
+func sliceGroupMemberAsMemberProto(m *storage.SliceGroupMember) *corev1.SliceMember {
+	out := &corev1.SliceMember{
+		Username:    m.Handle,
+		SubjectId:   m.GroupID,
+		Role:        m.Role,
+		DisplayName: m.Name,
+		Kind:        "group",
 		AddedBy:     m.AddedBy,
 	}
 	if !m.CreatedAt.IsZero() {

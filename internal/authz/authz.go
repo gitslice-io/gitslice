@@ -192,20 +192,39 @@ func (a Authorizer) EffectiveRole(ctx context.Context, subjectID string, slice *
 	return effective, true, nil
 }
 
-// SliceRole returns the role the subject was given on the slice itself, if
-// any (not its role in the slice's account).
+// SliceRole returns the highest role the subject was given on the slice itself
+// directly or via an account group (not its role in the slice's account).
 func (a Authorizer) SliceRole(ctx context.Context, subjectID string, slice *corev1.Slice) (string, bool, error) {
 	if a.Auth == nil || slice == nil || strings.TrimSpace(slice.Id) == "" || strings.TrimSpace(subjectID) == "" {
 		return "", false, nil
 	}
+	var best string
+	var hasBest bool
 	role, err := a.Auth.SliceRole(ctx, subjectID, slice.Id)
 	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) || errors.Is(err, storage.ErrUnauthorized) {
-			return "", false, nil
+		if !errors.Is(err, storage.ErrNotFound) && !errors.Is(err, storage.ErrUnauthorized) {
+			return "", false, err
 		}
-		return "", false, err
+	} else {
+		best = strings.ToLower(strings.TrimSpace(role))
+		hasBest = best != ""
 	}
-	return strings.ToLower(strings.TrimSpace(role)), true, nil
+	groupRole, err := a.Auth.SliceGroupRole(ctx, subjectID, slice.Id)
+	if err != nil {
+		if !errors.Is(err, storage.ErrNotFound) && !errors.Is(err, storage.ErrUnauthorized) {
+			return "", false, err
+		}
+	} else {
+		groupRole = strings.ToLower(strings.TrimSpace(groupRole))
+		if groupRole != "" && (!hasBest || roleTier(groupRole) > roleTier(best)) {
+			best = groupRole
+			hasBest = true
+		}
+	}
+	if !hasBest {
+		return "", false, nil
+	}
+	return best, true, nil
 }
 
 func validAction(action Action) bool {

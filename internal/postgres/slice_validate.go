@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"gitslice.io/gitslice/internal/paths"
+	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -94,12 +95,21 @@ func validateSliceDefinitionProto(ref *corev1.SliceRef, definition *corev1.Slice
 	if err != nil {
 		return nil, err
 	}
+	approvers := strings.TrimSpace(definition.Approvers)
+	if approvers != "" {
+		acct, grp, err := storage.ParseGroupRefStrict(approvers)
+		if err != nil {
+			return nil, err
+		}
+		approvers = storage.FormatGroupHandle(acct, grp)
+	}
 	return &corev1.SliceDefinition{
 		IncludedPaths:          out,
 		Visibility:             visibility,
 		RequiredApprovals:      normalizedApprovals,
 		RequiredHumanApprovals: normalizedHumanApprovals,
 		RequiredChecks:         normalizedChecks,
+		Approvers:              approvers,
 	}, nil
 }
 

@@ -39,20 +39,39 @@ func NormalizeCheckStatus(status string) (string, bool) {
 // policies for a changeset. excludedAuthors must contain the changeset author
 // and every non-mechanical (kind != SubmitMergeKind) patchset author.
 func EvaluateSubmitRequirements(req *corev1.SubmitRequirements, excludedAuthors []Subject, approvers []Subject, checkStatuses map[string]string) string {
+	return EvaluateSubmitRequirementsWithGroup(req, excludedAuthors, approvers, checkStatuses, nil)
+}
+
+// EvaluateSubmitRequirementsWithGroup is EvaluateSubmitRequirements where, when
+// req.Approvers is non-empty (@account/name), candidate approvers are filtered
+// to members of that group (approverGroupMembers) before controller-dedup and
+// human-approval counting.
+func EvaluateSubmitRequirementsWithGroup(req *corev1.SubmitRequirements, excludedAuthors []Subject, approvers []Subject, checkStatuses map[string]string, approverGroupMembers map[string]bool) string {
 	if req == nil {
 		return ""
 	}
 	if req.RequiredApprovals > 0 || req.RequiredHumanApprovals > 0 {
-		eligible := FilterApprovalSubjects(approvers, excludedAuthors...)
+		candidates := approvers
+		approversGroup := strings.TrimSpace(req.GetApprovers())
+		if approversGroup != "" {
+			candidates = FilterApproversByMembership(approvers, approverGroupMembers)
+		}
+		eligible := FilterApprovalSubjects(candidates, excludedAuthors...)
 		if req.RequiredApprovals > 0 {
 			count := DistinctControllerApprovalCount(eligible)
 			if count < req.RequiredApprovals {
+				if approversGroup != "" {
+					return fmt.Sprintf("required approvals not satisfied: requires %d distinct non-author approval(s) from %s, has %d", req.RequiredApprovals, approversGroup, count)
+				}
 				return fmt.Sprintf("required approvals not satisfied: requires %d distinct non-author approval(s), has %d", req.RequiredApprovals, count)
 			}
 		}
 		if req.RequiredHumanApprovals > 0 {
 			count := DistinctHumanApprovalCount(eligible)
 			if count < req.RequiredHumanApprovals {
+				if approversGroup != "" {
+					return fmt.Sprintf("required human approvals not satisfied: requires %d human approval(s) from %s, has %d", req.RequiredHumanApprovals, approversGroup, count)
+				}
 				return fmt.Sprintf("required human approvals not satisfied: requires %d human approval(s), has %d", req.RequiredHumanApprovals, count)
 			}
 		}
@@ -77,6 +96,21 @@ func EvaluateSubmitRequirements(req *corev1.SubmitRequirements, excludedAuthors 
 	return ""
 }
 
+// FilterApproversByMembership keeps only approver subjects whose ID is present
+// in allowedSubjectIDs. An empty or nil map yields no approvers (fail-closed).
+func FilterApproversByMembership(approvers []Subject, allowedSubjectIDs map[string]bool) []Subject {
+	if len(allowedSubjectIDs) == 0 || len(approvers) == 0 {
+		return nil
+	}
+	out := make([]Subject, 0, len(approvers))
+	for _, approver := range approvers {
+		if allowedSubjectIDs[strings.TrimSpace(approver.ID)] {
+			out = append(out, approver)
+		}
+	}
+	return out
+}
+
 // IsRequirementBlock reports whether a submit-blocked reason is one
 // EvaluateSubmitRequirements gives (a check or approval requirement). Such a
 // reason describes the last submit attempt; a new check result or approval
@@ -94,6 +128,12 @@ func IsRequirementBlock(reason string) bool {
 // refresh. Inputs are canonicalized (sorted) so ordering differences between
 // callers do not change the hash.
 func SubmitRequirementsHash(includedPaths []string, requiredApprovals, requiredHumanApprovals int32, requiredChecks []string) string {
+	return SubmitRequirementsHashWithApprovers(includedPaths, requiredApprovals, requiredHumanApprovals, requiredChecks, "")
+}
+
+// SubmitRequirementsHashWithApprovers is SubmitRequirementsHash including the
+// optional slice approvers group (@account/name).
+func SubmitRequirementsHashWithApprovers(includedPaths []string, requiredApprovals, requiredHumanApprovals int32, requiredChecks []string, approvers string) string {
 	included := make([]string, len(includedPaths))
 	copy(included, includedPaths)
 	sort.Strings(included)
@@ -113,11 +153,13 @@ func SubmitRequirementsHash(includedPaths []string, requiredApprovals, requiredH
 		RequiredApprovals      int32    `json:"required_approvals"`
 		RequiredHumanApprovals int32    `json:"required_human_approvals,omitempty"`
 		RequiredChecks         []string `json:"required_checks"`
+		Approvers              string   `json:"approvers,omitempty"`
 	}{
 		IncludedPaths:          included,
 		RequiredApprovals:      requiredApprovals,
 		RequiredHumanApprovals: requiredHumanApprovals,
 		RequiredChecks:         checks,
+		Approvers:              strings.ToLower(strings.TrimSpace(approvers)),
 	})
 	sum := sha256.Sum256(payload)
 	return "submitreq_sha256:" + hex.EncodeToString(sum[:])

@@ -25,9 +25,20 @@ type sliceMemberOutput struct {
 	CreatedAt   string `json:"created_at,omitempty"`
 }
 
+type sliceGroupMemberOutput struct {
+	GroupID   string `json:"group_id"`
+	Account   string `json:"account"`
+	Name      string `json:"name"`
+	Handle    string `json:"handle"`
+	Role      string `json:"role"`
+	AddedBy   string `json:"added_by,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
 type sliceMembersOutput struct {
-	Slice   string              `json:"slice"`
-	Members []sliceMemberOutput `json:"members"`
+	Slice        string                   `json:"slice"`
+	Members      []sliceMemberOutput      `json:"members"`
+	GroupMembers []sliceGroupMemberOutput `json:"group_members,omitempty"`
 }
 
 type sharedSliceOutput struct {
@@ -38,14 +49,14 @@ type sharedSliceOutput struct {
 func (r Runner) sliceMemberCommands(opts *commandOptions) []*cobra.Command {
 	var shareRole string
 	shareCmd := &cobra.Command{
-		Use:   "share <slice|account:slice> <username>",
-		Short: "Give a person or agent a role on one slice (writer by default)",
-		Long: "Give a person or agent a role on one slice, without adding them to the account that owns it:\n" +
+		Use:   "share <slice|account:slice> <username|@account/group>",
+		Short: "Give a person, agent, or account group a role on one slice (writer by default)",
+		Long: "Give a person, agent, or account group (@account/name) a role on one slice, without adding them to the account that owns it:\n" +
 			"reader (read and clone), contributor (propose changesets and patchsets with secretless CI),\n" +
 			"writer (submit, approve, tag and run CI with secrets) or admin (also manage the slice's\n" +
 			"members and webhooks). Changing the role runs share again. The slice's definition, CI daemon\n" +
 			"and secrets stay with the account's owners and admins.",
-		Args: exactArgs(2, "gs slice share <slice|account:slice> <username> [--role reader|contributor|writer|admin]"),
+		Args: exactArgs(2, "gs slice share <slice|account:slice> <username|@account/group> [--role reader|contributor|writer|admin]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runSliceShare(cmd.Context(), *opts, args[0], args[1], shareRole)
 		},
@@ -53,9 +64,10 @@ func (r Runner) sliceMemberCommands(opts *commandOptions) []*cobra.Command {
 	shareCmd.Flags().StringVar(&shareRole, "role", "writer", "reader, contributor, writer or admin")
 
 	unshareCmd := &cobra.Command{
-		Use:   "unshare <slice|account:slice> <username>",
-		Short: "Take away someone's role on a slice",
-		Args:  exactArgs(2, "gs slice unshare <slice|account:slice> <username>"),
+		Use:     "unshare <slice|account:slice> <username|@account/group>",
+		Aliases: []string{"revoke"},
+		Short:   "Take away a user's, agent's, or group's role on a slice",
+		Args:    exactArgs(2, "gs slice unshare <slice|account:slice> <username|@account/group>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runSliceRemoveMember(cmd.Context(), *opts, args[0], args[1])
 		},
@@ -118,7 +130,11 @@ func (r Runner) runSliceShare(ctx context.Context, opts commandOptions, sliceVal
 	if ref.Slice == "home" {
 		fmt.Fprintf(r.Stdout, "note: %s/home covers everything in /%s; a narrower slice shares less\n", ref.Account, ref.Account)
 	}
-	fmt.Fprintf(r.Stdout, "%s can now run: gs init %s\n", out.Username, label)
+	if strings.HasPrefix(out.Username, "@") {
+		fmt.Fprintf(r.Stdout, "members of %s can now run: gs init %s\n", out.Username, label)
+	} else {
+		fmt.Fprintf(r.Stdout, "%s can now run: gs init %s\n", out.Username, label)
+	}
 	return nil
 }
 
@@ -157,9 +173,24 @@ func (r Runner) runSliceMembers(ctx context.Context, opts commandOptions, sliceV
 		return sliceMemberError(err, ref)
 	}
 	label := ref.Account + "/" + ref.Slice
-	out := sliceMembersOutput{Slice: label, Members: []sliceMemberOutput{}}
+	out := sliceMembersOutput{
+		Slice:        label,
+		Members:      []sliceMemberOutput{},
+		GroupMembers: []sliceGroupMemberOutput{},
+	}
 	for _, member := range res.GetMembers() {
 		out.Members = append(out.Members, sliceMemberFromProto(member))
+	}
+	for _, groupMember := range res.GetGroupMembers() {
+		out.GroupMembers = append(out.GroupMembers, sliceGroupMemberOutput{
+			GroupID:   groupMember.GetGroupId(),
+			Account:   groupMember.GetAccount(),
+			Name:      groupMember.GetName(),
+			Handle:    groupMember.GetHandle(),
+			Role:      groupMember.GetRole(),
+			AddedBy:   groupMember.GetAddedBy(),
+			CreatedAt: groupMember.GetCreatedAt(),
+		})
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
@@ -167,7 +198,7 @@ func (r Runner) runSliceMembers(ctx context.Context, opts commandOptions, sliceV
 	if opts.Quiet {
 		return nil
 	}
-	if len(out.Members) == 0 {
+	if len(out.Members) == 0 && len(out.GroupMembers) == 0 {
 		fmt.Fprintf(r.Stdout, "%s is not shared with anyone outside account %s\n", label, ref.Account)
 	} else {
 		for _, member := range out.Members {
@@ -182,6 +213,17 @@ func (r Runner) runSliceMembers(ctx context.Context, opts commandOptions, sliceV
 				notes = append(notes, "added by "+member.AddedBy)
 			}
 			fmt.Fprintf(r.Stdout, "%s\t%s\t(%s)\n", firstNonEmpty(member.Username, member.SubjectID), member.Role, strings.Join(notes, ", "))
+		}
+		for _, groupMember := range out.GroupMembers {
+			notes := []string{"group"}
+			if groupMember.AddedBy != "" {
+				notes = append(notes, "added by "+groupMember.AddedBy)
+			}
+			handle := groupMember.Handle
+			if handle == "" && groupMember.Account != "" && groupMember.Name != "" {
+				handle = storage.FormatGroupHandle(groupMember.Account, groupMember.Name)
+			}
+			fmt.Fprintf(r.Stdout, "%s\t%s\t(%s)\n", handle, groupMember.Role, strings.Join(notes, ", "))
 		}
 	}
 	fmt.Fprintf(r.Stdout, "The members of account %s have access too: gs account members %s\n", ref.Account, ref.Account)

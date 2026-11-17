@@ -86,6 +86,9 @@ type AuthStore interface {
 	// SliceRole returns the role the subject was given on the slice itself
 	// (design/26_slice_members.md), or ErrNotFound when it has none.
 	SliceRole(ctx context.Context, subjectID, sliceID string) (string, error)
+	// SliceGroupRole returns the highest role any account group containing
+	// subjectID was given on sliceID, or ErrNotFound when none applies.
+	SliceGroupRole(ctx context.Context, subjectID, sliceID string) (string, error)
 	// SubjectIDForUsername returns the subject whose personal account has the
 	// given slug, or ErrNotFound.
 	SubjectIDForUsername(ctx context.Context, username string) (string, error)
@@ -138,6 +141,13 @@ type AuthStore interface {
 	// SetAccountAvatar sets the object key of an account's uploaded picture
 	// ('' for none) and returns the key it replaced, or ErrNotFound.
 	SetAccountAvatar(ctx context.Context, accountSlug, avatarKey string) (string, error)
+	// Account groups (@account/name, design/36 section 5).
+	CreateGroup(ctx context.Context, accountSlug, name, description, createdBySubjectID string) (*AccountGroup, error)
+	GetGroup(ctx context.Context, accountSlug, name string) (*AccountGroup, error)
+	ListGroups(ctx context.Context, accountSlug string) ([]AccountGroup, error)
+	DeleteGroup(ctx context.Context, accountSlug, name string) error
+	AddGroupMember(ctx context.Context, accountSlug, name, subjectID, addedBySubjectID string) (*AccountGroup, error)
+	RemoveGroupMember(ctx context.Context, accountSlug, name, subjectID string) (*AccountGroup, error)
 }
 
 // AccountInvitation is a pending invitation to join an organization.
@@ -389,6 +399,12 @@ type SliceStore interface {
 	SetMember(ctx context.Context, sliceID, subjectID, role, addedBy string) (*SliceMember, error)
 	// RemoveMember takes the subject's slice role away, or returns ErrNotFound.
 	RemoveMember(ctx context.Context, sliceID, subjectID string) error
+	// ListGroupMembers lists the account groups given a role on the slice.
+	ListGroupMembers(ctx context.Context, sliceID string) ([]SliceGroupMember, error)
+	// SetGroupMember gives the group a role on the slice, or changes it.
+	SetGroupMember(ctx context.Context, sliceID, groupID, role, addedBy string) (*SliceGroupMember, error)
+	// RemoveGroupMember takes the group's slice role away, or returns ErrNotFound.
+	RemoveGroupMember(ctx context.Context, sliceID, groupID string) error
 	// ListShared lists the slices shared with the subject, with its role on each.
 	ListShared(ctx context.Context, subjectID string) ([]SharedSlice, error)
 	ListDefinitionVersions(ctx context.Context, sliceID string, limit int) ([]*corev1.SliceDefinitionVersion, error)

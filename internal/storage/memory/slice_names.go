@@ -70,12 +70,21 @@ func validateSliceDefinitionProto(ref *corev1.SliceRef, definition *corev1.Slice
 		checkSeen[check] = struct{}{}
 		checks = append(checks, check)
 	}
+	approvers := strings.TrimSpace(definition.Approvers)
+	if approvers != "" {
+		acct, grp, err := storage.ParseGroupRefStrict(approvers)
+		if err != nil {
+			return nil, err
+		}
+		approvers = storage.FormatGroupHandle(acct, grp)
+	}
 	return &corev1.SliceDefinition{
 		IncludedPaths:          out,
 		Visibility:             visibility,
 		RequiredApprovals:      definition.RequiredApprovals,
 		RequiredHumanApprovals: definition.RequiredHumanApprovals,
 		RequiredChecks:         checks,
+		Approvers:              approvers,
 	}, nil
 }
 

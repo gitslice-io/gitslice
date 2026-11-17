@@ -82,6 +82,21 @@ service AuthService {
   // human caller, optionally adds it to a slice with a role, and returns its
   // initial API key once.
   rpc CreateDelegatedAgent(CreateDelegatedAgentRequest) returns (CreateDelegatedAgentResponse);
+  // CreateGroup creates an account-level group (@account/name). Account owners
+  // and admins may call it.
+  rpc CreateGroup(CreateGroupRequest) returns (AccountGroup);
+  // GetGroup returns one account group and its members. Account members and
+  // slice admins referencing the account's groups may call it.
+  rpc GetGroup(GetGroupRequest) returns (AccountGroup);
+  // ListGroups lists an account's groups. Account members and slice admins
+  // in the account may call it.
+  rpc ListGroups(ListGroupsRequest) returns (ListGroupsResponse);
+  // DeleteGroup removes an account group and any slice grants referencing it.
+  rpc DeleteGroup(DeleteGroupRequest) returns (Empty);
+  // AddGroupMember adds a user or agent subject to an account group.
+  rpc AddGroupMember(AddGroupMemberRequest) returns (AccountGroup);
+  // RemoveGroupMember removes a user or agent subject from an account group.
+  rpc RemoveGroupMember(RemoveGroupMemberRequest) returns (AccountGroup);
 }
 
 message StartCliLoginRequest {}
@@ -460,4 +475,65 @@ message CreateDelegatedAgentResponse {
   string secret = 4;
   SliceRef slice = 5;
   string role = 6;
+}
+
+message AccountGroupMember {
+  string username = 1;
+  string subject_id = 2;
+  string display_name = 3;
+  // person or agent.
+  string kind = 4;
+  string added_by = 5;
+  string created_at = 6;
+}
+
+message AccountGroup {
+  string id = 1;
+  string account = 2;
+  string name = 3;
+  // Canonical "@account/name" reference.
+  string handle = 4;
+  string description = 5;
+  string created_by = 6;
+  string created_at = 7;
+  string updated_at = 8;
+  repeated AccountGroupMember members = 9;
+  int32 member_count = 10;
+}
+
+message CreateGroupRequest {
+  string account = 1;
+  string name = 2;
+  string description = 3;
+}
+
+message GetGroupRequest {
+  string account = 1;
+  string name = 2;
+}
+
+message ListGroupsRequest {
+  string account = 1;
+}
+
+message ListGroupsResponse {
+  string account = 1;
+  repeated AccountGroup groups = 2;
+}
+
+message DeleteGroupRequest {
+  string account = 1;
+  string name = 2;
+}
+
+message AddGroupMemberRequest {
+  string account = 1;
+  string name = 2;
+  string username = 3;
+}
+
+message RemoveGroupMemberRequest {
+  string account = 1;
+  string name = 2;
+  string username = 3;
 }

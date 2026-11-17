@@ -447,8 +447,10 @@ type SliceDefinition struct {
 	RequiredApprovals      int32                  `protobuf:"varint,5,opt,name=required_approvals,json=requiredApprovals,proto3" json:"required_approvals,omitempty"`
 	RequiredChecks         []string               `protobuf:"bytes,6,rep,name=required_checks,json=requiredChecks,proto3" json:"required_checks,omitempty"`
 	RequiredHumanApprovals int32                  `protobuf:"varint,7,opt,name=required_human_approvals,json=requiredHumanApprovals,proto3" json:"required_human_approvals,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	// Optional "@account/name" group whose approvals count toward approval gates.
+	Approvers     string `protobuf:"bytes,8,opt,name=approvers,proto3" json:"approvers,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SliceDefinition) Reset() {
@@ -530,6 +532,13 @@ func (x *SliceDefinition) GetRequiredHumanApprovals() int32 {
 	return 0
 }
 
+func (x *SliceDefinition) GetApprovers() string {
+	if x != nil {
+		return x.Approvers
+	}
+	return ""
+}
+
 type SliceDefinitionVersion struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
 	SliceId                string                 `protobuf:"bytes,1,opt,name=slice_id,json=sliceId,proto3" json:"slice_id,omitempty"`
@@ -542,6 +551,7 @@ type SliceDefinitionVersion struct {
 	CreatedAt              string                 `protobuf:"bytes,8,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
 	CreatedBy              string                 `protobuf:"bytes,9,opt,name=created_by,json=createdBy,proto3" json:"created_by,omitempty"`
 	RequiredHumanApprovals int32                  `protobuf:"varint,10,opt,name=required_human_approvals,json=requiredHumanApprovals,proto3" json:"required_human_approvals,omitempty"`
+	Approvers              string                 `protobuf:"bytes,11,opt,name=approvers,proto3" json:"approvers,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -646,6 +656,13 @@ func (x *SliceDefinitionVersion) GetRequiredHumanApprovals() int32 {
 	return 0
 }
 
+func (x *SliceDefinitionVersion) GetApprovers() string {
+	if x != nil {
+		return x.Approvers
+	}
+	return ""
+}
+
 type CreateSliceRequest struct {
 	state                  protoimpl.MessageState `protogen:"open.v1"`
 	Ref                    *SliceRef              `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
@@ -655,6 +672,7 @@ type CreateSliceRequest struct {
 	RequiredChecks         []string               `protobuf:"bytes,5,rep,name=required_checks,json=requiredChecks,proto3" json:"required_checks,omitempty"`
 	Description            string                 `protobuf:"bytes,6,opt,name=description,proto3" json:"description,omitempty"`
 	RequiredHumanApprovals int32                  `protobuf:"varint,7,opt,name=required_human_approvals,json=requiredHumanApprovals,proto3" json:"required_human_approvals,omitempty"`
+	Approvers              string                 `protobuf:"bytes,8,opt,name=approvers,proto3" json:"approvers,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -736,6 +754,13 @@ func (x *CreateSliceRequest) GetRequiredHumanApprovals() int32 {
 		return x.RequiredHumanApprovals
 	}
 	return 0
+}
+
+func (x *CreateSliceRequest) GetApprovers() string {
+	if x != nil {
+		return x.Approvers
+	}
+	return ""
 }
 
 type ResolveSliceRequest struct {
@@ -2264,6 +2289,108 @@ func (x *SliceMember) GetCreatedAt() string {
 	return ""
 }
 
+type SliceGroupMember struct {
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	GroupId string                 `protobuf:"bytes,1,opt,name=group_id,json=groupId,proto3" json:"group_id,omitempty"`
+	Account string                 `protobuf:"bytes,2,opt,name=account,proto3" json:"account,omitempty"`
+	Name    string                 `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	// "@account/name".
+	Handle string `protobuf:"bytes,4,opt,name=handle,proto3" json:"handle,omitempty"`
+	// admin, writer, contributor or reader.
+	Role          string `protobuf:"bytes,5,opt,name=role,proto3" json:"role,omitempty"`
+	AddedBy       string `protobuf:"bytes,6,opt,name=added_by,json=addedBy,proto3" json:"added_by,omitempty"`
+	CreatedAt     string `protobuf:"bytes,7,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`
+	MemberCount   int32  `protobuf:"varint,8,opt,name=member_count,json=memberCount,proto3" json:"member_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SliceGroupMember) Reset() {
+	*x = SliceGroupMember{}
+	mi := &file_proto_core_v1_slice_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SliceGroupMember) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SliceGroupMember) ProtoMessage() {}
+
+func (x *SliceGroupMember) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_slice_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SliceGroupMember.ProtoReflect.Descriptor instead.
+func (*SliceGroupMember) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *SliceGroupMember) GetGroupId() string {
+	if x != nil {
+		return x.GroupId
+	}
+	return ""
+}
+
+func (x *SliceGroupMember) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
+}
+
+func (x *SliceGroupMember) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *SliceGroupMember) GetHandle() string {
+	if x != nil {
+		return x.Handle
+	}
+	return ""
+}
+
+func (x *SliceGroupMember) GetRole() string {
+	if x != nil {
+		return x.Role
+	}
+	return ""
+}
+
+func (x *SliceGroupMember) GetAddedBy() string {
+	if x != nil {
+		return x.AddedBy
+	}
+	return ""
+}
+
+func (x *SliceGroupMember) GetCreatedAt() string {
+	if x != nil {
+		return x.CreatedAt
+	}
+	return ""
+}
+
+func (x *SliceGroupMember) GetMemberCount() int32 {
+	if x != nil {
+		return x.MemberCount
+	}
+	return 0
+}
+
 type ListSliceMembersRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Slice         *SliceRef              `protobuf:"bytes,1,opt,name=slice,proto3" json:"slice,omitempty"`
@@ -2273,7 +2400,7 @@ type ListSliceMembersRequest struct {
 
 func (x *ListSliceMembersRequest) Reset() {
 	*x = ListSliceMembersRequest{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[33]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2285,7 +2412,7 @@ func (x *ListSliceMembersRequest) String() string {
 func (*ListSliceMembersRequest) ProtoMessage() {}
 
 func (x *ListSliceMembersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[33]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2298,7 +2425,7 @@ func (x *ListSliceMembersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSliceMembersRequest.ProtoReflect.Descriptor instead.
 func (*ListSliceMembersRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{33}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ListSliceMembersRequest) GetSlice() *SliceRef {
@@ -2312,13 +2439,14 @@ type ListSliceMembersResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Slice         *SliceRef              `protobuf:"bytes,1,opt,name=slice,proto3" json:"slice,omitempty"`
 	Members       []*SliceMember         `protobuf:"bytes,2,rep,name=members,proto3" json:"members,omitempty"`
+	GroupMembers  []*SliceGroupMember    `protobuf:"bytes,3,rep,name=group_members,json=groupMembers,proto3" json:"group_members,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListSliceMembersResponse) Reset() {
 	*x = ListSliceMembersResponse{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[34]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2330,7 +2458,7 @@ func (x *ListSliceMembersResponse) String() string {
 func (*ListSliceMembersResponse) ProtoMessage() {}
 
 func (x *ListSliceMembersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[34]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2343,7 +2471,7 @@ func (x *ListSliceMembersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSliceMembersResponse.ProtoReflect.Descriptor instead.
 func (*ListSliceMembersResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{34}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ListSliceMembersResponse) GetSlice() *SliceRef {
@@ -2356,6 +2484,13 @@ func (x *ListSliceMembersResponse) GetSlice() *SliceRef {
 func (x *ListSliceMembersResponse) GetMembers() []*SliceMember {
 	if x != nil {
 		return x.Members
+	}
+	return nil
+}
+
+func (x *ListSliceMembersResponse) GetGroupMembers() []*SliceGroupMember {
+	if x != nil {
+		return x.GroupMembers
 	}
 	return nil
 }
@@ -2373,7 +2508,7 @@ type SetSliceMemberRequest struct {
 
 func (x *SetSliceMemberRequest) Reset() {
 	*x = SetSliceMemberRequest{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[35]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2385,7 +2520,7 @@ func (x *SetSliceMemberRequest) String() string {
 func (*SetSliceMemberRequest) ProtoMessage() {}
 
 func (x *SetSliceMemberRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[35]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2398,7 +2533,7 @@ func (x *SetSliceMemberRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetSliceMemberRequest.ProtoReflect.Descriptor instead.
 func (*SetSliceMemberRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{35}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *SetSliceMemberRequest) GetSlice() *SliceRef {
@@ -2433,7 +2568,7 @@ type RemoveSliceMemberRequest struct {
 
 func (x *RemoveSliceMemberRequest) Reset() {
 	*x = RemoveSliceMemberRequest{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[36]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2445,7 +2580,7 @@ func (x *RemoveSliceMemberRequest) String() string {
 func (*RemoveSliceMemberRequest) ProtoMessage() {}
 
 func (x *RemoveSliceMemberRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[36]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2458,7 +2593,7 @@ func (x *RemoveSliceMemberRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoveSliceMemberRequest.ProtoReflect.Descriptor instead.
 func (*RemoveSliceMemberRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{36}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *RemoveSliceMemberRequest) GetSlice() *SliceRef {
@@ -2483,7 +2618,7 @@ type ListSharedSlicesRequest struct {
 
 func (x *ListSharedSlicesRequest) Reset() {
 	*x = ListSharedSlicesRequest{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[37]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2495,7 +2630,7 @@ func (x *ListSharedSlicesRequest) String() string {
 func (*ListSharedSlicesRequest) ProtoMessage() {}
 
 func (x *ListSharedSlicesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[37]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2508,7 +2643,7 @@ func (x *ListSharedSlicesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSharedSlicesRequest.ProtoReflect.Descriptor instead.
 func (*ListSharedSlicesRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{37}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{38}
 }
 
 type SharedSlice struct {
@@ -2522,7 +2657,7 @@ type SharedSlice struct {
 
 func (x *SharedSlice) Reset() {
 	*x = SharedSlice{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[38]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2534,7 +2669,7 @@ func (x *SharedSlice) String() string {
 func (*SharedSlice) ProtoMessage() {}
 
 func (x *SharedSlice) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[38]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2547,7 +2682,7 @@ func (x *SharedSlice) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SharedSlice.ProtoReflect.Descriptor instead.
 func (*SharedSlice) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{38}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *SharedSlice) GetSlice() *Slice {
@@ -2573,7 +2708,7 @@ type ListSharedSlicesResponse struct {
 
 func (x *ListSharedSlicesResponse) Reset() {
 	*x = ListSharedSlicesResponse{}
-	mi := &file_proto_core_v1_slice_proto_msgTypes[39]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2585,7 +2720,7 @@ func (x *ListSharedSlicesResponse) String() string {
 func (*ListSharedSlicesResponse) ProtoMessage() {}
 
 func (x *ListSharedSlicesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_slice_proto_msgTypes[39]
+	mi := &file_proto_core_v1_slice_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2598,7 +2733,7 @@ func (x *ListSharedSlicesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListSharedSlicesResponse.ProtoReflect.Descriptor instead.
 func (*ListSharedSlicesResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{39}
+	return file_proto_core_v1_slice_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *ListSharedSlicesResponse) GetSlices() []*SharedSlice {
@@ -2651,7 +2786,7 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"created_at\x18\v \x01(\tR\tcreatedAt\x12(\n" +
 	"\x10last_activity_at\x18\f \x01(\tR\x0elastActivityAt\x12\"\n" +
 	"\rci_daemon_ids\x18\r \x03(\tR\vciDaemonIds\x12&\n" +
-	"\x0fci_daemon_names\x18\x0e \x03(\tR\rciDaemonNames\"\x9f\x02\n" +
+	"\x0fci_daemon_names\x18\x0e \x03(\tR\rciDaemonNames\"\xbd\x02\n" +
 	"\x0fSliceDefinition\x12\x19\n" +
 	"\bslice_id\x18\x01 \x01(\tR\asliceId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x03R\aversion\x12%\n" +
@@ -2661,7 +2796,8 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"visibility\x12-\n" +
 	"\x12required_approvals\x18\x05 \x01(\x05R\x11requiredApprovals\x12'\n" +
 	"\x0frequired_checks\x18\x06 \x03(\tR\x0erequiredChecks\x128\n" +
-	"\x18required_human_approvals\x18\a \x01(\x05R\x16requiredHumanApprovals\"\x8d\x03\n" +
+	"\x18required_human_approvals\x18\a \x01(\x05R\x16requiredHumanApprovals\x12\x1c\n" +
+	"\tapprovers\x18\b \x01(\tR\tapprovers\"\xab\x03\n" +
 	"\x16SliceDefinitionVersion\x12\x19\n" +
 	"\bslice_id\x18\x01 \x01(\tR\asliceId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x03R\aversion\x12'\n" +
@@ -2677,7 +2813,8 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\n" +
 	"created_by\x18\t \x01(\tR\tcreatedBy\x128\n" +
 	"\x18required_human_approvals\x18\n" +
-	" \x01(\x05R\x16requiredHumanApprovals\"\xbd\x02\n" +
+	" \x01(\x05R\x16requiredHumanApprovals\x12\x1c\n" +
+	"\tapprovers\x18\v \x01(\tR\tapprovers\"\xdb\x02\n" +
 	"\x12CreateSliceRequest\x12,\n" +
 	"\x03ref\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x03ref\x12%\n" +
 	"\x0eincluded_paths\x18\x02 \x03(\tR\rincludedPaths\x12\x1e\n" +
@@ -2687,7 +2824,8 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\x12required_approvals\x18\x04 \x01(\x05R\x11requiredApprovals\x12'\n" +
 	"\x0frequired_checks\x18\x05 \x03(\tR\x0erequiredChecks\x12 \n" +
 	"\vdescription\x18\x06 \x01(\tR\vdescription\x128\n" +
-	"\x18required_human_approvals\x18\a \x01(\x05R\x16requiredHumanApprovals\"C\n" +
+	"\x18required_human_approvals\x18\a \x01(\x05R\x16requiredHumanApprovals\x12\x1c\n" +
+	"\tapprovers\x18\b \x01(\tR\tapprovers\"C\n" +
 	"\x13ResolveSliceRequest\x12,\n" +
 	"\x03ref\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x03ref\",\n" +
 	"\x0fGetSliceRequest\x12\x19\n" +
@@ -2797,12 +2935,23 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\x04kind\x18\x05 \x01(\tR\x04kind\x12\x19\n" +
 	"\badded_by\x18\x06 \x01(\tR\aaddedBy\x12\x1d\n" +
 	"\n" +
-	"created_at\x18\a \x01(\tR\tcreatedAt\"K\n" +
+	"created_at\x18\a \x01(\tR\tcreatedAt\"\xe4\x01\n" +
+	"\x10SliceGroupMember\x12\x19\n" +
+	"\bgroup_id\x18\x01 \x01(\tR\agroupId\x12\x18\n" +
+	"\aaccount\x18\x02 \x01(\tR\aaccount\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12\x16\n" +
+	"\x06handle\x18\x04 \x01(\tR\x06handle\x12\x12\n" +
+	"\x04role\x18\x05 \x01(\tR\x04role\x12\x19\n" +
+	"\badded_by\x18\x06 \x01(\tR\aaddedBy\x12\x1d\n" +
+	"\n" +
+	"created_at\x18\a \x01(\tR\tcreatedAt\x12!\n" +
+	"\fmember_count\x18\b \x01(\x05R\vmemberCount\"K\n" +
 	"\x17ListSliceMembersRequest\x120\n" +
-	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\"\x85\x01\n" +
+	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\"\xce\x01\n" +
 	"\x18ListSliceMembersResponse\x120\n" +
 	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x127\n" +
-	"\amembers\x18\x02 \x03(\v2\x1d.gitslice.core.v1.SliceMemberR\amembers\"y\n" +
+	"\amembers\x18\x02 \x03(\v2\x1d.gitslice.core.v1.SliceMemberR\amembers\x12G\n" +
+	"\rgroup_members\x18\x03 \x03(\v2\".gitslice.core.v1.SliceGroupMemberR\fgroupMembers\"y\n" +
 	"\x15SetSliceMemberRequest\x120\n" +
 	"\x05slice\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x05slice\x12\x1a\n" +
 	"\busername\x18\x02 \x01(\tR\busername\x12\x12\n" +
@@ -2856,7 +3005,7 @@ func file_proto_core_v1_slice_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_slice_proto_rawDescData
 }
 
-var file_proto_core_v1_slice_proto_msgTypes = make([]protoimpl.MessageInfo, 40)
+var file_proto_core_v1_slice_proto_msgTypes = make([]protoimpl.MessageInfo, 41)
 var file_proto_core_v1_slice_proto_goTypes = []any{
 	(*Tag)(nil),                                 // 0: gitslice.core.v1.Tag
 	(*CreateTagRequest)(nil),                    // 1: gitslice.core.v1.CreateTagRequest
@@ -2891,105 +3040,107 @@ var file_proto_core_v1_slice_proto_goTypes = []any{
 	(*SetSliceMergeOnSubmitRequest)(nil),        // 30: gitslice.core.v1.SetSliceMergeOnSubmitRequest
 	(*SetSliceDescriptionRequest)(nil),          // 31: gitslice.core.v1.SetSliceDescriptionRequest
 	(*SliceMember)(nil),                         // 32: gitslice.core.v1.SliceMember
-	(*ListSliceMembersRequest)(nil),             // 33: gitslice.core.v1.ListSliceMembersRequest
-	(*ListSliceMembersResponse)(nil),            // 34: gitslice.core.v1.ListSliceMembersResponse
-	(*SetSliceMemberRequest)(nil),               // 35: gitslice.core.v1.SetSliceMemberRequest
-	(*RemoveSliceMemberRequest)(nil),            // 36: gitslice.core.v1.RemoveSliceMemberRequest
-	(*ListSharedSlicesRequest)(nil),             // 37: gitslice.core.v1.ListSharedSlicesRequest
-	(*SharedSlice)(nil),                         // 38: gitslice.core.v1.SharedSlice
-	(*ListSharedSlicesResponse)(nil),            // 39: gitslice.core.v1.ListSharedSlicesResponse
-	(*SliceRef)(nil),                            // 40: gitslice.core.v1.SliceRef
-	(*Empty)(nil),                               // 41: gitslice.core.v1.Empty
+	(*SliceGroupMember)(nil),                    // 33: gitslice.core.v1.SliceGroupMember
+	(*ListSliceMembersRequest)(nil),             // 34: gitslice.core.v1.ListSliceMembersRequest
+	(*ListSliceMembersResponse)(nil),            // 35: gitslice.core.v1.ListSliceMembersResponse
+	(*SetSliceMemberRequest)(nil),               // 36: gitslice.core.v1.SetSliceMemberRequest
+	(*RemoveSliceMemberRequest)(nil),            // 37: gitslice.core.v1.RemoveSliceMemberRequest
+	(*ListSharedSlicesRequest)(nil),             // 38: gitslice.core.v1.ListSharedSlicesRequest
+	(*SharedSlice)(nil),                         // 39: gitslice.core.v1.SharedSlice
+	(*ListSharedSlicesResponse)(nil),            // 40: gitslice.core.v1.ListSharedSlicesResponse
+	(*SliceRef)(nil),                            // 41: gitslice.core.v1.SliceRef
+	(*Empty)(nil),                               // 42: gitslice.core.v1.Empty
 }
 var file_proto_core_v1_slice_proto_depIdxs = []int32{
-	40, // 0: gitslice.core.v1.Tag.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 1: gitslice.core.v1.CreateTagRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 2: gitslice.core.v1.ListTagsRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 0: gitslice.core.v1.Tag.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 1: gitslice.core.v1.CreateTagRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 2: gitslice.core.v1.ListTagsRequest.slice:type_name -> gitslice.core.v1.SliceRef
 	0,  // 3: gitslice.core.v1.ListTagsResponse.tags:type_name -> gitslice.core.v1.Tag
-	40, // 4: gitslice.core.v1.Slice.ref:type_name -> gitslice.core.v1.SliceRef
+	41, // 4: gitslice.core.v1.Slice.ref:type_name -> gitslice.core.v1.SliceRef
 	5,  // 5: gitslice.core.v1.Slice.definition:type_name -> gitslice.core.v1.SliceDefinition
-	40, // 6: gitslice.core.v1.CreateSliceRequest.ref:type_name -> gitslice.core.v1.SliceRef
-	40, // 7: gitslice.core.v1.ResolveSliceRequest.ref:type_name -> gitslice.core.v1.SliceRef
+	41, // 6: gitslice.core.v1.CreateSliceRequest.ref:type_name -> gitslice.core.v1.SliceRef
+	41, // 7: gitslice.core.v1.ResolveSliceRequest.ref:type_name -> gitslice.core.v1.SliceRef
 	4,  // 8: gitslice.core.v1.ListSlicesResponse.slices:type_name -> gitslice.core.v1.Slice
 	6,  // 9: gitslice.core.v1.ListSliceDefinitionVersionsResponse.versions:type_name -> gitslice.core.v1.SliceDefinitionVersion
 	5,  // 10: gitslice.core.v1.UpdateSliceDefinitionRequest.definition:type_name -> gitslice.core.v1.SliceDefinition
-	40, // 11: gitslice.core.v1.SetSliceCIDaemonRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 12: gitslice.core.v1.SetSliceSecretRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 13: gitslice.core.v1.DeleteSliceSecretRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 14: gitslice.core.v1.ListSliceSecretsRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 11: gitslice.core.v1.SetSliceCIDaemonRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 12: gitslice.core.v1.SetSliceSecretRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 13: gitslice.core.v1.DeleteSliceSecretRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 14: gitslice.core.v1.ListSliceSecretsRequest.slice:type_name -> gitslice.core.v1.SliceRef
 	20, // 15: gitslice.core.v1.ListSliceSecretsResponse.secrets:type_name -> gitslice.core.v1.SliceSecret
-	40, // 16: gitslice.core.v1.SliceSecret.shared_with:type_name -> gitslice.core.v1.SliceRef
-	40, // 17: gitslice.core.v1.RenameSliceRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 18: gitslice.core.v1.SetSliceArchivedRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 19: gitslice.core.v1.SliceGitMirror.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 20: gitslice.core.v1.GetSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 21: gitslice.core.v1.SetSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 22: gitslice.core.v1.DeleteSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 23: gitslice.core.v1.PushSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 24: gitslice.core.v1.SetSliceMergeOnSubmitRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 25: gitslice.core.v1.SetSliceDescriptionRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 26: gitslice.core.v1.ListSliceMembersRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 27: gitslice.core.v1.ListSliceMembersResponse.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 16: gitslice.core.v1.SliceSecret.shared_with:type_name -> gitslice.core.v1.SliceRef
+	41, // 17: gitslice.core.v1.RenameSliceRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 18: gitslice.core.v1.SetSliceArchivedRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 19: gitslice.core.v1.SliceGitMirror.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 20: gitslice.core.v1.GetSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 21: gitslice.core.v1.SetSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 22: gitslice.core.v1.DeleteSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 23: gitslice.core.v1.PushSliceGitMirrorRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 24: gitslice.core.v1.SetSliceMergeOnSubmitRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 25: gitslice.core.v1.SetSliceDescriptionRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 26: gitslice.core.v1.ListSliceMembersRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 27: gitslice.core.v1.ListSliceMembersResponse.slice:type_name -> gitslice.core.v1.SliceRef
 	32, // 28: gitslice.core.v1.ListSliceMembersResponse.members:type_name -> gitslice.core.v1.SliceMember
-	40, // 29: gitslice.core.v1.SetSliceMemberRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	40, // 30: gitslice.core.v1.RemoveSliceMemberRequest.slice:type_name -> gitslice.core.v1.SliceRef
-	4,  // 31: gitslice.core.v1.SharedSlice.slice:type_name -> gitslice.core.v1.Slice
-	38, // 32: gitslice.core.v1.ListSharedSlicesResponse.slices:type_name -> gitslice.core.v1.SharedSlice
-	7,  // 33: gitslice.core.v1.SliceService.CreateSlice:input_type -> gitslice.core.v1.CreateSliceRequest
-	8,  // 34: gitslice.core.v1.SliceService.ResolveSlice:input_type -> gitslice.core.v1.ResolveSliceRequest
-	9,  // 35: gitslice.core.v1.SliceService.GetSlice:input_type -> gitslice.core.v1.GetSliceRequest
-	10, // 36: gitslice.core.v1.SliceService.ListSlices:input_type -> gitslice.core.v1.ListSlicesRequest
-	12, // 37: gitslice.core.v1.SliceService.ListSliceDefinitionVersions:input_type -> gitslice.core.v1.ListSliceDefinitionVersionsRequest
-	14, // 38: gitslice.core.v1.SliceService.UpdateSliceDefinition:input_type -> gitslice.core.v1.UpdateSliceDefinitionRequest
-	15, // 39: gitslice.core.v1.SliceService.SetSliceCIDaemon:input_type -> gitslice.core.v1.SetSliceCIDaemonRequest
-	16, // 40: gitslice.core.v1.SliceService.SetSliceSecret:input_type -> gitslice.core.v1.SetSliceSecretRequest
-	17, // 41: gitslice.core.v1.SliceService.DeleteSliceSecret:input_type -> gitslice.core.v1.DeleteSliceSecretRequest
-	18, // 42: gitslice.core.v1.SliceService.ListSliceSecrets:input_type -> gitslice.core.v1.ListSliceSecretsRequest
-	21, // 43: gitslice.core.v1.SliceService.DeleteSlice:input_type -> gitslice.core.v1.DeleteSliceRequest
-	23, // 44: gitslice.core.v1.SliceService.RenameSlice:input_type -> gitslice.core.v1.RenameSliceRequest
-	24, // 45: gitslice.core.v1.SliceService.SetSliceArchived:input_type -> gitslice.core.v1.SetSliceArchivedRequest
-	31, // 46: gitslice.core.v1.SliceService.SetSliceDescription:input_type -> gitslice.core.v1.SetSliceDescriptionRequest
-	30, // 47: gitslice.core.v1.SliceService.SetSliceMergeOnSubmit:input_type -> gitslice.core.v1.SetSliceMergeOnSubmitRequest
-	26, // 48: gitslice.core.v1.SliceService.GetSliceGitMirror:input_type -> gitslice.core.v1.GetSliceGitMirrorRequest
-	27, // 49: gitslice.core.v1.SliceService.SetSliceGitMirror:input_type -> gitslice.core.v1.SetSliceGitMirrorRequest
-	28, // 50: gitslice.core.v1.SliceService.DeleteSliceGitMirror:input_type -> gitslice.core.v1.DeleteSliceGitMirrorRequest
-	29, // 51: gitslice.core.v1.SliceService.PushSliceGitMirror:input_type -> gitslice.core.v1.PushSliceGitMirrorRequest
-	1,  // 52: gitslice.core.v1.SliceService.CreateTag:input_type -> gitslice.core.v1.CreateTagRequest
-	2,  // 53: gitslice.core.v1.SliceService.ListTags:input_type -> gitslice.core.v1.ListTagsRequest
-	33, // 54: gitslice.core.v1.SliceService.ListSliceMembers:input_type -> gitslice.core.v1.ListSliceMembersRequest
-	35, // 55: gitslice.core.v1.SliceService.SetSliceMember:input_type -> gitslice.core.v1.SetSliceMemberRequest
-	36, // 56: gitslice.core.v1.SliceService.RemoveSliceMember:input_type -> gitslice.core.v1.RemoveSliceMemberRequest
-	37, // 57: gitslice.core.v1.SliceService.ListSharedSlices:input_type -> gitslice.core.v1.ListSharedSlicesRequest
-	4,  // 58: gitslice.core.v1.SliceService.CreateSlice:output_type -> gitslice.core.v1.Slice
-	4,  // 59: gitslice.core.v1.SliceService.ResolveSlice:output_type -> gitslice.core.v1.Slice
-	4,  // 60: gitslice.core.v1.SliceService.GetSlice:output_type -> gitslice.core.v1.Slice
-	11, // 61: gitslice.core.v1.SliceService.ListSlices:output_type -> gitslice.core.v1.ListSlicesResponse
-	13, // 62: gitslice.core.v1.SliceService.ListSliceDefinitionVersions:output_type -> gitslice.core.v1.ListSliceDefinitionVersionsResponse
-	5,  // 63: gitslice.core.v1.SliceService.UpdateSliceDefinition:output_type -> gitslice.core.v1.SliceDefinition
-	4,  // 64: gitslice.core.v1.SliceService.SetSliceCIDaemon:output_type -> gitslice.core.v1.Slice
-	41, // 65: gitslice.core.v1.SliceService.SetSliceSecret:output_type -> gitslice.core.v1.Empty
-	41, // 66: gitslice.core.v1.SliceService.DeleteSliceSecret:output_type -> gitslice.core.v1.Empty
-	19, // 67: gitslice.core.v1.SliceService.ListSliceSecrets:output_type -> gitslice.core.v1.ListSliceSecretsResponse
-	22, // 68: gitslice.core.v1.SliceService.DeleteSlice:output_type -> gitslice.core.v1.DeleteSliceResponse
-	4,  // 69: gitslice.core.v1.SliceService.RenameSlice:output_type -> gitslice.core.v1.Slice
-	4,  // 70: gitslice.core.v1.SliceService.SetSliceArchived:output_type -> gitslice.core.v1.Slice
-	4,  // 71: gitslice.core.v1.SliceService.SetSliceDescription:output_type -> gitslice.core.v1.Slice
-	4,  // 72: gitslice.core.v1.SliceService.SetSliceMergeOnSubmit:output_type -> gitslice.core.v1.Slice
-	25, // 73: gitslice.core.v1.SliceService.GetSliceGitMirror:output_type -> gitslice.core.v1.SliceGitMirror
-	25, // 74: gitslice.core.v1.SliceService.SetSliceGitMirror:output_type -> gitslice.core.v1.SliceGitMirror
-	41, // 75: gitslice.core.v1.SliceService.DeleteSliceGitMirror:output_type -> gitslice.core.v1.Empty
-	25, // 76: gitslice.core.v1.SliceService.PushSliceGitMirror:output_type -> gitslice.core.v1.SliceGitMirror
-	0,  // 77: gitslice.core.v1.SliceService.CreateTag:output_type -> gitslice.core.v1.Tag
-	3,  // 78: gitslice.core.v1.SliceService.ListTags:output_type -> gitslice.core.v1.ListTagsResponse
-	34, // 79: gitslice.core.v1.SliceService.ListSliceMembers:output_type -> gitslice.core.v1.ListSliceMembersResponse
-	32, // 80: gitslice.core.v1.SliceService.SetSliceMember:output_type -> gitslice.core.v1.SliceMember
-	41, // 81: gitslice.core.v1.SliceService.RemoveSliceMember:output_type -> gitslice.core.v1.Empty
-	39, // 82: gitslice.core.v1.SliceService.ListSharedSlices:output_type -> gitslice.core.v1.ListSharedSlicesResponse
-	58, // [58:83] is the sub-list for method output_type
-	33, // [33:58] is the sub-list for method input_type
-	33, // [33:33] is the sub-list for extension type_name
-	33, // [33:33] is the sub-list for extension extendee
-	0,  // [0:33] is the sub-list for field type_name
+	33, // 29: gitslice.core.v1.ListSliceMembersResponse.group_members:type_name -> gitslice.core.v1.SliceGroupMember
+	41, // 30: gitslice.core.v1.SetSliceMemberRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	41, // 31: gitslice.core.v1.RemoveSliceMemberRequest.slice:type_name -> gitslice.core.v1.SliceRef
+	4,  // 32: gitslice.core.v1.SharedSlice.slice:type_name -> gitslice.core.v1.Slice
+	39, // 33: gitslice.core.v1.ListSharedSlicesResponse.slices:type_name -> gitslice.core.v1.SharedSlice
+	7,  // 34: gitslice.core.v1.SliceService.CreateSlice:input_type -> gitslice.core.v1.CreateSliceRequest
+	8,  // 35: gitslice.core.v1.SliceService.ResolveSlice:input_type -> gitslice.core.v1.ResolveSliceRequest
+	9,  // 36: gitslice.core.v1.SliceService.GetSlice:input_type -> gitslice.core.v1.GetSliceRequest
+	10, // 37: gitslice.core.v1.SliceService.ListSlices:input_type -> gitslice.core.v1.ListSlicesRequest
+	12, // 38: gitslice.core.v1.SliceService.ListSliceDefinitionVersions:input_type -> gitslice.core.v1.ListSliceDefinitionVersionsRequest
+	14, // 39: gitslice.core.v1.SliceService.UpdateSliceDefinition:input_type -> gitslice.core.v1.UpdateSliceDefinitionRequest
+	15, // 40: gitslice.core.v1.SliceService.SetSliceCIDaemon:input_type -> gitslice.core.v1.SetSliceCIDaemonRequest
+	16, // 41: gitslice.core.v1.SliceService.SetSliceSecret:input_type -> gitslice.core.v1.SetSliceSecretRequest
+	17, // 42: gitslice.core.v1.SliceService.DeleteSliceSecret:input_type -> gitslice.core.v1.DeleteSliceSecretRequest
+	18, // 43: gitslice.core.v1.SliceService.ListSliceSecrets:input_type -> gitslice.core.v1.ListSliceSecretsRequest
+	21, // 44: gitslice.core.v1.SliceService.DeleteSlice:input_type -> gitslice.core.v1.DeleteSliceRequest
+	23, // 45: gitslice.core.v1.SliceService.RenameSlice:input_type -> gitslice.core.v1.RenameSliceRequest
+	24, // 46: gitslice.core.v1.SliceService.SetSliceArchived:input_type -> gitslice.core.v1.SetSliceArchivedRequest
+	31, // 47: gitslice.core.v1.SliceService.SetSliceDescription:input_type -> gitslice.core.v1.SetSliceDescriptionRequest
+	30, // 48: gitslice.core.v1.SliceService.SetSliceMergeOnSubmit:input_type -> gitslice.core.v1.SetSliceMergeOnSubmitRequest
+	26, // 49: gitslice.core.v1.SliceService.GetSliceGitMirror:input_type -> gitslice.core.v1.GetSliceGitMirrorRequest
+	27, // 50: gitslice.core.v1.SliceService.SetSliceGitMirror:input_type -> gitslice.core.v1.SetSliceGitMirrorRequest
+	28, // 51: gitslice.core.v1.SliceService.DeleteSliceGitMirror:input_type -> gitslice.core.v1.DeleteSliceGitMirrorRequest
+	29, // 52: gitslice.core.v1.SliceService.PushSliceGitMirror:input_type -> gitslice.core.v1.PushSliceGitMirrorRequest
+	1,  // 53: gitslice.core.v1.SliceService.CreateTag:input_type -> gitslice.core.v1.CreateTagRequest
+	2,  // 54: gitslice.core.v1.SliceService.ListTags:input_type -> gitslice.core.v1.ListTagsRequest
+	34, // 55: gitslice.core.v1.SliceService.ListSliceMembers:input_type -> gitslice.core.v1.ListSliceMembersRequest
+	36, // 56: gitslice.core.v1.SliceService.SetSliceMember:input_type -> gitslice.core.v1.SetSliceMemberRequest
+	37, // 57: gitslice.core.v1.SliceService.RemoveSliceMember:input_type -> gitslice.core.v1.RemoveSliceMemberRequest
+	38, // 58: gitslice.core.v1.SliceService.ListSharedSlices:input_type -> gitslice.core.v1.ListSharedSlicesRequest
+	4,  // 59: gitslice.core.v1.SliceService.CreateSlice:output_type -> gitslice.core.v1.Slice
+	4,  // 60: gitslice.core.v1.SliceService.ResolveSlice:output_type -> gitslice.core.v1.Slice
+	4,  // 61: gitslice.core.v1.SliceService.GetSlice:output_type -> gitslice.core.v1.Slice
+	11, // 62: gitslice.core.v1.SliceService.ListSlices:output_type -> gitslice.core.v1.ListSlicesResponse
+	13, // 63: gitslice.core.v1.SliceService.ListSliceDefinitionVersions:output_type -> gitslice.core.v1.ListSliceDefinitionVersionsResponse
+	5,  // 64: gitslice.core.v1.SliceService.UpdateSliceDefinition:output_type -> gitslice.core.v1.SliceDefinition
+	4,  // 65: gitslice.core.v1.SliceService.SetSliceCIDaemon:output_type -> gitslice.core.v1.Slice
+	42, // 66: gitslice.core.v1.SliceService.SetSliceSecret:output_type -> gitslice.core.v1.Empty
+	42, // 67: gitslice.core.v1.SliceService.DeleteSliceSecret:output_type -> gitslice.core.v1.Empty
+	19, // 68: gitslice.core.v1.SliceService.ListSliceSecrets:output_type -> gitslice.core.v1.ListSliceSecretsResponse
+	22, // 69: gitslice.core.v1.SliceService.DeleteSlice:output_type -> gitslice.core.v1.DeleteSliceResponse
+	4,  // 70: gitslice.core.v1.SliceService.RenameSlice:output_type -> gitslice.core.v1.Slice
+	4,  // 71: gitslice.core.v1.SliceService.SetSliceArchived:output_type -> gitslice.core.v1.Slice
+	4,  // 72: gitslice.core.v1.SliceService.SetSliceDescription:output_type -> gitslice.core.v1.Slice
+	4,  // 73: gitslice.core.v1.SliceService.SetSliceMergeOnSubmit:output_type -> gitslice.core.v1.Slice
+	25, // 74: gitslice.core.v1.SliceService.GetSliceGitMirror:output_type -> gitslice.core.v1.SliceGitMirror
+	25, // 75: gitslice.core.v1.SliceService.SetSliceGitMirror:output_type -> gitslice.core.v1.SliceGitMirror
+	42, // 76: gitslice.core.v1.SliceService.DeleteSliceGitMirror:output_type -> gitslice.core.v1.Empty
+	25, // 77: gitslice.core.v1.SliceService.PushSliceGitMirror:output_type -> gitslice.core.v1.SliceGitMirror
+	0,  // 78: gitslice.core.v1.SliceService.CreateTag:output_type -> gitslice.core.v1.Tag
+	3,  // 79: gitslice.core.v1.SliceService.ListTags:output_type -> gitslice.core.v1.ListTagsResponse
+	35, // 80: gitslice.core.v1.SliceService.ListSliceMembers:output_type -> gitslice.core.v1.ListSliceMembersResponse
+	32, // 81: gitslice.core.v1.SliceService.SetSliceMember:output_type -> gitslice.core.v1.SliceMember
+	42, // 82: gitslice.core.v1.SliceService.RemoveSliceMember:output_type -> gitslice.core.v1.Empty
+	40, // 83: gitslice.core.v1.SliceService.ListSharedSlices:output_type -> gitslice.core.v1.ListSharedSlicesResponse
+	59, // [59:84] is the sub-list for method output_type
+	34, // [34:59] is the sub-list for method input_type
+	34, // [34:34] is the sub-list for extension type_name
+	34, // [34:34] is the sub-list for extension extendee
+	0,  // [0:34] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_slice_proto_init() }
@@ -3004,7 +3155,7 @@ func file_proto_core_v1_slice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_slice_proto_rawDesc), len(file_proto_core_v1_slice_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   40,
+			NumMessages:   41,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

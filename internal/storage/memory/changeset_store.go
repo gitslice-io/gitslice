@@ -505,7 +505,11 @@ func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurren
 		}
 		checkStatuses[checkName] = normalized
 	}
-	if reason := storage.EvaluateSubmitRequirements(latestReq, excludedAuthors, approvers, checkStatuses); reason != "" && !bypassRequirements {
+	var approverGroupMembers map[string]bool
+	if latestReq.GetApprovers() != "" && !bypassRequirements {
+		approverGroupMembers = s.b.groupMemberSubjectIDsLocked(latestReq.GetApprovers())
+	}
+	if reason := storage.EvaluateSubmitRequirementsWithGroup(latestReq, excludedAuthors, approvers, checkStatuses, approverGroupMembers); reason != "" && !bypassRequirements {
 		return nil, s.b.blockSubmitLocked(cs, reason)
 	}
 	cs.Status = "pending_publish"
@@ -650,11 +654,13 @@ func submitRequirementsForMemorySlice(slice *corev1.Slice) *corev1.SubmitRequire
 		req.RequiredApprovals = slice.Definition.RequiredApprovals
 		req.RequiredHumanApprovals = slice.Definition.RequiredHumanApprovals
 		req.RequiredChecks = append([]string(nil), slice.Definition.RequiredChecks...)
-		req.SourceSliceDefinitionHash = storage.SubmitRequirementsHash(
+		req.Approvers = slice.Definition.Approvers
+		req.SourceSliceDefinitionHash = storage.SubmitRequirementsHashWithApprovers(
 			slice.Definition.IncludedPaths,
 			slice.Definition.RequiredApprovals,
 			slice.Definition.RequiredHumanApprovals,
 			slice.Definition.RequiredChecks,
+			slice.Definition.Approvers,
 		)
 	}
 	return req

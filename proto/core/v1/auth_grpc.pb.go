@@ -45,6 +45,12 @@ const (
 	AuthService_UpdateAccountProfile_FullMethodName    = "/gitslice.core.v1.AuthService/UpdateAccountProfile"
 	AuthService_SetAccountAvatar_FullMethodName        = "/gitslice.core.v1.AuthService/SetAccountAvatar"
 	AuthService_CreateDelegatedAgent_FullMethodName    = "/gitslice.core.v1.AuthService/CreateDelegatedAgent"
+	AuthService_CreateGroup_FullMethodName             = "/gitslice.core.v1.AuthService/CreateGroup"
+	AuthService_GetGroup_FullMethodName                = "/gitslice.core.v1.AuthService/GetGroup"
+	AuthService_ListGroups_FullMethodName              = "/gitslice.core.v1.AuthService/ListGroups"
+	AuthService_DeleteGroup_FullMethodName             = "/gitslice.core.v1.AuthService/DeleteGroup"
+	AuthService_AddGroupMember_FullMethodName          = "/gitslice.core.v1.AuthService/AddGroupMember"
+	AuthService_RemoveGroupMember_FullMethodName       = "/gitslice.core.v1.AuthService/RemoveGroupMember"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -126,6 +132,21 @@ type AuthServiceClient interface {
 	// human caller, optionally adds it to a slice with a role, and returns its
 	// initial API key once.
 	CreateDelegatedAgent(ctx context.Context, in *CreateDelegatedAgentRequest, opts ...grpc.CallOption) (*CreateDelegatedAgentResponse, error)
+	// CreateGroup creates an account-level group (@account/name). Account owners
+	// and admins may call it.
+	CreateGroup(ctx context.Context, in *CreateGroupRequest, opts ...grpc.CallOption) (*AccountGroup, error)
+	// GetGroup returns one account group and its members. Account members and
+	// slice admins referencing the account's groups may call it.
+	GetGroup(ctx context.Context, in *GetGroupRequest, opts ...grpc.CallOption) (*AccountGroup, error)
+	// ListGroups lists an account's groups. Account members and slice admins
+	// in the account may call it.
+	ListGroups(ctx context.Context, in *ListGroupsRequest, opts ...grpc.CallOption) (*ListGroupsResponse, error)
+	// DeleteGroup removes an account group and any slice grants referencing it.
+	DeleteGroup(ctx context.Context, in *DeleteGroupRequest, opts ...grpc.CallOption) (*Empty, error)
+	// AddGroupMember adds a user or agent subject to an account group.
+	AddGroupMember(ctx context.Context, in *AddGroupMemberRequest, opts ...grpc.CallOption) (*AccountGroup, error)
+	// RemoveGroupMember removes a user or agent subject from an account group.
+	RemoveGroupMember(ctx context.Context, in *RemoveGroupMemberRequest, opts ...grpc.CallOption) (*AccountGroup, error)
 }
 
 type authServiceClient struct {
@@ -370,6 +391,60 @@ func (c *authServiceClient) CreateDelegatedAgent(ctx context.Context, in *Create
 	return out, nil
 }
 
+func (c *authServiceClient) CreateGroup(ctx context.Context, in *CreateGroupRequest, opts ...grpc.CallOption) (*AccountGroup, error) {
+	out := new(AccountGroup)
+	err := c.cc.Invoke(ctx, AuthService_CreateGroup_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) GetGroup(ctx context.Context, in *GetGroupRequest, opts ...grpc.CallOption) (*AccountGroup, error) {
+	out := new(AccountGroup)
+	err := c.cc.Invoke(ctx, AuthService_GetGroup_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) ListGroups(ctx context.Context, in *ListGroupsRequest, opts ...grpc.CallOption) (*ListGroupsResponse, error) {
+	out := new(ListGroupsResponse)
+	err := c.cc.Invoke(ctx, AuthService_ListGroups_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) DeleteGroup(ctx context.Context, in *DeleteGroupRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, AuthService_DeleteGroup_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) AddGroupMember(ctx context.Context, in *AddGroupMemberRequest, opts ...grpc.CallOption) (*AccountGroup, error) {
+	out := new(AccountGroup)
+	err := c.cc.Invoke(ctx, AuthService_AddGroupMember_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *authServiceClient) RemoveGroupMember(ctx context.Context, in *RemoveGroupMemberRequest, opts ...grpc.CallOption) (*AccountGroup, error) {
+	out := new(AccountGroup)
+	err := c.cc.Invoke(ctx, AuthService_RemoveGroupMember_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations should embed UnimplementedAuthServiceServer
 // for forward compatibility
@@ -449,6 +524,21 @@ type AuthServiceServer interface {
 	// human caller, optionally adds it to a slice with a role, and returns its
 	// initial API key once.
 	CreateDelegatedAgent(context.Context, *CreateDelegatedAgentRequest) (*CreateDelegatedAgentResponse, error)
+	// CreateGroup creates an account-level group (@account/name). Account owners
+	// and admins may call it.
+	CreateGroup(context.Context, *CreateGroupRequest) (*AccountGroup, error)
+	// GetGroup returns one account group and its members. Account members and
+	// slice admins referencing the account's groups may call it.
+	GetGroup(context.Context, *GetGroupRequest) (*AccountGroup, error)
+	// ListGroups lists an account's groups. Account members and slice admins
+	// in the account may call it.
+	ListGroups(context.Context, *ListGroupsRequest) (*ListGroupsResponse, error)
+	// DeleteGroup removes an account group and any slice grants referencing it.
+	DeleteGroup(context.Context, *DeleteGroupRequest) (*Empty, error)
+	// AddGroupMember adds a user or agent subject to an account group.
+	AddGroupMember(context.Context, *AddGroupMemberRequest) (*AccountGroup, error)
+	// RemoveGroupMember removes a user or agent subject from an account group.
+	RemoveGroupMember(context.Context, *RemoveGroupMemberRequest) (*AccountGroup, error)
 }
 
 // UnimplementedAuthServiceServer should be embedded to have forward compatible implementations.
@@ -532,6 +622,24 @@ func (UnimplementedAuthServiceServer) SetAccountAvatar(context.Context, *SetAcco
 }
 func (UnimplementedAuthServiceServer) CreateDelegatedAgent(context.Context, *CreateDelegatedAgentRequest) (*CreateDelegatedAgentResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateDelegatedAgent not implemented")
+}
+func (UnimplementedAuthServiceServer) CreateGroup(context.Context, *CreateGroupRequest) (*AccountGroup, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateGroup not implemented")
+}
+func (UnimplementedAuthServiceServer) GetGroup(context.Context, *GetGroupRequest) (*AccountGroup, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetGroup not implemented")
+}
+func (UnimplementedAuthServiceServer) ListGroups(context.Context, *ListGroupsRequest) (*ListGroupsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListGroups not implemented")
+}
+func (UnimplementedAuthServiceServer) DeleteGroup(context.Context, *DeleteGroupRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeleteGroup not implemented")
+}
+func (UnimplementedAuthServiceServer) AddGroupMember(context.Context, *AddGroupMemberRequest) (*AccountGroup, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddGroupMember not implemented")
+}
+func (UnimplementedAuthServiceServer) RemoveGroupMember(context.Context, *RemoveGroupMemberRequest) (*AccountGroup, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveGroupMember not implemented")
 }
 
 // UnsafeAuthServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -1013,6 +1121,114 @@ func _AuthService_CreateDelegatedAgent_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_CreateGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).CreateGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_CreateGroup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).CreateGroup(ctx, req.(*CreateGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_GetGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).GetGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_GetGroup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).GetGroup(ctx, req.(*GetGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_ListGroups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListGroupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).ListGroups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_ListGroups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).ListGroups(ctx, req.(*ListGroupsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_DeleteGroup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeleteGroupRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).DeleteGroup(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_DeleteGroup_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).DeleteGroup(ctx, req.(*DeleteGroupRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_AddGroupMember_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddGroupMemberRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).AddGroupMember(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_AddGroupMember_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).AddGroupMember(ctx, req.(*AddGroupMemberRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AuthService_RemoveGroupMember_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveGroupMemberRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).RemoveGroupMember(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_RemoveGroupMember_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).RemoveGroupMember(ctx, req.(*RemoveGroupMemberRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1123,6 +1339,30 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateDelegatedAgent",
 			Handler:    _AuthService_CreateDelegatedAgent_Handler,
+		},
+		{
+			MethodName: "CreateGroup",
+			Handler:    _AuthService_CreateGroup_Handler,
+		},
+		{
+			MethodName: "GetGroup",
+			Handler:    _AuthService_GetGroup_Handler,
+		},
+		{
+			MethodName: "ListGroups",
+			Handler:    _AuthService_ListGroups_Handler,
+		},
+		{
+			MethodName: "DeleteGroup",
+			Handler:    _AuthService_DeleteGroup_Handler,
+		},
+		{
+			MethodName: "AddGroupMember",
+			Handler:    _AuthService_AddGroupMember_Handler,
+		},
+		{
+			MethodName: "RemoveGroupMember",
+			Handler:    _AuthService_RemoveGroupMember_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

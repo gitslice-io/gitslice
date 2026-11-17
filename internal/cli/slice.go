@@ -29,6 +29,7 @@ type sliceOutput struct {
 	IncludedPaths          []string `json:"included_paths"`
 	RequiredApprovals      int32    `json:"required_approvals"`
 	RequiredHumanApprovals int32    `json:"required_human_approvals"`
+	Approvers              string   `json:"approvers,omitempty"`
 	RequiredChecks         []string `json:"required_checks"`
 	DefinitionHash         string   `json:"definition_hash"`
 	Archived               bool     `json:"archived,omitempty"`
@@ -46,12 +47,13 @@ type sliceDefinitionVersionOutput struct {
 	IncludedPaths          []string `json:"included_paths"`
 	RequiredApprovals      int32    `json:"required_approvals"`
 	RequiredHumanApprovals int32    `json:"required_human_approvals"`
+	Approvers              string   `json:"approvers,omitempty"`
 	RequiredChecks         []string `json:"required_checks"`
 	CreatedBy              string   `json:"created_by"`
 	CreatedAt              string   `json:"created_at"`
 }
 
-func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, visibility string, requiredApprovals, requiredHumanApprovals int, requiredChecks []string, description string) error {
+func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, visibility string, requiredApprovals, requiredHumanApprovals int, requiredChecks []string, approvers, description string) error {
 	includedPaths, err := expandSliceIncludedPaths(includedPaths)
 	if err != nil {
 		return err
@@ -81,6 +83,7 @@ func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRe
 		RequiredApprovals:      int32(requiredApprovals),
 		RequiredHumanApprovals: int32(requiredHumanApprovals),
 		RequiredChecks:         requiredChecks,
+		Approvers:              strings.TrimSpace(approvers),
 		Description:            description,
 	})
 	if err != nil {
@@ -180,6 +183,9 @@ func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account s
 			fmt.Fprintf(r.Stdout, "    required approvals: %d\n", slice.RequiredApprovals)
 			if slice.RequiredHumanApprovals > 0 {
 				fmt.Fprintf(r.Stdout, "    required human approvals: %d\n", slice.RequiredHumanApprovals)
+			}
+			if slice.Approvers != "" {
+				fmt.Fprintf(r.Stdout, "    approvers: %s\n", slice.Approvers)
 			}
 			if len(slice.RequiredChecks) > 0 {
 				fmt.Fprintf(r.Stdout, "    required checks: %s\n", strings.Join(slice.RequiredChecks, ", "))
@@ -285,6 +291,9 @@ func (r Runner) runSliceHistory(ctx context.Context, opts commandOptions, sliceR
 		fmt.Fprintf(r.Stdout, "    included_paths: %s\n", strings.Join(version.IncludedPaths, ", "))
 		fmt.Fprintf(r.Stdout, "    required_approvals: %d\n", version.RequiredApprovals)
 		fmt.Fprintf(r.Stdout, "    required_human_approvals: %d\n", version.RequiredHumanApprovals)
+		if version.Approvers != "" {
+			fmt.Fprintf(r.Stdout, "    approvers: %s\n", version.Approvers)
+		}
 		if len(version.RequiredChecks) > 0 {
 			fmt.Fprintf(r.Stdout, "    required_checks: %s\n", strings.Join(version.RequiredChecks, ", "))
 		} else {
@@ -300,13 +309,13 @@ func (r Runner) runSliceHistory(ctx context.Context, opts commandOptions, sliceR
 	return nil
 }
 
-func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, includesChanged bool, visibility string, visibilityChanged bool, requiredApprovals int, requiredApprovalsChanged bool, requiredHumanApprovals int, requiredHumanApprovalsChanged bool, requiredChecks []string, requiredChecksChanged bool, clearRequiredChecks bool, description *string, mergeOnSubmit *bool) error {
+func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRef string, includedPaths []string, includesChanged bool, visibility string, visibilityChanged bool, requiredApprovals int, requiredApprovalsChanged bool, requiredHumanApprovals int, requiredHumanApprovalsChanged bool, requiredChecks []string, requiredChecksChanged bool, clearRequiredChecks bool, approvers string, approversChanged bool, description *string, mergeOnSubmit *bool) error {
 	if requiredChecksChanged && clearRequiredChecks {
 		return userError("invalid_args", "required checks can be replaced or cleared, not both", "Use --required-check or --clear-required-checks.")
 	}
-	definitionChanged := includesChanged || visibilityChanged || requiredApprovalsChanged || requiredHumanApprovalsChanged || requiredChecksChanged || clearRequiredChecks
+	definitionChanged := includesChanged || visibilityChanged || requiredApprovalsChanged || requiredHumanApprovalsChanged || requiredChecksChanged || clearRequiredChecks || approversChanged
 	if !definitionChanged && description == nil && mergeOnSubmit == nil {
-		return userError("invalid_args", "no slice updates requested", "Pass --include, --visibility, --required-approvals, --required-human-approvals, --required-check, --clear-required-checks, --description, or --merge-on-submit.")
+		return userError("invalid_args", "no slice updates requested", "Pass --include, --visibility, --required-approvals, --required-human-approvals, --required-check, --clear-required-checks, --approvers, --description, or --merge-on-submit.")
 	}
 	if requiredApprovals < 0 {
 		return userError("invalid_args", "required approvals must be zero or greater", "Pass --required-approvals 0 or higher.")
@@ -354,6 +363,10 @@ func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRe
 	} else if requiredChecksChanged {
 		nextRequiredChecks = requiredChecks
 	}
+	nextApprovers := current.Definition.Approvers
+	if approversChanged {
+		nextApprovers = strings.TrimSpace(approvers)
+	}
 	if definitionChanged {
 		_, err = client.UpdateSliceDefinition(callCtx, &corev1.UpdateSliceDefinitionRequest{
 			SliceId:                current.Id,
@@ -364,6 +377,7 @@ func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRe
 				RequiredApprovals:      nextRequiredApprovals,
 				RequiredHumanApprovals: nextRequiredHumanApprovals,
 				RequiredChecks:         nextRequiredChecks,
+				Approvers:              nextApprovers,
 			},
 		})
 		if err != nil {
@@ -494,6 +508,9 @@ func writeSliceText(w io.Writer, slice *corev1.Slice) error {
 	}
 	fmt.Fprintf(w, "required_approvals: %d\n", out.RequiredApprovals)
 	fmt.Fprintf(w, "required_human_approvals: %d\n", out.RequiredHumanApprovals)
+	if out.Approvers != "" {
+		fmt.Fprintf(w, "approvers: %s\n", out.Approvers)
+	}
 	if out.MergeOnSubmit {
 		fmt.Fprintln(w, "merge_on_submit: on (a stale changeset is merged onto the latest base at submit)")
 	} else {
@@ -540,6 +557,7 @@ func sliceToOutput(slice *corev1.Slice) sliceOutput {
 		out.IncludedPaths = append([]string{}, slice.Definition.IncludedPaths...)
 		out.RequiredApprovals = slice.Definition.RequiredApprovals
 		out.RequiredHumanApprovals = slice.Definition.RequiredHumanApprovals
+		out.Approvers = slice.Definition.Approvers
 		out.RequiredChecks = append([]string{}, slice.Definition.RequiredChecks...)
 	}
 	return out
@@ -557,6 +575,7 @@ func sliceDefinitionVersionToOutput(version *corev1.SliceDefinitionVersion) slic
 		IncludedPaths:          append([]string{}, version.IncludedPaths...),
 		RequiredApprovals:      version.RequiredApprovals,
 		RequiredHumanApprovals: version.RequiredHumanApprovals,
+		Approvers:              version.Approvers,
 		RequiredChecks:         append([]string{}, version.RequiredChecks...),
 		CreatedBy:              version.CreatedBy,
 		CreatedAt:              version.CreatedAt,

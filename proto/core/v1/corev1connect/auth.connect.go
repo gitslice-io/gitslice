@@ -109,6 +109,20 @@ const (
 	// AuthServiceCreateDelegatedAgentProcedure is the fully-qualified name of the AuthService's
 	// CreateDelegatedAgent RPC.
 	AuthServiceCreateDelegatedAgentProcedure = "/gitslice.core.v1.AuthService/CreateDelegatedAgent"
+	// AuthServiceCreateGroupProcedure is the fully-qualified name of the AuthService's CreateGroup RPC.
+	AuthServiceCreateGroupProcedure = "/gitslice.core.v1.AuthService/CreateGroup"
+	// AuthServiceGetGroupProcedure is the fully-qualified name of the AuthService's GetGroup RPC.
+	AuthServiceGetGroupProcedure = "/gitslice.core.v1.AuthService/GetGroup"
+	// AuthServiceListGroupsProcedure is the fully-qualified name of the AuthService's ListGroups RPC.
+	AuthServiceListGroupsProcedure = "/gitslice.core.v1.AuthService/ListGroups"
+	// AuthServiceDeleteGroupProcedure is the fully-qualified name of the AuthService's DeleteGroup RPC.
+	AuthServiceDeleteGroupProcedure = "/gitslice.core.v1.AuthService/DeleteGroup"
+	// AuthServiceAddGroupMemberProcedure is the fully-qualified name of the AuthService's
+	// AddGroupMember RPC.
+	AuthServiceAddGroupMemberProcedure = "/gitslice.core.v1.AuthService/AddGroupMember"
+	// AuthServiceRemoveGroupMemberProcedure is the fully-qualified name of the AuthService's
+	// RemoveGroupMember RPC.
+	AuthServiceRemoveGroupMemberProcedure = "/gitslice.core.v1.AuthService/RemoveGroupMember"
 )
 
 // AuthServiceClient is a client for the gitslice.core.v1.AuthService service.
@@ -188,6 +202,21 @@ type AuthServiceClient interface {
 	// human caller, optionally adds it to a slice with a role, and returns its
 	// initial API key once.
 	CreateDelegatedAgent(context.Context, *connect.Request[v1.CreateDelegatedAgentRequest]) (*connect.Response[v1.CreateDelegatedAgentResponse], error)
+	// CreateGroup creates an account-level group (@account/name). Account owners
+	// and admins may call it.
+	CreateGroup(context.Context, *connect.Request[v1.CreateGroupRequest]) (*connect.Response[v1.AccountGroup], error)
+	// GetGroup returns one account group and its members. Account members and
+	// slice admins referencing the account's groups may call it.
+	GetGroup(context.Context, *connect.Request[v1.GetGroupRequest]) (*connect.Response[v1.AccountGroup], error)
+	// ListGroups lists an account's groups. Account members and slice admins
+	// in the account may call it.
+	ListGroups(context.Context, *connect.Request[v1.ListGroupsRequest]) (*connect.Response[v1.ListGroupsResponse], error)
+	// DeleteGroup removes an account group and any slice grants referencing it.
+	DeleteGroup(context.Context, *connect.Request[v1.DeleteGroupRequest]) (*connect.Response[v1.Empty], error)
+	// AddGroupMember adds a user or agent subject to an account group.
+	AddGroupMember(context.Context, *connect.Request[v1.AddGroupMemberRequest]) (*connect.Response[v1.AccountGroup], error)
+	// RemoveGroupMember removes a user or agent subject from an account group.
+	RemoveGroupMember(context.Context, *connect.Request[v1.RemoveGroupMemberRequest]) (*connect.Response[v1.AccountGroup], error)
 }
 
 // NewAuthServiceClient constructs a client for the gitslice.core.v1.AuthService service. By
@@ -357,6 +386,42 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(authServiceMethods.ByName("CreateDelegatedAgent")),
 			connect.WithClientOptions(opts...),
 		),
+		createGroup: connect.NewClient[v1.CreateGroupRequest, v1.AccountGroup](
+			httpClient,
+			baseURL+AuthServiceCreateGroupProcedure,
+			connect.WithSchema(authServiceMethods.ByName("CreateGroup")),
+			connect.WithClientOptions(opts...),
+		),
+		getGroup: connect.NewClient[v1.GetGroupRequest, v1.AccountGroup](
+			httpClient,
+			baseURL+AuthServiceGetGroupProcedure,
+			connect.WithSchema(authServiceMethods.ByName("GetGroup")),
+			connect.WithClientOptions(opts...),
+		),
+		listGroups: connect.NewClient[v1.ListGroupsRequest, v1.ListGroupsResponse](
+			httpClient,
+			baseURL+AuthServiceListGroupsProcedure,
+			connect.WithSchema(authServiceMethods.ByName("ListGroups")),
+			connect.WithClientOptions(opts...),
+		),
+		deleteGroup: connect.NewClient[v1.DeleteGroupRequest, v1.Empty](
+			httpClient,
+			baseURL+AuthServiceDeleteGroupProcedure,
+			connect.WithSchema(authServiceMethods.ByName("DeleteGroup")),
+			connect.WithClientOptions(opts...),
+		),
+		addGroupMember: connect.NewClient[v1.AddGroupMemberRequest, v1.AccountGroup](
+			httpClient,
+			baseURL+AuthServiceAddGroupMemberProcedure,
+			connect.WithSchema(authServiceMethods.ByName("AddGroupMember")),
+			connect.WithClientOptions(opts...),
+		),
+		removeGroupMember: connect.NewClient[v1.RemoveGroupMemberRequest, v1.AccountGroup](
+			httpClient,
+			baseURL+AuthServiceRemoveGroupMemberProcedure,
+			connect.WithSchema(authServiceMethods.ByName("RemoveGroupMember")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -388,6 +453,12 @@ type authServiceClient struct {
 	updateAccountProfile    *connect.Client[v1.UpdateAccountProfileRequest, v1.AccountProfile]
 	setAccountAvatar        *connect.Client[v1.SetAccountAvatarRequest, v1.AccountProfile]
 	createDelegatedAgent    *connect.Client[v1.CreateDelegatedAgentRequest, v1.CreateDelegatedAgentResponse]
+	createGroup             *connect.Client[v1.CreateGroupRequest, v1.AccountGroup]
+	getGroup                *connect.Client[v1.GetGroupRequest, v1.AccountGroup]
+	listGroups              *connect.Client[v1.ListGroupsRequest, v1.ListGroupsResponse]
+	deleteGroup             *connect.Client[v1.DeleteGroupRequest, v1.Empty]
+	addGroupMember          *connect.Client[v1.AddGroupMemberRequest, v1.AccountGroup]
+	removeGroupMember       *connect.Client[v1.RemoveGroupMemberRequest, v1.AccountGroup]
 }
 
 // StartCliLogin calls gitslice.core.v1.AuthService.StartCliLogin.
@@ -520,6 +591,36 @@ func (c *authServiceClient) CreateDelegatedAgent(ctx context.Context, req *conne
 	return c.createDelegatedAgent.CallUnary(ctx, req)
 }
 
+// CreateGroup calls gitslice.core.v1.AuthService.CreateGroup.
+func (c *authServiceClient) CreateGroup(ctx context.Context, req *connect.Request[v1.CreateGroupRequest]) (*connect.Response[v1.AccountGroup], error) {
+	return c.createGroup.CallUnary(ctx, req)
+}
+
+// GetGroup calls gitslice.core.v1.AuthService.GetGroup.
+func (c *authServiceClient) GetGroup(ctx context.Context, req *connect.Request[v1.GetGroupRequest]) (*connect.Response[v1.AccountGroup], error) {
+	return c.getGroup.CallUnary(ctx, req)
+}
+
+// ListGroups calls gitslice.core.v1.AuthService.ListGroups.
+func (c *authServiceClient) ListGroups(ctx context.Context, req *connect.Request[v1.ListGroupsRequest]) (*connect.Response[v1.ListGroupsResponse], error) {
+	return c.listGroups.CallUnary(ctx, req)
+}
+
+// DeleteGroup calls gitslice.core.v1.AuthService.DeleteGroup.
+func (c *authServiceClient) DeleteGroup(ctx context.Context, req *connect.Request[v1.DeleteGroupRequest]) (*connect.Response[v1.Empty], error) {
+	return c.deleteGroup.CallUnary(ctx, req)
+}
+
+// AddGroupMember calls gitslice.core.v1.AuthService.AddGroupMember.
+func (c *authServiceClient) AddGroupMember(ctx context.Context, req *connect.Request[v1.AddGroupMemberRequest]) (*connect.Response[v1.AccountGroup], error) {
+	return c.addGroupMember.CallUnary(ctx, req)
+}
+
+// RemoveGroupMember calls gitslice.core.v1.AuthService.RemoveGroupMember.
+func (c *authServiceClient) RemoveGroupMember(ctx context.Context, req *connect.Request[v1.RemoveGroupMemberRequest]) (*connect.Response[v1.AccountGroup], error) {
+	return c.removeGroupMember.CallUnary(ctx, req)
+}
+
 // AuthServiceHandler is an implementation of the gitslice.core.v1.AuthService service.
 type AuthServiceHandler interface {
 	StartCliLogin(context.Context, *connect.Request[v1.StartCliLoginRequest]) (*connect.Response[v1.StartCliLoginResponse], error)
@@ -597,6 +698,21 @@ type AuthServiceHandler interface {
 	// human caller, optionally adds it to a slice with a role, and returns its
 	// initial API key once.
 	CreateDelegatedAgent(context.Context, *connect.Request[v1.CreateDelegatedAgentRequest]) (*connect.Response[v1.CreateDelegatedAgentResponse], error)
+	// CreateGroup creates an account-level group (@account/name). Account owners
+	// and admins may call it.
+	CreateGroup(context.Context, *connect.Request[v1.CreateGroupRequest]) (*connect.Response[v1.AccountGroup], error)
+	// GetGroup returns one account group and its members. Account members and
+	// slice admins referencing the account's groups may call it.
+	GetGroup(context.Context, *connect.Request[v1.GetGroupRequest]) (*connect.Response[v1.AccountGroup], error)
+	// ListGroups lists an account's groups. Account members and slice admins
+	// in the account may call it.
+	ListGroups(context.Context, *connect.Request[v1.ListGroupsRequest]) (*connect.Response[v1.ListGroupsResponse], error)
+	// DeleteGroup removes an account group and any slice grants referencing it.
+	DeleteGroup(context.Context, *connect.Request[v1.DeleteGroupRequest]) (*connect.Response[v1.Empty], error)
+	// AddGroupMember adds a user or agent subject to an account group.
+	AddGroupMember(context.Context, *connect.Request[v1.AddGroupMemberRequest]) (*connect.Response[v1.AccountGroup], error)
+	// RemoveGroupMember removes a user or agent subject from an account group.
+	RemoveGroupMember(context.Context, *connect.Request[v1.RemoveGroupMemberRequest]) (*connect.Response[v1.AccountGroup], error)
 }
 
 // NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -762,6 +878,42 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(authServiceMethods.ByName("CreateDelegatedAgent")),
 		connect.WithHandlerOptions(opts...),
 	)
+	authServiceCreateGroupHandler := connect.NewUnaryHandler(
+		AuthServiceCreateGroupProcedure,
+		svc.CreateGroup,
+		connect.WithSchema(authServiceMethods.ByName("CreateGroup")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceGetGroupHandler := connect.NewUnaryHandler(
+		AuthServiceGetGroupProcedure,
+		svc.GetGroup,
+		connect.WithSchema(authServiceMethods.ByName("GetGroup")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceListGroupsHandler := connect.NewUnaryHandler(
+		AuthServiceListGroupsProcedure,
+		svc.ListGroups,
+		connect.WithSchema(authServiceMethods.ByName("ListGroups")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceDeleteGroupHandler := connect.NewUnaryHandler(
+		AuthServiceDeleteGroupProcedure,
+		svc.DeleteGroup,
+		connect.WithSchema(authServiceMethods.ByName("DeleteGroup")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceAddGroupMemberHandler := connect.NewUnaryHandler(
+		AuthServiceAddGroupMemberProcedure,
+		svc.AddGroupMember,
+		connect.WithSchema(authServiceMethods.ByName("AddGroupMember")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceRemoveGroupMemberHandler := connect.NewUnaryHandler(
+		AuthServiceRemoveGroupMemberProcedure,
+		svc.RemoveGroupMember,
+		connect.WithSchema(authServiceMethods.ByName("RemoveGroupMember")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AuthServiceStartCliLoginProcedure:
@@ -816,6 +968,18 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceSetAccountAvatarHandler.ServeHTTP(w, r)
 		case AuthServiceCreateDelegatedAgentProcedure:
 			authServiceCreateDelegatedAgentHandler.ServeHTTP(w, r)
+		case AuthServiceCreateGroupProcedure:
+			authServiceCreateGroupHandler.ServeHTTP(w, r)
+		case AuthServiceGetGroupProcedure:
+			authServiceGetGroupHandler.ServeHTTP(w, r)
+		case AuthServiceListGroupsProcedure:
+			authServiceListGroupsHandler.ServeHTTP(w, r)
+		case AuthServiceDeleteGroupProcedure:
+			authServiceDeleteGroupHandler.ServeHTTP(w, r)
+		case AuthServiceAddGroupMemberProcedure:
+			authServiceAddGroupMemberHandler.ServeHTTP(w, r)
+		case AuthServiceRemoveGroupMemberProcedure:
+			authServiceRemoveGroupMemberHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -927,4 +1091,28 @@ func (UnimplementedAuthServiceHandler) SetAccountAvatar(context.Context, *connec
 
 func (UnimplementedAuthServiceHandler) CreateDelegatedAgent(context.Context, *connect.Request[v1.CreateDelegatedAgentRequest]) (*connect.Response[v1.CreateDelegatedAgentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.CreateDelegatedAgent is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) CreateGroup(context.Context, *connect.Request[v1.CreateGroupRequest]) (*connect.Response[v1.AccountGroup], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.CreateGroup is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) GetGroup(context.Context, *connect.Request[v1.GetGroupRequest]) (*connect.Response[v1.AccountGroup], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.GetGroup is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) ListGroups(context.Context, *connect.Request[v1.ListGroupsRequest]) (*connect.Response[v1.ListGroupsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.ListGroups is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) DeleteGroup(context.Context, *connect.Request[v1.DeleteGroupRequest]) (*connect.Response[v1.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.DeleteGroup is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) AddGroupMember(context.Context, *connect.Request[v1.AddGroupMemberRequest]) (*connect.Response[v1.AccountGroup], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.AddGroupMember is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) RemoveGroupMember(context.Context, *connect.Request[v1.RemoveGroupMemberRequest]) (*connect.Response[v1.AccountGroup], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.RemoveGroupMember is not implemented"))
 }

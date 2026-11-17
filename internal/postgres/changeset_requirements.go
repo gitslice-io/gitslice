@@ -149,12 +149,13 @@ func activeSliceRequirementsAndIncludedPathsTx(ctx context.Context, tx *sql.Tx, 
 func sliceSubmitMetadataTx(ctx context.Context, tx *sql.Tx, sliceID string) (*corev1.SubmitRequirements, []string, bool, bool, error) {
 	var requiredApprovals, requiredHumanApprovals int64
 	var includedJSON, requiredChecksJSON []byte
+	var approversGroup string
 	var archivedAt, deletedAt sql.NullTime
 	err := tx.QueryRowContext(ctx, `
-		select included_paths, required_approvals, required_human_approvals, required_checks, archived_at, deleted_at
+		select included_paths, required_approvals, required_human_approvals, required_checks, approvers_group, archived_at, deleted_at
 		from slices
 		where id = $1
-	`, sliceID).Scan(&includedJSON, &requiredApprovals, &requiredHumanApprovals, &requiredChecksJSON, &archivedAt, &deletedAt)
+	`, sliceID).Scan(&includedJSON, &requiredApprovals, &requiredHumanApprovals, &requiredChecksJSON, &approversGroup, &archivedAt, &deletedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil, false, false, ErrNotFound
 	}
@@ -173,11 +174,13 @@ func sliceSubmitMetadataTx(ctx context.Context, tx *sql.Tx, sliceID string) (*co
 		RequiredApprovals:      int32(requiredApprovals),
 		RequiredHumanApprovals: int32(requiredHumanApprovals),
 		RequiredChecks:         requiredChecks,
-		SourceSliceDefinitionHash: storage.SubmitRequirementsHash(
+		Approvers:              approversGroup,
+		SourceSliceDefinitionHash: storage.SubmitRequirementsHashWithApprovers(
 			included,
 			int32(requiredApprovals),
 			int32(requiredHumanApprovals),
 			requiredChecks,
+			approversGroup,
 		),
 	}, included, archivedAt.Valid, deletedAt.Valid, nil
 }

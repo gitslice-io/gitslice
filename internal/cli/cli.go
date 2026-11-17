@@ -148,6 +148,7 @@ func (r Runner) rootCommand() *cobra.Command {
 		r.sliceCommand(opts),
 		r.agentCommand(opts),
 		r.accountCommand(opts),
+		r.groupCommand(opts),
 		r.tagCommand(opts),
 		r.changesetCommand(opts),
 		r.checkCommand(opts),

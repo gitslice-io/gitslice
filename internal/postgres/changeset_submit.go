@@ -182,7 +182,14 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 		return nil, err
 	}
 	mergeCheckStatuses(checkStatuses, extraCheckStatuses)
-	if reason := storage.EvaluateSubmitRequirements(latestReq, excludedAuthors, approvers, checkStatuses); reason != "" && !bypassRequirements {
+	var approverGroupMembers map[string]bool
+	if latestReq.GetApprovers() != "" && !bypassRequirements {
+		approverGroupMembers, err = groupMemberSubjectIDsTx(ctx, tx, latestReq.GetApprovers())
+		if err != nil {
+			return nil, err
+		}
+	}
+	if reason := storage.EvaluateSubmitRequirementsWithGroup(latestReq, excludedAuthors, approvers, checkStatuses, approverGroupMembers); reason != "" && !bypassRequirements {
 		return nil, blockSubmitTx(ctx, tx, cs.ID, reason)
 	}
 	var currentCommitID string

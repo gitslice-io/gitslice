@@ -119,11 +119,13 @@ func (v diffValidator) validateFileEditsReading(ctx context.Context, slice *core
 			RequiredApprovals:      slice.Definition.RequiredApprovals,
 			RequiredHumanApprovals: slice.Definition.RequiredHumanApprovals,
 			RequiredChecks:         append([]string(nil), slice.Definition.RequiredChecks...),
-			SourceSliceDefinitionHash: storage.SubmitRequirementsHash(
+			Approvers:              slice.Definition.Approvers,
+			SourceSliceDefinitionHash: storage.SubmitRequirementsHashWithApprovers(
 				slice.Definition.IncludedPaths,
 				slice.Definition.RequiredApprovals,
 				slice.Definition.RequiredHumanApprovals,
 				slice.Definition.RequiredChecks,
+				slice.Definition.Approvers,
 			),
 		},
 		PathBases: pathBases,

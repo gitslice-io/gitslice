@@ -148,6 +148,8 @@ message SliceDefinition {
   int32 required_approvals = 5;
   repeated string required_checks = 6;
   int32 required_human_approvals = 7;
+  // Optional "@account/name" group whose approvals count toward approval gates.
+  string approvers = 8;
 }
 
 message SliceDefinitionVersion {
@@ -161,6 +163,7 @@ message SliceDefinitionVersion {
   string created_at = 8;
   string created_by = 9;
   int32 required_human_approvals = 10;
+  string approvers = 11;
 }
 
 message CreateSliceRequest {
@@ -171,6 +174,7 @@ message CreateSliceRequest {
   repeated string required_checks = 5;
   string description = 6;
   int32 required_human_approvals = 7;
+  string approvers = 8;
 }
 
 message ResolveSliceRequest {
@@ -356,6 +360,19 @@ message SliceMember {
   string created_at = 7;
 }
 
+message SliceGroupMember {
+  string group_id = 1;
+  string account = 2;
+  string name = 3;
+  // "@account/name".
+  string handle = 4;
+  // admin, writer, contributor or reader.
+  string role = 5;
+  string added_by = 6;
+  string created_at = 7;
+  int32 member_count = 8;
+}
+
 message ListSliceMembersRequest {
   SliceRef slice = 1;
 }
@@ -363,6 +380,7 @@ message ListSliceMembersRequest {
 message ListSliceMembersResponse {
   SliceRef slice = 1;
   repeated SliceMember members = 2;
+  repeated SliceGroupMember group_members = 3;
 }
 
 message SetSliceMemberRequest {
