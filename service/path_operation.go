@@ -145,6 +145,7 @@ func (s *ChangesetService) landPathOperation(ctx context.Context, subjectID stri
 		}
 		return nil, grpcError(err)
 	}
+	var childPaths []string
 	if sourceEntry.Kind != "file" {
 		children, err := s.Repository.ListFiles(ctx, baseCommitID, edit.OldPath)
 		if err != nil {
@@ -154,6 +155,7 @@ func (s *ChangesetService) landPathOperation(ctx context.Context, subjectID stri
 			if triggers.TouchesGitsliceConfig(child.Path) {
 				return nil, status.Error(codes.FailedPrecondition, ".gitslice configuration paths cannot be copied or moved directly; use a changeset")
 			}
+			childPaths = append(childPaths, child.Path)
 		}
 	}
 	if _, err := s.Repository.GetEntry(ctx, baseCommitID, edit.Path); err == nil {
@@ -172,6 +174,9 @@ func (s *ChangesetService) landPathOperation(ctx context.Context, subjectID stri
 		}
 	}
 	if err := s.ensurePathOperationWithinProtectedSlices(ctx, slice, edit, readable, validation.Coverage); err != nil {
+		return nil, err
+	}
+	if err := s.requirePathOwnersForDirectOperation(ctx, baseCommitID, subjectID, edit, childPaths); err != nil {
 		return nil, err
 	}
 	cs, err := s.Changesets.Create(ctx, subjectID, &corev1.CreateChangesetRequest{

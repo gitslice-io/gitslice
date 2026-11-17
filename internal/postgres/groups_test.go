@@ -246,3 +246,40 @@ func TestSliceApproversGroupSubmitGatePostgres(t *testing.T) {
 		t.Fatalf("Submit after group human approval failed: %v", err)
 	}
 }
+
+func TestRecordAndClearPathOwnerAndGitsliceBlocksPostgres(t *testing.T) {
+	ctx, store, objects := newPostgresTestStoreWithObjects(t)
+	reviewer := provisionHumanPGTest(t, ctx, store, "blk_rev", "blk-rev@example.com")
+	ref := getTestRef(t, ctx, store)
+	sliceRef := &corev1.SliceRef{Account: "acme", Slice: "payment"}
+
+	for _, reason := range []string{
+		"path owner approvals not satisfied for /acme/payment/api/x.go (/acme/payment/.gitslice/owners.yaml): requires 1 approval(s) from alice, has 0",
+		".gitslice configuration path /acme/payment/.gitslice/checks.yaml requires approval: an owner or admin of acme must approve this patchset",
+	} {
+		cs, err := store.Changesets().Create(ctx, "user_alice", &corev1.CreateChangesetRequest{
+			AuthoringSlice: sliceRef,
+			TargetRef:      DefaultTargetRef,
+			BaseCommitId:   ref.CommitId,
+			Title:          "block clear check",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		ps := createPatchsetPGTest(t, ctx, store, objects, cs.Id, "", "user_alice", "", "/acme/payment/blk.txt", reason+"\n")
+		if err := store.Changesets().RecordSubmitBlockedReason(ctx, cs.Id, ps.Id, reason); err != nil {
+			t.Fatal(err)
+		}
+		got, err := store.Changesets().Get(ctx, cs.Id)
+		if err != nil || got.SubmitBlockedReason != reason {
+			t.Fatalf("recorded SubmitBlockedReason = %q (%v), want %q", got.SubmitBlockedReason, err, reason)
+		}
+		if _, err := store.Changesets().Approve(ctx, cs.Id, reviewer); err != nil {
+			t.Fatal(err)
+		}
+		after, err := store.Changesets().Get(ctx, cs.Id)
+		if err != nil || after.SubmitBlockedReason != "" {
+			t.Fatalf("SubmitBlockedReason after Approve for %q = %q (%v), want empty", reason, after.SubmitBlockedReason, err)
+		}
+	}
+}

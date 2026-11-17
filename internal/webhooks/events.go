@@ -122,6 +122,18 @@ func (s *changesetStore) SubmitBypassingRequirements(ctx context.Context, change
 	return submitter.SubmitBypassingRequirements(ctx, changesetID, expectedCurrentPatchsetID)
 }
 
+// RecordSubmitBlockedReason preserves recording service-layer requirement blocks
+// (path owners, .gitslice approvals) through the webhook wrapper.
+func (s *changesetStore) RecordSubmitBlockedReason(ctx context.Context, changesetID, expectedCurrentPatchsetID, reason string) error {
+	recorder, ok := s.ChangesetStore.(interface {
+		RecordSubmitBlockedReason(context.Context, string, string, string) error
+	})
+	if !ok {
+		return nil
+	}
+	return recorder.RecordSubmitBlockedReason(ctx, changesetID, expectedCurrentPatchsetID, reason)
+}
+
 // PublishPending lands submitted changesets. The store records their
 // changeset.submitted events in the publishing transaction; deliver them.
 func (s *changesetStore) PublishPending(ctx context.Context, limit int) (int, error) {

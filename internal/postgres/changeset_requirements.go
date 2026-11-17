@@ -335,8 +335,28 @@ func clearRequirementBlockTx(ctx context.Context, tx *sql.Tx, changesetID, patch
 			submit_blocked_reason like 'required check %'
 			or submit_blocked_reason like 'required approvals %'
 			or submit_blocked_reason like 'required human approvals %'
+			or submit_blocked_reason like 'path owner%'
+			or submit_blocked_reason like '.gitslice%'
 		  )
 	`, changesetID, patchsetID)
+	return err
+}
+
+// RecordSubmitBlockedReason persists a requirement failure (such as path owner
+// or .gitslice approvals) evaluated by the service layer onto a draft changeset.
+func (s *ChangesetStore) RecordSubmitBlockedReason(ctx context.Context, changesetID, expectedCurrentPatchsetID, reason string) error {
+	changesetID, err := s.resolveChangesetSelector(ctx, changesetID)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx, `
+		update changesets
+		set submit_blocked_reason = $3,
+		    updated_at = now()
+		where id = $1
+		  and status = 'draft'
+		  and coalesce(current_patchset_id, '') = $2
+	`, changesetID, strings.TrimSpace(expectedCurrentPatchsetID), reason)
 	return err
 }
 

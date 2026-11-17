@@ -2,10 +2,8 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
-	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/triggers"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -13,16 +11,29 @@ import (
 
 // submitExtras checks what submit needs beyond the slice's own rules, and
 // returns the check statuses to count besides the stored results
-// (design/34_triggers.md):
+// (design/34_triggers.md & design/36_multi_agent_collaboration.md):
 //
 //   - A change under a .gitslice folder decides what code runs with which
-//     secrets (checks.yaml, triggers.yaml and trigger scripts), so it needs
-//     an owner or admin of the account: as the author, or as an approver.
+//     secrets (checks.yaml, triggers.yaml, owners.yaml and trigger scripts), so
+//     it needs an owner or admin of the account: as the author, or as an
+//     approver (controller-deduped, claimed agents only).
+//   - Any path covered by .gitslice/owners.yaml on the target ref's landed tree
+//     needs its required owner approvals.
 //   - A required check that checks.yaml skips, or that only a trigger
 //     reports and no trigger would report for this patchset, counts as
 //     passed.
 func (s *ChangesetService) submitExtras(ctx context.Context, cs *corev1.Changeset) (map[string]string, error) {
-	if err := s.requireGitsliceApproval(ctx, cs); err != nil {
+	if cs != nil && (cs.GetStatus() == "pending_publish" || cs.GetStatus() == "submitted") {
+		return nil, nil
+	}
+	headCommitID, err := s.submitHeadCommitID(ctx, cs)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := s.requireGitsliceApproval(ctx, cs, headCommitID); err != nil {
+		return nil, err
+	}
+	if err := s.requirePathOwnersApproval(ctx, cs, headCommitID); err != nil {
 		return nil, err
 	}
 	extra, err := s.skippedRequiredCheckStatuses(ctx, cs)
@@ -68,59 +79,31 @@ func patchsetTouchedGitslicePath(ctx context.Context, repo storage.RepositorySto
 	}
 	if repo != nil && strings.TrimSpace(patchset.GetBaseCommitId()) != "" {
 		for _, edit := range patchset.GetFileEdits() {
-			oldPath := strings.TrimSpace(edit.GetOldPath())
-			if oldPath == "" {
-				continue
+			checkDirs := []string{strings.TrimSpace(edit.GetOldPath())}
+			if strings.EqualFold(strings.TrimSpace(edit.GetOp()), "delete") {
+				checkDirs = append(checkDirs, strings.TrimSpace(edit.GetPath()))
 			}
-			entry, err := repo.GetEntry(ctx, patchset.GetBaseCommitId(), oldPath)
-			if err != nil || entry.Kind == "file" {
-				continue
-			}
-			children, err := repo.ListFiles(ctx, patchset.GetBaseCommitId(), oldPath)
-			if err != nil {
-				continue
-			}
-			for _, child := range children {
-				if triggers.TouchesGitsliceConfig(child.Path) {
-					return child.Path
+			for _, dir := range checkDirs {
+				if dir == "" {
+					continue
+				}
+				entry, err := repo.GetEntry(ctx, patchset.GetBaseCommitId(), dir)
+				if err != nil || entry.Kind == "file" {
+					continue
+				}
+				children, err := repo.ListFiles(ctx, patchset.GetBaseCommitId(), dir)
+				if err != nil {
+					continue
+				}
+				for _, child := range children {
+					if triggers.TouchesGitsliceConfig(child.Path) {
+						return child.Path
+					}
 				}
 			}
 		}
 	}
 	return ""
-}
-
-func (s *ChangesetService) requireGitsliceApproval(ctx context.Context, cs *corev1.Changeset) error {
-	patchset := currentPatchset(cs)
-	if patchset == nil {
-		return nil
-	}
-	touched := patchsetTouchedGitslicePath(ctx, s.Repository, patchset)
-	if touched == "" {
-		return nil
-	}
-	account := cs.GetAuthoringSlice().GetAccount()
-	patchsetAuthor := strings.TrimSpace(patchset.GetAuthor())
-	if patchsetAuthor != "" {
-		if ok, err := canAuthorizeAccount(ctx, s.Auth, patchsetAuthor, account, authz.ActionAdmin); err != nil || ok {
-			return err
-		}
-	}
-	approvers, err := s.Changesets.ApprovalSubjects(ctx, cs.GetId(), patchset.GetId())
-	if err != nil {
-		return grpcError(err)
-	}
-	for _, subjectID := range approvers {
-		subjectID = strings.TrimSpace(subjectID)
-		if subjectID == "" || subjectID == patchsetAuthor || (patchsetAuthor == "" && subjectID == strings.TrimSpace(cs.GetAuthor())) {
-			continue
-		}
-		if ok, err := canAuthorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionAdmin); err != nil || ok {
-			return err
-		}
-	}
-	return fmt.Errorf("%w: %s is in a .gitslice folder, which decides what code runs with which secrets: an owner or admin of %s must approve this patchset",
-		storage.ErrConflict, touched, account)
 }
 
 // skippedTriggerChecks returns the slice's required checks that only a

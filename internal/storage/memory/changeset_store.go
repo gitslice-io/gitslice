@@ -417,6 +417,21 @@ func (s *ChangesetStore) SubmitWithCheckStatuses(ctx context.Context, changesetI
 	return s.submit(ctx, changesetID, expectedCurrentPatchsetID, extraCheckStatuses, false)
 }
 
+// RecordSubmitBlockedReason records a service-enforced requirement block (such
+// as path owners or .gitslice approval) onto a draft changeset.
+func (s *ChangesetStore) RecordSubmitBlockedReason(_ context.Context, changesetID, expectedCurrentPatchsetID, reason string) error {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if resolved := s.b.resolveChangesetSelectorLocked(changesetID); resolved != "" {
+		changesetID = resolved
+	}
+	cs := s.b.changesets[changesetID]
+	if cs != nil && cs.Status == "draft" && cs.CurrentPatchsetId == strings.TrimSpace(expectedCurrentPatchsetID) {
+		cs.SubmitBlockedReason = reason
+	}
+	return nil
+}
+
 // SubmitBypassingRequirements submits without the slice's required approvals
 // and checks, for a changeset that is a single copy or move.
 func (s *ChangesetStore) SubmitBypassingRequirements(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {

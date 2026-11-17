@@ -118,7 +118,9 @@ func FilterApproversByMembership(approvers []Subject, allowedSubjectIDs map[stri
 func IsRequirementBlock(reason string) bool {
 	return strings.HasPrefix(reason, "required check ") ||
 		strings.HasPrefix(reason, "required approvals ") ||
-		strings.HasPrefix(reason, "required human approvals ")
+		strings.HasPrefix(reason, "required human approvals ") ||
+		strings.HasPrefix(reason, "path owner") ||
+		strings.HasPrefix(reason, ".gitslice")
 }
 
 // SubmitRequirementsHash hashes only the fields that gate whether a patchset is

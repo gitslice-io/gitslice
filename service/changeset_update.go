@@ -50,6 +50,9 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 	if err != nil {
 		return nil, err
 	}
+	if err := s.validateOwnersConfigEdits(ctx, baseTreeID, req.FileEdits); err != nil {
+		return nil, err
+	}
 	patchset := &corev1.Patchset{
 		BaseCommitId:          baseCommitID,
 		Author:                subjectID,

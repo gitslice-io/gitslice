@@ -78,7 +78,10 @@ func SubmitBlockedReasonCategory(reason string) string {
 	case strings.Contains(reason, "requirements changed"),
 		strings.Contains(reason, "outside latest slice definition"):
 		return SubmitReasonRequirementsChanged
-	case strings.Contains(reason, "required approvals"):
+	case strings.Contains(reason, "required approvals"),
+		strings.Contains(reason, "required human approvals"),
+		strings.Contains(reason, "path owner"),
+		strings.Contains(reason, ".gitslice"):
 		return SubmitReasonApprovalsMissing
 	case strings.Contains(reason, "required check"):
 		return SubmitReasonChecksMissing
