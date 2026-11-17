@@ -47,6 +47,7 @@ export interface Conversation {
   // currently holds a live Connect stream. False/undefined means the agent is
   // offline and the composer should be disabled.
   daemonOnline?: boolean;
+  role?: string;
 }
 
 export interface ConversationEvent {
@@ -87,6 +88,7 @@ export interface CreateConversationRequest {
   daemonId?: string;
   slice?: SliceRef;
   title?: string;
+  role?: string;
 }
 
 export interface ListConversationsRequest {

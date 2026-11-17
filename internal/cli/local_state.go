@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type UserConfig struct {
@@ -98,7 +99,44 @@ func rejectPreStackWorkspaceState(state WorkspaceState) error {
 	return nil
 }
 
+func envServerAddrOverride() string {
+	for _, key := range []string{"GS_SERVER_ADDR", "GITSLICE_GRPC_ADDR", "GITSLICE_SERVER_ADDR"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func (r Runner) readEnvUserConfig() (UserConfig, bool, error) {
+	token := strings.TrimSpace(os.Getenv("GS_TOKEN"))
+	if token == "" {
+		return UserConfig{}, false, nil
+	}
+	cfg, err := r.readPartialUserConfig()
+	if err != nil {
+		return UserConfig{}, false, err
+	}
+	serverAddr := envServerAddrOverride()
+	if serverAddr == "" {
+		serverAddr = strings.TrimSpace(cfg.ServerAddr)
+	}
+	if serverAddr == "" {
+		serverAddr = defaultServerAddr()
+	}
+	return UserConfig{
+		ServerAddr: serverAddr,
+		Token:      token,
+		Aliases:    cfg.Aliases,
+	}, true, nil
+}
+
 func (r Runner) readUserConfig() (UserConfig, error) {
+	if cfg, ok, err := r.readEnvUserConfig(); err != nil {
+		return cfg, err
+	} else if ok {
+		return cfg, nil
+	}
 	if _, err := os.Stat(r.userConfigPath()); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return UserConfig{}, userError("not_logged_in", "not logged in", "Run gs auth login.")

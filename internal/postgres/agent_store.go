@@ -231,11 +231,15 @@ func (s *AgentStore) CreateConversation(ctx context.Context, in storage.Conversa
 	if err != nil {
 		return nil, err
 	}
+	role, err := storage.NormalizeConversationRole(in.Role)
+	if err != nil {
+		return nil, err
+	}
 	subdir := "conversations/" + id
 	if _, err := s.db.ExecContext(ctx, `
-		insert into agent_conversations(id, daemon_id, subject_id, slice_id, account, slice_name, title, status, workspace_subdir, next_seq)
-		values ($1, $2, $3, $4, $5, $6, $7, 'active', $8, 1)
-	`, id, in.DaemonID, in.SubjectID, in.SliceID, in.Account, in.SliceName, in.Title, subdir); err != nil {
+		insert into agent_conversations(id, daemon_id, subject_id, slice_id, account, slice_name, title, status, role, workspace_subdir, next_seq)
+		values ($1, $2, $3, $4, $5, $6, $7, 'active', $8, $9, 1)
+	`, id, in.DaemonID, in.SubjectID, in.SliceID, in.Account, in.SliceName, in.Title, role, subdir); err != nil {
 		return nil, err
 	}
 	return s.GetConversation(ctx, id)
@@ -243,7 +247,7 @@ func (s *AgentStore) CreateConversation(ctx context.Context, in storage.Conversa
 
 func (s *AgentStore) GetConversation(ctx context.Context, conversationID string) (*corev1.Conversation, error) {
 	row := s.db.QueryRowContext(ctx, `
-		select id, daemon_id, slice_id, account, slice_name, title, status, workspace_subdir, created_at, updated_at
+		select id, daemon_id, slice_id, account, slice_name, title, status, role, workspace_subdir, created_at, updated_at
 		from agent_conversations where id = $1
 	`, conversationID)
 	return scanConversation(row)
@@ -251,7 +255,7 @@ func (s *AgentStore) GetConversation(ctx context.Context, conversationID string)
 
 func (s *AgentStore) ListConversations(ctx context.Context, filter storage.ConversationFilter) ([]*corev1.Conversation, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select id, daemon_id, slice_id, account, slice_name, title, status, workspace_subdir, created_at, updated_at
+		select id, daemon_id, slice_id, account, slice_name, title, status, role, workspace_subdir, created_at, updated_at
 		from agent_conversations
 		where ($1 = '' or slice_id = $1) and ($2 = '' or daemon_id = $2) and ($3 = '' or subject_id = $3)
 		order by created_at asc
@@ -489,7 +493,7 @@ func scanConversation(row rowScanner) (*corev1.Conversation, error) {
 		account, sliceName   string
 		createdAt, updatedAt time.Time
 	)
-	if err := row.Scan(&c.Id, &c.DaemonId, &c.SliceId, &account, &sliceName, &c.Title, &c.Status, &c.WorkspaceSubdir, &createdAt, &updatedAt); err != nil {
+	if err := row.Scan(&c.Id, &c.DaemonId, &c.SliceId, &account, &sliceName, &c.Title, &c.Status, &c.Role, &c.WorkspaceSubdir, &createdAt, &updatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, storage.ErrNotFound
 		}

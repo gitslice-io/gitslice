@@ -256,6 +256,7 @@ func (s *AgentService) replayDaemonConversations(ctx context.Context, daemonID s
 			SliceId:        conv.SliceId,
 			ServerAddr:     s.serverAddr,
 			Title:          conv.Title,
+			Role:           conv.Role,
 		}}}) {
 			return
 		}
@@ -269,6 +270,38 @@ func (s *AgentService) replayDaemonConversations(ctx context.Context, daemonID s
 	}}})
 }
 
+func normalizeConversationRole(role string) (string, authz.Action, error) {
+	normalized, err := storage.NormalizeConversationRole(role)
+	if err != nil {
+		return "", "", status.Error(codes.InvalidArgument, "role must be reader, contributor, or writer")
+	}
+	switch normalized {
+	case "reader":
+		return normalized, authz.ActionRead, nil
+	case "writer":
+		return normalized, authz.ActionSubmit, nil
+	default:
+		return normalized, authz.ActionPropose, nil
+	}
+}
+
+func (s *AgentService) authorizeConversationControl(ctx context.Context, subjectID string, conv *corev1.Conversation) error {
+	_, action, err := normalizeConversationRole(conv.GetRole())
+	if err != nil {
+		return err
+	}
+	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, conv.Slice, action); err != nil {
+		return err
+	}
+	if _, err := s.ownedDaemon(ctx, subjectID, conv.DaemonId); err == nil {
+		return nil
+	}
+	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, conv.Slice, authz.ActionWrite); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *AgentService) CreateConversation(ctx context.Context, req *corev1.CreateConversationRequest) (*corev1.Conversation, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
@@ -280,7 +313,11 @@ func (s *AgentService) CreateConversation(ctx context.Context, req *corev1.Creat
 	if req.Slice == nil {
 		return nil, status.Error(codes.InvalidArgument, "slice is required")
 	}
-	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, authz.ActionWrite)
+	convRole, action, err := normalizeConversationRole(req.GetRole())
+	if err != nil {
+		return nil, err
+	}
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.Slice, action)
 	if err != nil {
 		return nil, err
 	}
@@ -302,6 +339,7 @@ func (s *AgentService) CreateConversation(ctx context.Context, req *corev1.Creat
 		Account:   req.Slice.Account,
 		SliceName: req.Slice.Slice,
 		Title:     req.Title,
+		Role:      convRole,
 	})
 	if err != nil {
 		return nil, grpcError(err)
@@ -313,6 +351,7 @@ func (s *AgentService) CreateConversation(ctx context.Context, req *corev1.Creat
 			SliceId:        conv.SliceId,
 			ServerAddr:     s.serverAddr,
 			Title:          conv.Title,
+			Role:           conv.Role,
 		}}})
 	}
 	s.annotateConversation(conv)
@@ -382,7 +421,7 @@ func (s *AgentService) SendAgentMessage(ctx context.Context, req *corev1.SendAge
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, conv.Slice, authz.ActionWrite); err != nil {
+	if err := s.authorizeConversationControl(ctx, subjectID, conv); err != nil {
 		return nil, err
 	}
 	ev, _, err := s.Agents.AppendEvent(ctx, conv.Id, "user", "message", req.Text, "", "", 0)
@@ -486,7 +525,7 @@ func (s *AgentService) CloseConversation(ctx context.Context, req *corev1.CloseC
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, conv.Slice, authz.ActionWrite); err != nil {
+	if err := s.authorizeConversationControl(ctx, subjectID, conv); err != nil {
 		return nil, err
 	}
 	if err := s.Agents.SetConversationStatus(ctx, conv.Id, "inactive"); err != nil {

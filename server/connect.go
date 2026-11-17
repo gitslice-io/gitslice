@@ -186,6 +186,10 @@ func (a connectAuthAdapter) ListOwnedAgents(ctx context.Context, req *connect.Re
 	return connectResponse(a.svc.ListOwnedAgents(ctx, req.Msg))
 }
 
+func (a connectAuthAdapter) CreateDelegatedAgent(ctx context.Context, req *connect.Request[corev1.CreateDelegatedAgentRequest]) (*connect.Response[corev1.CreateDelegatedAgentResponse], error) {
+	return connectResponse(a.svc.CreateDelegatedAgent(ctx, req.Msg))
+}
+
 func (a connectAuthAdapter) CreateOrganization(ctx context.Context, req *connect.Request[corev1.CreateOrganizationRequest]) (*connect.Response[corev1.CreateOrganizationResponse], error) {
 	return connectResponse(a.svc.CreateOrganization(ctx, req.Msg))
 }

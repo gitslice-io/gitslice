@@ -23,16 +23,22 @@ func TestHandleUserMessageDeduplicatesPositiveSeq(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			session := &fakeAgentSession{err: errors.New("stop after runtime invocation")}
 			runtime := &fakeAgentRuntime{session: session, skipHistory: true}
+			root := t.TempDir()
 			conv := &agentConversation{
-				id:      "conv-1",
-				workdir: t.TempDir(),
-				ready:   make(chan struct{}),
-				session: session,
+				id:           "conv-1",
+				workdir:      filepath.Join(root, "conversations", "conv-1"),
+				sliceAccount: "acme",
+				sliceName:    "app",
+				role:         "contributor",
+				ready:        make(chan struct{}),
+				session:      session,
 			}
 			conv.setReady(nil)
 			d := &agentDaemon{
+				auth:          &fakeAgentAuthClient{},
 				runtime:       runtime,
 				baseCtx:       context.Background(),
+				workingDir:    root,
 				conversations: map[string]*agentConversation{conv.id: conv},
 			}
 			msg := &corev1.DeliverUserMessage{ConversationId: conv.id, Text: "hello", Seq: tc.seq}

@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package gitslice.core.v1;
 
+import "proto/core/v1/common.proto";
+
 option go_package = "gitslice.io/gitslice/proto/core/v1;corev1";
 
 service AuthService {
@@ -76,6 +78,10 @@ service AuthService {
   // people as UpdateAccountProfile may call it. Anyone reads a picture at
   // GET /avatars/{account}.png.
   rpc SetAccountAvatar(SetAccountAvatarRequest) returns (AccountProfile);
+  // CreateDelegatedAgent creates an agent owned and controlled by the signed-in
+  // human caller, optionally adds it to a slice with a role, and returns its
+  // initial API key once.
+  rpc CreateDelegatedAgent(CreateDelegatedAgentRequest) returns (CreateDelegatedAgentResponse);
 }
 
 message StartCliLoginRequest {}
@@ -436,4 +442,22 @@ message RevokeApiKeyRequest {
 
 message RevokeApiKeyResponse {
   ApiKey key = 1;
+}
+
+message CreateDelegatedAgentRequest {
+  string username = 1;
+  string display_name = 2;
+  SliceRef slice = 3;
+  // Slice role when slice is set: "reader", "contributor" (default),
+  // "writer", or "admin".
+  string role = 4;
+}
+
+message CreateDelegatedAgentResponse {
+  string agent_subject_id = 1;
+  string account = 2;
+  ApiKey key = 3;
+  string secret = 4;
+  SliceRef slice = 5;
+  string role = 6;
 }

@@ -100,9 +100,10 @@ func (r Runner) agentServiceProbes() agentServiceProbes {
 }
 
 type agentInstallOptions struct {
-	Name  string
-	CI    bool
-	Print bool
+	Name   string
+	CI     bool
+	Print  bool
+	Slices []string
 }
 
 func (r Runner) agentInstallCommand(opts *commandOptions) *cobra.Command {
@@ -110,13 +111,14 @@ func (r Runner) agentInstallCommand(opts *commandOptions) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "install",
 		Short: "Install an agent daemon as a user service",
-		Args:  noArgs("gs agent install [--ci] [--name NAME] [--print]"),
+		Args:  noArgs("gs agent install [--ci] [--name NAME] [--slice account/slice]... [--print]"),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return r.runAgentInstall(cmd.Context(), *opts, in)
 		},
 	}
 	cmd.Flags().BoolVar(&in.CI, "ci", false, "install a checks-only daemon")
 	cmd.Flags().StringVar(&in.Name, "name", "", "daemon name (defaults to this machine name)")
+	cmd.Flags().StringArrayVar(&in.Slices, "slice", nil, "limit agent conversations to a slice (<account>/<slice>); repeatable")
 	cmd.Flags().BoolVar(&in.Print, "print", false, "print the service definition without installing it")
 	return cmd
 }
@@ -148,6 +150,13 @@ func normalizedAgentServiceName(name string) (string, error) {
 }
 
 func (r Runner) runAgentInstall(ctx context.Context, opts commandOptions, in agentInstallOptions) error {
+	if in.CI && len(in.Slices) > 0 {
+		return userError("invalid_args", "--ci cannot be used with --slice", "Checks-only daemons select slices via gs agent expose / gs slice set-ci-daemon.")
+	}
+	allowedSlices, err := normalizeDaemonAllowedSlices(in.Slices)
+	if err != nil {
+		return err
+	}
 	name, err := normalizedAgentServiceName(in.Name)
 	if err != nil {
 		return err
@@ -171,7 +180,7 @@ func (r Runner) runAgentInstall(ctx context.Context, opts commandOptions, in age
 		return err
 	}
 	env := agentServiceEnvironment(home, p.environ())
-	definition, path, logPath := agentServiceDefinition(p.osName, serviceHome, name, gs, workingDir, in.CI, env)
+	definition, path, logPath := agentServiceDefinitionWithSlices(p.osName, serviceHome, name, gs, workingDir, in.CI, allowedSlices, env)
 	if in.Print {
 		_, err := fmt.Fprint(r.stdout(), definition)
 		return err
@@ -313,12 +322,16 @@ func agentServiceSecretEnv(name string) bool {
 }
 
 func agentServiceDefinition(osName, home, name, gs, workingDir string, ci bool, env map[string]string) (definition, path, logPath string) {
+	return agentServiceDefinitionWithSlices(osName, home, name, gs, workingDir, ci, nil, env)
+}
+
+func agentServiceDefinitionWithSlices(osName, home, name, gs, workingDir string, ci bool, slices []string, env map[string]string) (definition, path, logPath string) {
 	switch osName {
 	case "linux":
-		return renderSystemdAgentService(name, gs, workingDir, ci, env), agentServiceFilePath(osName, home, name), ""
+		return renderSystemdAgentServiceWithSlices(name, gs, workingDir, ci, slices, env), agentServiceFilePath(osName, home, name), ""
 	case "darwin":
 		logPath = filepath.Join(home, "Library", "Logs", "gitslice", "agent-"+name+".log")
-		return renderLaunchdAgentService(name, gs, workingDir, ci, env, logPath), agentServiceFilePath(osName, home, name), logPath
+		return renderLaunchdAgentServiceWithSlices(name, gs, workingDir, ci, slices, env, logPath), agentServiceFilePath(osName, home, name), logPath
 	default:
 		return "", "", ""
 	}
@@ -364,9 +377,16 @@ func systemdQuote(value string) string {
 }
 
 func renderSystemdAgentService(name, gs, workingDir string, ci bool, env map[string]string) string {
+	return renderSystemdAgentServiceWithSlices(name, gs, workingDir, ci, nil, env)
+}
+
+func renderSystemdAgentServiceWithSlices(name, gs, workingDir string, ci bool, slices []string, env map[string]string) string {
 	args := []string{systemdQuote(gs), "agent", "start", "--name", systemdQuote(name)}
 	if ci {
 		args = append(args, "--ci")
+	}
+	for _, slice := range slices {
+		args = append(args, "--slice", systemdQuote(slice))
 	}
 	keys := sortedAgentServiceEnv(env)
 	var b strings.Builder
@@ -381,9 +401,16 @@ func renderSystemdAgentService(name, gs, workingDir string, ci bool, env map[str
 }
 
 func renderLaunchdAgentService(name, gs, workingDir string, ci bool, env map[string]string, logPath string) string {
+	return renderLaunchdAgentServiceWithSlices(name, gs, workingDir, ci, nil, env, logPath)
+}
+
+func renderLaunchdAgentServiceWithSlices(name, gs, workingDir string, ci bool, slices []string, env map[string]string, logPath string) string {
 	args := []string{gs, "agent", "start", "--name", name}
 	if ci {
 		args = append(args, "--ci")
+	}
+	for _, slice := range slices {
+		args = append(args, "--slice", slice)
 	}
 	var b strings.Builder
 	b.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")

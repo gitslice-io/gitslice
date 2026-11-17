@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -53,6 +54,7 @@ type agentStartOptions struct {
 	Runtime     string
 	RuntimeSet  bool
 	CI          bool
+	Slices      []string
 	IdleTimeout time.Duration
 	// Lazy mounts each conversation's workspace (gs mount) instead of
 	// checking it out, where FUSE is available.
@@ -123,7 +125,7 @@ func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
 	startCmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start a local agent daemon",
-		Args:  noArgs("gs agent start [--name NAME] [--runtime codex] [--ci]"),
+		Args:  noArgs("gs agent start [--name NAME] [--runtime codex] [--slice account/slice]... [--ci]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			start.RuntimeSet = cmd.Flags().Changed("runtime")
 			start.DetachSet = cmd.Flags().Changed("detach-after")
@@ -132,6 +134,7 @@ func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
 	}
 	startCmd.Flags().StringVar(&start.Name, "name", start.Name, "name the daemon registers with; starting again with the same name finds the same daemon, with the slices that use it and the name gs agent rename gave it")
 	startCmd.Flags().StringVar(&start.Runtime, "runtime", start.Runtime, "agent runtime")
+	startCmd.Flags().StringArrayVar(&start.Slices, "slice", nil, "limit agent conversations to a slice (<account>/<slice>); repeatable")
 	startCmd.Flags().DurationVar(&start.IdleTimeout, "idle-timeout", start.IdleTimeout, "disconnect and exit after this much conversation inactivity (0 = never)")
 	startCmd.Flags().BoolVar(&start.Lazy, "lazy", start.Lazy, "mount each conversation's workspace lazily (gs mount) instead of checking it out; falls back to a checkout without FUSE")
 	startCmd.Flags().DurationVar(&start.DetachAfter, "detach-after", defaultDetachAfter, "checks-only daemons (--ci): detach from the server after this long with nothing to run, and poll for queued checks (0 = stay connected; env GITSLICE_AGENT_DETACH_AFTER). The server then has no stream to hold open and can scale to zero")
@@ -212,7 +215,7 @@ You can rename the daemons you started and those of agents you own.`,
 	}
 	renameCmd.Flags().BoolVar(&renameClear, "clear", false, "drop the name, showing the registered one again")
 
-	agentCmd.AddCommand(startCmd, statusCmd, stopCmd, renameCmd, exposeCmd, unexposeCmd, r.agentDoctorCommand(opts), r.agentInstallCommand(opts), r.agentUninstallCommand(opts))
+	agentCmd.AddCommand(r.agentCreateCommand(opts), startCmd, statusCmd, stopCmd, renameCmd, exposeCmd, unexposeCmd, r.agentDoctorCommand(opts), r.agentInstallCommand(opts), r.agentUninstallCommand(opts))
 	return agentCmd
 }
 
@@ -222,6 +225,13 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 	}
 	if in.CI && in.RuntimeSet {
 		return userError("invalid_args", "--ci cannot be used with --runtime", "Checks-only daemons always register runtime ci.")
+	}
+	if in.CI && len(in.Slices) > 0 {
+		return userError("invalid_args", "--ci cannot be used with --slice", "Checks-only daemons select slices via gs agent expose / gs slice set-ci-daemon.")
+	}
+	allowedSlices, err := normalizeDaemonAllowedSlices(in.Slices)
+	if err != nil {
+		return err
 	}
 	if in.CI {
 		checks := r.agentDoctorChecks(ctx, true)
@@ -292,6 +302,7 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 		checkSlots:      checkSlotsFromEnv(),
 		lazy:            in.Lazy,
 		name:            in.Name,
+		allowedSlices:   allowedSlices,
 		instanceID:      newAgentInstanceID(),
 		detachAfter:     detachAfter,
 		quiet:           opts.Quiet,
@@ -394,6 +405,7 @@ func (d *agentDaemon) serveAgentConnection(ctx context.Context, opts commandOpti
 	if ack == nil || strings.TrimSpace(ack.GetDaemonId()) == "" {
 		return userError("agent_protocol_error", "server did not acknowledge agent daemon registration", "Try restarting the daemon.")
 	}
+	d.setDaemonID(ack.GetDaemonId())
 	lastInbound := newAgentInboundState(time.Now())
 	if reportOnline && opts.jsonOutput() {
 		if err := d.runner.writeJSONOutput(opts, map[string]string{
@@ -626,14 +638,22 @@ func (r Runner) runAgentStop(opts commandOptions) error {
 	return nil
 }
 
+type agentAuthClient interface {
+	CreateApiKey(ctx context.Context, in *corev1.CreateApiKeyRequest, opts ...grpc.CallOption) (*corev1.CreateApiKeyResponse, error)
+	RevokeApiKey(ctx context.Context, in *corev1.RevokeApiKeyRequest, opts ...grpc.CallOption) (*corev1.RevokeApiKeyResponse, error)
+}
+
 type agentDaemon struct {
-	runner     Runner
-	cfg        UserConfig
-	runtime    agentRuntime
-	baseCtx    context.Context
-	workingDir string
-	sendQueue  *agentSendQueue
-	name       string // the name it registers with, as given
+	runner        Runner
+	cfg           UserConfig
+	auth          agentAuthClient // optional override for tests; nil dials cfg.ServerAddr
+	runtime       agentRuntime
+	baseCtx       context.Context
+	workingDir    string
+	sendQueue     *agentSendQueue
+	name          string   // the name it registers with, as given
+	daemonID      string   // registered daemon id from server ack; guarded by mu
+	allowedSlices []string // optional canonical <account>/<slice> allowlist from --slice
 	// instanceID names this process to the server, which sends each check
 	// run to one process of a daemon (design/32 layer 3).
 	instanceID string
@@ -661,8 +681,14 @@ type agentDaemon struct {
 	// lazy mounts new conversation workspaces instead of checking them out.
 	lazy bool
 
+	// Optional hooks for isolated lazy-workspace tests.
+	isMountedFn func(dir string) bool
+	runGSFn     func(ctx context.Context, dir string, envOverrides map[string]string, args ...string) (string, error)
+	unmountFn   func(ctx context.Context, conversationID string, rec mountRecord) error
+
 	mu                  sync.Mutex
 	conversations       map[string]*agentConversation
+	reattachedKeys      map[string]reattachedConversationKey
 	checkRuns           map[string]context.CancelFunc
 	checkRunOutboxes    map[string]*checkRunOutbox
 	checkRunOutboxOrder []string
@@ -731,6 +757,57 @@ func agentConversationPaths(root, conversationID string) (string, string, error)
 	return subdir, filepath.Join(root, "conversations", conversationID), nil
 }
 
+func (d *agentDaemon) setDaemonID(id string) {
+	id = strings.TrimSpace(id)
+	d.mu.Lock()
+	d.daemonID = id
+	d.mu.Unlock()
+}
+
+func (d *agentDaemon) currentDaemonID() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.daemonID
+}
+
+func canonicalSliceKey(account, slice string) string {
+	a := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(account), "_", "-"))
+	s := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(slice), "_", "-"))
+	if a == "" || s == "" {
+		return ""
+	}
+	return a + "/" + s
+}
+
+func normalizeDaemonAllowedSlices(values []string) ([]string, error) {
+	if len(values) == 0 {
+		return nil, nil
+	}
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, raw := range values {
+		ref, err := parseSliceRef(raw)
+		if err != nil {
+			return nil, err
+		}
+		key := canonicalSliceKey(ref.GetAccount(), ref.GetSlice())
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, key)
+	}
+	return out, nil
+}
+
+func (d *agentDaemon) allowsSlice(ref *corev1.SliceRef) bool {
+	if len(d.allowedSlices) == 0 {
+		return true
+	}
+	key := canonicalSliceKey(ref.GetAccount(), ref.GetSlice())
+	return key != "" && slices.Contains(d.allowedSlices, key)
+}
+
 func agentWorkspaceInitEnv(r Runner, cfg UserConfig) []string {
 	env := append([]string{}, os.Environ()...)
 	env = append(env, "GS_SERVER_ADDR="+cfg.ServerAddr)
@@ -739,6 +816,13 @@ func agentWorkspaceInitEnv(r Runner, cfg UserConfig) []string {
 		env = append(env, "HOME="+r.Home)
 	}
 	return env
+}
+
+func agentWorkspaceInitEnvWithOverrides(r Runner, cfg UserConfig, overrides map[string]string) []string {
+	if len(overrides) == 0 {
+		return agentWorkspaceInitEnv(r, cfg)
+	}
+	return mergeAgentEnv(sanitizedAgentRuntimeEnv(agentWorkspaceInitEnv(r, cfg)), overrides)
 }
 
 func agentStreamEndedCleanly(ctx context.Context, err error) bool {

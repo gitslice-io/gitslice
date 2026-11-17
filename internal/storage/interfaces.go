@@ -54,6 +54,10 @@ type AuthStore interface {
 	// (admin membership, home slice), records the owner email that may later
 	// claim co-ownership, and issues the agent's first API key.
 	RegisterAgent(ctx context.Context, in RegisterAgentInput) (*RegisteredAgent, error)
+	// CreateDelegatedAgent creates an already-claimed agent subject bound to
+	// ActorID as controller and owner, optional slice membership, and an initial
+	// API key.
+	CreateDelegatedAgent(ctx context.Context, in CreateDelegatedAgentInput) (*CreateDelegatedAgentResult, error)
 	// ListAPIKeys lists the API keys of the target subject (agentAccount == ""
 	// means actorID itself; otherwise the agent whose personal account is
 	// agentAccount), newest first. For a named agent, actorID must be that
@@ -542,6 +546,7 @@ type ConversationInput struct {
 	Account   string
 	SliceName string
 	Title     string
+	Role      string
 }
 
 // ConversationFilter narrows ListConversations. Empty fields are ignored.

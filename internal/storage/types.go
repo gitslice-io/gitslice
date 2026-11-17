@@ -126,6 +126,25 @@ type RegisteredAgent struct {
 	Resumed bool
 }
 
+// CreateDelegatedAgentInput specifies parameters for creating a user-owned,
+// controller-bound agent account and its initial API key.
+type CreateDelegatedAgentInput struct {
+	ActorID     string
+	Username    string
+	DisplayName string
+	SliceID     string
+	SliceRole   string
+}
+
+// CreateDelegatedAgentResult describes the newly created delegated agent.
+type CreateDelegatedAgentResult struct {
+	AgentSubjectID string
+	Account        string
+	Key            APIKey
+	Secret         string
+	Role           string
+}
+
 type FileEntry struct {
 	Path        string
 	BlobID      string

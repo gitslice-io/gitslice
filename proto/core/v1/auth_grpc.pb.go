@@ -44,6 +44,7 @@ const (
 	AuthService_GetAccountProfile_FullMethodName       = "/gitslice.core.v1.AuthService/GetAccountProfile"
 	AuthService_UpdateAccountProfile_FullMethodName    = "/gitslice.core.v1.AuthService/UpdateAccountProfile"
 	AuthService_SetAccountAvatar_FullMethodName        = "/gitslice.core.v1.AuthService/SetAccountAvatar"
+	AuthService_CreateDelegatedAgent_FullMethodName    = "/gitslice.core.v1.AuthService/CreateDelegatedAgent"
 )
 
 // AuthServiceClient is the client API for AuthService service.
@@ -121,6 +122,10 @@ type AuthServiceClient interface {
 	// people as UpdateAccountProfile may call it. Anyone reads a picture at
 	// GET /avatars/{account}.png.
 	SetAccountAvatar(ctx context.Context, in *SetAccountAvatarRequest, opts ...grpc.CallOption) (*AccountProfile, error)
+	// CreateDelegatedAgent creates an agent owned and controlled by the signed-in
+	// human caller, optionally adds it to a slice with a role, and returns its
+	// initial API key once.
+	CreateDelegatedAgent(ctx context.Context, in *CreateDelegatedAgentRequest, opts ...grpc.CallOption) (*CreateDelegatedAgentResponse, error)
 }
 
 type authServiceClient struct {
@@ -356,6 +361,15 @@ func (c *authServiceClient) SetAccountAvatar(ctx context.Context, in *SetAccount
 	return out, nil
 }
 
+func (c *authServiceClient) CreateDelegatedAgent(ctx context.Context, in *CreateDelegatedAgentRequest, opts ...grpc.CallOption) (*CreateDelegatedAgentResponse, error) {
+	out := new(CreateDelegatedAgentResponse)
+	err := c.cc.Invoke(ctx, AuthService_CreateDelegatedAgent_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AuthServiceServer is the server API for AuthService service.
 // All implementations should embed UnimplementedAuthServiceServer
 // for forward compatibility
@@ -431,6 +445,10 @@ type AuthServiceServer interface {
 	// people as UpdateAccountProfile may call it. Anyone reads a picture at
 	// GET /avatars/{account}.png.
 	SetAccountAvatar(context.Context, *SetAccountAvatarRequest) (*AccountProfile, error)
+	// CreateDelegatedAgent creates an agent owned and controlled by the signed-in
+	// human caller, optionally adds it to a slice with a role, and returns its
+	// initial API key once.
+	CreateDelegatedAgent(context.Context, *CreateDelegatedAgentRequest) (*CreateDelegatedAgentResponse, error)
 }
 
 // UnimplementedAuthServiceServer should be embedded to have forward compatible implementations.
@@ -511,6 +529,9 @@ func (UnimplementedAuthServiceServer) UpdateAccountProfile(context.Context, *Upd
 }
 func (UnimplementedAuthServiceServer) SetAccountAvatar(context.Context, *SetAccountAvatarRequest) (*AccountProfile, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetAccountAvatar not implemented")
+}
+func (UnimplementedAuthServiceServer) CreateDelegatedAgent(context.Context, *CreateDelegatedAgentRequest) (*CreateDelegatedAgentResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateDelegatedAgent not implemented")
 }
 
 // UnsafeAuthServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -974,6 +995,24 @@ func _AuthService_SetAccountAvatar_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AuthService_CreateDelegatedAgent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateDelegatedAgentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AuthServiceServer).CreateDelegatedAgent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AuthService_CreateDelegatedAgent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AuthServiceServer).CreateDelegatedAgent(ctx, req.(*CreateDelegatedAgentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AuthService_ServiceDesc is the grpc.ServiceDesc for AuthService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -1080,6 +1119,10 @@ var AuthService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetAccountAvatar",
 			Handler:    _AuthService_SetAccountAvatar_Handler,
+		},
+		{
+			MethodName: "CreateDelegatedAgent",
+			Handler:    _AuthService_CreateDelegatedAgent_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

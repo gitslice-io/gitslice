@@ -8,6 +8,7 @@ import (
 
 	"gitslice.io/gitslice/internal/analytics"
 	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -263,6 +264,75 @@ func (s *AuthService) ListOwnedAgents(ctx context.Context, req *corev1.ListOwned
 		})
 	}
 	return &corev1.ListOwnedAgentsResponse{Agents: out}, nil
+}
+
+// CreateDelegatedAgent creates an agent owned and controlled by the signed-in
+// human caller, optionally adding it to a slice, and returns its initial API
+// key once.
+func (s *AuthService) CreateDelegatedAgent(ctx context.Context, req *corev1.CreateDelegatedAgentRequest) (*corev1.CreateDelegatedAgentResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireUnrestrictedKey(ctx, subjectID); err != nil {
+		return nil, err
+	}
+	subjects, err := s.Auth.SubjectsByIDs(ctx, []string{subjectID})
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	subj, ok := subjects[subjectID]
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "subject not found")
+	}
+	if subj.Kind != "user" {
+		return nil, status.Error(codes.PermissionDenied, "only human users can create delegated agents")
+	}
+
+	var (
+		sliceID   string
+		sliceRef  *corev1.SliceRef
+		sliceRole string
+	)
+	if req.GetSlice() != nil {
+		if s.Slices == nil {
+			return nil, status.Error(codes.Internal, "slice store is not configured")
+		}
+		ref, err := normalizeServiceSliceRef(req.GetSlice())
+		if err != nil {
+			return nil, err
+		}
+		slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionManageMembers)
+		if err != nil {
+			return nil, err
+		}
+		sliceID = slice.GetId()
+		sliceRef = slice.GetRef()
+		if sliceRole, err = storage.NormalizeDelegatedAgentSliceRole(sliceID, req.GetRole()); err != nil {
+			return nil, grpcError(err)
+		}
+	} else if strings.TrimSpace(req.GetRole()) != "" {
+		return nil, status.Error(codes.InvalidArgument, "role requires a slice")
+	}
+
+	res, err := s.Auth.CreateDelegatedAgent(ctx, storage.CreateDelegatedAgentInput{
+		ActorID:     subjectID,
+		Username:    req.GetUsername(),
+		DisplayName: req.GetDisplayName(),
+		SliceID:     sliceID,
+		SliceRole:   sliceRole,
+	})
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.CreateDelegatedAgentResponse{
+		AgentSubjectId: res.AgentSubjectID,
+		Account:        res.Account,
+		Key:            apiKeyToProto(res.Key, nil),
+		Secret:         res.Secret,
+		Slice:          sliceRef,
+		Role:           res.Role,
+	}, nil
 }
 
 func formatOptionalTime(t time.Time) string {

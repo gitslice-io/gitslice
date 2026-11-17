@@ -104,6 +104,9 @@ message Conversation {
   // holds a Connect stream and can serve messages. Web uses it to disable the
   // composer ("show but disable") when the agent is offline.
   bool daemon_online = 10;
+  // role is the conversation's effective slice capability: "reader",
+  // "contributor" (default), or "writer".
+  string role = 11;
 }
 
 // ConversationEvent is one persisted, ordered entry in a conversation. It covers
@@ -264,6 +267,7 @@ message StartConversation {
   string slice_id = 3;
   string server_addr = 4; // server address the daemon should hydrate the workspace from
   string title = 5;
+  string role = 6;
 }
 
 message DeliverUserMessage {
@@ -390,6 +394,9 @@ message CreateConversationRequest {
   string daemon_id = 1;
   SliceRef slice = 2;
   string title = 3;
+  // Optional conversation role ceiling: "reader", "contributor" (default), or
+  // "writer". Creator's effective role on slice must be >= this role.
+  string role = 4;
 }
 
 message ListConversationsRequest {

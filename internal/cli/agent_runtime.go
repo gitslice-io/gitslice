@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -156,7 +157,7 @@ func (r codexRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID, 
 	// deltas we relay live, with finalized items persisted at turn completion.
 	cmd := exec.CommandContext(ctx, binary, "app-server")
 	cmd.Dir = workdir
-	cmd.Env = sanitizedAgentRuntimeEnv(os.Environ())
+	cmd.Env = mergeAgentEnv(sanitizedAgentRuntimeEnv(os.Environ()), agentRuntimeEnvFrom(ctx))
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -290,6 +291,60 @@ func sanitizedAgentRuntimeEnv(environ []string) []string {
 			continue
 		}
 		out = append(out, entry)
+	}
+	return out
+}
+
+type agentRuntimeEnvKey struct{}
+
+func withAgentRuntimeEnv(ctx context.Context, env map[string]string) context.Context {
+	if len(env) == 0 {
+		return ctx
+	}
+	cp := make(map[string]string, len(env))
+	for k, v := range env {
+		cp[k] = v
+	}
+	return context.WithValue(ctx, agentRuntimeEnvKey{}, cp)
+}
+
+func agentRuntimeEnvFrom(ctx context.Context) map[string]string {
+	if ctx == nil {
+		return nil
+	}
+	env, _ := ctx.Value(agentRuntimeEnvKey{}).(map[string]string)
+	if len(env) == 0 {
+		return nil
+	}
+	cp := make(map[string]string, len(env))
+	for k, v := range env {
+		cp[k] = v
+	}
+	return cp
+}
+
+func mergeAgentEnv(base []string, overrides map[string]string) []string {
+	if len(overrides) == 0 {
+		return base
+	}
+	out := make([]string, 0, len(base)+len(overrides))
+	for _, entry := range base {
+		key, _, ok := strings.Cut(entry, "=")
+		if !ok {
+			continue
+		}
+		if _, overridden := overrides[key]; overridden {
+			continue
+		}
+		out = append(out, entry)
+	}
+	keys := make([]string, 0, len(overrides))
+	for k := range overrides {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		out = append(out, k+"="+overrides[k])
 	}
 	return out
 }

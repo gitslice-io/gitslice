@@ -224,3 +224,55 @@ func FilterAPIKeysForCallerKey(keys []APIKey, callerKeyID string) []APIKey {
 	}
 	return out
 }
+
+// NormalizeDelegatedAgentDisplayName trims displayName, falls back to
+// fallback, and checks length and control characters.
+func NormalizeDelegatedAgentDisplayName(displayName, fallback string) (string, error) {
+	displayName = strings.TrimSpace(displayName)
+	if displayName == "" {
+		displayName = fallback
+	}
+	if utf8.RuneCountInString(displayName) > MaxAPIKeyNameLength {
+		return "", fmt.Errorf("%w: display_name must be %d characters or fewer", ErrInvalid, MaxAPIKeyNameLength)
+	}
+	for _, r := range displayName {
+		if unicode.IsControl(r) {
+			return "", fmt.Errorf("%w: display_name must not contain control characters", ErrInvalid)
+		}
+	}
+	return displayName, nil
+}
+
+// NormalizeDelegatedAgentSliceRole validates the optional slice role for
+// CreateDelegatedAgent. Empty sliceID forbids a non-empty role; non-empty
+// sliceID defaults an empty role to "contributor".
+func NormalizeDelegatedAgentSliceRole(sliceID, role string) (string, error) {
+	sliceID = strings.TrimSpace(sliceID)
+	role = strings.ToLower(strings.TrimSpace(role))
+	if sliceID == "" {
+		if role != "" {
+			return "", fmt.Errorf("%w: role requires a slice", ErrInvalid)
+		}
+		return "", nil
+	}
+	if role == "" {
+		return "contributor", nil
+	}
+	if !slices.Contains(SliceRoles, role) {
+		return "", fmt.Errorf("%w: role must be one of %s", ErrInvalid, strings.Join(SliceRoles, ", "))
+	}
+	return role, nil
+}
+
+// NormalizeConversationRole validates a conversation role, defaulting empty to
+// "contributor".
+func NormalizeConversationRole(raw string) (string, error) {
+	role, err := NormalizeAPIKeyMaxRole(raw)
+	if err != nil {
+		return "", fmt.Errorf("%w: conversation role must be reader, contributor, or writer", ErrInvalid)
+	}
+	if role == "" {
+		return "contributor", nil
+	}
+	return role, nil
+}

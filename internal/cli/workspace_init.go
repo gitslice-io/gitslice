@@ -114,13 +114,13 @@ func (r Runner) requireAgentWorkspaceDir() error {
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		// The daemon's own conversations live under conversations/; ignore
-		// hidden dotfiles (e.g. .DS_Store) that tools may drop. Anything else
-		// means this is not a daemon-owned directory.
-		if name == "conversations" || strings.HasPrefix(name, ".") {
+		// The daemon's own conversations and per-conversation isolated homes live
+		// under conversations/ and run-homes/; ignore hidden dotfiles (e.g. .DS_Store)
+		// that tools may drop. Anything else means this is not a daemon-owned directory.
+		if name == "conversations" || name == "run-homes" || strings.HasPrefix(name, ".") {
 			continue
 		}
-		return userError("agent_workspace_not_empty", "agent workspace directory has unexpected contents: "+name, "Start the agent daemon in an empty directory (a prior daemon's conversations/ is allowed).")
+		return userError("agent_workspace_not_empty", "agent workspace directory has unexpected contents: "+name, "Start the agent daemon in an empty directory (a prior daemon's conversations/ and run-homes/ are allowed).")
 	}
 	return nil
 }

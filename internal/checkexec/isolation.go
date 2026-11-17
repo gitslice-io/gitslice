@@ -75,6 +75,17 @@ func hostEnv(overrides map[string]string) ([]string, error) {
 		}
 	}
 	base := containerClientEnv()
+	if len(overrides) > 0 {
+		filtered := make([]string, 0, len(base))
+		for _, entry := range base {
+			key, _, _ := strings.Cut(entry, "=")
+			if _, overridden := overrides[key]; overridden {
+				continue
+			}
+			filtered = append(filtered, entry)
+		}
+		base = filtered
+	}
 	return append(base, envPairs(overrides)...), nil
 }
 

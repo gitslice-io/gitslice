@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"gitslice.io/gitslice/internal/objectid"
 	"gitslice.io/gitslice/internal/storage"
@@ -87,6 +88,133 @@ func (s *AuthStore) RegisterAgent(ctx context.Context, in storage.RegisterAgentI
 		return nil, err
 	}
 	return &storage.RegisteredAgent{SubjectID: subjectID, Account: username, APIKey: token}, nil
+}
+
+// CreateDelegatedAgent creates an agent owned and controlled by an existing
+// human user, provisions its personal account and claimed registration,
+// optionally grants it membership on one slice, and issues its initial API key.
+func (s *AuthStore) CreateDelegatedAgent(ctx context.Context, in storage.CreateDelegatedAgentInput) (*storage.CreateDelegatedAgentResult, error) {
+	actorID := strings.TrimSpace(in.ActorID)
+	if actorID == "" {
+		return nil, ErrUnauthenticated
+	}
+	username, err := normalizeSignupUsername(in.Username)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
+	displayName, err := storage.NormalizeDelegatedAgentDisplayName(in.DisplayName, username)
+	if err != nil {
+		return nil, err
+	}
+	sliceID := strings.TrimSpace(in.SliceID)
+	sliceRole, err := storage.NormalizeDelegatedAgentSliceRole(sliceID, in.SliceRole)
+	if err != nil {
+		return nil, err
+	}
+
+	agentSubjectID, err := objectid.RandomID("agent")
+	if err != nil {
+		return nil, err
+	}
+	token, keyID, hashedToken, err := newAPIKey()
+	if err != nil {
+		return nil, err
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	var actorKind string
+	err = tx.QueryRowContext(ctx, `select kind from subjects where id = $1`, actorID).Scan(&actorKind)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrUnauthenticated
+	}
+	if err != nil {
+		return nil, err
+	}
+	if actorKind != "user" {
+		return nil, fmt.Errorf("%w: only human users can create delegated agents", ErrUnauthorized)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		insert into subjects(id, kind, display_name, controller_subject_id, created_at)
+		values ($1, 'agent', $2, $3, now())
+	`, agentSubjectID, displayName, actorID); err != nil {
+		return nil, err
+	}
+
+	accountID := signupAccountID(username)
+	res, err := tx.ExecContext(ctx, `
+		insert into accounts(id, slug, kind, created_at, updated_at)
+		values ($1, $2, 'personal', now(), now())
+		on conflict (slug) do nothing
+	`, accountID, username)
+	if err != nil {
+		return nil, err
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if affected == 0 {
+		return nil, fmt.Errorf("%w: username %q is not available", ErrConflict, username)
+	}
+
+	for _, memberID := range []string{agentSubjectID, actorID} {
+		if _, err := tx.ExecContext(ctx, `
+			insert into account_memberships(account_id, subject_id, role, created_at)
+			values ($1, $2, 'owner', now())
+			on conflict do nothing
+		`, accountID, memberID); err != nil {
+			return nil, err
+		}
+	}
+	if err := s.provisionHomeTx(ctx, tx, accountID, username, agentSubjectID); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `
+		insert into agent_registrations(subject_id, account_id, owner_email, claimed_at, claimed_by_subject_id, created_at)
+		values ($1, $2, '', now(), $3, now())
+	`, agentSubjectID, accountID, actorID); err != nil {
+		return nil, err
+	}
+	if sliceID != "" {
+		if _, err := tx.ExecContext(ctx, `
+			insert into slice_members(slice_id, subject_id, role, added_by, created_at)
+			values ($1, $2, $3, $4, now())
+			on conflict (slice_id, subject_id)
+			do update set role = excluded.role, added_by = excluded.added_by
+		`, sliceID, agentSubjectID, sliceRole, actorID); err != nil {
+			return nil, err
+		}
+	}
+
+	var keyCreatedAt time.Time
+	if err := tx.QueryRowContext(ctx, `
+		insert into api_keys(id, subject_id, name, token_hash, created_at)
+		values ($1, $2, 'default', $3, now())
+		returning created_at
+	`, keyID, agentSubjectID, hashedToken).Scan(&keyCreatedAt); err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &storage.CreateDelegatedAgentResult{
+		AgentSubjectID: agentSubjectID,
+		Account:        username,
+		Key: storage.APIKey{
+			ID:        keyID,
+			SubjectID: agentSubjectID,
+			Name:      "default",
+			CreatedAt: keyCreatedAt.UTC(),
+		},
+		Secret: token,
+		Role:   sliceRole,
+	}, nil
 }
 
 // registrationTokenHashFor validates an optional client registration token and

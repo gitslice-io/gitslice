@@ -163,12 +163,17 @@ func (r Runner) validatedAuthToken(ctx context.Context) (UserConfig, string, err
 }
 
 func (r Runner) probeAuthStatus(ctx context.Context) (authStatusOutput, error) {
-	var cfg UserConfig
-	if err := readJSONFile(r.userConfigPath(), &cfg); err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return authStatusOutput{}, err
+	cfg, ok, err := r.readEnvUserConfig()
+	if err != nil {
+		return authStatusOutput{}, err
+	}
+	if !ok {
+		if err := readJSONFile(r.userConfigPath(), &cfg); err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return authStatusOutput{}, err
+			}
+			return authStatusOutput{Reason: "not_logged_in"}, nil
 		}
-		return authStatusOutput{Reason: "not_logged_in"}, nil
 	}
 	if cfg.ServerAddr == "" || cfg.Token == "" {
 		return authStatusOutput{ServerAddr: cfg.ServerAddr, Reason: "invalid_config"}, nil

@@ -95,6 +95,14 @@ func schemaSetupCommands() []map[string]any {
 			"machine_output": []string{"server_addr", "subject_id", "account"},
 		},
 		{
+			"use":            "gs agent create <name>",
+			"summary":        "create a delegated agent owned by you, optionally add it to a slice with a role, and print its API key once",
+			"args":           []string{"name"},
+			"flags":          []string{"--slice", "--role", "--display-name"},
+			"writes_stdout":  true,
+			"machine_output": []string{"agent_subject_id", "account", "key", "secret", "slice", "role"},
+		},
+		{
 			"use":            "gs auth logout",
 			"summary":        "clear saved authentication credentials",
 			"writes_stdout":  true,

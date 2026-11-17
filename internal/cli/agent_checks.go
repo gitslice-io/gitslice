@@ -122,6 +122,25 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 
 	checkSpec := checkSpecFromProto(spec)
 	checkSpec.Scope = req.GetSliceId()
+	if checkSpec.Image == "" && checkSpec.Build == nil && len(checkSpec.Setup) == 0 {
+		checkHome, err := os.MkdirTemp("", "gs-check-home-*")
+		if err != nil {
+			emitLog(&seq, err.Error())
+			emitTerminal(&seq, "errored", -1, oneLineSummary(err.Error()))
+			return
+		}
+		_ = os.Chmod(checkHome, 0o700)
+		defer func() {
+			if rmErr := os.RemoveAll(checkHome); rmErr != nil {
+				fmt.Fprintf(d.runner.stderr(), "check home remove failed for %s: %v\n", checkHome, rmErr)
+			}
+		}()
+		if checkSpec.Env == nil {
+			checkSpec.Env = map[string]string{}
+		}
+		// Never expose the daemon user's ~/.gitslice/config.json to allow_host_exec checks.
+		checkSpec.Env["HOME"] = checkHome
+	}
 	result, err := checkexec.Run(runCtx, tempDir, checkSpec)
 	if err != nil {
 		result = checkexec.Result{

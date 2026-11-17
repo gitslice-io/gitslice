@@ -205,6 +205,10 @@ func (s *AgentStore) CreateConversation(ctx context.Context, in storage.Conversa
 		return nil, err
 	}
 	now := nowRFC()
+	role, err := storage.NormalizeConversationRole(in.Role)
+	if err != nil {
+		return nil, err
+	}
 	c := &corev1.Conversation{
 		Id:              id,
 		DaemonId:        in.DaemonID,
@@ -212,6 +216,7 @@ func (s *AgentStore) CreateConversation(ctx context.Context, in storage.Conversa
 		Slice:           &corev1.SliceRef{Account: in.Account, Slice: in.SliceName},
 		Title:           in.Title,
 		Status:          "active",
+		Role:            role,
 		WorkspaceSubdir: "conversations/" + id,
 		CreatedAt:       now,
 		UpdatedAt:       now,

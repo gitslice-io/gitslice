@@ -106,6 +106,9 @@ const (
 	// AuthServiceSetAccountAvatarProcedure is the fully-qualified name of the AuthService's
 	// SetAccountAvatar RPC.
 	AuthServiceSetAccountAvatarProcedure = "/gitslice.core.v1.AuthService/SetAccountAvatar"
+	// AuthServiceCreateDelegatedAgentProcedure is the fully-qualified name of the AuthService's
+	// CreateDelegatedAgent RPC.
+	AuthServiceCreateDelegatedAgentProcedure = "/gitslice.core.v1.AuthService/CreateDelegatedAgent"
 )
 
 // AuthServiceClient is a client for the gitslice.core.v1.AuthService service.
@@ -181,6 +184,10 @@ type AuthServiceClient interface {
 	// people as UpdateAccountProfile may call it. Anyone reads a picture at
 	// GET /avatars/{account}.png.
 	SetAccountAvatar(context.Context, *connect.Request[v1.SetAccountAvatarRequest]) (*connect.Response[v1.AccountProfile], error)
+	// CreateDelegatedAgent creates an agent owned and controlled by the signed-in
+	// human caller, optionally adds it to a slice with a role, and returns its
+	// initial API key once.
+	CreateDelegatedAgent(context.Context, *connect.Request[v1.CreateDelegatedAgentRequest]) (*connect.Response[v1.CreateDelegatedAgentResponse], error)
 }
 
 // NewAuthServiceClient constructs a client for the gitslice.core.v1.AuthService service. By
@@ -344,6 +351,12 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(authServiceMethods.ByName("SetAccountAvatar")),
 			connect.WithClientOptions(opts...),
 		),
+		createDelegatedAgent: connect.NewClient[v1.CreateDelegatedAgentRequest, v1.CreateDelegatedAgentResponse](
+			httpClient,
+			baseURL+AuthServiceCreateDelegatedAgentProcedure,
+			connect.WithSchema(authServiceMethods.ByName("CreateDelegatedAgent")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -374,6 +387,7 @@ type authServiceClient struct {
 	getAccountProfile       *connect.Client[v1.GetAccountProfileRequest, v1.AccountProfile]
 	updateAccountProfile    *connect.Client[v1.UpdateAccountProfileRequest, v1.AccountProfile]
 	setAccountAvatar        *connect.Client[v1.SetAccountAvatarRequest, v1.AccountProfile]
+	createDelegatedAgent    *connect.Client[v1.CreateDelegatedAgentRequest, v1.CreateDelegatedAgentResponse]
 }
 
 // StartCliLogin calls gitslice.core.v1.AuthService.StartCliLogin.
@@ -501,6 +515,11 @@ func (c *authServiceClient) SetAccountAvatar(ctx context.Context, req *connect.R
 	return c.setAccountAvatar.CallUnary(ctx, req)
 }
 
+// CreateDelegatedAgent calls gitslice.core.v1.AuthService.CreateDelegatedAgent.
+func (c *authServiceClient) CreateDelegatedAgent(ctx context.Context, req *connect.Request[v1.CreateDelegatedAgentRequest]) (*connect.Response[v1.CreateDelegatedAgentResponse], error) {
+	return c.createDelegatedAgent.CallUnary(ctx, req)
+}
+
 // AuthServiceHandler is an implementation of the gitslice.core.v1.AuthService service.
 type AuthServiceHandler interface {
 	StartCliLogin(context.Context, *connect.Request[v1.StartCliLoginRequest]) (*connect.Response[v1.StartCliLoginResponse], error)
@@ -574,6 +593,10 @@ type AuthServiceHandler interface {
 	// people as UpdateAccountProfile may call it. Anyone reads a picture at
 	// GET /avatars/{account}.png.
 	SetAccountAvatar(context.Context, *connect.Request[v1.SetAccountAvatarRequest]) (*connect.Response[v1.AccountProfile], error)
+	// CreateDelegatedAgent creates an agent owned and controlled by the signed-in
+	// human caller, optionally adds it to a slice with a role, and returns its
+	// initial API key once.
+	CreateDelegatedAgent(context.Context, *connect.Request[v1.CreateDelegatedAgentRequest]) (*connect.Response[v1.CreateDelegatedAgentResponse], error)
 }
 
 // NewAuthServiceHandler builds an HTTP handler from the service implementation. It returns the path
@@ -733,6 +756,12 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(authServiceMethods.ByName("SetAccountAvatar")),
 		connect.WithHandlerOptions(opts...),
 	)
+	authServiceCreateDelegatedAgentHandler := connect.NewUnaryHandler(
+		AuthServiceCreateDelegatedAgentProcedure,
+		svc.CreateDelegatedAgent,
+		connect.WithSchema(authServiceMethods.ByName("CreateDelegatedAgent")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.AuthService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AuthServiceStartCliLoginProcedure:
@@ -785,6 +814,8 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceUpdateAccountProfileHandler.ServeHTTP(w, r)
 		case AuthServiceSetAccountAvatarProcedure:
 			authServiceSetAccountAvatarHandler.ServeHTTP(w, r)
+		case AuthServiceCreateDelegatedAgentProcedure:
+			authServiceCreateDelegatedAgentHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -892,4 +923,8 @@ func (UnimplementedAuthServiceHandler) UpdateAccountProfile(context.Context, *co
 
 func (UnimplementedAuthServiceHandler) SetAccountAvatar(context.Context, *connect.Request[v1.SetAccountAvatarRequest]) (*connect.Response[v1.AccountProfile], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.SetAccountAvatar is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) CreateDelegatedAgent(context.Context, *connect.Request[v1.CreateDelegatedAgentRequest]) (*connect.Response[v1.CreateDelegatedAgentResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.CreateDelegatedAgent is not implemented"))
 }

@@ -32,17 +32,31 @@ func (d *agentDaemon) handleStartConversation(ctx context.Context, start *corev1
 		d.sendSystemError(ctx, conversationID, err)
 		return
 	}
+	if !d.allowsSlice(slice) {
+		err := userError("slice_not_allowed", fmt.Sprintf("daemon is not allowed to run conversations for %s", sliceRefLabel(slice)), "Restart gs agent start without --slice or add --slice for this slice.")
+		conv.setReady(err)
+		d.sendSystemError(ctx, conversationID, err)
+		return
+	}
 	conv.setConversationInfo(
 		strings.TrimSpace(start.GetTitle()),
 		strings.TrimSpace(slice.GetAccount()),
 		strings.TrimSpace(slice.GetSlice()),
 		strings.TrimSpace(start.GetSliceId()),
+		strings.TrimSpace(start.GetRole()),
 	)
+	childEnv, err := d.ensureConversationChildKey(ctx, conv)
+	if err != nil {
+		err = fmt.Errorf("agent credential delegation failed: %w", err)
+		conv.setReady(err)
+		d.sendSystemError(ctx, conversationID, err)
+		return
+	}
 	// Short-circuit only when the workspace is both marked ready in memory AND
 	// still present on disk. A conv loaded as ready (or readied earlier this run)
 	// whose dir was deleted out from under us must re-hydrate, or codex would
 	// later launch against a missing cmd.Dir and fail with no repair.
-	if conv.isReady() && d.workspaceUsable(conv.workdir) {
+	if conv.isReady() && d.conversationWorkspaceUsable(conv.id, conv.workdir) {
 		d.persistConversationMeta(conv)
 		_ = d.sendQueue.send(ctx, &corev1.DaemonMessage{
 			Payload: &corev1.DaemonMessage_Started{Started: &corev1.ConversationStarted{
@@ -52,7 +66,7 @@ func (d *agentDaemon) handleStartConversation(ctx context.Context, start *corev1
 		})
 		return
 	}
-	if err := d.hydrateWorkspace(ctx, conv, sliceRefLabel(slice)); err != nil {
+	if err := d.hydrateWorkspaceWithEnv(ctx, conv, sliceRefLabel(slice), childEnv); err != nil {
 		conv.setReady(err)
 		d.sendSystemError(ctx, conversationID, err)
 		return
@@ -89,10 +103,16 @@ func (d *agentDaemon) handleUserMessage(ctx context.Context, msg *corev1.Deliver
 		return // already ran (or is running) this user message; redelivered duplicate
 	}
 
+	childEnv, err := d.ensureConversationChildKey(d.baseCtx, conv)
+	if err != nil {
+		d.sendSystemError(ctx, conversationID, fmt.Errorf("agent credential delegation failed: %w", err))
+		return
+	}
+
 	// Reuse the conversation's warm runtime session, opening one on the first
 	// turn (or after a prior turn tore it down). The process lives on d.baseCtx
 	// so it survives per-turn cancellation and server reconnects.
-	session, err := conv.ensureSession(d.baseCtx, d.runtime, func(fetchCtx context.Context) (string, error) {
+	session, err := conv.ensureSession(withAgentRuntimeEnv(d.baseCtx, childEnv), d.runtime, func(fetchCtx context.Context) (string, error) {
 		return d.fetchConversationTranscript(fetchCtx, conversationID)
 	})
 	if err != nil {
@@ -198,7 +218,17 @@ func (d *agentDaemon) capturePatchset(ctx context.Context, conv *agentConversati
 	if title == "" {
 		title = "agent: " + conv.id
 	}
-	out, err := d.runWorkspaceGS(ctx, conv, "cs", "capture", "--title", title, "--verbose")
+	childEnv, err := d.ensureConversationChildKey(ctx, conv)
+	if err != nil {
+		_ = d.sendAgentEvent(ctx, &corev1.AgentEvent{
+			ConversationId: conv.id,
+			Role:           "system",
+			Type:           "error",
+			Text:           "patchset capture failed: " + err.Error(),
+		})
+		return
+	}
+	out, err := d.runWorkspaceGSWithEnv(ctx, conv, childEnv, "cs", "capture", "--title", title, "--verbose")
 	if err != nil {
 		text := "patchset capture failed"
 		if out != "" {
@@ -226,13 +256,17 @@ func (d *agentDaemon) capturePatchset(ctx context.Context, conv *agentConversati
 // inheriting the daemon's auth/server environment, and returns trimmed combined
 // output.
 func (d *agentDaemon) runWorkspaceGS(ctx context.Context, conv *agentConversation, args ...string) (string, error) {
+	return d.runWorkspaceGSWithEnv(ctx, conv, nil, args...)
+}
+
+func (d *agentDaemon) runWorkspaceGSWithEnv(ctx context.Context, conv *agentConversation, envOverrides map[string]string, args ...string) (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
 	}
 	cmd := exec.CommandContext(ctx, exe, args...)
 	cmd.Dir = conv.workdir
-	cmd.Env = agentWorkspaceInitEnv(d.runner, d.cfg)
+	cmd.Env = agentWorkspaceInitEnvWithOverrides(d.runner, d.cfg, envOverrides)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout

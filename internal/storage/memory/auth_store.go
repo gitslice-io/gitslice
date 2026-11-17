@@ -537,6 +537,81 @@ func (s *AuthStore) RegisterAgent(ctx context.Context, in storage.RegisterAgentI
 	return &storage.RegisteredAgent{SubjectID: subjectID, Account: username, APIKey: token}, nil
 }
 
+func (s *AuthStore) CreateDelegatedAgent(ctx context.Context, in storage.CreateDelegatedAgentInput) (*storage.CreateDelegatedAgentResult, error) {
+	actorID := strings.TrimSpace(in.ActorID)
+	if actorID == "" {
+		return nil, storage.ErrUnauthenticated
+	}
+	username, err := normalizeSignupUsername(in.Username)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", storage.ErrInvalid, err)
+	}
+	displayName, err := storage.NormalizeDelegatedAgentDisplayName(in.DisplayName, username)
+	if err != nil {
+		return nil, err
+	}
+	sliceID := strings.TrimSpace(in.SliceID)
+	sliceRole, err := storage.NormalizeDelegatedAgentSliceRole(sliceID, in.SliceRole)
+	if err != nil {
+		return nil, err
+	}
+	agentSubjectID, err := objectid.RandomID("agent")
+	if err != nil {
+		return nil, err
+	}
+	secret, err := objectid.RandomID(strings.TrimSuffix(storage.APIKeyPrefix, "_"))
+	if err != nil {
+		return nil, err
+	}
+
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	actor, ok := s.b.subjects[actorID]
+	if !ok {
+		return nil, storage.ErrUnauthenticated
+	}
+	if actor.Kind != "user" {
+		return nil, fmt.Errorf("%w: only human users can create delegated agents", storage.ErrUnauthorized)
+	}
+	if s.b.accountSlugTakenLocked(username) {
+		return nil, fmt.Errorf("%w: username %q is not available", storage.ErrConflict, username)
+	}
+	s.b.subjects[agentSubjectID] = storage.Subject{
+		ID:                  agentSubjectID,
+		Kind:                "agent",
+		ControllerSubjectID: actorID,
+		DisplayName:         displayName,
+	}
+	s.b.provisionPersonalAccountLocked(agentSubjectID, username, displayName)
+	s.b.addAccountRoleLocked(agentSubjectID, username, "owner")
+	s.b.addAccountRoleLocked(actorID, username, "owner")
+	now := time.Now().UTC()
+	s.b.agentRegistrations[agentSubjectID] = agentRegistration{
+		account:   username,
+		claimedBy: actorID,
+		claimedAt: now,
+		createdAt: now,
+	}
+	if sliceID != "" {
+		if s.b.sliceMembers[sliceID] == nil {
+			s.b.sliceMembers[sliceID] = map[string]memSliceMember{}
+		}
+		s.b.sliceMembers[sliceID][agentSubjectID] = memSliceMember{
+			role:      sliceRole,
+			addedBy:   actorID,
+			createdAt: now,
+		}
+	}
+	key := s.b.addAPIKeyRecordLocked(storage.CreateAPIKeyInput{Name: "default"}, agentSubjectID, secret)
+	return &storage.CreateDelegatedAgentResult{
+		AgentSubjectID: agentSubjectID,
+		Account:        username,
+		Key:            key,
+		Secret:         secret,
+		Role:           sliceRole,
+	}, nil
+}
+
 // ListOwnedAgents mirrors the postgres query. The memory store does not track
 // API key usage, so LastActiveAt stays zero.
 func (s *AuthStore) ListOwnedAgents(ctx context.Context, subjectID string) ([]storage.OwnedAgent, error) {
