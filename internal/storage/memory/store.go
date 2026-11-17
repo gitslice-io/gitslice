@@ -99,6 +99,7 @@ type backend struct {
 	nextPendingSeq    int64
 	approvals         map[string]map[string]struct{}
 	checkResults      map[string]map[string]string
+	pathIntents       map[string]storage.PathIntent
 
 	imports         map[string]*storage.GitImportRecord
 	importsByKey    map[string]string
@@ -206,6 +207,7 @@ func New() *Stores {
 		pendingSequence:         map[string]int64{},
 		approvals:               map[string]map[string]struct{}{},
 		checkResults:            map[string]map[string]string{},
+		pathIntents:             map[string]storage.PathIntent{},
 		imports:                 map[string]*storage.GitImportRecord{},
 		importsByKey:            map[string]string{},
 		importedCommits:         map[string][]storage.GitImportedCommitRecord{},

@@ -38,7 +38,8 @@ type workspaceSyncOutput struct {
 	LandedStackID        string   `json:"landed_stack_id,omitempty"`
 	// BackupDir holds copies of the uncommitted edits a sync merged into,
 	// taken before it changed them (a checkout with no changeset).
-	BackupDir string `json:"backup_dir,omitempty"`
+	BackupDir       string                 `json:"backup_dir,omitempty"`
+	OverlapWarnings []overlapWarningOutput `json:"overlap_warnings,omitempty"`
 }
 
 const (
@@ -97,6 +98,7 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		return err
 	}
 	localDirtyPaths := changedPathsFromSnapshot(base, current)
+	advisoryDirtyPaths := append([]string(nil), localDirtyPaths...)
 	var activeStack *corev1.ChangesetStack
 	var landedChangesetID, landedStackID string
 	if state.ActiveStackID != "" {
@@ -330,6 +332,16 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
+	if len(advisoryDirtyPaths) > 0 {
+		output.OverlapWarnings = r.collectPathOverlapWarnings(
+			ctx,
+			conn,
+			cfg,
+			sliceRef,
+			advisoryDirtyPaths,
+			excludeChangesetIDsFromStack(state.CurrentChangesetID, activeStack),
+		)
+	}
 	if opts.jsonOutput() {
 		if output.UpdatedPaths == nil {
 			output.UpdatedPaths = []string{}
@@ -386,6 +398,7 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 			fmt.Fprintf(r.Stdout, "  %s\n", p)
 		}
 	}
+	printOverlapWarnings(r.Stdout, output.OverlapWarnings)
 	return syncConflictsError(output.ConflictCount)
 }
 

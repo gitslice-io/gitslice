@@ -529,13 +529,13 @@ func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error 
 		return err
 	}
 	defer tx.Rollback()
-	var status, stackID string
+	var status, stackID, sliceID, authorSubjectID, title, description string
 	err = tx.QueryRowContext(ctx, `
-		select status, coalesce(stack_id, '')
+		select status, coalesce(stack_id, ''), authoring_slice_id, author_subject_id, title, description
 		from changesets
 		where id = $1
 		for update
-	`, changesetID).Scan(&status, &stackID)
+	`, changesetID).Scan(&status, &stackID, &sliceID, &authorSubjectID, &title, &description)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
 	}
@@ -573,6 +573,9 @@ func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error 
 	}
 	if affected == 0 {
 		return ErrConflict
+	}
+	if err := clearAbandonedPathIntentsTx(ctx, tx, changesetID, sliceID, authorSubjectID, title, description); err != nil {
+		return err
 	}
 	if err := refreshClosedStackStatusTx(ctx, tx, stackID); err != nil {
 		return err

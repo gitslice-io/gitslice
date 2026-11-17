@@ -80,6 +80,15 @@ const (
 	// ChangesetServiceMovePathProcedure is the fully-qualified name of the ChangesetService's MovePath
 	// RPC.
 	ChangesetServiceMovePathProcedure = "/gitslice.core.v1.ChangesetService/MovePath"
+	// ChangesetServiceCreatePathIntentProcedure is the fully-qualified name of the ChangesetService's
+	// CreatePathIntent RPC.
+	ChangesetServiceCreatePathIntentProcedure = "/gitslice.core.v1.ChangesetService/CreatePathIntent"
+	// ChangesetServiceListPathIntentsProcedure is the fully-qualified name of the ChangesetService's
+	// ListPathIntents RPC.
+	ChangesetServiceListPathIntentsProcedure = "/gitslice.core.v1.ChangesetService/ListPathIntents"
+	// ChangesetServiceDeletePathIntentProcedure is the fully-qualified name of the ChangesetService's
+	// DeletePathIntent RPC.
+	ChangesetServiceDeletePathIntentProcedure = "/gitslice.core.v1.ChangesetService/DeletePathIntent"
 	// ChangesetStackServiceCreateStackProcedure is the fully-qualified name of the
 	// ChangesetStackService's CreateStack RPC.
 	ChangesetStackServiceCreateStackProcedure = "/gitslice.core.v1.ChangesetStackService/CreateStack"
@@ -134,6 +143,9 @@ type ChangesetServiceClient interface {
 	HandoffChangeset(context.Context, *connect.Request[v1.HandoffChangesetRequest]) (*connect.Response[v1.Changeset], error)
 	CopyPath(context.Context, *connect.Request[v1.CopyPathRequest]) (*connect.Response[v1.PathOperationResponse], error)
 	MovePath(context.Context, *connect.Request[v1.MovePathRequest]) (*connect.Response[v1.PathOperationResponse], error)
+	CreatePathIntent(context.Context, *connect.Request[v1.CreatePathIntentRequest]) (*connect.Response[v1.PathIntent], error)
+	ListPathIntents(context.Context, *connect.Request[v1.ListPathIntentsRequest]) (*connect.Response[v1.ListPathIntentsResponse], error)
+	DeletePathIntent(context.Context, *connect.Request[v1.DeletePathIntentRequest]) (*connect.Response[v1.Empty], error)
 }
 
 // NewChangesetServiceClient constructs a client for the gitslice.core.v1.ChangesetService service.
@@ -237,6 +249,24 @@ func NewChangesetServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(changesetServiceMethods.ByName("MovePath")),
 			connect.WithClientOptions(opts...),
 		),
+		createPathIntent: connect.NewClient[v1.CreatePathIntentRequest, v1.PathIntent](
+			httpClient,
+			baseURL+ChangesetServiceCreatePathIntentProcedure,
+			connect.WithSchema(changesetServiceMethods.ByName("CreatePathIntent")),
+			connect.WithClientOptions(opts...),
+		),
+		listPathIntents: connect.NewClient[v1.ListPathIntentsRequest, v1.ListPathIntentsResponse](
+			httpClient,
+			baseURL+ChangesetServiceListPathIntentsProcedure,
+			connect.WithSchema(changesetServiceMethods.ByName("ListPathIntents")),
+			connect.WithClientOptions(opts...),
+		),
+		deletePathIntent: connect.NewClient[v1.DeletePathIntentRequest, v1.Empty](
+			httpClient,
+			baseURL+ChangesetServiceDeletePathIntentProcedure,
+			connect.WithSchema(changesetServiceMethods.ByName("DeletePathIntent")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -257,6 +287,9 @@ type changesetServiceClient struct {
 	handoffChangeset            *connect.Client[v1.HandoffChangesetRequest, v1.Changeset]
 	copyPath                    *connect.Client[v1.CopyPathRequest, v1.PathOperationResponse]
 	movePath                    *connect.Client[v1.MovePathRequest, v1.PathOperationResponse]
+	createPathIntent            *connect.Client[v1.CreatePathIntentRequest, v1.PathIntent]
+	listPathIntents             *connect.Client[v1.ListPathIntentsRequest, v1.ListPathIntentsResponse]
+	deletePathIntent            *connect.Client[v1.DeletePathIntentRequest, v1.Empty]
 }
 
 // CreateChangeset calls gitslice.core.v1.ChangesetService.CreateChangeset.
@@ -334,6 +367,21 @@ func (c *changesetServiceClient) MovePath(ctx context.Context, req *connect.Requ
 	return c.movePath.CallUnary(ctx, req)
 }
 
+// CreatePathIntent calls gitslice.core.v1.ChangesetService.CreatePathIntent.
+func (c *changesetServiceClient) CreatePathIntent(ctx context.Context, req *connect.Request[v1.CreatePathIntentRequest]) (*connect.Response[v1.PathIntent], error) {
+	return c.createPathIntent.CallUnary(ctx, req)
+}
+
+// ListPathIntents calls gitslice.core.v1.ChangesetService.ListPathIntents.
+func (c *changesetServiceClient) ListPathIntents(ctx context.Context, req *connect.Request[v1.ListPathIntentsRequest]) (*connect.Response[v1.ListPathIntentsResponse], error) {
+	return c.listPathIntents.CallUnary(ctx, req)
+}
+
+// DeletePathIntent calls gitslice.core.v1.ChangesetService.DeletePathIntent.
+func (c *changesetServiceClient) DeletePathIntent(ctx context.Context, req *connect.Request[v1.DeletePathIntentRequest]) (*connect.Response[v1.Empty], error) {
+	return c.deletePathIntent.CallUnary(ctx, req)
+}
+
 // ChangesetServiceHandler is an implementation of the gitslice.core.v1.ChangesetService service.
 type ChangesetServiceHandler interface {
 	CreateChangeset(context.Context, *connect.Request[v1.CreateChangesetRequest]) (*connect.Response[v1.Changeset], error)
@@ -359,6 +407,9 @@ type ChangesetServiceHandler interface {
 	HandoffChangeset(context.Context, *connect.Request[v1.HandoffChangesetRequest]) (*connect.Response[v1.Changeset], error)
 	CopyPath(context.Context, *connect.Request[v1.CopyPathRequest]) (*connect.Response[v1.PathOperationResponse], error)
 	MovePath(context.Context, *connect.Request[v1.MovePathRequest]) (*connect.Response[v1.PathOperationResponse], error)
+	CreatePathIntent(context.Context, *connect.Request[v1.CreatePathIntentRequest]) (*connect.Response[v1.PathIntent], error)
+	ListPathIntents(context.Context, *connect.Request[v1.ListPathIntentsRequest]) (*connect.Response[v1.ListPathIntentsResponse], error)
+	DeletePathIntent(context.Context, *connect.Request[v1.DeletePathIntentRequest]) (*connect.Response[v1.Empty], error)
 }
 
 // NewChangesetServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -458,6 +509,24 @@ func NewChangesetServiceHandler(svc ChangesetServiceHandler, opts ...connect.Han
 		connect.WithSchema(changesetServiceMethods.ByName("MovePath")),
 		connect.WithHandlerOptions(opts...),
 	)
+	changesetServiceCreatePathIntentHandler := connect.NewUnaryHandler(
+		ChangesetServiceCreatePathIntentProcedure,
+		svc.CreatePathIntent,
+		connect.WithSchema(changesetServiceMethods.ByName("CreatePathIntent")),
+		connect.WithHandlerOptions(opts...),
+	)
+	changesetServiceListPathIntentsHandler := connect.NewUnaryHandler(
+		ChangesetServiceListPathIntentsProcedure,
+		svc.ListPathIntents,
+		connect.WithSchema(changesetServiceMethods.ByName("ListPathIntents")),
+		connect.WithHandlerOptions(opts...),
+	)
+	changesetServiceDeletePathIntentHandler := connect.NewUnaryHandler(
+		ChangesetServiceDeletePathIntentProcedure,
+		svc.DeletePathIntent,
+		connect.WithSchema(changesetServiceMethods.ByName("DeletePathIntent")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.ChangesetService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case ChangesetServiceCreateChangesetProcedure:
@@ -490,6 +559,12 @@ func NewChangesetServiceHandler(svc ChangesetServiceHandler, opts ...connect.Han
 			changesetServiceCopyPathHandler.ServeHTTP(w, r)
 		case ChangesetServiceMovePathProcedure:
 			changesetServiceMovePathHandler.ServeHTTP(w, r)
+		case ChangesetServiceCreatePathIntentProcedure:
+			changesetServiceCreatePathIntentHandler.ServeHTTP(w, r)
+		case ChangesetServiceListPathIntentsProcedure:
+			changesetServiceListPathIntentsHandler.ServeHTTP(w, r)
+		case ChangesetServiceDeletePathIntentProcedure:
+			changesetServiceDeletePathIntentHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -557,6 +632,18 @@ func (UnimplementedChangesetServiceHandler) CopyPath(context.Context, *connect.R
 
 func (UnimplementedChangesetServiceHandler) MovePath(context.Context, *connect.Request[v1.MovePathRequest]) (*connect.Response[v1.PathOperationResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.ChangesetService.MovePath is not implemented"))
+}
+
+func (UnimplementedChangesetServiceHandler) CreatePathIntent(context.Context, *connect.Request[v1.CreatePathIntentRequest]) (*connect.Response[v1.PathIntent], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.ChangesetService.CreatePathIntent is not implemented"))
+}
+
+func (UnimplementedChangesetServiceHandler) ListPathIntents(context.Context, *connect.Request[v1.ListPathIntentsRequest]) (*connect.Response[v1.ListPathIntentsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.ChangesetService.ListPathIntents is not implemented"))
+}
+
+func (UnimplementedChangesetServiceHandler) DeletePathIntent(context.Context, *connect.Request[v1.DeletePathIntentRequest]) (*connect.Response[v1.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.ChangesetService.DeletePathIntent is not implemented"))
 }
 
 // ChangesetStackServiceClient is a client for the gitslice.core.v1.ChangesetStackService service.

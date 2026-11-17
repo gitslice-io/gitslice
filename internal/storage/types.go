@@ -219,3 +219,18 @@ type CurrentPathEntity struct {
 	ContentHash string
 	Mode        uint32
 }
+
+// PathIntent records an advisory reservation on a canonical path or glob
+// pattern inside a slice (design/36 section 6).
+type PathIntent struct {
+	ID          string
+	SliceID     string
+	Account     string
+	Slice       string
+	SubjectID   string
+	Pattern     string
+	Message     string
+	ChangesetID string
+	ExpiresAt   time.Time
+	CreatedAt   time.Time
+}

@@ -150,6 +150,7 @@ func (r Runner) rootCommand() *cobra.Command {
 		r.accountCommand(opts),
 		r.groupCommand(opts),
 		r.tagCommand(opts),
+		r.intentCommand(opts),
 		r.changesetCommand(opts),
 		r.checkCommand(opts),
 		r.fsCommand(opts),

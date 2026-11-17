@@ -78,6 +78,10 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	s.linkMatchingIntents(ctx, slice.GetId(), cs.GetAuthor(), cs.GetId(), cs.GetTitle(), cs.GetDescription(), patchset.GetChangedPaths())
+	if subjectID != cs.GetAuthor() {
+		s.linkMatchingIntents(ctx, slice.GetId(), subjectID, cs.GetId(), cs.GetTitle(), cs.GetDescription(), patchset.GetChangedPaths())
+	}
 	createdPatchset := priorPatchsetID == "" || patchset.Id != priorPatchsetID
 	if createdPatchset {
 		s.recordBundledCheckRuns(ctx, cs, slice, patchset, req.BundledCheckRuns)

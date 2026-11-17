@@ -8,7 +8,7 @@ func schemaChangesetCommands() []map[string]any {
 			"summary":        "create a changeset and first patchset from workspace edits; --submit also waits for required checks and lands it",
 			"flags":          []string{"--message", "-m", "--description", "--description-file", "--all", "--submit", "--watch-timeout", "--if-changed", "--allow-empty", "--base", "--sibling", "--root", "--yes"},
 			"writes_stdout":  true,
-			"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "dependency_id", "web_url", "submit"},
+			"machine_output": []string{"changeset_id", "patchset_id", "patchset_number", "dependency_id", "web_url", "submit", "overlap_warnings"},
 		},
 		{
 			"use":            "gs cs edit [changeset]",
@@ -280,6 +280,32 @@ func schemaSliceCommands() []map[string]any {
 			"args":           []string{"slice|account:slice"},
 			"writes_stdout":  true,
 			"machine_output": []string{"id", "ref", "archived"},
+		},
+		{
+			"use":            "gs intent <pattern>",
+			"summary":        "declare an advisory path or glob reservation on a slice",
+			"args":           []string{"pattern"},
+			"flags":          []string{"--slice", "--for", "--message", "-m", "--changeset"},
+			"writes_stdout":  true,
+			"machine_output": []string{"id", "slice", "slice_id", "subject_id", "username", "controller_subject_id", "controller_username", "pattern", "message", "changeset_id", "expires_at", "created_at", "overlap_warnings"},
+		},
+		{
+			"use":            "gs intent list [account/slice]",
+			"summary":        "list active advisory path intents on a slice",
+			"aliases":        []string{"gs intent ls [account/slice]"},
+			"args":           []string{"account/slice"},
+			"flags":          []string{"--slice"},
+			"writes_stdout":  true,
+			"machine_output": []string{"slice", "intents"},
+		},
+		{
+			"use":            "gs intent clear [<id-or-glob>]",
+			"summary":        "clear one of your advisory path intents by ID or pattern, or --all",
+			"aliases":        []string{"gs intent rm [<id-or-glob>]", "gs intent delete [<id-or-glob>]"},
+			"args":           []string{"id-or-glob"},
+			"flags":          []string{"--slice", "--all"},
+			"writes_stdout":  true,
+			"machine_output": []string{"slice", "deleted_ids", "deleted"},
 		},
 	}
 }

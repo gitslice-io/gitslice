@@ -346,3 +346,39 @@ export interface AbandonChangesetRequest {
   changesetId?: string;
   reason?: string;
 }
+
+export interface PathIntent {
+  id?: string;
+  slice?: SliceRef;
+  sliceId?: string;
+  subjectId?: string;
+  username?: string;
+  controllerSubjectId?: string;
+  controllerUsername?: string;
+  pattern?: string;
+  message?: string;
+  changesetId?: string;
+  expiresAt?: string;
+  createdAt?: string;
+}
+
+export interface CreatePathIntentRequest {
+  slice?: SliceRef;
+  pattern?: string;
+  message?: string;
+  ttlSeconds?: string;
+  changesetId?: string;
+}
+
+export interface ListPathIntentsRequest {
+  slice?: SliceRef;
+}
+
+export interface ListPathIntentsResponse {
+  slice?: SliceRef;
+  intents?: PathIntent[];
+}
+
+export interface DeletePathIntentRequest {
+  intentId?: string;
+}

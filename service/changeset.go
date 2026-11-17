@@ -53,7 +53,8 @@ func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.Crea
 	if targetRef == "" {
 		targetRef = storage.DefaultTargetRef
 	}
-	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.AuthoringSlice, authz.ActionPropose); err != nil {
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.AuthoringSlice, authz.ActionPropose)
+	if err != nil {
 		return nil, err
 	}
 	if stackID := strings.TrimSpace(req.StackId); stackID != "" {
@@ -81,6 +82,7 @@ func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.Crea
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	s.linkMatchingIntents(ctx, slice.GetId(), subjectID, cs.GetId(), cs.GetTitle(), cs.GetDescription(), nil)
 	if err := s.resolveAuthors(ctx, cs); err != nil {
 		return nil, grpcError(err)
 	}
@@ -279,6 +281,9 @@ func (s *ChangesetService) UpdateChangesetInfo(ctx context.Context, req *corev1.
 	updated, err := s.Changesets.UpdateInfo(ctx, cs.Id, req.Title, req.Description)
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if slice, sliceErr := s.Slices.Resolve(ctx, updated.GetAuthoringSlice()); sliceErr == nil && slice != nil {
+		s.linkMatchingIntents(ctx, slice.GetId(), updated.GetAuthor(), updated.GetId(), updated.GetTitle(), updated.GetDescription(), updated.GetAffectedPaths())
 	}
 	storage.PopulateChangesetHandles(updated)
 	if err := s.resolveAuthors(ctx, updated); err != nil {

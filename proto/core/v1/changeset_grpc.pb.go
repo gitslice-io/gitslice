@@ -34,6 +34,9 @@ const (
 	ChangesetService_HandoffChangeset_FullMethodName            = "/gitslice.core.v1.ChangesetService/HandoffChangeset"
 	ChangesetService_CopyPath_FullMethodName                    = "/gitslice.core.v1.ChangesetService/CopyPath"
 	ChangesetService_MovePath_FullMethodName                    = "/gitslice.core.v1.ChangesetService/MovePath"
+	ChangesetService_CreatePathIntent_FullMethodName            = "/gitslice.core.v1.ChangesetService/CreatePathIntent"
+	ChangesetService_ListPathIntents_FullMethodName             = "/gitslice.core.v1.ChangesetService/ListPathIntents"
+	ChangesetService_DeletePathIntent_FullMethodName            = "/gitslice.core.v1.ChangesetService/DeletePathIntent"
 )
 
 // ChangesetServiceClient is the client API for ChangesetService service.
@@ -63,6 +66,9 @@ type ChangesetServiceClient interface {
 	HandoffChangeset(ctx context.Context, in *HandoffChangesetRequest, opts ...grpc.CallOption) (*Changeset, error)
 	CopyPath(ctx context.Context, in *CopyPathRequest, opts ...grpc.CallOption) (*PathOperationResponse, error)
 	MovePath(ctx context.Context, in *MovePathRequest, opts ...grpc.CallOption) (*PathOperationResponse, error)
+	CreatePathIntent(ctx context.Context, in *CreatePathIntentRequest, opts ...grpc.CallOption) (*PathIntent, error)
+	ListPathIntents(ctx context.Context, in *ListPathIntentsRequest, opts ...grpc.CallOption) (*ListPathIntentsResponse, error)
+	DeletePathIntent(ctx context.Context, in *DeletePathIntentRequest, opts ...grpc.CallOption) (*Empty, error)
 }
 
 type changesetServiceClient struct {
@@ -208,6 +214,33 @@ func (c *changesetServiceClient) MovePath(ctx context.Context, in *MovePathReque
 	return out, nil
 }
 
+func (c *changesetServiceClient) CreatePathIntent(ctx context.Context, in *CreatePathIntentRequest, opts ...grpc.CallOption) (*PathIntent, error) {
+	out := new(PathIntent)
+	err := c.cc.Invoke(ctx, ChangesetService_CreatePathIntent_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *changesetServiceClient) ListPathIntents(ctx context.Context, in *ListPathIntentsRequest, opts ...grpc.CallOption) (*ListPathIntentsResponse, error) {
+	out := new(ListPathIntentsResponse)
+	err := c.cc.Invoke(ctx, ChangesetService_ListPathIntents_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *changesetServiceClient) DeletePathIntent(ctx context.Context, in *DeletePathIntentRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, ChangesetService_DeletePathIntent_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ChangesetServiceServer is the server API for ChangesetService service.
 // All implementations should embed UnimplementedChangesetServiceServer
 // for forward compatibility
@@ -235,6 +268,9 @@ type ChangesetServiceServer interface {
 	HandoffChangeset(context.Context, *HandoffChangesetRequest) (*Changeset, error)
 	CopyPath(context.Context, *CopyPathRequest) (*PathOperationResponse, error)
 	MovePath(context.Context, *MovePathRequest) (*PathOperationResponse, error)
+	CreatePathIntent(context.Context, *CreatePathIntentRequest) (*PathIntent, error)
+	ListPathIntents(context.Context, *ListPathIntentsRequest) (*ListPathIntentsResponse, error)
+	DeletePathIntent(context.Context, *DeletePathIntentRequest) (*Empty, error)
 }
 
 // UnimplementedChangesetServiceServer should be embedded to have forward compatible implementations.
@@ -285,6 +321,15 @@ func (UnimplementedChangesetServiceServer) CopyPath(context.Context, *CopyPathRe
 }
 func (UnimplementedChangesetServiceServer) MovePath(context.Context, *MovePathRequest) (*PathOperationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MovePath not implemented")
+}
+func (UnimplementedChangesetServiceServer) CreatePathIntent(context.Context, *CreatePathIntentRequest) (*PathIntent, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreatePathIntent not implemented")
+}
+func (UnimplementedChangesetServiceServer) ListPathIntents(context.Context, *ListPathIntentsRequest) (*ListPathIntentsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListPathIntents not implemented")
+}
+func (UnimplementedChangesetServiceServer) DeletePathIntent(context.Context, *DeletePathIntentRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeletePathIntent not implemented")
 }
 
 // UnsafeChangesetServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -568,6 +613,60 @@ func _ChangesetService_MovePath_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ChangesetService_CreatePathIntent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreatePathIntentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetServiceServer).CreatePathIntent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetService_CreatePathIntent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetServiceServer).CreatePathIntent(ctx, req.(*CreatePathIntentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChangesetService_ListPathIntents_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListPathIntentsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetServiceServer).ListPathIntents(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetService_ListPathIntents_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetServiceServer).ListPathIntents(ctx, req.(*ListPathIntentsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChangesetService_DeletePathIntent_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeletePathIntentRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetServiceServer).DeletePathIntent(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetService_DeletePathIntent_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetServiceServer).DeletePathIntent(ctx, req.(*DeletePathIntentRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ChangesetService_ServiceDesc is the grpc.ServiceDesc for ChangesetService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -634,6 +733,18 @@ var ChangesetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MovePath",
 			Handler:    _ChangesetService_MovePath_Handler,
+		},
+		{
+			MethodName: "CreatePathIntent",
+			Handler:    _ChangesetService_CreatePathIntent_Handler,
+		},
+		{
+			MethodName: "ListPathIntents",
+			Handler:    _ChangesetService_ListPathIntents_Handler,
+		},
+		{
+			MethodName: "DeletePathIntent",
+			Handler:    _ChangesetService_DeletePathIntent_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

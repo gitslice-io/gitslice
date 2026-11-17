@@ -35,7 +35,8 @@ type statusOutput struct {
 	// LocalOnly is set when the server was reachable but refused to answer
 	// for this caller (no write access, signed out) or --local was given:
 	// the edits come from this machine alone.
-	LocalOnly string `json:"local_only,omitempty"`
+	LocalOnly       string                 `json:"local_only,omitempty"`
+	OverlapWarnings []overlapWarningOutput `json:"overlap_warnings,omitempty"`
 }
 
 // statusServerTimeout bounds each server call gs status makes, so an
@@ -252,6 +253,16 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions, local, relat
 		output.StackID = stack.Id
 		output.Stack = &stackOut
 	}
+	if !local && !found.offline && !found.refused && len(changedPaths) > 0 {
+		output.OverlapWarnings = r.collectPathOverlapWarnings(
+			ctx,
+			conn,
+			cfg,
+			&corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
+			changedPaths,
+			excludeChangesetIDsFromStack(state.CurrentChangesetID, stack),
+		)
+	}
 	if opts.jsonOutput() {
 		if output.ChangedPaths == nil {
 			output.ChangedPaths = []string{}
@@ -299,6 +310,7 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions, local, relat
 		changes = r.relativeChanges(changes)
 	}
 	printChangeSummary(r.Stdout, changes, "  ", r.colorEnabled(opts))
+	printOverlapWarnings(r.Stdout, output.OverlapWarnings)
 	return nil
 }
 

@@ -123,6 +123,11 @@ func (s *ChangesetStackService) AddStackEntry(ctx context.Context, req *corev1.A
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	if s.Slices != nil {
+		if slice, sliceErr := s.Slices.Resolve(ctx, stack.GetAuthoringSlice()); sliceErr == nil && slice != nil {
+			linkMatchingIntentsForStore(ctx, s.Changesets, slice.GetId(), subjectID, cs.GetId(), cs.GetTitle(), cs.GetDescription(), nil)
+		}
+	}
 	if err := s.resolveChangesetAuthors(ctx, cs); err != nil {
 		return nil, grpcError(err)
 	}

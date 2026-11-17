@@ -272,6 +272,12 @@ type ChangesetStore interface {
 	AddCollaborator(ctx context.Context, changesetID, subjectID, addedBy string) (*corev1.Changeset, error)
 	RemoveCollaborator(ctx context.Context, changesetID, subjectID string) (*corev1.Changeset, error)
 	Handoff(ctx context.Context, changesetID, newAuthorSubjectID string) (*corev1.Changeset, error)
+	// Advisory path intents (design/36 section 6).
+	CreatePathIntent(ctx context.Context, intent PathIntent) (*PathIntent, error)
+	GetPathIntent(ctx context.Context, intentID string) (*PathIntent, error)
+	ListPathIntents(ctx context.Context, sliceID string, now time.Time) ([]PathIntent, error)
+	DeletePathIntent(ctx context.Context, intentID string) error
+	LinkPathIntentsToChangeset(ctx context.Context, intentIDs []string, subjectID, sliceID, changesetID string) error
 }
 
 type OutboxProcessResult struct {

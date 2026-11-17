@@ -30,7 +30,8 @@ type changesetOutput struct {
 	Submit *submitDependenciesOutput `json:"submit,omitempty"`
 	// Checks are the current patchset's check runs (gs cs status), the
 	// latest attempt of each.
-	Checks []changesetCheckOutput `json:"checks,omitempty"`
+	Checks          []changesetCheckOutput `json:"checks,omitempty"`
+	OverlapWarnings []overlapWarningOutput `json:"overlap_warnings,omitempty"`
 }
 
 type changesetCheckOutput struct {

@@ -30,6 +30,9 @@ service ChangesetService {
   rpc HandoffChangeset(HandoffChangesetRequest) returns (Changeset);
   rpc CopyPath(CopyPathRequest) returns (PathOperationResponse);
   rpc MovePath(MovePathRequest) returns (PathOperationResponse);
+  rpc CreatePathIntent(CreatePathIntentRequest) returns (PathIntent);
+  rpc ListPathIntents(ListPathIntentsRequest) returns (ListPathIntentsResponse);
+  rpc DeletePathIntent(DeletePathIntentRequest) returns (Empty);
 }
 
 service ChangesetStackService {
@@ -461,4 +464,40 @@ message SubmitStackResponse {
   string stack_id = 1;
   string status = 2;
   repeated SubmitStackEntryResult results = 3;
+}
+
+message PathIntent {
+  string id = 1;
+  SliceRef slice = 2;
+  string slice_id = 3;
+  string subject_id = 4;
+  string username = 5;
+  string controller_subject_id = 6;
+  string controller_username = 7;
+  string pattern = 8;
+  string message = 9;
+  string changeset_id = 10;
+  string expires_at = 11;
+  string created_at = 12;
+}
+
+message CreatePathIntentRequest {
+  SliceRef slice = 1;
+  string pattern = 2;
+  string message = 3;
+  int64 ttl_seconds = 4;
+  string changeset_id = 5;
+}
+
+message ListPathIntentsRequest {
+  SliceRef slice = 1;
+}
+
+message ListPathIntentsResponse {
+  SliceRef slice = 1;
+  repeated PathIntent intents = 2;
+}
+
+message DeletePathIntentRequest {
+  string intent_id = 1;
 }

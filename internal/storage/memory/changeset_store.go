@@ -204,6 +204,7 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	cs.Patchsets = append(cs.Patchsets, next)
 	cs.CurrentPatchsetId = next.Id
 	cs.CurrentPatchsetNumber = next.Number
+	cs.AffectedPaths = append([]string(nil), next.ChangedPaths...)
 	cs.SubmitBlockedReason = ""
 	if cs.StackId != "" {
 		if stack := s.b.stacks[cs.StackId]; stack != nil {
@@ -603,6 +604,7 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 		s.b.putCommitWithFilesAndDirsLocked(commitID, files, baseDirs, patchset.ChangedPaths, storage.CommitMessage(cs.Title, cs.Description))
 		cs.Status = "submitted"
 		cs.CommitId = commitID
+		s.b.clearSubmittedPathIntentsLocked(cs, patchset.ChangedPaths)
 		if acceptedAt, ok := s.b.pendingAcceptedAt[cs.Id]; ok {
 			storage.ObservePublishLatency(time.Since(acceptedAt))
 			delete(s.b.pendingAcceptedAt, cs.Id)
@@ -652,6 +654,7 @@ func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error 
 		}
 	}
 	cs.Status = "abandoned"
+	s.b.clearAbandonedPathIntentsLocked(cs)
 	s.b.refreshStackStatusLocked(cs.StackId)
 	return nil
 }

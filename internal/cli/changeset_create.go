@@ -81,12 +81,21 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 	}
 	label := firstNonEmpty(displayChangesetID(cs), cs.Id)
 	webURL := webResourceURL("/cs/" + label)
+	warnings := r.collectPathOverlapWarnings(
+		ctx,
+		conn,
+		cfg,
+		&corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
+		patchset.GetChangedPaths(),
+		[]string{cs.Id},
+	)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, changesetOutput{
-			ChangesetID:    cs.Id,
-			PatchsetID:     patchset.Id,
-			PatchsetNumber: patchset.Number,
-			WebURL:         webURL,
+			ChangesetID:     cs.Id,
+			PatchsetID:      patchset.Id,
+			PatchsetNumber:  patchset.Number,
+			WebURL:          webURL,
+			OverlapWarnings: warnings,
 		})
 	}
 	if opts.Quiet {
@@ -96,6 +105,7 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 	if webURL != "" {
 		fmt.Fprintf(r.Stdout, "view: %s\n", webURL)
 	}
+	printOverlapWarnings(r.Stdout, warnings)
 	return nil
 }
 
@@ -434,19 +444,33 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 		return err
 	}
 	link := webResourceURL("/cs/" + firstNonEmpty(displayChangesetID(cs), cs.Id))
+	var activeStack *corev1.ChangesetStack
+	if stackID != "" {
+		activeStack, _ = corev1.NewChangesetStackServiceClient(conn).GetStack(callCtx, &corev1.GetStackRequest{StackId: stackID})
+	}
+	warnings := r.collectPathOverlapWarnings(
+		ctx,
+		conn,
+		cfg,
+		&corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
+		patchset.GetChangedPaths(),
+		excludeChangesetIDsFromStack(cs.Id, activeStack),
+	)
 	if !opts.jsonOutput() && !opts.Quiet {
 		fmt.Fprintf(r.Stdout, "created %s patchset %d\n", firstNonEmpty(displayChangesetID(cs), cs.Id), patchset.Number)
 		if link != "" {
 			fmt.Fprintf(r.Stdout, "view: %s\n", link)
 		}
 		fmt.Fprintf(r.Stdout, "dependencies: %s\n", stackID)
+		printOverlapWarnings(r.Stdout, warnings)
 	}
 	out := changesetOutput{
-		ChangesetID:    cs.Id,
-		PatchsetID:     patchset.Id,
-		PatchsetNumber: patchset.Number,
-		StackID:        stackID,
-		WebURL:         link,
+		ChangesetID:     cs.Id,
+		PatchsetID:      patchset.Id,
+		PatchsetNumber:  patchset.Number,
+		StackID:         stackID,
+		WebURL:          link,
+		OverlapWarnings: warnings,
 	}
 	var submitErr error
 	if submit.enabled {

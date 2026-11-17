@@ -525,6 +525,18 @@ func (a connectChangesetAdapter) MovePath(ctx context.Context, req *connect.Requ
 	return connectResponse(a.svc.MovePath(ctx, req.Msg))
 }
 
+func (a connectChangesetAdapter) CreatePathIntent(ctx context.Context, req *connect.Request[corev1.CreatePathIntentRequest]) (*connect.Response[corev1.PathIntent], error) {
+	return connectResponse(a.svc.CreatePathIntent(ctx, req.Msg))
+}
+
+func (a connectChangesetAdapter) ListPathIntents(ctx context.Context, req *connect.Request[corev1.ListPathIntentsRequest]) (*connect.Response[corev1.ListPathIntentsResponse], error) {
+	return connectResponse(a.svc.ListPathIntents(ctx, req.Msg))
+}
+
+func (a connectChangesetAdapter) DeletePathIntent(ctx context.Context, req *connect.Request[corev1.DeletePathIntentRequest]) (*connect.Response[corev1.Empty], error) {
+	return connectResponse(a.svc.DeletePathIntent(ctx, req.Msg))
+}
+
 type connectStackAdapter struct {
 	svc *service.ChangesetStackService
 }

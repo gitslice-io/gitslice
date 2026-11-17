@@ -393,7 +393,7 @@ func schemaWorkspaceCommands() []map[string]any {
 			"summary":        "sync the workspace to the latest remote base",
 			"flags":          []string{"--merge"},
 			"writes_stdout":  true,
-			"machine_output": []string{"workspace", "previous_base_commit_id", "new_base_commit_id", "status", "updated_paths", "local_paths", "merged_paths", "conflict_paths", "merge_strategy", "changeset_id", "patchset_id"},
+			"machine_output": []string{"workspace", "previous_base_commit_id", "new_base_commit_id", "status", "updated_paths", "local_paths", "merged_paths", "conflict_paths", "merge_strategy", "changeset_id", "patchset_id", "overlap_warnings"},
 		},
 		{
 			"use":            "gs workspace sync",
@@ -401,14 +401,14 @@ func schemaWorkspaceCommands() []map[string]any {
 			"aliases":        []string{"gs ws sync"},
 			"flags":          []string{"--merge"},
 			"writes_stdout":  true,
-			"machine_output": []string{"workspace", "previous_base_commit_id", "new_base_commit_id", "status", "updated_paths", "local_paths", "merged_paths", "conflict_paths", "merge_strategy", "changeset_id", "patchset_id"},
+			"machine_output": []string{"workspace", "previous_base_commit_id", "new_base_commit_id", "status", "updated_paths", "local_paths", "merged_paths", "conflict_paths", "merge_strategy", "changeset_id", "patchset_id", "overlap_warnings"},
 		},
 		{
 			"use":            "gs status",
 			"summary":        "show workspace changes against the local base snapshot",
 			"aliases":        []string{"gs st"},
 			"writes_stdout":  true,
-			"machine_output": []string{"workspace", "changed_path_count", "changed_paths", "conflict_count", "conflict_paths", "changeset_id", "patchset_id"},
+			"machine_output": []string{"workspace", "changed_path_count", "changed_paths", "conflict_count", "conflict_paths", "changeset_id", "patchset_id", "overlap_warnings"},
 		},
 		{
 			"use":            "gs diff [commit-id-or-prefix] [commit-id-or-prefix]",
