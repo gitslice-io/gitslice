@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -22,6 +23,10 @@ func (s *AuthStore) CountOrganizationsCreatedBy(ctx context.Context, subjectID s
 }
 
 func (s *AuthStore) UpsertAccountInvitation(ctx context.Context, accountSlug, subjectID, role, invitedBy string) (*storage.AccountInvitation, error) {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if storage.AccountRoleRank(role) >= len(storage.AccountRoles) {
+		return nil, fmt.Errorf("%w: invalid account role %q", storage.ErrInvalid, role)
+	}
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	accountSlug = strings.TrimSpace(accountSlug)

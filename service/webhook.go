@@ -48,9 +48,9 @@ func (s *WebhookService) adminSlice(ctx context.Context, subjectID string, ref *
 		return nil, err
 	}
 	if allowArchived {
-		return resolveAuthorizedSliceAllowArchived(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionAdmin)
+		return resolveAuthorizedSliceAllowArchived(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionManageMembers)
 	}
-	return resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionAdmin)
+	return resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionManageMembers)
 }
 
 // adminWebhook loads a webhook whose slice the caller administers.
@@ -68,11 +68,11 @@ func (s *WebhookService) adminWebhook(ctx context.Context, subjectID, webhookID 
 		return nil, nil, grpcError(err)
 	}
 	if allowArchived {
-		if err := authorizeAllowArchived(ctx, s.Auth, subjectID, slice, authz.ActionAdmin); err != nil {
+		if err := authorizeAllowArchived(ctx, s.Auth, subjectID, slice, authz.ActionManageMembers); err != nil {
 			return nil, nil, err
 		}
 	} else {
-		if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionAdmin); err != nil {
+		if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionManageMembers); err != nil {
 			return nil, nil, err
 		}
 	}

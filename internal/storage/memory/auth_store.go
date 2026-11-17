@@ -335,6 +335,10 @@ func (s *AuthStore) ListAccountMembers(ctx context.Context, accountSlug string) 
 }
 
 func (s *AuthStore) SetAccountMemberRole(ctx context.Context, accountSlug, subjectID, role string) error {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if storage.AccountRoleRank(role) >= len(storage.AccountRoles) {
+		return fmt.Errorf("%w: invalid account role %q", storage.ErrInvalid, role)
+	}
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	if err := s.b.requireOrgLocked(accountSlug); err != nil {

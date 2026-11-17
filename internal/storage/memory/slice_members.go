@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -67,6 +68,10 @@ func (s *SliceStore) ListMembers(ctx context.Context, sliceID string) ([]storage
 }
 
 func (s *SliceStore) SetMember(ctx context.Context, sliceID, subjectID, role, addedBy string) (*storage.SliceMember, error) {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if storage.SliceRoleRank(role) >= len(storage.SliceRoles) {
+		return nil, fmt.Errorf("%w: invalid slice role %q", storage.ErrInvalid, role)
+	}
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	sliceID, subjectID = strings.TrimSpace(sliceID), strings.TrimSpace(subjectID)

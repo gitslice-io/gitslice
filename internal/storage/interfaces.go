@@ -166,7 +166,7 @@ const (
 )
 
 // AccountRoles lists membership roles from most to least privileged.
-var AccountRoles = []string{"owner", "admin", "writer", "member", "reader"}
+var AccountRoles = []string{"owner", "admin", "writer", "member", "contributor", "reader"}
 
 // AccountRoleRank orders roles (lower is more privileged); unknown roles rank
 // after every known one.
@@ -443,8 +443,20 @@ type SliceStore interface {
 	ListTags(ctx context.Context, sliceID string) ([]SliceTag, error)
 }
 
-// SliceRoles are the roles a slice member can have (design/26_slice_members.md).
-var SliceRoles = []string{"admin", "writer", "reader"}
+// SliceRoles are the roles a slice member can have (design/26_slice_members.md,
+// design/36_multi_agent_collaboration.md).
+var SliceRoles = []string{"admin", "writer", "contributor", "reader"}
+
+// SliceRoleRank orders slice roles (lower is more privileged); unknown roles
+// rank after every known one.
+func SliceRoleRank(role string) int {
+	for i, known := range SliceRoles {
+		if role == known {
+			return i
+		}
+	}
+	return len(SliceRoles)
+}
 
 // SliceMember is a person or agent given a role on one slice.
 type SliceMember struct {

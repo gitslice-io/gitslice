@@ -13,7 +13,17 @@ import (
 type Action string
 
 const (
-	ActionRead  Action = "read"
+	ActionRead              Action = "read"
+	ActionPropose           Action = "propose"
+	ActionSubmit            Action = "submit"
+	ActionReview            Action = "review"
+	ActionTag               Action = "tag"
+	ActionUseSecrets        Action = "use_secrets"
+	ActionManageMembers     Action = "manage_members"
+	ActionActOnAnyChangeset Action = "act_on_any_changeset"
+
+	// ActionWrite and ActionAdmin remain for compatibility with existing callers;
+	// prefer the named capabilities above for new call sites.
 	ActionWrite Action = "write"
 	ActionAdmin Action = "admin"
 )
@@ -48,9 +58,7 @@ func (a Authorizer) authorize(ctx context.Context, subjectID string, slice *core
 	if strings.TrimSpace(subjectID) == "" {
 		return storage.ErrUnauthenticated
 	}
-	switch action {
-	case ActionRead, ActionWrite, ActionAdmin:
-	default:
+	if !validAction(action) {
 		return storage.ErrInvalid
 	}
 	// The account's role decides first; a role on the slice itself
@@ -75,10 +83,44 @@ func (a Authorizer) authorize(ctx context.Context, subjectID string, slice *core
 	if !allowed {
 		return storage.ErrUnauthorized
 	}
-	if !allowArchived && (action == ActionWrite || action == ActionAdmin) && slice.Archived {
+	if !allowArchived && action != ActionRead && slice.Archived {
 		return fmt.Errorf("%w: slice %s/%s is archived and read-only; unarchive it to change it", storage.ErrConflict, slice.Ref.Account, slice.Ref.Slice)
 	}
 	return nil
+}
+
+// EffectiveRole returns the subject's higher role across the slice's account
+// and the slice itself, or ("", false, nil) when it holds neither.
+func (a Authorizer) EffectiveRole(ctx context.Context, subjectID string, slice *corev1.Slice) (string, bool, error) {
+	if slice == nil || strings.TrimSpace(subjectID) == "" {
+		return "", false, nil
+	}
+	if a.Auth == nil {
+		return "", false, storage.ErrInvalid
+	}
+	var acctRole string
+	var acctOK bool
+	if slice.Ref != nil && strings.TrimSpace(slice.Ref.Account) != "" {
+		var err error
+		acctRole, acctOK, err = a.accountRole(ctx, subjectID, slice.Ref.Account)
+		if err != nil {
+			return "", false, err
+		}
+	}
+	sliceRole, sliceOK, err := a.SliceRole(ctx, subjectID, slice)
+	if err != nil {
+		return "", false, err
+	}
+	switch {
+	case !acctOK && !sliceOK:
+		return "", false, nil
+	case acctOK && !sliceOK:
+		return acctRole, true, nil
+	case !acctOK && sliceOK:
+		return sliceRole, true, nil
+	default:
+		return higherRole(acctRole, sliceRole), true, nil
+	}
 }
 
 // SliceRole returns the role the subject was given on the slice itself, if
@@ -97,16 +139,41 @@ func (a Authorizer) SliceRole(ctx context.Context, subjectID string, slice *core
 	return strings.ToLower(strings.TrimSpace(role)), true, nil
 }
 
+func validAction(action Action) bool {
+	switch action {
+	case ActionRead,
+		ActionPropose,
+		ActionSubmit,
+		ActionReview,
+		ActionTag,
+		ActionUseSecrets,
+		ActionManageMembers,
+		ActionActOnAnyChangeset,
+		ActionWrite,
+		ActionAdmin:
+		return true
+	default:
+		return false
+	}
+}
+
 func roleAllows(role string, action Action) bool {
+	tier := roleTier(role)
+	if tier == 0 {
+		return false
+	}
 	switch action {
 	case ActionRead:
-		return true
-	case ActionWrite:
-		return roleCanWrite(role)
-	case ActionAdmin:
-		return roleCanAdmin(role)
+		return tier >= 1
+	case ActionPropose:
+		return tier >= 2
+	case ActionSubmit, ActionReview, ActionTag, ActionUseSecrets, ActionWrite:
+		return tier >= 3
+	case ActionManageMembers, ActionActOnAnyChangeset, ActionAdmin:
+		return tier >= 4
+	default:
+		return false
 	}
-	return false
 }
 
 func (a Authorizer) AuthorizeAccount(ctx context.Context, subjectID, account string, action Action) error {
@@ -117,29 +184,17 @@ func (a Authorizer) AuthorizeAccount(ctx context.Context, subjectID, account str
 	if account == "" {
 		return storage.ErrInvalid
 	}
+	if !validAction(action) {
+		return storage.ErrInvalid
+	}
 	role, ok, err := a.accountRole(ctx, subjectID, account)
 	if err != nil {
 		return err
 	}
-	switch action {
-	case ActionRead:
-		if !ok {
-			return storage.ErrUnauthorized
-		}
-		return nil
-	case ActionWrite:
-		if !ok || !roleCanWrite(role) {
-			return storage.ErrUnauthorized
-		}
-		return nil
-	case ActionAdmin:
-		if !ok || !roleCanAdmin(role) {
-			return storage.ErrUnauthorized
-		}
-		return nil
-	default:
-		return storage.ErrInvalid
+	if !ok || !roleAllows(role, action) {
+		return storage.ErrUnauthorized
 	}
+	return nil
 }
 
 func (a Authorizer) accountRole(ctx context.Context, subjectID, account string) (string, bool, error) {
@@ -156,15 +211,33 @@ func (a Authorizer) accountRole(ctx context.Context, subjectID, account string) 
 	return strings.ToLower(strings.TrimSpace(role)), true, nil
 }
 
-func roleCanWrite(role string) bool {
-	switch role {
-	case "owner", "admin", "member", "writer":
-		return true
+func roleTier(role string) int {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case "owner":
+		return 5
+	case "admin":
+		return 4
+	case "writer", "member":
+		return 3
+	case "contributor":
+		return 2
+	case "reader":
+		return 1
 	default:
-		return false
+		return 0
 	}
 }
 
-func roleCanAdmin(role string) bool {
-	return role == "owner" || role == "admin"
+func higherRole(a, b string) string {
+	ta, tb := roleTier(a), roleTier(b)
+	if ta != tb {
+		if ta > tb {
+			return a
+		}
+		return b
+	}
+	if storage.AccountRoleRank(b) < storage.AccountRoleRank(a) {
+		return b
+	}
+	return a
 }

@@ -135,6 +135,10 @@ func (s *AuthStore) ListAccountMembers(ctx context.Context, accountSlug string) 
 }
 
 func (s *AuthStore) SetAccountMemberRole(ctx context.Context, accountSlug, subjectID, role string) (err error) {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if storage.AccountRoleRank(role) >= len(storage.AccountRoles) {
+		return fmt.Errorf("%w: invalid account role %q", ErrInvalid, role)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -247,6 +251,10 @@ func (s *AuthStore) CountOrganizationsCreatedBy(ctx context.Context, subjectID s
 }
 
 func (s *AuthStore) UpsertAccountInvitation(ctx context.Context, accountSlug, subjectID, role, invitedBy string) (*storage.AccountInvitation, error) {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if storage.AccountRoleRank(role) >= len(storage.AccountRoles) {
+		return nil, fmt.Errorf("%w: invalid account role %q", ErrInvalid, role)
+	}
 	var accountID, kind string
 	err := s.db.QueryRowContext(ctx, `select id, kind from accounts where slug = $1`, strings.TrimSpace(accountSlug)).Scan(&accountID, &kind)
 	if errors.Is(err, sql.ErrNoRows) {

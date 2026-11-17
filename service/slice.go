@@ -334,7 +334,7 @@ func (s *SliceService) ListSliceSecrets(ctx context.Context, req *corev1.ListSli
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := authorizeAllowArchived(ctx, s.Auth, subjectID, current, authz.ActionWrite); err != nil {
+	if err := authorizeAllowArchived(ctx, s.Auth, subjectID, current, authz.ActionUseSecrets); err != nil {
 		return nil, err
 	}
 	secrets, err := s.Slices.ListSliceSecrets(ctx, current.Id)

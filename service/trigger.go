@@ -193,7 +193,7 @@ func (s *TriggerService) RunTrigger(ctx context.Context, req *corev1.RunTriggerR
 	if account == "" || strings.TrimSpace(req.GetTriggerId()) == "" {
 		return nil, status.Error(codes.InvalidArgument, "account and trigger_id are required")
 	}
-	if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionWrite); err != nil {
+	if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionUseSecrets); err != nil {
 		return nil, err
 	}
 	envelope := map[string]any{"created_at": time.Now().UTC().Format(time.RFC3339)}
@@ -221,11 +221,11 @@ func (s *TriggerService) RerunTriggerRun(ctx context.Context, req *corev1.RerunT
 	if err != nil {
 		return nil, err
 	}
-	run, err := s.authorizedRun(ctx, req.GetRunId(), authz.ActionWrite)
+	run, err := s.authorizedRun(ctx, req.GetRunId(), authz.ActionUseSecrets)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.ensureTriggerFolderAccess(ctx, subjectID, run.Account, run.Folder, authz.ActionWrite); err != nil {
+	if err := s.ensureTriggerFolderAccess(ctx, subjectID, run.Account, run.Folder, authz.ActionUseSecrets); err != nil {
 		return nil, err
 	}
 	again, err := s.Engine.Rerun(ctx, *run)
@@ -240,11 +240,11 @@ func (s *TriggerService) CancelTriggerRun(ctx context.Context, req *corev1.Cance
 	if err != nil {
 		return nil, err
 	}
-	run, err := s.authorizedRun(ctx, req.GetRunId(), authz.ActionWrite)
+	run, err := s.authorizedRun(ctx, req.GetRunId(), authz.ActionUseSecrets)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.ensureTriggerFolderAccess(ctx, subjectID, run.Account, run.Folder, authz.ActionWrite); err != nil {
+	if err := s.ensureTriggerFolderAccess(ctx, subjectID, run.Account, run.Folder, authz.ActionUseSecrets); err != nil {
 		return nil, err
 	}
 	canceled, err := s.Engine.Cancel(ctx, *run, "canceled by hand")

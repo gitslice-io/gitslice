@@ -516,7 +516,7 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 		}
 		return nil, status.Errorf(codes.FailedPrecondition, "check %q has no runnable CI definition in this revision", checkName)
 	}
-	if d.patchsetApprovedForGitsliceSecrets(ctx, cs, slice.GetRef().GetAccount(), patchset) {
+	if d.patchsetApprovedForGitsliceSecrets(ctx, cs, slice, patchset) {
 		if _, err := d.secretsForChecks(ctx, slice.GetRef().GetAccount(), []checks.CheckSpec{spec}); err != nil {
 			return nil, status.Errorf(codes.FailedPrecondition, "CI secrets could not be loaded: %v", err)
 		}
@@ -847,7 +847,7 @@ func (d *checkDispatcher) rebuildRunChecksMessage(ctx context.Context, runs []*c
 		}
 	}
 	var secrets map[string]map[string]string
-	if d.patchsetApprovedForGitsliceSecrets(ctx, cs, slice.GetRef().GetAccount(), patchset) {
+	if d.patchsetApprovedForGitsliceSecrets(ctx, cs, slice, patchset) {
 		secrets, err = d.secretsForChecks(ctx, slice.GetRef().GetAccount(), queued)
 		if err != nil {
 			return nil, err
@@ -1027,19 +1027,31 @@ func (d *checkDispatcher) secretsForChecks(ctx context.Context, account string, 
 // patchset may receive folder/account secrets. Unapproved draft edits under
 // .gitslice/ could alter checks.yaml to exfiltrate secrets, so secrets are
 // withheld unless patchset.Author is an account admin or an account admin has
-// approved this specific patchset.
-func (d *checkDispatcher) patchsetApprovedForGitsliceSecrets(ctx context.Context, cs *corev1.Changeset, account string, patchset *corev1.Patchset) bool {
-	if patchsetTouchedGitslicePath(ctx, d.Repository, patchset) == "" {
-		return true
-	}
-	if d == nil || d.Auth == nil {
+// approved this specific patchset. For all other edits, secrets are passed when
+// the patchset author has ActionUseSecrets on the slice (writer+) or a member
+// with ActionUseSecrets has approved the patchset (so contributors run
+// secretless CI until allowed by a writer).
+func (d *checkDispatcher) patchsetApprovedForGitsliceSecrets(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset) bool {
+	if slice == nil || slice.GetRef() == nil || patchset == nil {
 		return false
 	}
+	account := slice.GetRef().GetAccount()
 	patchsetAuthor := strings.TrimSpace(patchset.GetAuthor())
-	if patchsetAuthor != "" {
-		if ok, err := canAuthorizeAccount(ctx, d.Auth, patchsetAuthor, account, authz.ActionAdmin); err == nil && ok {
-			return true
+	if patchsetAuthor == "" && cs != nil {
+		patchsetAuthor = strings.TrimSpace(cs.GetAuthor())
+	}
+	allows := func(subjectID string) bool {
+		if patchsetTouchedGitslicePath(ctx, d.Repository, patchset) == "" {
+			return authz.New(d.Auth).AuthorizeAllowArchived(ctx, subjectID, slice, authz.ActionUseSecrets) == nil
 		}
+		ok, err := canAuthorizeAccount(ctx, d.Auth, subjectID, account, authz.ActionAdmin)
+		return err == nil && ok
+	}
+	if d == nil || d.Auth == nil {
+		return patchsetTouchedGitslicePath(ctx, d.Repository, patchset) == ""
+	}
+	if patchsetAuthor != "" && allows(patchsetAuthor) {
+		return true
 	}
 	if d.Changesets == nil || cs == nil {
 		return false
@@ -1053,7 +1065,7 @@ func (d *checkDispatcher) patchsetApprovedForGitsliceSecrets(ctx context.Context
 		if subjectID == "" || subjectID == patchsetAuthor || (patchsetAuthor == "" && subjectID == strings.TrimSpace(cs.GetAuthor())) {
 			continue
 		}
-		if ok, err := canAuthorizeAccount(ctx, d.Auth, subjectID, account, authz.ActionAdmin); err == nil && ok {
+		if allows(subjectID) {
 			return true
 		}
 	}

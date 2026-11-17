@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -61,12 +62,12 @@ func (r Runner) accountCommand(opts *commandOptions) *cobra.Command {
 	setMemberCmd := &cobra.Command{
 		Use:   "set-member <account> <username>",
 		Short: "Change a member's role (operators may also add members directly)",
-		Args:  exactArgs(2, "gs account set-member <account> <username> --role owner|admin|writer|member|reader"),
+		Args:  exactArgs(2, "gs account set-member <account> <username> --role owner|admin|writer|member|contributor|reader"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runAccountSetMember(cmd.Context(), *opts, args[0], args[1], role)
 		},
 	}
-	setMemberCmd.Flags().StringVar(&role, "role", role, "role: owner, admin, writer, member or reader")
+	setMemberCmd.Flags().StringVar(&role, "role", role, "role: owner, admin, writer, member, contributor or reader")
 	removeYes := false
 	removeMemberCmd := &cobra.Command{
 		Use:   "remove-member <account> <username>",
@@ -86,7 +87,7 @@ func (r Runner) accountCommand(opts *commandOptions) *cobra.Command {
 			return r.runAccountInvite(cmd.Context(), *opts, args[0], args[1], inviteRole)
 		},
 	}
-	inviteCmd.Flags().StringVar(&inviteRole, "role", inviteRole, "role: owner, admin, writer, member or reader")
+	inviteCmd.Flags().StringVar(&inviteRole, "role", inviteRole, "role: owner, admin, writer, member, contributor or reader")
 	invitationsCmd := &cobra.Command{
 		Use:   "invitations [<org>]",
 		Short: "List your pending invitations, or an organization's",
@@ -192,6 +193,10 @@ func invitationFromProto(i *corev1.AccountInvitation) invitationOutput {
 }
 
 func (r Runner) runAccountInvite(ctx context.Context, opts commandOptions, org, username, role string) error {
+	normalizedRole := strings.ToLower(strings.TrimSpace(role))
+	if storage.AccountRoleRank(normalizedRole) >= len(storage.AccountRoles) {
+		return userError("invalid_role", fmt.Sprintf("role must be one of %s", strings.Join(storage.AccountRoles, ", ")), "Pass --role owner, admin, writer, member, contributor or reader.")
+	}
 	_, conn, authCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
 		return err
@@ -200,7 +205,7 @@ func (r Runner) runAccountInvite(ctx context.Context, opts commandOptions, org, 
 	resp, err := corev1.NewAuthServiceClient(conn).InviteAccountMember(authCtx, &corev1.InviteAccountMemberRequest{
 		Account:  strings.TrimSpace(org),
 		Username: strings.TrimPrefix(strings.TrimSpace(username), "@"),
-		Role:     strings.TrimSpace(role),
+		Role:     normalizedRole,
 	})
 	if err != nil {
 		return accountError(err)
@@ -540,8 +545,12 @@ func markAccountMembers(members []accountMemberOutput, account, subjectID string
 }
 
 func (r Runner) runAccountSetMember(ctx context.Context, opts commandOptions, account, username, role string) error {
-	if strings.TrimSpace(role) == "" {
-		return userError("role_required", "--role is required", "Pass --role owner, admin, writer, member or reader.")
+	normalizedRole := strings.ToLower(strings.TrimSpace(role))
+	if normalizedRole == "" {
+		return userError("role_required", "--role is required", "Pass --role owner, admin, writer, member, contributor or reader.")
+	}
+	if storage.AccountRoleRank(normalizedRole) >= len(storage.AccountRoles) {
+		return userError("invalid_role", fmt.Sprintf("role must be one of %s", strings.Join(storage.AccountRoles, ", ")), "Pass --role owner, admin, writer, member, contributor or reader.")
 	}
 	_, conn, authCtx, err := r.authenticatedConn(ctx)
 	if err != nil {
@@ -551,7 +560,7 @@ func (r Runner) runAccountSetMember(ctx context.Context, opts commandOptions, ac
 	resp, err := corev1.NewAuthServiceClient(conn).SetAccountMember(authCtx, &corev1.SetAccountMemberRequest{
 		Account:  strings.TrimSpace(account),
 		Username: strings.TrimSpace(username),
-		Role:     strings.TrimSpace(role),
+		Role:     normalizedRole,
 	})
 	if err != nil {
 		return accountError(err)

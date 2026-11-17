@@ -31,7 +31,7 @@ func (s *SliceService) CreateTag(ctx context.Context, req *corev1.CreateTagReque
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionWrite); err != nil {
+	if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionTag); err != nil {
 		return nil, err
 	}
 	name := strings.TrimSpace(req.GetName())

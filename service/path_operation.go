@@ -89,7 +89,7 @@ func (s *ChangesetService) pathOperationTarget(ctx context.Context, subjectID st
 	if ref == nil {
 		return nil, "", "", status.Error(codes.InvalidArgument, "slice is required")
 	}
-	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionWrite)
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionSubmit)
 	if err != nil {
 		return nil, "", "", err
 	}

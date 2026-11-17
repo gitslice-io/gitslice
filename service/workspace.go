@@ -91,7 +91,7 @@ func (s *WorkspaceService) ValidateWorkspaceDiff(ctx context.Context, req *corev
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionWrite)
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionPropose)
 	if err != nil {
 		return nil, err
 	}

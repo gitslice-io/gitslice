@@ -122,7 +122,7 @@ func (s *CheckService) RerunCheck(ctx context.Context, req *corev1.RerunCheckReq
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	cs, err := s.authorizedChangeset(ctx, subjectID, run.GetChangesetId(), authz.ActionWrite)
+	cs, err := s.authorizedChangeset(ctx, subjectID, run.GetChangesetId(), authz.ActionReview)
 	if err != nil {
 		return nil, err
 	}

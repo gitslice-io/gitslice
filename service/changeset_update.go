@@ -27,13 +27,18 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 			return nil, status.Errorf(codes.InvalidArgument, "bundled check %q log exceeds %d bytes", bundledRun.GetName(), maxBundledCheckLogBytes)
 		}
 	}
-	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionWrite)
+	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionPropose)
 	if err != nil {
 		return nil, err
 	}
 	slice, err := s.Slices.Resolve(ctx, cs.AuthoringSlice)
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if strings.TrimSpace(cs.GetAuthor()) != subjectID {
+		if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionWrite); err != nil {
+			return nil, err
+		}
 	}
 	if err := requireEditBlobsAccessible(ctx, s.Blobs, slice, req.FileEdits); err != nil {
 		return nil, err

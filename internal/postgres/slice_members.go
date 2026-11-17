@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
 
 	"gitslice.io/gitslice/internal/storage"
@@ -72,6 +73,10 @@ func (s *SliceStore) ListMembers(ctx context.Context, sliceID string) ([]storage
 }
 
 func (s *SliceStore) SetMember(ctx context.Context, sliceID, subjectID, role, addedBy string) (*storage.SliceMember, error) {
+	role = strings.ToLower(strings.TrimSpace(role))
+	if storage.SliceRoleRank(role) >= len(storage.SliceRoles) {
+		return nil, fmt.Errorf("%w: invalid slice role %q", ErrInvalid, role)
+	}
 	if _, err := s.db.ExecContext(ctx, `
 		insert into slice_members(slice_id, subject_id, role, added_by, created_at)
 		values ($1, $2, $3, $4, now())

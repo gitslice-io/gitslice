@@ -45,7 +45,7 @@ func (s *BlobService) UploadBlobStream(stream corev1.BlobService_UploadBlobStrea
 	if init.Size != nil && *init.Size > maxBlobStreamUploadBytes {
 		return status.Errorf(codes.ResourceExhausted, "upload size %d exceeds %d byte limit", *init.Size, maxBlobStreamUploadBytes)
 	}
-	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, init.Slice, authz.ActionWrite)
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, init.Slice, authz.ActionPropose)
 	if err != nil {
 		return err
 	}

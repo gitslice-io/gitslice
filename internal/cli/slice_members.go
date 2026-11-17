@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -40,15 +41,16 @@ func (r Runner) sliceMemberCommands(opts *commandOptions) []*cobra.Command {
 		Use:   "share <slice|account:slice> <username>",
 		Short: "Give a person or agent a role on one slice (writer by default)",
 		Long: "Give a person or agent a role on one slice, without adding them to the account that owns it:\n" +
-			"reader (read and clone), writer (also create, submit and approve changesets) or admin (also\n" +
-			"manage the slice's members and webhooks). Changing the role runs share again. The slice's\n" +
-			"definition, CI daemon and secrets stay with the account's owners and admins.",
-		Args: exactArgs(2, "gs slice share <slice|account:slice> <username> [--role reader|writer|admin]"),
+			"reader (read and clone), contributor (propose changesets and patchsets with secretless CI),\n" +
+			"writer (submit, approve, tag and run CI with secrets) or admin (also manage the slice's\n" +
+			"members and webhooks). Changing the role runs share again. The slice's definition, CI daemon\n" +
+			"and secrets stay with the account's owners and admins.",
+		Args: exactArgs(2, "gs slice share <slice|account:slice> <username> [--role reader|contributor|writer|admin]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runSliceShare(cmd.Context(), *opts, args[0], args[1], shareRole)
 		},
 	}
-	shareCmd.Flags().StringVar(&shareRole, "role", "writer", "reader, writer or admin")
+	shareCmd.Flags().StringVar(&shareRole, "role", "writer", "reader, contributor, writer or admin")
 
 	unshareCmd := &cobra.Command{
 		Use:   "unshare <slice|account:slice> <username>",
@@ -91,12 +93,16 @@ func (r Runner) sliceMemberConn(ctx context.Context, value string) (UserConfig, 
 }
 
 func (r Runner) runSliceShare(ctx context.Context, opts commandOptions, sliceValue, username, role string) error {
+	normalizedRole := strings.ToLower(strings.TrimSpace(role))
+	if storage.SliceRoleRank(normalizedRole) >= len(storage.SliceRoles) {
+		return userError("invalid_role", fmt.Sprintf("role must be one of %s", strings.Join(storage.SliceRoles, ", ")), "Pass --role reader, contributor, writer or admin.")
+	}
 	_, client, callCtx, ref, done, err := r.sliceMemberConn(ctx, sliceValue)
 	if err != nil {
 		return err
 	}
 	defer done()
-	member, err := client.SetSliceMember(callCtx, &corev1.SetSliceMemberRequest{Slice: ref, Username: strings.TrimSpace(username), Role: role})
+	member, err := client.SetSliceMember(callCtx, &corev1.SetSliceMemberRequest{Slice: ref, Username: strings.TrimSpace(username), Role: normalizedRole})
 	if err != nil {
 		return sliceMemberError(err, ref)
 	}

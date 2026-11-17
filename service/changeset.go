@@ -53,7 +53,7 @@ func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.Crea
 	if targetRef == "" {
 		targetRef = storage.DefaultTargetRef
 	}
-	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.AuthoringSlice, authz.ActionWrite); err != nil {
+	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.AuthoringSlice, authz.ActionPropose); err != nil {
 		return nil, err
 	}
 	createReq := &corev1.CreateChangesetRequest{
@@ -194,7 +194,7 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	if err != nil {
 		return nil, err
 	}
-	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionWrite)
+	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionSubmit)
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +269,7 @@ func (s *ChangesetService) ApproveChangeset(ctx context.Context, req *corev1.App
 	if err != nil {
 		return nil, err
 	}
-	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionWrite)
+	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionReview)
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +285,7 @@ func (s *ChangesetService) ReportCheckResult(ctx context.Context, req *corev1.Re
 	if err != nil {
 		return nil, err
 	}
-	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionWrite)
+	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionSubmit)
 	if err != nil {
 		return nil, err
 	}
@@ -406,11 +406,7 @@ func (s *ChangesetService) getAuthorizedChangeset(ctx context.Context, subjectID
 	return cs, nil
 }
 
-func (s *ChangesetService) getChangesetForAction(ctx context.Context, subjectID, changesetID string, action authz.Action) (*corev1.Changeset, error) {
-	cs, err := s.Changesets.Get(ctx, changesetID)
-	if err != nil {
-		return nil, grpcError(err)
-	}
+func (s *ChangesetService) authorizeChangesetForAction(ctx context.Context, subjectID string, cs *corev1.Changeset, action authz.Action) (*corev1.Changeset, error) {
 	if cs.AuthoringSlice == nil {
 		return nil, status.Error(codes.FailedPrecondition, "changeset has no authoring slice")
 	}
@@ -425,25 +421,22 @@ func (s *ChangesetService) getChangesetForAction(ctx context.Context, subjectID,
 	return cs, nil
 }
 
+func (s *ChangesetService) getChangesetForAction(ctx context.Context, subjectID, changesetID string, action authz.Action) (*corev1.Changeset, error) {
+	cs, err := s.Changesets.Get(ctx, changesetID)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return s.authorizeChangesetForAction(ctx, subjectID, cs, action)
+}
+
 func (s *ChangesetService) getChangesetForWriteOrAuthor(ctx context.Context, subjectID, changesetID string) (*corev1.Changeset, error) {
 	cs, err := s.Changesets.Get(ctx, changesetID)
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if cs.AuthoringSlice == nil {
-		return nil, status.Error(codes.FailedPrecondition, "changeset has no authoring slice")
+	action := authz.ActionWrite
+	if strings.TrimSpace(cs.GetAuthor()) == subjectID {
+		action = authz.ActionPropose
 	}
-	if cs.Author == subjectID {
-		storage.PopulateChangesetHandles(cs)
-		return cs, nil
-	}
-	slice, err := s.Slices.Resolve(ctx, cs.AuthoringSlice)
-	if err != nil {
-		return nil, grpcError(err)
-	}
-	if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionWrite); err != nil {
-		return nil, err
-	}
-	storage.PopulateChangesetHandles(cs)
-	return cs, nil
+	return s.authorizeChangesetForAction(ctx, subjectID, cs, action)
 }

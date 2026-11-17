@@ -42,7 +42,7 @@ func (s *ChangesetStackService) CreateStack(ctx context.Context, req *corev1.Cre
 	if targetRef == "" {
 		targetRef = storage.DefaultTargetRef
 	}
-	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.AuthoringSlice, authz.ActionWrite); err != nil {
+	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.AuthoringSlice, authz.ActionPropose); err != nil {
 		return nil, err
 	}
 	stack, err := s.Changesets.CreateStack(ctx, subjectID, &corev1.CreateStackRequest{
@@ -103,7 +103,7 @@ func (s *ChangesetStackService) AddStackEntry(ctx context.Context, req *corev1.A
 	if err != nil {
 		return nil, err
 	}
-	stack, err := s.getAuthorizedStack(ctx, subjectID, req.StackId, authz.ActionWrite)
+	stack, err := s.getAuthorizedStackForWriteOrAuthor(ctx, subjectID, req.StackId)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +131,7 @@ func (s *ChangesetStackService) MoveStackEntry(ctx context.Context, req *corev1.
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.getAuthorizedStack(ctx, subjectID, req.StackId, authz.ActionWrite); err != nil {
+	if _, err := s.getAuthorizedStackForWriteOrAuthor(ctx, subjectID, req.StackId); err != nil {
 		return nil, err
 	}
 	stack, err := s.Changesets.MoveStackEntry(ctx, req)
@@ -149,7 +149,7 @@ func (s *ChangesetStackService) ReparentStackEntry(ctx context.Context, req *cor
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.getAuthorizedStack(ctx, subjectID, req.StackId, authz.ActionWrite); err != nil {
+	if _, err := s.getAuthorizedStackForWriteOrAuthor(ctx, subjectID, req.StackId); err != nil {
 		return nil, err
 	}
 	stack, err := s.Changesets.ReparentStackEntry(ctx, req)
@@ -167,7 +167,7 @@ func (s *ChangesetStackService) DetachStackEntry(ctx context.Context, req *corev
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.getAuthorizedStack(ctx, subjectID, req.StackId, authz.ActionWrite); err != nil {
+	if _, err := s.getAuthorizedStackForWriteOrAuthor(ctx, subjectID, req.StackId); err != nil {
 		return nil, err
 	}
 	res, err := s.Changesets.DetachStackEntry(ctx, subjectID, req)
@@ -188,7 +188,7 @@ func (s *ChangesetStackService) Restack(ctx context.Context, req *corev1.Restack
 	if err != nil {
 		return nil, err
 	}
-	stack, err := s.getAuthorizedStack(ctx, subjectID, req.StackId, authz.ActionWrite)
+	stack, err := s.getAuthorizedStackForWriteOrAuthor(ctx, subjectID, req.StackId)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +398,7 @@ func (s *ChangesetStackService) SubmitStack(ctx context.Context, req *corev1.Sub
 	if err != nil {
 		return nil, err
 	}
-	stack, err := s.getAuthorizedStack(ctx, subjectID, req.StackId, authz.ActionWrite)
+	stack, err := s.getAuthorizedStack(ctx, subjectID, req.StackId, authz.ActionSubmit)
 	if err != nil {
 		return nil, err
 	}
@@ -491,6 +491,28 @@ func (s *ChangesetStackService) SubmitStack(ctx context.Context, req *corev1.Sub
 		}
 	}
 	return response, nil
+}
+
+func (s *ChangesetStackService) getAuthorizedStackForWriteOrAuthor(ctx context.Context, subjectID, stackID string) (*corev1.ChangesetStack, error) {
+	stack, err := s.Changesets.GetStack(ctx, strings.TrimSpace(stackID))
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if stack.AuthoringSlice == nil {
+		return nil, status.Error(codes.FailedPrecondition, "stack has no authoring slice")
+	}
+	action := authz.ActionWrite
+	if strings.TrimSpace(stack.GetCreatedBy()) == subjectID {
+		action = authz.ActionPropose
+	}
+	slice, err := resolveAuthoringSlice(ctx, s.Slices, stack.AuthoringSlice, action)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if err := authorize(ctx, s.Auth, subjectID, slice, action); err != nil {
+		return nil, err
+	}
+	return stack, nil
 }
 
 func (s *ChangesetStackService) getAuthorizedStack(ctx context.Context, subjectID, stackID string, action authz.Action) (*corev1.ChangesetStack, error) {

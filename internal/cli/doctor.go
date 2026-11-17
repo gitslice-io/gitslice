@@ -379,11 +379,17 @@ func (d *doctor) checkSlice(ctx context.Context, cfg UserConfig, cfgOK bool, con
 			d.add("slice", "warn", summary+", so you can read it but not change it", "Ask an admin of the slice for the writer role (gs slice share).")
 			return
 		}
+		if strings.EqualFold(sharedRole, "contributor") {
+			summary += " (can propose changesets; writer needed to submit)"
+		}
 	case role != "":
 		summary += "; you are " + role + " of " + ref.Account
 		if !roleCanChange(role) {
 			d.add("slice", "warn", summary+", so you can read it but not change it", "Ask an owner of "+ref.Account+" for the writer role.")
 			return
+		}
+		if strings.EqualFold(role, "contributor") {
+			summary += " (can propose changesets; writer needed to submit)"
 		}
 	case status != nil:
 		summary += "; you can read it, but changesets from it need write access in " + ref.Account
@@ -395,7 +401,7 @@ func (d *doctor) checkSlice(ctx context.Context, cfg UserConfig, cfgOK bool, con
 
 func roleCanChange(role string) bool {
 	switch strings.ToLower(role) {
-	case "owner", "admin", "member", "writer":
+	case "owner", "admin", "member", "writer", "contributor":
 		return true
 	}
 	return false

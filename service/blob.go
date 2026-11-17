@@ -114,7 +114,7 @@ func (s *BlobService) uploadBlobs(ctx context.Context, sliceRef *corev1.SliceRef
 	if sliceRef == nil {
 		return nil, status.Error(codes.InvalidArgument, "slice is required")
 	}
-	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, sliceRef, authz.ActionWrite)
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, sliceRef, authz.ActionPropose)
 	if err != nil {
 		return nil, err
 	}

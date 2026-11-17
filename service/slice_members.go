@@ -15,9 +15,9 @@ import (
 )
 
 // Slice members (design/26_slice_members.md): a person or agent given a role
-// (admin, writer or reader) on one slice, without joining the account that
-// owns it. The role adds to whatever the account gives them, within that
-// slice only.
+// (admin, writer, contributor or reader) on one slice, without joining the
+// account that owns it. The role adds to whatever the account gives them,
+// within that slice only.
 
 func (s *SliceService) ListSliceMembers(ctx context.Context, req *corev1.ListSliceMembersRequest) (*corev1.ListSliceMembersResponse, error) {
 	subjectID, err := requireSubject(ctx)
@@ -59,7 +59,7 @@ func (s *SliceService) SetSliceMember(ctx context.Context, req *corev1.SetSliceM
 	if err != nil {
 		return nil, err
 	}
-	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionAdmin)
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionManageMembers)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func (s *SliceService) RemoveSliceMember(ctx context.Context, req *corev1.Remove
 	// Members leave on their own; removing someone else takes the slice's
 	// admins.
 	if memberID != subjectID {
-		if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionAdmin); err != nil {
+		if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionManageMembers); err != nil {
 			return nil, err
 		}
 	}

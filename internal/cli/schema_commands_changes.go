@@ -149,7 +149,7 @@ func schemaSliceCommands() []map[string]any {
 		},
 		{
 			"use":            "gs slice share <slice|account:slice> <username>",
-			"summary":        "give a person or agent a role on one slice (reader, writer or admin), without adding them to its account",
+			"summary":        "give a person or agent a role on one slice (reader, contributor, writer or admin), without adding them to its account",
 			"args":           []string{"slice", "username"},
 			"flags":          []string{"--role"},
 			"writes_stdout":  true,

@@ -39,7 +39,7 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 	if req.AuthoringSlice == nil {
 		return nil, status.Error(codes.InvalidArgument, "authoring slice is required")
 	}
-	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.AuthoringSlice, authz.ActionWrite)
+	slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.AuthoringSlice, authz.ActionSubmit)
 	if err != nil {
 		return nil, err
 	}

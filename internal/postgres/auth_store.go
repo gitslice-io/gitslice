@@ -86,9 +86,10 @@ func (s *AuthStore) AccountRole(ctx context.Context, subjectID, accountSlug stri
 			when 'admin' then 2
 			when 'writer' then 3
 			when 'member' then 4
-			when 'reader' then 5
-			when 'guest' then 6
-			else 7
+			when 'contributor' then 5
+			when 'reader' then 6
+			when 'guest' then 7
+			else 8
 		end
 		limit 1
 	`, accountSlug, subjectID).Scan(&role)
