@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"gitslice.io/gitslice/internal/webhooks"
+	"gitslice.io/gitslice/internal/outbound"
 )
 
 var (
 	importSourceSegmentPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
-	resolvePublicImportHost    = webhooks.ResolvePublic
+	resolvePublicImportHost    = outbound.ResolvePublic
 )
 
 var defaultImportAllowedHosts = map[string]struct{}{

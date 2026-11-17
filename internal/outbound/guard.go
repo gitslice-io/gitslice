@@ -1,7 +1,11 @@
-package webhooks
+// Package outbound protects server-initiated HTTP requests and signs them.
+package outbound
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -13,16 +17,19 @@ import (
 	"time"
 )
 
-// Webhook URLs are chosen by slice admins, so deliveries must not reach the
-// server's own network: loopback, private ranges, link-local (which includes
-// the cloud metadata server) and other non-public addresses are refused,
-// both when a URL is saved and, after DNS resolution, when it is dialed (so a
-// name that later resolves to an internal address is caught too).
+// Outbound URLs must not reach the server's own network: loopback, private
+// ranges, link-local (which includes the cloud metadata server) and other
+// non-public addresses are refused, both when a URL is saved and, after DNS
+// resolution, when it is dialed (so a name that later resolves to an internal
+// address is caught too).
 
 const maxURLLength = 2048
 
-// errBlockedAddress marks a delivery that went to a non-public address.
-var errBlockedAddress = errors.New("the webhook's address is not a public internet address")
+// errBlockedAddress marks a request that went to a non-public address.
+var errBlockedAddress = errors.New("the target address is not a public internet address")
+
+// SignatureHeader carries a SHA-256 HMAC signature of an outbound body.
+const SignatureHeader = "X-Gitslice-Signature-256"
 
 var blockedPrefixes = func() []netip.Prefix {
 	var out []netip.Prefix
@@ -74,8 +81,8 @@ func publicAddress(ip netip.Addr) bool {
 	return true
 }
 
-// ValidateURL checks a webhook URL when it is saved. allowPrivate permits
-// http and non-public hosts (tests and local development).
+// ValidateURL checks an outbound URL. allowPrivate permits http and
+// non-public hosts (tests and local development).
 func ValidateURL(raw string, allowPrivate bool) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -114,11 +121,8 @@ func ValidateURL(raw string, allowPrivate bool) (string, error) {
 	return u.String(), nil
 }
 
-// newClient returns the HTTP client deliveries use: no proxy from the
-// environment, no redirects, a 10 second limit, and (unless allowPrivate) a
-// dialer that refuses non-public addresses.
 // NewClient returns an HTTP client that only dials public addresses unless
-// allowPrivate, and follows no redirects, as webhook deliveries do.
+// allowPrivate, follows no redirects, and has a 10 second request limit.
 func NewClient(allowPrivate bool) *http.Client {
 	return newClient(allowPrivate)
 }
@@ -149,7 +153,7 @@ func newClient(allowPrivate bool) *http.Client {
 	return &http.Client{
 		Timeout:   10 * time.Second,
 		Transport: transport,
-		// A webhook answers where it was registered; a redirect is a failure.
+		// The caller's target answers directly; a redirect is a failure.
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 }
@@ -183,4 +187,33 @@ func ResolvePublic(ctx context.Context, host string, allowPrivate bool) (netip.A
 		}
 	}
 	return addrs[0].Unmap(), nil
+}
+
+// Sign returns the signature header value for body: "sha256=" and the hex
+// HMAC-SHA256 of the body keyed by secret.
+func Sign(secret string, body []byte) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	return "sha256=" + hex.EncodeToString(mac.Sum(nil))
+}
+
+// Verify reports whether signature (the header value) matches body.
+func Verify(secret string, body []byte, signature string) bool {
+	return hmac.Equal([]byte(Sign(secret, body)), []byte(strings.TrimSpace(signature)))
+}
+
+// DescribeSendError says why a request failed, and whether retrying cannot
+// help because the target was refused.
+func DescribeSendError(err error) (string, bool) {
+	if isBlocked(err) {
+		return errBlockedAddress.Error(), true
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		if urlErr.Timeout() {
+			return "the endpoint did not answer within 10 seconds", false
+		}
+		return urlErr.Err.Error(), false
+	}
+	return err.Error(), false
 }

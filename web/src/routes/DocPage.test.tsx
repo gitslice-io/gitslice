@@ -18,15 +18,6 @@ describe("DocPage", () => {
     cleanup();
   });
 
-  it("documents webhooks: events, signature and retries", () => {
-    params.current = { section: "webhooks" };
-    render(<DocPage />);
-    expect(screen.getByRole("heading", { level: 1, name: "Webhooks" })).toBeInTheDocument();
-    expect(screen.getByRole("cell", { name: "check_run.completed" })).toBeInTheDocument();
-    expect(screen.getAllByText("X-Gitslice-Signature-256").length).toBeGreaterThan(0);
-    expect(screen.getByText(/1 minute, 5 minutes, 30 minutes/)).toBeInTheDocument();
-  });
-
   it("documents Git mirrors: setup, token, retries and recovery", () => {
     params.current = { section: "mirrors" };
     render(<DocPage />);
@@ -50,12 +41,6 @@ describe("DocPage", () => {
     render(<DocPage />);
     expect(screen.getByRole("heading", { level: 2, name: "Pass secrets to checks" })).toBeInTheDocument();
     expect(screen.getAllByText("Secrets").length).toBeGreaterThan(0);
-  });
-
-  it("lists the webhook commands in the CLI reference", () => {
-    params.current = { section: "cli" };
-    render(<DocPage />);
-    expect(screen.getByText("gs webhook ping <webhook-id>")).toBeInTheDocument();
   });
 
   it("lists the setup commands and create --submit in the CLI reference", () => {

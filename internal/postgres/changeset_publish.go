@@ -555,7 +555,7 @@ func (s *ChangesetStore) finalizePendingPublishBatch(ctx context.Context, claim 
 	if err := insertCommitPublishedOutboxTx(ctx, tx, build.OutboxPayloads); err != nil {
 		return err
 	}
-	if err := insertSubmittedWebhookEventsTx(ctx, tx, build); err != nil {
+	if err := insertSubmittedEventsTx(ctx, tx, build); err != nil {
 		return err
 	}
 	res, err := tx.ExecContext(ctx, `

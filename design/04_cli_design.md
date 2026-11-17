@@ -709,44 +709,11 @@ remains authoritative.
 The MVP does not support adding a second slice to an existing workspace. If the
 user needs `acme/payment` and `acme/frontend`, they create two workspaces.
 
-### 5.1 Webhooks
+### 5.1 Webhooks (removed)
 
-```bash
-gs webhook create [--slice account/slice] --url https://... --event <name>... [--secret-stdin] [--inactive]
-gs webhook list [--slice account/slice]
-gs webhook update <webhook-id> [--url ...] [--event <name>...] [--active true|false] [--secret-stdin | --clear-secret]
-gs webhook ping <webhook-id>
-gs webhook deliveries <webhook-id> [--limit n]
-gs webhook redeliver <delivery-id>
-gs webhook delete <webhook-id> --yes
-```
-
-A webhook POSTs a slice's events to an HTTPS endpoint
-(`design/24_webhooks.md`). The events are:
-
-- `push`, `tag.created`;
-- `changeset.created`, `changeset.updated`, `changeset.approved`,
-  `changeset.submitted`, `changeset.abandoned`;
-- `check_run.completed`;
-- `*` for all of them.
-
-How the flags work:
-
-- `--slice` defaults to the workspace's slice.
-- `--event` repeats or takes a comma-separated list. On `update` it replaces
-  the list.
-- `--secret-stdin` reads the signing secret from the first line of stdin, so
-  it never appears in the shell history.
-
-How results are reported:
-
-- `ping` and `redeliver` send at once, print the outcome and the response, and
-  exit non-zero when the endpoint did not answer with a 2xx.
-- The text output shows a URL's query values as `...`; `--json` prints them in
-  full.
-
-Only the slice's owners and admins can use these commands. `gs help webhooks`
-summarizes the events, headers and retry schedule.
+`gs webhook` was removed on 2026-11-17 with the webhooks feature (design/24).
+A trigger's `http` action in `.gitslice/triggers.yaml` (design/34) sends the
+same events, filtered by path and signed with `X-Gitslice-Signature-256`.
 
 ## 6. Server File Shell
 

@@ -8,7 +8,6 @@ import (
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/triggers"
-	"gitslice.io/gitslice/internal/webhooks"
 )
 
 type ObjectStore interface {
@@ -27,7 +26,6 @@ type Handlers struct {
 	Stack      *ChangesetStackService
 	Agent      *AgentService
 	Check      *CheckService
-	Webhook    *WebhookService
 	Secret     *SecretService
 	Feedback   *FeedbackService
 	// Trigger and TriggerRun need an engine (design/34_triggers.md), which
@@ -44,8 +42,6 @@ type Stores struct {
 	Slices     storage.SliceStore
 	Agents     storage.AgentStore
 	Checks     storage.CheckStore
-	// Webhooks is optional: without it the WebhookService is unavailable.
-	Webhooks storage.WebhookStore
 	// Feedback is optional: without it the FeedbackService is unavailable.
 	Feedback storage.FeedbackStore
 	// Blames is optional: without it every blame walks the file's history.
@@ -147,8 +143,7 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 			dispatcher: checkDispatcher,
 			hub:        hub,
 		},
-		Webhook: newWebhookService(stores),
-		Secret:  &SecretService{Auth: stores.Auth, Slices: stores.Slices},
+		Secret: &SecretService{Auth: stores.Auth, Slices: stores.Slices},
 		// The server sets who reads feedback (Account, OperatorSubjects).
 		Feedback: &FeedbackService{Auth: stores.Auth, Feedback: stores.Feedback},
 		Trigger: &TriggerService{
@@ -170,22 +165,6 @@ func (h *Handlers) SetTriggerEngine(engine *triggers.Engine) {
 	if h.Changeset != nil && h.Changeset.dispatcher != nil {
 		engine.SetCheckLauncher(h.Changeset.dispatcher)
 	}
-}
-
-// newWebhookService returns the WebhookService with a dispatcher that uses
-// default options; the server replaces the dispatcher with its configured one.
-func newWebhookService(stores Stores) *WebhookService {
-	svc := &WebhookService{Auth: stores.Auth, Slices: stores.Slices, Webhooks: stores.Webhooks}
-	if stores.Webhooks != nil {
-		svc.Dispatcher = webhooks.NewDispatcher(webhooks.Stores{
-			Webhooks:   stores.Webhooks,
-			Slices:     stores.Slices,
-			Changesets: stores.Changesets,
-			Checks:     stores.Checks,
-			Auth:       stores.Auth,
-		}, webhooks.Options{})
-	}
-	return svc
 }
 
 func captureAnalytics(ctx context.Context, tracker analytics.Client, eventName string, props map[string]any) {

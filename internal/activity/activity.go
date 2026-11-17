@@ -1,5 +1,5 @@
 // Package activity tells the server's background loops whether anyone is
-// using it. Each loop (publisher, index worker, webhook and trigger
+// using it. Each loop (publisher, index worker, event (trigger and mirror)
 // dispatcher, check sweeps, blame warmer) waits here before its next pass,
 // so once no request has been seen for IdleAfter they stop querying the
 // database, and Neon can scale to zero. Cloud Run only throttles a server's

@@ -54,7 +54,7 @@ func (r Runner) sliceMemberCommands(opts *commandOptions) []*cobra.Command {
 		Long: "Give a person, agent, or account group (@account/name) a role on one slice, without adding them to the account that owns it:\n" +
 			"reader (read and clone), contributor (propose changesets and patchsets with secretless CI),\n" +
 			"writer (submit, approve, tag and run CI with secrets) or admin (also manage the slice's\n" +
-			"members and webhooks). Changing the role runs share again. The slice's definition, CI daemon\n" +
+			"members). Changing the role runs share again. The slice's definition, CI daemon\n" +
 			"and secrets stay with the account's owners and admins.",
 		Args: exactArgs(2, "gs slice share <slice|account:slice> <username|@account/group> [--role reader|contributor|writer|admin]"),
 		RunE: func(cmd *cobra.Command, args []string) error {

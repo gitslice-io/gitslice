@@ -23,7 +23,7 @@ type Stores struct {
 	Objects    *ObjectStore
 	Agents     *AgentStore
 	Checks     *CheckStore
-	Webhooks   *WebhookStore
+	Events     *EventStore
 	Triggers   *TriggerStore
 	Feedback   *FeedbackStore
 	Blames     *BlameStore
@@ -39,7 +39,6 @@ type backend struct {
 	subjects         map[string]storage.Subject
 	accountMembers   map[string]map[string]string
 	personalAccounts map[string]string
-	webhooks         map[string]storage.Webhook
 	// sliceMembers maps a slice id to its members' roles, by subject.
 	sliceMembers map[string]map[string]memSliceMember
 	// sliceGroupMembers maps a slice id to its group roles, by group id.
@@ -48,9 +47,8 @@ type backend struct {
 	accountGroupKeys  map[string]string
 	feedback          map[string]storage.Feedback
 	// blameSnapshots maps a commit id, then a path, to a blame snapshot.
-	blameSnapshots    map[string]map[string]storage.BlameSnapshot
-	webhookEvents     []*memWebhookEvent
-	webhookDeliveries map[string]*memWebhookDelivery
+	blameSnapshots map[string]map[string]storage.BlameSnapshot
+	events         []*memEvent
 	// orgAccounts records which account slugs are organizations.
 	orgAccounts map[string]bool
 	// orgCreators records who created each organization.
@@ -166,14 +164,12 @@ func New() *Stores {
 		accountMembers:          map[string]map[string]string{},
 		personalAccounts:        map[string]string{},
 		orgAccounts:             map[string]bool{},
-		webhooks:                map[string]storage.Webhook{},
 		sliceMembers:            map[string]map[string]memSliceMember{},
 		sliceGroupMembers:       map[string]map[string]memSliceGroupMember{},
 		accountGroups:           map[string]*memAccountGroup{},
 		accountGroupKeys:        map[string]string{},
 		feedback:                map[string]storage.Feedback{},
 		blameSnapshots:          map[string]map[string]storage.BlameSnapshot{},
-		webhookDeliveries:       map[string]*memWebhookDelivery{},
 		orgCreators:             map[string]string{},
 		invitations:             map[string]map[string]storage.AccountInvitation{},
 		profiles:                map[string]storage.AccountProfile{},
@@ -245,7 +241,7 @@ func New() *Stores {
 		Objects:    &ObjectStore{b: b},
 		Agents:     &AgentStore{b: b},
 		Checks:     &CheckStore{b: b},
-		Webhooks:   &WebhookStore{b: b},
+		Events:     &EventStore{b: b},
 		Triggers:   NewTriggerStore(),
 		Feedback:   &FeedbackStore{b: b},
 		Blames:     &BlameStore{b: b},

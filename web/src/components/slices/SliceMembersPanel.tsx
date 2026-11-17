@@ -9,7 +9,7 @@ import { SliceLoadingBlock, SliceNotice, SlicePanel, getErrorMessage } from "./S
 export const SLICE_ROLES: { role: string; help: string }[] = [
   { role: "reader", help: "read and clone the slice" },
   { role: "writer", help: "also create, submit and approve changesets" },
-  { role: "admin", help: "also manage the slice's members and webhooks" }
+  { role: "admin", help: "also manage the slice's members" }
 ];
 
 const inputClass =

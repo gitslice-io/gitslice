@@ -77,7 +77,7 @@ func TestRPCTriggers(t *testing.T) {
 	defer dispatch.Close()
 
 	ts := startRPCServerWith(t, func(cfg *server.Config) {
-		cfg.WebhookAllowPrivateTargets = true
+		cfg.OutboundAllowPrivateTargets = true
 		cfg.TriggerDispatchURL = dispatch.URL
 		cfg.TriggerDispatchSecret = testDispatchSecret
 	})

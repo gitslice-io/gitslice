@@ -109,12 +109,12 @@ func TestGitMirrorPushesQueuedWorkAndBacksOff(t *testing.T) {
 	}
 
 	// A landing elsewhere does not mark it; one in the slice does.
-	mirrors.FanOut(ctx, storage.WebhookEvent{Kind: storage.WebhookEventChangesetSubmitted, TargetRef: storage.DefaultTargetRef, ChangedPaths: []string{"/acme/docs/a.md"}})
-	mirrors.FanOut(ctx, storage.WebhookEvent{Kind: storage.WebhookEventChangesetSubmitted, TargetRef: "refs/global/other", ChangedPaths: []string{"/acme/payment/a.go"}})
+	mirrors.FanOut(ctx, storage.Event{Kind: storage.EventChangesetSubmitted, TargetRef: storage.DefaultTargetRef, ChangedPaths: []string{"/acme/docs/a.md"}})
+	mirrors.FanOut(ctx, storage.Event{Kind: storage.EventChangesetSubmitted, TargetRef: "refs/global/other", ChangedPaths: []string{"/acme/payment/a.go"}})
 	if got, _ = h.Slice.GetSliceGitMirror(alice, &corev1.GetSliceGitMirrorRequest{Slice: paymentRef}); got.GetPending() {
 		t.Fatal("a landing outside the slice (or on another ref) marked the mirror")
 	}
-	mirrors.FanOut(ctx, storage.WebhookEvent{Kind: storage.WebhookEventChangesetSubmitted, TargetRef: storage.DefaultTargetRef, ChangedPaths: []string{"/acme/payment/a.go"}})
+	mirrors.FanOut(ctx, storage.Event{Kind: storage.EventChangesetSubmitted, TargetRef: storage.DefaultTargetRef, ChangedPaths: []string{"/acme/payment/a.go"}})
 	if got, _ = h.Slice.GetSliceGitMirror(alice, &corev1.GetSliceGitMirrorRequest{Slice: paymentRef}); !got.GetPending() {
 		t.Fatal("a landing in the slice did not mark the mirror")
 	}
@@ -139,7 +139,7 @@ func TestGitMirrorPushesQueuedWorkAndBacksOff(t *testing.T) {
 	}
 
 	// A tag of the slice marks it; "push now" skips the wait.
-	mirrors.FanOut(ctx, storage.WebhookEvent{Kind: storage.WebhookEventTagCreated, SliceID: mustSliceID(t, h, paymentRef)})
+	mirrors.FanOut(ctx, storage.Event{Kind: storage.EventTagCreated, SliceID: mustSliceID(t, h, paymentRef)})
 	if got, _ = h.Slice.GetSliceGitMirror(alice, &corev1.GetSliceGitMirrorRequest{Slice: paymentRef}); !got.GetPending() {
 		t.Fatal("a tag did not mark the mirror")
 	}

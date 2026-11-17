@@ -744,16 +744,8 @@ move's source must be in the same slice and not one of its included paths. A
 copy's source may be in another slice, even another account's, named by
 `source_slice`, which the caller must be able to read.
 
-`WebhookService` (`proto/core/v1/webhook.proto`) manages a slice's webhooks:
-
-- `CreateWebhook`, `ListWebhooks`, `UpdateWebhook`, `DeleteWebhook`;
-- `PingWebhook`, which sends now;
-- `ListWebhookDeliveries`;
-- `RedeliverWebhookDelivery`.
-
-Every method needs the admin role on the slice's account. A webhook's secret
-is write-only: responses carry `has_secret`. The events, payloads, signing and
-retries are in `design/24_webhooks.md`.
+`WebhookService` was removed on 2026-11-17 (design/24); triggers
+(`.gitslice/triggers.yaml`, design/34) send events to HTTP endpoints instead.
 
 ## 3. Internal Commit API
 

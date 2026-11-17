@@ -21,9 +21,9 @@ import (
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/outbound"
 	"gitslice.io/gitslice/internal/secretmask"
 	"gitslice.io/gitslice/internal/storage"
-	"gitslice.io/gitslice/internal/webhooks"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -53,7 +53,7 @@ const (
 )
 
 // httpRetryDelays is the wait after each failed attempt of an http action,
-// as for webhooks.
+// as for other outbound requests.
 var httpRetryDelays = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.Minute, 2 * time.Hour, 6 * time.Hour, 12 * time.Hour}
 
 // Stores are what the engine reads and writes.
@@ -121,7 +121,7 @@ func NewEngine(stores Stores, opts Options) *Engine {
 	}
 	client := opts.Client
 	if client == nil {
-		client = webhooks.NewClient(opts.AllowPrivateTargets)
+		client = outbound.NewClient(opts.AllowPrivateTargets)
 	}
 	dispatch := opts.DispatchClient
 	if dispatch == nil {
@@ -171,7 +171,7 @@ type eventInfo struct {
 	commitID    string
 }
 
-func (e *Engine) describe(ctx context.Context, event storage.WebhookEvent) (*eventInfo, error) {
+func (e *Engine) describe(ctx context.Context, event storage.Event) (*eventInfo, error) {
 	info := &eventInfo{ref: event.TargetRef, commitID: event.CommitID, changesetID: event.ChangesetID}
 	if event.ChangesetID != "" {
 		cs, err := e.stores.Changesets.Get(ctx, event.ChangesetID)
@@ -230,11 +230,8 @@ func (e *Engine) headTree(ctx context.Context, ref string) (string, string, erro
 
 // FanOut creates the runs an event sets off. A landed changeset is also a
 // push. It is safe to repeat: a trigger runs at most once per event.
-func (e *Engine) FanOut(ctx context.Context, event storage.WebhookEvent, envelope []byte) {
-	if event.Kind == storage.WebhookEventPing {
-		return
-	}
-	if event.Kind == storage.WebhookEventCheckRunCompleted && event.CheckRunID != "" && e.stores.Checks != nil {
+func (e *Engine) FanOut(ctx context.Context, event storage.Event, envelope []byte) {
+	if event.Kind == storage.EventCheckRunCompleted && event.CheckRunID != "" && e.stores.Checks != nil {
 		// A check a run reported or launched finished: the run may be done.
 		if check, err := e.stores.Checks.GetCheckRun(ctx, event.CheckRunID); err == nil && check.GetTriggerRunId() != "" {
 			e.FinishIfDone(ctx, check.GetTriggerRunId())
@@ -245,7 +242,7 @@ func (e *Engine) FanOut(ctx context.Context, event storage.WebhookEvent, envelop
 	}
 }
 
-func (e *Engine) fanOut(ctx context.Context, event storage.WebhookEvent, envelope []byte) error {
+func (e *Engine) fanOut(ctx context.Context, event storage.Event, envelope []byte) error {
 	for _, p := range event.ChangedPaths {
 		if strings.HasSuffix(p, "/"+FileName) {
 			// A triggers file landed: stop trusting a cached "none".
@@ -272,7 +269,7 @@ func (e *Engine) fanOut(ctx context.Context, event storage.WebhookEvent, envelop
 		return err
 	}
 	kinds := []string{event.Kind}
-	if event.Kind == storage.WebhookEventChangesetSubmitted {
+	if event.Kind == storage.EventChangesetSubmitted {
 		kinds = append(kinds, EventPush)
 	}
 	treeID, headCommit, err := e.headTree(ctx, info.ref)
@@ -320,7 +317,7 @@ func (e *Engine) fanOut(ctx context.Context, event storage.WebhookEvent, envelop
 }
 
 // newRun builds a queued run of a matched trigger, with its payload: the
-// webhook envelope plus the trigger, the changes it matched, the commit its
+// event payload plus the trigger, the changes it matched, the commit its
 // definition was read from, and how deep in a chain of triggers it is.
 func (e *Engine) newRun(info *eventInfo, m Match, kind, eventID, headCommit string, envelope []byte, depth int, actor string, inputs map[string]string) (storage.TriggerRun, error) {
 	payload := map[string]any{}
@@ -660,7 +657,7 @@ func (e *Engine) sendHTTPOnce(ctx context.Context, run storage.TriggerRun) (int,
 		})
 	}
 	target := expand(action.URL)
-	if _, err := webhooks.ValidateURL(target, e.opts.AllowPrivateTargets); err != nil {
+	if _, err := outbound.ValidateURL(target, e.opts.AllowPrivateTargets); err != nil {
 		return 0, masker.Mask(err.Error()), true
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(run.Payload))
@@ -677,11 +674,11 @@ func (e *Engine) sendHTTPOnce(ctx context.Context, run storage.TriggerRun) (int,
 	req.Header.Set("X-Gitslice-Trigger", run.TriggerID)
 	req.Header.Set("X-Gitslice-Trigger-Run", run.ID)
 	if action.Sign != "" {
-		req.Header.Set(webhooks.SignatureHeader, webhooks.Sign(secrets[action.Sign], run.Payload))
+		req.Header.Set(outbound.SignatureHeader, outbound.Sign(secrets[action.Sign], run.Payload))
 	}
 	resp, err := e.client.Do(req)
 	if err != nil {
-		text, final := webhooks.DescribeSendError(err)
+		text, final := outbound.DescribeSendError(err)
 		return 0, masker.Mask(text), final
 	}
 	defer resp.Body.Close()

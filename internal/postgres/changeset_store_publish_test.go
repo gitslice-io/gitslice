@@ -190,14 +190,14 @@ func TestPublishPendingBatchPublishesAndSkipsNonPendingChangesets(t *testing.T) 
 			PatchsetID:   second.Id,
 		},
 	})
-	// Each landed changeset records a changeset.submitted webhook event in
-	// the publishing transaction.
-	events, err := store.Webhooks().ClaimWebhookEvents(ctx, 10, time.Minute)
+	// Each landed changeset records a changeset.submitted event in the
+	// publishing transaction.
+	events, err := store.Events().ClaimEvents(ctx, 10, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(events) != 2 {
-		t.Fatalf("webhook events = %+v, want two changeset.submitted", events)
+		t.Fatalf("events = %+v, want two changeset.submitted", events)
 	}
 	for i, want := range []struct {
 		changeset, patchset, commit, path string

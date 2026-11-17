@@ -13,7 +13,6 @@ import { RepositoryService } from "../gen/proto/core/v1/repository_pb";
 import { SecretService } from "../gen/proto/core/v1/secret_pb";
 import { SliceService } from "../gen/proto/core/v1/slice_pb";
 import { TriggerService } from "../gen/proto/core/v1/trigger_pb";
-import { WebhookService } from "../gen/proto/core/v1/webhook_pb";
 import type { ApiClient } from "./useApi";
 import type * as Api from "./types";
 
@@ -44,7 +43,6 @@ export function createApiClient({
   const stack = createClient(ChangesetStackService, transport);
   const agent = createClient(AgentService, transport);
   const check = createClient(CheckService, transport);
-  const webhook = createClient(WebhookService, transport);
   const secret = createClient(SecretService, transport);
   const trigger = createClient(TriggerService, transport);
 
@@ -294,12 +292,6 @@ export function createApiClient({
       unary<Api.ListSliceSecretsResponse>(() =>
         slice.listSliceSecrets(toProtoRequest(request))
       ),
-    createWebhook: (request) =>
-      unary<Api.Webhook>(() => webhook.createWebhook(toProtoRequest(request))),
-    listWebhooks: (request) =>
-      unary<Api.ListWebhooksResponse>(() =>
-        webhook.listWebhooks(toProtoRequest(request))
-      ),
     listSliceMembers: (request) =>
       unary<Api.ListSliceMembersResponse>(() => slice.listSliceMembers(toProtoRequest(request))),
     setSliceMember: (request) =>
@@ -308,22 +300,6 @@ export function createApiClient({
       unary<Api.Empty>(() => slice.removeSliceMember(toProtoRequest(request))),
     listSharedSlices: (request) =>
       unary<Api.ListSharedSlicesResponse>(() => slice.listSharedSlices(toProtoRequest(request))),
-    updateWebhook: (request) =>
-      unary<Api.Webhook>(() => webhook.updateWebhook(toProtoRequest(request))),
-    deleteWebhook: (request) =>
-      unary<Api.Empty>(() => webhook.deleteWebhook(toProtoRequest(request))),
-    pingWebhook: (request) =>
-      unary<Api.WebhookDelivery>(() =>
-        webhook.pingWebhook(toProtoRequest(request))
-      ),
-    listWebhookDeliveries: (request) =>
-      unary<Api.ListWebhookDeliveriesResponse>(() =>
-        webhook.listWebhookDeliveries(toProtoRequest(request))
-      ),
-    redeliverWebhookDelivery: (request) =>
-      unary<Api.WebhookDelivery>(() =>
-        webhook.redeliverWebhookDelivery(toProtoRequest(request))
-      ),
     listDaemons: (request) =>
       unary<Api.ListDaemonsResponse>(() => agent.listDaemons(toProtoRequest(request))),
     renameDaemon: (request) =>

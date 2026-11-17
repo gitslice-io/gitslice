@@ -19,17 +19,17 @@ import (
 	"gitslice.io/gitslice/internal/storage"
 )
 
-// Events a trigger can listen for: the webhook events (design/24) and
+// Events a trigger can listen for: the recorded events (internal/events) and
 // manual runs.
 const (
-	EventPush               = storage.WebhookEventPush
-	EventTagCreated         = storage.WebhookEventTagCreated
-	EventChangesetCreated   = storage.WebhookEventChangesetCreated
-	EventChangesetUpdated   = storage.WebhookEventChangesetUpdated
-	EventChangesetApproved  = storage.WebhookEventChangesetApproved
-	EventChangesetSubmitted = storage.WebhookEventChangesetSubmitted
-	EventChangesetAbandoned = storage.WebhookEventChangesetAbandoned
-	EventCheckRunCompleted  = storage.WebhookEventCheckRunCompleted
+	EventPush               = storage.EventPush
+	EventTagCreated         = storage.EventTagCreated
+	EventChangesetCreated   = storage.EventChangesetCreated
+	EventChangesetUpdated   = storage.EventChangesetUpdated
+	EventChangesetApproved  = storage.EventChangesetApproved
+	EventChangesetSubmitted = storage.EventChangesetSubmitted
+	EventChangesetAbandoned = storage.EventChangesetAbandoned
+	EventCheckRunCompleted  = storage.EventCheckRunCompleted
 	EventManual             = "manual"
 )
 
@@ -356,7 +356,7 @@ func parseHTTP(raw rawHTTP, secrets []string) (*HTTPAction, error) {
 		return nil, fmt.Errorf("http.url is required")
 	}
 	// A secret may stand for the whole URL. Sending refuses anything but
-	// https to a public address (webhooks.ValidateURL), except on servers
+	// https to a public address (outbound.ValidateURL), except on servers
 	// that allow private targets for tests.
 	if !strings.HasPrefix(url, "https://") && !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "${{") {
 		return nil, fmt.Errorf("http.url must start with https://")

@@ -75,13 +75,12 @@ type Config struct {
 	PostHogAPIKey       string
 	PostHogHost         string
 	PostHogEnvironment  string
-	// WebBaseURL is the web app's origin, for links in webhook payloads
+	// WebBaseURL is the web app's origin, for links in trigger payloads
 	// (GITSLICE_WEB_BASE_URL; defaults to the first allowed CORS origin).
 	WebBaseURL string
-	// WebhookAllowPrivateTargets lets webhooks use http and private or
-	// loopback addresses (GITSLICE_WEBHOOK_ALLOW_PRIVATE_TARGETS=1). Only for
-	// tests and local development.
-	WebhookAllowPrivateTargets bool
+	// OutboundAllowPrivateTargets lets outbound requests use http and private
+	// or loopback addresses. It is only for tests and local development.
+	OutboundAllowPrivateTargets bool
 	// TriggerDispatchURL is the Cloudflare trigger dispatcher's origin
 	// (GITSLICE_TRIGGER_DISPATCH_URL), and TriggerDispatchSecret the key the
 	// server and the dispatcher share (GITSLICE_TRIGGER_DISPATCH_SECRET).
@@ -157,9 +156,8 @@ func ConfigFromEnv() Config {
 		PostHogHost:              os.Getenv("GITSLICE_POSTHOG_HOST"),
 		PostHogEnvironment:       os.Getenv("GITSLICE_POSTHOG_ENV"),
 
-		// Webhooks (design/24_webhooks.md).
-		WebBaseURL:                 os.Getenv("GITSLICE_WEB_BASE_URL"),
-		WebhookAllowPrivateTargets: os.Getenv("GITSLICE_WEBHOOK_ALLOW_PRIVATE_TARGETS") == "1",
+		WebBaseURL:                  os.Getenv("GITSLICE_WEB_BASE_URL"),
+		OutboundAllowPrivateTargets: outboundPrivateTargets(),
 
 		// Triggers (design/34_triggers.md).
 		TriggerDispatchURL:    os.Getenv("GITSLICE_TRIGGER_DISPATCH_URL"),
@@ -173,6 +171,14 @@ func ConfigFromEnv() Config {
 			return r == ',' || r == ' '
 		}),
 	}
+}
+
+func outboundPrivateTargets() bool {
+	if value, ok := os.LookupEnv("GITSLICE_OUTBOUND_ALLOW_PRIVATE_TARGETS"); ok {
+		return value == "1"
+	}
+	// Compatibility fallback for existing local and production configuration.
+	return os.Getenv("GITSLICE_WEBHOOK_ALLOW_PRIVATE_TARGETS") == "1"
 }
 
 // internalKey signs the server's requests to itself. It is derived from the

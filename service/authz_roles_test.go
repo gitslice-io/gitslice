@@ -111,7 +111,7 @@ func TestRoleValidationContributorAndRejectsMaintainer(t *testing.T) {
 }
 
 func TestContributorCapabilitiesAndBoundaries(t *testing.T) {
-	mem, whHandlers := newWebhookHandlers(t)
+	mem, handlers := newSliceMemberHandlers(t)
 	mem.PutSlice(paymentRef, []string{"/acme/payment"}, "private")
 	mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "secret"}, []string{"/acme/secret"}, "private")
 	mem.AddPersonalAccount("user_bob", "bob")
@@ -119,7 +119,6 @@ func TestContributorCapabilitiesAndBoundaries(t *testing.T) {
 	mem.AddPersonalAccount("user_dana", "dana")
 	mem.AddPersonalAccount("user_erin", "erin")
 
-	handlers := whHandlers
 	_, trigSvc, _ := newTriggerTestServices(mem, "test-dispatch-secret")
 	handlers.Trigger = trigSvc
 
@@ -444,13 +443,6 @@ triggers:
 	})
 	wantCode(t, err, codes.PermissionDenied, "contributor RemoveSliceMember(other)")
 
-	_, err = handlers.Webhook.CreateWebhook(bob, &corev1.CreateWebhookRequest{
-		Slice:  paymentRef,
-		Url:    "https://example.com/bob-hook",
-		Events: []string{"push"},
-	})
-	wantCode(t, err, codes.PermissionDenied, "contributor CreateWebhook")
-
 	_, err = handlers.Slice.ListSliceSecrets(bob, &corev1.ListSliceSecretsRequest{
 		Slice: paymentRef,
 	})
@@ -494,7 +486,7 @@ triggers:
 	})
 	wantCode(t, err, codes.PermissionDenied, "contributor ImportGitRepository")
 
-	// 4. Writer (dana) CAN review, report checks, tag, use secrets/triggers, and submit; CANNOT manage members or webhooks.
+	// 4. Writer (dana) CAN review, report checks, tag, use secrets/triggers, and submit; CANNOT manage members.
 	if _, err := handlers.Changeset.ApproveChangeset(dana, &corev1.ApproveChangesetRequest{
 		ChangesetId: bobCS.GetId(),
 	}); err != nil {
@@ -580,27 +572,13 @@ triggers:
 	})
 	wantCode(t, err, codes.PermissionDenied, "writer SetSliceMember")
 
-	_, err = handlers.Webhook.CreateWebhook(dana, &corev1.CreateWebhookRequest{
-		Slice:  paymentRef,
-		Url:    "https://example.com/dana-hook",
-		Events: []string{"push"},
-	})
-	wantCode(t, err, codes.PermissionDenied, "writer CreateWebhook")
-
-	// 5. Slice admin (erin) CAN manage members and webhooks.
+	// 5. Slice admin (erin) CAN manage members.
 	if _, err := handlers.Slice.SetSliceMember(erin, &corev1.SetSliceMemberRequest{
 		Slice:    paymentRef,
 		Username: "carol",
 		Role:     "contributor",
 	}); err != nil {
 		t.Fatalf("slice admin SetSliceMember: %v", err)
-	}
-	if _, err := handlers.Webhook.CreateWebhook(erin, &corev1.CreateWebhookRequest{
-		Slice:  paymentRef,
-		Url:    "https://example.com/erin-hook",
-		Events: []string{"push"},
-	}); err != nil {
-		t.Fatalf("slice admin CreateWebhook: %v", err)
 	}
 }
 

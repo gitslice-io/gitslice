@@ -17,6 +17,7 @@ import (
 	"gitslice.io/gitslice/internal/auth/clerk"
 	"gitslice.io/gitslice/internal/auth/servicetoken"
 	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/events"
 	"gitslice.io/gitslice/internal/gitcompat"
 	"gitslice.io/gitslice/internal/indexworker"
 	"gitslice.io/gitslice/internal/objectstore/cache"
@@ -28,7 +29,6 @@ import (
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/treestore"
 	"gitslice.io/gitslice/internal/triggers"
-	"gitslice.io/gitslice/internal/webhooks"
 	"gitslice.io/gitslice/proto/core/v1"
 	"gitslice.io/gitslice/service"
 	"golang.org/x/net/http2"
@@ -73,7 +73,7 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	if secrets == nil {
-		slog.Warn("GITSLICE_SECRETS_KEY is unset; secret storage, encrypted webhook secrets, and signed self-requests are disabled (set GITSLICE_REQUIRE_SECRETS_KEY=1 in production)")
+		slog.Warn("GITSLICE_SECRETS_KEY is unset; secret storage and signed self-requests are disabled (set GITSLICE_REQUIRE_SECRETS_KEY=1 in production)")
 	}
 	if cfg.PublishBatchSize <= 0 {
 		cfg.PublishBatchSize = 128
@@ -150,27 +150,25 @@ func Run(ctx context.Context, cfg Config) error {
 		Tree:                service.TreeFiles{Repository: db.Repository(), Objects: objectStore},
 		DispatchURL:         cfg.TriggerDispatchURL,
 		DispatchSecret:      cfg.TriggerDispatchSecret,
-		AllowPrivateTargets: cfg.WebhookAllowPrivateTargets,
+		AllowPrivateTargets: cfg.OutboundAllowPrivateTargets,
 	})
 	// Slice Git mirrors (design/35_git_mirrors.md): the dispatcher's drains
 	// queue and claim pushes; the projector (below) does them.
 	gitMirrors := &service.GitMirrors{
 		Mirrors:             db.GitMirrors(),
 		Slices:              db.Slices(),
-		AllowPrivateTargets: cfg.WebhookAllowPrivateTargets,
+		AllowPrivateTargets: cfg.OutboundAllowPrivateTargets,
 	}
-	dispatcher := webhooks.NewDispatcher(webhooks.Stores{
-		Webhooks:   db.Webhooks(),
+	dispatcher := events.NewDispatcher(events.Stores{
+		Events:     db.Events(),
 		Slices:     db.Slices(),
 		Changesets: db.Changesets(),
 		Checks:     db.Checks(),
 		Auth:       db.Auth(),
-	}, webhooks.Options{
-		Secrets:             secrets,
-		WebBaseURL:          cfg.webBaseURL(),
-		AllowPrivateTargets: cfg.WebhookAllowPrivateTargets,
-		Triggers:            triggerEngine,
-		Mirrors:             gitMirrors,
+	}, events.Options{
+		WebBaseURL: cfg.webBaseURL(),
+		Triggers:   triggerEngine,
+		Mirrors:    gitMirrors,
 	})
 	// Start background database loops idle until real user traffic arrives, so
 	// a cold-booted instance poked only by health checks or metrics scrapes lets
@@ -204,12 +202,11 @@ func Run(ctx context.Context, cfg Config) error {
 	stores := service.Stores{
 		Auth:       db.Auth(),
 		Blobs:      db.Blobs(),
-		Changesets: webhooks.WrapChangesets(db.Changesets(), dispatcher),
+		Changesets: events.WrapChangesets(db.Changesets(), dispatcher),
 		Repository: db.Repository(),
-		Slices:     webhooks.WrapSlices(db.Slices(), dispatcher),
+		Slices:     events.WrapSlices(db.Slices(), dispatcher),
 		Agents:     db.Agents(),
-		Checks:     webhooks.WrapChecks(db.Checks(), dispatcher),
-		Webhooks:   db.Webhooks(),
+		Checks:     events.WrapChecks(db.Checks(), dispatcher),
 		Feedback:   db.Feedback(),
 		Blames:     db.Blames(),
 		Triggers:   db.Triggers(),
@@ -225,7 +222,6 @@ func Run(ctx context.Context, cfg Config) error {
 	handlers.SetCIRunners(cfg.CIRunnerDaemons)
 	handlers.Feedback.Account = cfg.FeedbackAccount
 	handlers.Feedback.OperatorSubjects = cfg.OperatorSubjects
-	handlers.Webhook.Dispatcher = dispatcher
 	handlers.Slice.GitMirrors = gitMirrors
 	handlers.Auth.AgentSignupEnabled = cfg.AgentSignupEnabled
 	handlers.Auth.OperatorSubjects = cfg.OperatorSubjects
@@ -382,7 +378,7 @@ func Migrate(ctx context.Context, cfg Config) (err error) {
 		return err
 	}
 	if secrets == nil {
-		slog.Warn("GITSLICE_SECRETS_KEY is unset; secret storage, encrypted webhook secrets, and signed self-requests are disabled (set GITSLICE_REQUIRE_SECRETS_KEY=1 in production)")
+		slog.Warn("GITSLICE_SECRETS_KEY is unset; secret storage and signed self-requests are disabled (set GITSLICE_REQUIRE_SECRETS_KEY=1 in production)")
 	}
 	db, err := postgres.Open(ctx, cfg.DatabaseURL)
 	if err != nil {
@@ -648,7 +644,6 @@ func newPrincipalGRPCServer(resolve principalResolver, handlers *service.Handler
 	corev1.RegisterChangesetStackServiceServer(grpcServer, handlers.Stack)
 	corev1.RegisterAgentServiceServer(grpcServer, handlers.Agent)
 	corev1.RegisterCheckServiceServer(grpcServer, handlers.Check)
-	corev1.RegisterWebhookServiceServer(grpcServer, handlers.Webhook)
 	corev1.RegisterSecretServiceServer(grpcServer, handlers.Secret)
 	corev1.RegisterFeedbackServiceServer(grpcServer, handlers.Feedback)
 	corev1.RegisterTriggerServiceServer(grpcServer, handlers.Trigger)
@@ -780,7 +775,7 @@ func grpcAuthError(err error) error {
 }
 
 // lateCheckStore is a check store set after it is handed out: the trigger
-// engine needs the check store wrapped by the webhook dispatcher, which needs
+// engine needs the check store wrapped by the event dispatcher, which needs
 // the engine.
 type lateCheckStore struct {
 	storage.CheckStore

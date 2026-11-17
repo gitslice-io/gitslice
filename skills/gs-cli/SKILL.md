@@ -381,7 +381,7 @@ everything you have). Files sit at their full path in the workspace
 (`<you>/project/plan.md`). Roles apply to that slice only: readers read and
 clone; writers also create, submit and approve changesets (which run the
 slice's checks with its secrets, as an account writer's do); admins also
-manage its members and webhooks. The slice's paths, visibility, policy, CI
+manage its members. The slice's paths, visibility, policy, CI
 daemon and secrets stay with the account's owners and admins. A secret
 belongs to the account and applies to folders and everything below them; a
 check gets the secrets at the folder of the checks.yaml that defines it (`gs

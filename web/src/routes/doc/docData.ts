@@ -6,7 +6,6 @@ export type DocSection =
   | "checks"
   | "secrets"
   | "triggers"
-  | "webhooks"
   | "mirrors"
   | "git-users"
   | "cli";
@@ -54,11 +53,6 @@ export const docSections: Array<{
     id: "triggers",
     title: "Triggers",
     description: "Run an HTTP call or a script when files in a folder change, and report checks that gate submit."
-  },
-  {
-    id: "webhooks",
-    title: "Webhooks",
-    description: "Send a slice's events to your own service: tags, landed commits, reviews, checks."
   },
   {
     id: "mirrors",
@@ -334,21 +328,6 @@ export const commandGroups = [
     ]
   },
   {
-    title: "Webhooks",
-    commands: [
-      [
-        "gs webhook create --url <https-url> --event <name>",
-        "Send a slice's events to an endpoint; --secret-stdin signs deliveries."
-      ],
-      ["gs webhook list", "List a slice's webhooks and how their last delivery went."],
-      ["gs webhook ping <webhook-id>", "Send a ping now and show the response."],
-      ["gs webhook deliveries <webhook-id>", "Recent deliveries, newest first."],
-      ["gs webhook redeliver <delivery-id>", "Send a delivery's event again."],
-      ["gs webhook update <webhook-id>", "Change the URL, events, secret or --active."],
-      ["gs webhook delete <webhook-id> --yes", "Delete a webhook and its history."]
-    ]
-  },
-  {
     title: "Agents",
     commands: [
       [
@@ -372,27 +351,6 @@ export const commandGroups = [
   }
 ];
 
-export const webhookEvents = [
-  ["push", "A commit landed that changes paths this slice includes, whichever slice authored it."],
-  ["tag.created", "A tag (release) was created. Re-creating the same tag is not an event."],
-  ["changeset.created", "A changeset was opened in the slice."],
-  ["changeset.updated", "A new patchset was uploaded."],
-  ["changeset.approved", "A changeset was approved."],
-  ["changeset.submitted", "A changeset landed; the commit and its changed paths are included."],
-  ["changeset.abandoned", "A changeset was abandoned."],
-  ["check_run.completed", "A check finished, with its name and status."],
-  ["*", "Every event above."],
-  ["ping", "Sent when you ask (Ping, or gs webhook ping), even to an inactive webhook."]
-];
-
-export const webhookHeaders = [
-  ["X-Gitslice-Event", "The event name, such as tag.created."],
-  ["X-Gitslice-Event-ID", "The event id. Retries and redeliveries keep it, so drop duplicates by it."],
-  ["X-Gitslice-Delivery", "This delivery's id."],
-  ["X-Gitslice-Hook-ID", "The webhook's id."],
-  ["X-Gitslice-Signature-256", "sha256= and the hex HMAC-SHA256 of the raw body, keyed by the secret (only when one is set)."]
-];
-
 export function docPath(section: DocSection) {
   return section === "start" ? "/doc" : `/doc/${section}`;
 }
@@ -405,7 +363,6 @@ export function normalizeSection(value: string | undefined): DocSection {
     value === "checks" ||
     value === "secrets" ||
     value === "triggers" ||
-    value === "webhooks" ||
     value === "mirrors" ||
     value === "git-users" ||
     value === "cli"

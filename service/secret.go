@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"time"
 
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/paths"
@@ -337,11 +338,19 @@ func secretProto(secret storage.Secret, names map[string]string) *corev1.Secret 
 		Scope:     &corev1.SecretScope{Paths: append([]string(nil), secret.Paths...)},
 		CreatedBy: names[secret.CreatedBy],
 		UpdatedBy: names[secret.UpdatedBy],
-		CreatedAt: webhookTime(secret.CreatedAt),
-		UpdatedAt: webhookTime(secret.UpdatedAt),
+		CreatedAt: secretTime(secret.CreatedAt),
+		UpdatedAt: secretTime(secret.UpdatedAt),
 	}
 }
 
 func sliceSecretProto(secret storage.SliceSecret) *corev1.SliceSecret {
 	return &corev1.SliceSecret{Name: secret.Name, SecretId: secret.SecretID, Paths: append([]string(nil), secret.Paths...)}
+}
+
+// secretTime formats a secret's time, leaving an unset one empty.
+func secretTime(t time.Time) string {
+	if t.Unix() <= 0 {
+		return ""
+	}
+	return formatTime(t)
 }

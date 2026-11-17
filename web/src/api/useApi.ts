@@ -80,7 +80,6 @@ import type {
   RenameDaemonRequest,
   ExposeDaemonRequest,
   UnexposeDaemonRequest,
-  CreateWebhookRequest,
   CreateSecretRequest,
   ListSecretsRequest,
   ListSecretsResponse,
@@ -89,8 +88,6 @@ import type {
   Secret,
   SecretIdRequest,
   UpdateSecretRequest,
-  ListWebhooksRequest,
-  ListWebhooksResponse,
   ListSliceMembersRequest,
   ListSliceMembersResponse,
   SetSliceMemberRequest,
@@ -98,8 +95,6 @@ import type {
   SliceMember,
   ListSharedSlicesRequest,
   ListSharedSlicesResponse,
-  UpdateWebhookRequest,
-  Webhook,
   ListTriggersRequest,
   ListTriggersResponse,
   ListTriggerRunsRequest,
@@ -109,11 +104,6 @@ import type {
   TriggerRun,
   TriggerRunIdRequest,
   RunTriggerRequest,
-  WebhookDelivery,
-  WebhookIdRequest,
-  ListWebhookDeliveriesRequest,
-  ListWebhookDeliveriesResponse,
-  RedeliverWebhookDeliveryRequest,
   ListCommitsRequest,
   ListCommitsResponse,
   ListChangesetsRequest,
@@ -300,21 +290,10 @@ export interface ApiClient {
   updateSecret(request: UpdateSecretRequest): Promise<Secret>;
   deleteSecret(request: SecretIdRequest): Promise<Empty>;
   listSliceSecrets(request: ListSliceSecretsRequest): Promise<ListSliceSecretsResponse>;
-  createWebhook(request: CreateWebhookRequest): Promise<Webhook>;
-  listWebhooks(request: ListWebhooksRequest): Promise<ListWebhooksResponse>;
   listSliceMembers(request: ListSliceMembersRequest): Promise<ListSliceMembersResponse>;
   setSliceMember(request: SetSliceMemberRequest): Promise<SliceMember>;
   removeSliceMember(request: RemoveSliceMemberRequest): Promise<Empty>;
   listSharedSlices(request: ListSharedSlicesRequest): Promise<ListSharedSlicesResponse>;
-  updateWebhook(request: UpdateWebhookRequest): Promise<Webhook>;
-  deleteWebhook(request: WebhookIdRequest): Promise<Empty>;
-  pingWebhook(request: WebhookIdRequest): Promise<WebhookDelivery>;
-  listWebhookDeliveries(
-    request: ListWebhookDeliveriesRequest
-  ): Promise<ListWebhookDeliveriesResponse>;
-  redeliverWebhookDelivery(
-    request: RedeliverWebhookDeliveryRequest
-  ): Promise<WebhookDelivery>;
   listDaemons(request: ListDaemonsRequest): Promise<ListDaemonsResponse>;
   renameDaemon(request: RenameDaemonRequest): Promise<AgentDaemon>;
   exposeDaemon(request: ExposeDaemonRequest): Promise<AgentDaemon>;

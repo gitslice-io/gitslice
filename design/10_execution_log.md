@@ -9614,3 +9614,19 @@ pages are code-split, analytics waits for the page to load.
 
 **Verification**
 - Every GitHub release tag answers 200 from gitslice.io (`checksums.txt`, or the video for the demo release); `internal/cli` upgrade tests; web tests run in CI.
+
+## 2026-11-17 — webhooks removed (replaced by triggers)
+
+**Why**: triggers' `http` action (design/34) does everything slice webhooks did, and the release webhook was the last one. Production had 0 webhooks and 0 deliveries in 30 days (read-only count).
+
+**What changed**
+- Removed: `WebhookService` (`webhook.proto` and its generated Go/Connect/gateway/web files), `service/webhook.go`, `gs webhook`, the slice settings Webhooks panel, the `/doc/webhooks` page, webhook stores (Postgres and memory) and delivery in the dispatcher.
+- Migration 0061 drops `webhook_deliveries` and `webhooks`. `webhook_events` stays: it is the event log triggers and Git mirrors read.
+- The event pipeline moved to `internal/events` (`storage.Event`, `EventStore`, `AppendEvent`/`ClaimEvents`/`CompleteEvent`/`PruneEvents`); the outbound guard and signing moved to `internal/outbound` (`X-Gitslice-Signature-256` unchanged). `GITSLICE_OUTBOUND_ALLOW_PRIVATE_TARGETS` replaces `GITSLICE_WEBHOOK_ALLOW_PRIVATE_TARGETS`, which still works.
+- Flush keeps the old rule: it drains inline (up to 2 s) only when a trigger is likely, and otherwise only nudges the background loop.
+- design/24 marked removed; design/03, 04, 34, 35, AGENTS and SKILL updated.
+- Most of the edit was made by codex (gpt-5.6-terra), which hit its usage limit before finishing; the rest, the review fixes and tests are by the orchestrating agent.
+
+**Verification**
+- `go build`, `go vet`, `go test ./...`; DB-backed `internal/postgres` and `tests/rpc` trigger, mirror, publish and migration tests on Postgres 16; web `tsc` and `vitest` (95 files, 694 tests).
+- New tests: `internal/events` (fan-out to triggers and mirrors, nudge-only flush, idle wait) and `internal/outbound` (URL guard, private addresses, signing), ported from the webhook tests.

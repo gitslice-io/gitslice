@@ -16,8 +16,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	"gitslice.io/gitslice/internal/gitcompat"
+	"gitslice.io/gitslice/internal/outbound"
 	"gitslice.io/gitslice/internal/storage"
-	"gitslice.io/gitslice/internal/webhooks"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -37,7 +37,7 @@ var gitMirrorBackoff = []time.Duration{time.Minute, 5 * time.Minute, 30 * time.M
 
 var gitMirrorBranch = regexp.MustCompile(`^[A-Za-z0-9._/-]{1,200}$`)
 
-// GitMirrors queues and runs slice Git mirror pushes. The webhook
+// GitMirrors queues and runs slice Git mirror pushes. The event
 // dispatcher calls FanOut for each recorded event and Drain on each drain.
 type GitMirrors struct {
 	Mirrors storage.GitMirrorStore
@@ -89,13 +89,13 @@ func (m *GitMirrors) nudge() {
 // FanOut marks the mirrors an event gives something to push: a landing on
 // the default target that touches a mirrored slice's paths, or a new tag of
 // a mirrored slice.
-func (m *GitMirrors) FanOut(ctx context.Context, event storage.WebhookEvent) {
+func (m *GitMirrors) FanOut(ctx context.Context, event storage.Event) {
 	if m == nil || m.Mirrors == nil {
 		return
 	}
 	var marked []string
 	switch event.Kind {
-	case storage.WebhookEventChangesetSubmitted:
+	case storage.EventChangesetSubmitted:
 		if event.TargetRef != "" && event.TargetRef != storage.DefaultTargetRef {
 			return
 		}
@@ -128,7 +128,7 @@ func (m *GitMirrors) FanOut(ctx context.Context, event storage.WebhookEvent) {
 				marked = append(marked, mirror.SliceID)
 			}
 		}
-	case storage.WebhookEventTagCreated:
+	case storage.EventTagCreated:
 		if event.SliceID == "" {
 			return
 		}
@@ -225,7 +225,7 @@ func (m *GitMirrors) push(ctx context.Context, account, sliceSlug string, slice 
 		if !m.AllowPrivateTargets && u.Scheme != "https" {
 			return nil, fmt.Errorf("the mirror URL must start with https://")
 		}
-		ip, err := webhooks.ResolvePublic(ctx, u.Hostname(), m.AllowPrivateTargets)
+		ip, err := outbound.ResolvePublic(ctx, u.Hostname(), m.AllowPrivateTargets)
 		if err != nil {
 			return nil, fmt.Errorf("mirror host %s: %w", u.Hostname(), err)
 		}
@@ -265,14 +265,14 @@ func (m *GitMirrors) secretAt(ctx context.Context, slice *corev1.Slice, name str
 	return "", fmt.Errorf("secret %s is not set for this slice's folders", name)
 }
 
-// validateGitMirrorURL checks a mirror URL as webhook URLs are checked; with
+// validateGitMirrorURL checks a mirror URL as outbound URLs are checked; with
 // private targets allowed, a local path is accepted too.
 func (m *GitMirrors) validateGitMirrorURL(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if m.AllowPrivateTargets && filepath.IsAbs(raw) {
 		return raw, nil
 	}
-	return webhooks.ValidateURL(raw, m.AllowPrivateTargets)
+	return outbound.ValidateURL(raw, m.AllowPrivateTargets)
 }
 
 func gitMirrorProto(mirror *storage.GitMirror, slice *corev1.Slice) *corev1.SliceGitMirror {

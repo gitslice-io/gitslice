@@ -208,7 +208,7 @@ gs trigger rerun <run-id>
 gs trigger cancel <run-id>`}</CommandBlock>
         <ul className={listClass}>
           <li>
-            A trigger runs at most once per event. An http action is retried for up to a day, like a webhook, with
+            A trigger runs at most once per event. An http action is retried for up to a day, with
             the same <code className={inlineCode}>X-Gitslice-Event-ID</code>. A script that is interrupted is marked
             errored rather than run twice, unless the trigger sets <code className={inlineCode}>retry</code>.
           </li>

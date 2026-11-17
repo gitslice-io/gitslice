@@ -248,18 +248,18 @@ func insertCommitChangedPathsTx(ctx context.Context, tx *sql.Tx, targetRef, comm
 	return err
 }
 
-// insertSubmittedWebhookEventsTx records a changeset.submitted webhook event
-// for each changeset the batch published, in the publishing transaction, so
-// an event exists exactly when the commit does (design/24_webhooks.md).
-func insertSubmittedWebhookEventsTx(ctx context.Context, tx *sql.Tx, build *pendingPublishBuild) error {
+// insertSubmittedEventsTx records a changeset.submitted event for each
+// changeset the batch published, in the publishing transaction, so an event
+// exists exactly when the commit does.
+func insertSubmittedEventsTx(ctx context.Context, tx *sql.Tx, build *pendingPublishBuild) error {
 	byCommit := map[string]commitPublishedPayload{}
 	for _, payload := range build.OutboxPayloads {
 		byCommit[payload.CommitID] = payload
 	}
 	for _, update := range build.ChangesetUpdates {
 		published := byCommit[update.CommitID]
-		if _, err := appendWebhookEvent(ctx, tx, storage.WebhookEvent{
-			Kind:         storage.WebhookEventChangesetSubmitted,
+		if _, err := appendEvent(ctx, tx, storage.Event{
+			Kind:         storage.EventChangesetSubmitted,
 			ChangesetID:  update.ChangesetID,
 			PatchsetID:   published.PatchsetID,
 			CommitID:     update.CommitID,

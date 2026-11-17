@@ -632,7 +632,7 @@ be two ways to try one:
 | --- | --- |
 | Slice webhook `tag.created` → Cloud Build release trigger (design/24) | `/gitslice/gitslice/.gitslice/triggers.yaml` `release: {on: [tag.created], action: {http: {url: "${{ secrets.RELEASE_WEBHOOK_URL }}"}}}`, with the URL file's contents as a secret on `/gitslice/gitslice` |
 | `checks.yaml` + CI daemon | Unchanged. Phase 4 lets a trigger hand work to a daemon. |
-| Webhook UI and API | Kept for receivers that should not be in the tree. Marked "consider a trigger" in the UI. Removed only if nobody uses them. |
+| Webhook UI and API | Removed 2026-11-17 once nothing used them (design/24); the event log and outbound guard moved to `internal/events` and `internal/outbound`. |
 
 ## Phases
 
@@ -674,7 +674,7 @@ runs.
 | Part | Code |
 | --- | --- |
 | Parsing, resolving, change kinds | `internal/triggers` (`parse.go`, `resolve.go`, `changes.go`) |
-| Fan-out, http sends, posting runs, the sweep, run tokens | `internal/triggers/engine.go`, called from the webhook dispatcher's drains (`webhooks.Options.Triggers`) |
+| Fan-out, http sends, posting runs, the sweep, run tokens | `internal/triggers/engine.go`, called from the event dispatcher's drains (`events.Options.Triggers`) |
 | Runs and logs | `trigger_runs`, `trigger_run_logs` (migration 0048); `storage.TriggerStore` in `internal/postgres/trigger_store.go` and `internal/storage/memory/triggers.go` |
 | Check fields | `check_runs.trigger_run_id`, `details_url`, `annotations`; `CheckRun` fields 18 to 20, `CheckAnnotation` |
 | API | `proto/core/v1/trigger.proto`: `TriggerService` (user calls) and `TriggerRunService` (run token or dispatcher key; listed as public in the auth interceptors, since it carries its own credential) |

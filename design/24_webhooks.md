@@ -1,6 +1,13 @@
 # 24. Webhooks
 
-Status: built 2026-10-08.
+Status: built 2026-10-08; **removed 2026-11-17**, replaced by triggers
+(design/34): a trigger's `http` action sends the same events, filtered by path
+and signed the same way. The `WebhookService` API, `gs webhook`, the slice
+settings panel and the `webhooks` and `webhook_deliveries` tables (migration
+0061) are gone. What triggers and Git mirrors still use lives on: the event
+log (table `webhook_events`, `internal/events`) and the outbound guard and
+signing (`internal/outbound`). The rest of this document describes the
+removed feature.
 
 ## Goal
 

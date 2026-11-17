@@ -663,8 +663,8 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 			delete(s.b.pendingAcceptedAt, cs.Id)
 		}
 		delete(s.b.pendingSequence, cs.Id)
-		if _, err := s.b.appendWebhookEventLocked(storage.WebhookEvent{
-			Kind:         storage.WebhookEventChangesetSubmitted,
+		if _, err := s.b.appendEventLocked(storage.Event{
+			Kind:         storage.EventChangesetSubmitted,
 			ChangesetID:  cs.Id,
 			PatchsetID:   patchset.Id,
 			CommitID:     commitID,

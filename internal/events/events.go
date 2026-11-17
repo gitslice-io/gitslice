@@ -1,12 +1,11 @@
-// Package webhooks sends Gitslice events to the HTTPS endpoints that slices
-// register (design/24_webhooks.md).
+// Package events records Gitslice events and fans them out to automation.
 //
 // Events come from thin wrappers around the stores (this file), so every path
 // that creates a changeset, a patchset, a tag or a check result emits one,
 // including Git pushes. A published commit's event is written by the store in
-// the publishing transaction. The Dispatcher fans events out to the webhooks
-// that want them and delivers them, signed and retried.
-package webhooks
+// the publishing transaction. Dispatcher fans the recorded events out to
+// triggers and Git mirrors.
+package events
 
 import (
 	"context"
@@ -21,7 +20,7 @@ import (
 // Emitter records an event for delivery. Flush delivers events that were
 // recorded elsewhere, such as in a store's transaction.
 type Emitter interface {
-	Emit(ctx context.Context, event storage.WebhookEvent)
+	Emit(ctx context.Context, event storage.Event)
 	Flush(ctx context.Context)
 }
 
@@ -65,7 +64,7 @@ type changesetStoreWithIndexes struct {
 func (s *changesetStore) Create(ctx context.Context, subjectID string, req *corev1.CreateChangesetRequest) (*corev1.Changeset, error) {
 	cs, err := s.ChangesetStore.Create(ctx, subjectID, req)
 	if err == nil && cs != nil {
-		s.emitter.Emit(ctx, storage.WebhookEvent{Kind: storage.WebhookEventChangesetCreated, ChangesetID: cs.Id, ActorSubjectID: actor(ctx, subjectID)})
+		s.emitter.Emit(ctx, storage.Event{Kind: storage.EventChangesetCreated, ChangesetID: cs.Id, ActorSubjectID: actor(ctx, subjectID)})
 	}
 	return cs, err
 }
@@ -73,7 +72,7 @@ func (s *changesetStore) Create(ctx context.Context, subjectID string, req *core
 func (s *changesetStore) AddPatchset(ctx context.Context, changesetID, expectedCurrentPatchsetID string, patchset *corev1.Patchset) (*corev1.Patchset, error) {
 	added, err := s.ChangesetStore.AddPatchset(ctx, changesetID, expectedCurrentPatchsetID, patchset)
 	if err == nil && added != nil {
-		s.emitter.Emit(ctx, storage.WebhookEvent{Kind: storage.WebhookEventChangesetUpdated, ChangesetID: changesetID, PatchsetID: added.Id, ActorSubjectID: actor(ctx, "")})
+		s.emitter.Emit(ctx, storage.Event{Kind: storage.EventChangesetUpdated, ChangesetID: changesetID, PatchsetID: added.Id, ActorSubjectID: actor(ctx, "")})
 	}
 	return added, err
 }
@@ -81,7 +80,7 @@ func (s *changesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 func (s *changesetStore) Approve(ctx context.Context, changesetID, subjectID string) (*corev1.ApproveChangesetResponse, error) {
 	res, err := s.ChangesetStore.Approve(ctx, changesetID, subjectID)
 	if err == nil {
-		s.emitter.Emit(ctx, storage.WebhookEvent{Kind: storage.WebhookEventChangesetApproved, ChangesetID: changesetID, ActorSubjectID: actor(ctx, subjectID)})
+		s.emitter.Emit(ctx, storage.Event{Kind: storage.EventChangesetApproved, ChangesetID: changesetID, ActorSubjectID: actor(ctx, subjectID)})
 	}
 	return res, err
 }
@@ -89,8 +88,8 @@ func (s *changesetStore) Approve(ctx context.Context, changesetID, subjectID str
 func (s *changesetStore) ReportCheckResult(ctx context.Context, changesetID, subjectID, checkName, status string) (*corev1.ReportCheckResultResponse, error) {
 	res, err := s.ChangesetStore.ReportCheckResult(ctx, changesetID, subjectID, checkName, status)
 	if err == nil && terminalCheckStatus(status) {
-		s.emitter.Emit(ctx, storage.WebhookEvent{
-			Kind:           storage.WebhookEventCheckRunCompleted,
+		s.emitter.Emit(ctx, storage.Event{
+			Kind:           storage.EventCheckRunCompleted,
 			ChangesetID:    changesetID,
 			ActorSubjectID: actor(ctx, subjectID),
 			Data:           data(map[string]string{"name": checkName, "status": status}),
@@ -123,7 +122,7 @@ func (s *changesetStore) SubmitBypassingRequirements(ctx context.Context, change
 }
 
 // RecordSubmitBlockedReason preserves recording service-layer requirement blocks
-// (path owners, .gitslice approvals) through the webhook wrapper.
+// (path owners, .gitslice approvals) through the event wrapper.
 func (s *changesetStore) RecordSubmitBlockedReason(ctx context.Context, changesetID, expectedCurrentPatchsetID, reason string) error {
 	recorder, ok := s.ChangesetStore.(interface {
 		RecordSubmitBlockedReason(context.Context, string, string, string) error
@@ -135,7 +134,7 @@ func (s *changesetStore) RecordSubmitBlockedReason(ctx context.Context, changese
 }
 
 // PublishPending lands submitted changesets. The store records their
-// changeset.submitted events in the publishing transaction; deliver them.
+// changeset.submitted events in the publishing transaction; fan them out.
 func (s *changesetStore) PublishPending(ctx context.Context, limit int) (int, error) {
 	published, err := s.ChangesetStore.PublishPending(ctx, limit)
 	if published > 0 {
@@ -147,7 +146,7 @@ func (s *changesetStore) PublishPending(ctx context.Context, limit int) (int, er
 func (s *changesetStore) Abandon(ctx context.Context, changesetID string) error {
 	err := s.ChangesetStore.Abandon(ctx, changesetID)
 	if err == nil {
-		s.emitter.Emit(ctx, storage.WebhookEvent{Kind: storage.WebhookEventChangesetAbandoned, ChangesetID: changesetID, ActorSubjectID: actor(ctx, "")})
+		s.emitter.Emit(ctx, storage.Event{Kind: storage.EventChangesetAbandoned, ChangesetID: changesetID, ActorSubjectID: actor(ctx, "")})
 	}
 	return err
 }
@@ -175,8 +174,8 @@ type checkStore struct {
 func (s *checkStore) UpdateCheckRunStatus(ctx context.Context, runID, status string, exitCode int32, summary string) (*corev1.CheckRun, error) {
 	run, err := s.CheckStore.UpdateCheckRunStatus(ctx, runID, status, exitCode, summary)
 	if err == nil && run != nil && terminalCheckStatus(run.Status) {
-		s.emitter.Emit(ctx, storage.WebhookEvent{
-			Kind:           storage.WebhookEventCheckRunCompleted,
+		s.emitter.Emit(ctx, storage.Event{
+			Kind:           storage.EventCheckRunCompleted,
 			CheckRunID:     run.Id,
 			ChangesetID:    run.ChangesetId,
 			PatchsetID:     run.PatchsetId,
@@ -200,8 +199,8 @@ func (s *sliceStore) CreateTag(ctx context.Context, tag storage.SliceTag) (*stor
 	created, isNew, err := s.SliceStore.CreateTag(ctx, tag)
 	// Creating an existing tag again (same commit) is not a new event.
 	if err == nil && isNew && created != nil {
-		s.emitter.Emit(ctx, storage.WebhookEvent{
-			Kind:           storage.WebhookEventTagCreated,
+		s.emitter.Emit(ctx, storage.Event{
+			Kind:           storage.EventTagCreated,
 			SliceID:        created.SliceID,
 			TagName:        created.Name,
 			CommitID:       created.CommitID,
@@ -215,8 +214,8 @@ func (s *sliceStore) CreateTag(ctx context.Context, tag storage.SliceTag) (*stor
 // discard is an Emitter that drops events.
 type discard struct{}
 
-func (discard) Emit(context.Context, storage.WebhookEvent) {}
-func (discard) Flush(context.Context)                      {}
+func (discard) Emit(context.Context, storage.Event) {}
+func (discard) Flush(context.Context)               {}
 
 // Discard drops every event.
 var Discard Emitter = discard{}

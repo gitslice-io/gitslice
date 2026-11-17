@@ -168,7 +168,6 @@ func (r Runner) rootCommand() *cobra.Command {
 		r.feedbackCommand(opts),
 		r.mcpCommand(opts),
 		r.blameCommand(opts),
-		r.webhookCommand(opts),
 		r.secretCommand(opts),
 		r.triggerCommand(opts),
 	)

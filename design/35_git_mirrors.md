@@ -71,7 +71,7 @@ A row in `slice_git_mirrors` (migration 0051) holds the setting and its state.
 Two counters make the queue: `pending_seq` grows whenever something needs
 pushing, `pushed_seq` records what the last good push covered.
 
-- **Marking.** The webhook dispatcher's drain (design/24) already sees every
+- **Marking.** The event dispatcher's drain (`internal/events`) already sees every
   recorded event. For each `push` it marks the mirrors of the account whose
   slice includes a changed path; for each `tag.created`, the account's
   mirrors. Saving the setting and "Push now" mark it too.
@@ -116,7 +116,7 @@ clean.
 | Exporter (shared with `ops/mirror`) | `internal/gitmirror` |
 | Work repository, hydration, credentials | `internal/gitcompat/git_mirror.go` |
 | Self request `POST /git/_internal/mirror` | `internal/gitcompat/mirror_http.go` |
-| Queue, retries, RPCs | `service/git_mirror.go`; hooked into `internal/webhooks/dispatcher.go` (`Options.Mirrors`) |
+| Queue, retries, RPCs | `service/git_mirror.go`; hooked into `internal/events/dispatcher.go` (`Options.Mirrors`) |
 | Storage | `storage.GitMirrorStore`; `internal/postgres/git_mirror_store.go`, migration 0051; `internal/storage/memory/git_mirrors.go` |
 | CLI | `internal/cli/slice_mirror.go` (`gs slice mirror`) |
 | Web | `web/src/components/slices/SliceGitMirrorPanel.tsx` |
@@ -124,7 +124,7 @@ clean.
 
 ## Security
 
-- **Targets** are `https` URLs on public addresses, checked as for webhooks
+- **Targets** are `https` URLs on public addresses, checked by `internal/outbound` (as for trigger requests)
   (design/24), unless the server allows private targets (tests, local). The
   host is resolved before each push, every address must be public, and `git`
   is pinned to the checked address (`http.curloptResolve`), so DNS cannot

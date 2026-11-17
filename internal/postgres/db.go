@@ -20,7 +20,7 @@ type DB struct {
 	changesets *ChangesetStore
 	agents     *AgentStore
 	checks     *CheckStore
-	webhooks   *WebhookStore
+	events     *EventStore
 	triggers   *TriggerStore
 	feedback   *FeedbackStore
 	blames     *BlameStore
@@ -91,9 +91,9 @@ func (d *DB) Triggers() *TriggerStore {
 	return d.triggers
 }
 
-// Webhooks returns the webhook store (design/24_webhooks.md).
-func (d *DB) Webhooks() *WebhookStore {
-	return d.webhooks
+// Events returns the event log store used by triggers and Git mirrors.
+func (d *DB) Events() *EventStore {
+	return d.events
 }
 
 // Blames returns the blame snapshot store (design/27_blame.md).
@@ -123,7 +123,7 @@ func (d *DB) initStores() {
 	}
 	d.agents = &AgentStore{db: d.db}
 	d.checks = &CheckStore{db: d.db}
-	d.webhooks = &WebhookStore{db: d.db}
+	d.events = &EventStore{db: d.db}
 	d.triggers = &TriggerStore{db: d.db}
 	d.feedback = &FeedbackStore{db: d.db}
 	d.blames = &BlameStore{db: d.db}

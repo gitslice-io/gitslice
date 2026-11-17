@@ -742,8 +742,8 @@ func TestGitBlobBackfillIdleWaitAndGitMirrorCoveringFanOut(t *testing.T) {
 		Slices:              sliceStore,
 		AllowPrivateTargets: true,
 	}
-	mirrors.FanOut(context.Background(), storage.WebhookEvent{
-		Kind:         storage.WebhookEventChangesetSubmitted,
+	mirrors.FanOut(context.Background(), storage.Event{
+		Kind:         storage.EventChangesetSubmitted,
 		TargetRef:    storage.DefaultTargetRef,
 		ChangedPaths: []string{"/acme/touched/file.go"},
 	})

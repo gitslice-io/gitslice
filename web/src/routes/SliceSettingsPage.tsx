@@ -22,7 +22,6 @@ import {
   getErrorMessage,
   sliceDisplayName
 } from "../components/slices/SlicePageParts";
-import { SliceWebhooksPanel } from "../components/slices/SliceWebhooksPanel";
 import { SliceGitMirrorPanel } from "../components/slices/SliceGitMirrorPanel";
 import { SliceSecretsPanel } from "../components/slices/SliceSecretsPanel";
 import { SliceMembersPanel } from "../components/slices/SliceMembersPanel";
@@ -212,9 +211,10 @@ export function SliceSettingsPage() {
 
   const sliceLabel = sliceDisplayName(slice);
   const sliceCrumbs = sliceBreadcrumbItems(slice?.ref ?? routeSliceRef, viewerAccounts);
-  // Webhooks are for the slice's owners and admins; the server checks too.
-  const webhookSlice = slice.ref ?? routeSliceRef;
-  const showWebhooks = Boolean(webhookSlice) && canAdmin(membershipFor(memberships, webhookSlice?.account));
+  // Members, triggers and mirrors are for the slice's owners and admins; the
+  // server checks too.
+  const settingsSlice = slice.ref ?? routeSliceRef;
+  const canManageSettings = Boolean(settingsSlice) && canAdmin(membershipFor(memberships, settingsSlice?.account));
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
@@ -353,33 +353,28 @@ export function SliceSettingsPage() {
         </div>
       </form>
 
-      {showWebhooks && webhookSlice ? (
+      {canManageSettings && settingsSlice ? (
         <div className="mt-8">
-          <SliceMembersPanel slice={webhookSlice} />
+          <SliceMembersPanel slice={settingsSlice} />
         </div>
       ) : null}
 
-      {showWebhooks && webhookSlice ? (
+      {canManageSettings && settingsSlice ? (
         <div className="mt-8">
           <SliceSecretsPanel
             hasCIDaemon={Boolean(slice.ciDaemonId)}
             includedPaths={slice.definition?.includedPaths ?? []}
-            slice={webhookSlice}
+            slice={settingsSlice}
           />
         </div>
       ) : null}
 
-      {showWebhooks && webhookSlice ? (
+      {canManageSettings && settingsSlice ? (
         <div className="mt-8">
-          <SliceGitMirrorPanel slice={webhookSlice} />
+          <SliceGitMirrorPanel slice={settingsSlice} />
         </div>
       ) : null}
 
-      {showWebhooks && webhookSlice ? (
-        <div className="mt-8">
-          <SliceWebhooksPanel slice={webhookSlice} />
-        </div>
-      ) : null}
     </section>
   );
 }
