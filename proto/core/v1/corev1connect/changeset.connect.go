@@ -65,6 +65,15 @@ const (
 	// ChangesetServiceUpdateChangesetInfoProcedure is the fully-qualified name of the
 	// ChangesetService's UpdateChangesetInfo RPC.
 	ChangesetServiceUpdateChangesetInfoProcedure = "/gitslice.core.v1.ChangesetService/UpdateChangesetInfo"
+	// ChangesetServiceAddChangesetCollaboratorProcedure is the fully-qualified name of the
+	// ChangesetService's AddChangesetCollaborator RPC.
+	ChangesetServiceAddChangesetCollaboratorProcedure = "/gitslice.core.v1.ChangesetService/AddChangesetCollaborator"
+	// ChangesetServiceRemoveChangesetCollaboratorProcedure is the fully-qualified name of the
+	// ChangesetService's RemoveChangesetCollaborator RPC.
+	ChangesetServiceRemoveChangesetCollaboratorProcedure = "/gitslice.core.v1.ChangesetService/RemoveChangesetCollaborator"
+	// ChangesetServiceHandoffChangesetProcedure is the fully-qualified name of the ChangesetService's
+	// HandoffChangeset RPC.
+	ChangesetServiceHandoffChangesetProcedure = "/gitslice.core.v1.ChangesetService/HandoffChangeset"
 	// ChangesetServiceCopyPathProcedure is the fully-qualified name of the ChangesetService's CopyPath
 	// RPC.
 	ChangesetServiceCopyPathProcedure = "/gitslice.core.v1.ChangesetService/CopyPath"
@@ -120,6 +129,9 @@ type ChangesetServiceClient interface {
 	// subject; the description is Markdown. Together they are the message of the
 	// commit the changeset lands as, so they are fixed once it is submitted.
 	UpdateChangesetInfo(context.Context, *connect.Request[v1.UpdateChangesetInfoRequest]) (*connect.Response[v1.Changeset], error)
+	AddChangesetCollaborator(context.Context, *connect.Request[v1.AddChangesetCollaboratorRequest]) (*connect.Response[v1.Changeset], error)
+	RemoveChangesetCollaborator(context.Context, *connect.Request[v1.RemoveChangesetCollaboratorRequest]) (*connect.Response[v1.Changeset], error)
+	HandoffChangeset(context.Context, *connect.Request[v1.HandoffChangesetRequest]) (*connect.Response[v1.Changeset], error)
 	CopyPath(context.Context, *connect.Request[v1.CopyPathRequest]) (*connect.Response[v1.PathOperationResponse], error)
 	MovePath(context.Context, *connect.Request[v1.MovePathRequest]) (*connect.Response[v1.PathOperationResponse], error)
 }
@@ -195,6 +207,24 @@ func NewChangesetServiceClient(httpClient connect.HTTPClient, baseURL string, op
 			connect.WithSchema(changesetServiceMethods.ByName("UpdateChangesetInfo")),
 			connect.WithClientOptions(opts...),
 		),
+		addChangesetCollaborator: connect.NewClient[v1.AddChangesetCollaboratorRequest, v1.Changeset](
+			httpClient,
+			baseURL+ChangesetServiceAddChangesetCollaboratorProcedure,
+			connect.WithSchema(changesetServiceMethods.ByName("AddChangesetCollaborator")),
+			connect.WithClientOptions(opts...),
+		),
+		removeChangesetCollaborator: connect.NewClient[v1.RemoveChangesetCollaboratorRequest, v1.Changeset](
+			httpClient,
+			baseURL+ChangesetServiceRemoveChangesetCollaboratorProcedure,
+			connect.WithSchema(changesetServiceMethods.ByName("RemoveChangesetCollaborator")),
+			connect.WithClientOptions(opts...),
+		),
+		handoffChangeset: connect.NewClient[v1.HandoffChangesetRequest, v1.Changeset](
+			httpClient,
+			baseURL+ChangesetServiceHandoffChangesetProcedure,
+			connect.WithSchema(changesetServiceMethods.ByName("HandoffChangeset")),
+			connect.WithClientOptions(opts...),
+		),
 		copyPath: connect.NewClient[v1.CopyPathRequest, v1.PathOperationResponse](
 			httpClient,
 			baseURL+ChangesetServiceCopyPathProcedure,
@@ -212,18 +242,21 @@ func NewChangesetServiceClient(httpClient connect.HTTPClient, baseURL string, op
 
 // changesetServiceClient implements ChangesetServiceClient.
 type changesetServiceClient struct {
-	createChangeset     *connect.Client[v1.CreateChangesetRequest, v1.Changeset]
-	getChangeset        *connect.Client[v1.GetChangesetRequest, v1.Changeset]
-	listChangesets      *connect.Client[v1.ListChangesetsRequest, v1.ListChangesetsResponse]
-	diffChangeset       *connect.Client[v1.DiffChangesetRequest, v1.DiffChangesetResponse]
-	updateChangeset     *connect.Client[v1.UpdateChangesetRequest, v1.Patchset]
-	approveChangeset    *connect.Client[v1.ApproveChangesetRequest, v1.ApproveChangesetResponse]
-	reportCheckResult   *connect.Client[v1.ReportCheckResultRequest, v1.ReportCheckResultResponse]
-	submitChangeset     *connect.Client[v1.SubmitChangesetRequest, v1.SubmitChangesetResponse]
-	abandonChangeset    *connect.Client[v1.AbandonChangesetRequest, v1.Empty]
-	updateChangesetInfo *connect.Client[v1.UpdateChangesetInfoRequest, v1.Changeset]
-	copyPath            *connect.Client[v1.CopyPathRequest, v1.PathOperationResponse]
-	movePath            *connect.Client[v1.MovePathRequest, v1.PathOperationResponse]
+	createChangeset             *connect.Client[v1.CreateChangesetRequest, v1.Changeset]
+	getChangeset                *connect.Client[v1.GetChangesetRequest, v1.Changeset]
+	listChangesets              *connect.Client[v1.ListChangesetsRequest, v1.ListChangesetsResponse]
+	diffChangeset               *connect.Client[v1.DiffChangesetRequest, v1.DiffChangesetResponse]
+	updateChangeset             *connect.Client[v1.UpdateChangesetRequest, v1.Patchset]
+	approveChangeset            *connect.Client[v1.ApproveChangesetRequest, v1.ApproveChangesetResponse]
+	reportCheckResult           *connect.Client[v1.ReportCheckResultRequest, v1.ReportCheckResultResponse]
+	submitChangeset             *connect.Client[v1.SubmitChangesetRequest, v1.SubmitChangesetResponse]
+	abandonChangeset            *connect.Client[v1.AbandonChangesetRequest, v1.Empty]
+	updateChangesetInfo         *connect.Client[v1.UpdateChangesetInfoRequest, v1.Changeset]
+	addChangesetCollaborator    *connect.Client[v1.AddChangesetCollaboratorRequest, v1.Changeset]
+	removeChangesetCollaborator *connect.Client[v1.RemoveChangesetCollaboratorRequest, v1.Changeset]
+	handoffChangeset            *connect.Client[v1.HandoffChangesetRequest, v1.Changeset]
+	copyPath                    *connect.Client[v1.CopyPathRequest, v1.PathOperationResponse]
+	movePath                    *connect.Client[v1.MovePathRequest, v1.PathOperationResponse]
 }
 
 // CreateChangeset calls gitslice.core.v1.ChangesetService.CreateChangeset.
@@ -276,6 +309,21 @@ func (c *changesetServiceClient) UpdateChangesetInfo(ctx context.Context, req *c
 	return c.updateChangesetInfo.CallUnary(ctx, req)
 }
 
+// AddChangesetCollaborator calls gitslice.core.v1.ChangesetService.AddChangesetCollaborator.
+func (c *changesetServiceClient) AddChangesetCollaborator(ctx context.Context, req *connect.Request[v1.AddChangesetCollaboratorRequest]) (*connect.Response[v1.Changeset], error) {
+	return c.addChangesetCollaborator.CallUnary(ctx, req)
+}
+
+// RemoveChangesetCollaborator calls gitslice.core.v1.ChangesetService.RemoveChangesetCollaborator.
+func (c *changesetServiceClient) RemoveChangesetCollaborator(ctx context.Context, req *connect.Request[v1.RemoveChangesetCollaboratorRequest]) (*connect.Response[v1.Changeset], error) {
+	return c.removeChangesetCollaborator.CallUnary(ctx, req)
+}
+
+// HandoffChangeset calls gitslice.core.v1.ChangesetService.HandoffChangeset.
+func (c *changesetServiceClient) HandoffChangeset(ctx context.Context, req *connect.Request[v1.HandoffChangesetRequest]) (*connect.Response[v1.Changeset], error) {
+	return c.handoffChangeset.CallUnary(ctx, req)
+}
+
 // CopyPath calls gitslice.core.v1.ChangesetService.CopyPath.
 func (c *changesetServiceClient) CopyPath(ctx context.Context, req *connect.Request[v1.CopyPathRequest]) (*connect.Response[v1.PathOperationResponse], error) {
 	return c.copyPath.CallUnary(ctx, req)
@@ -306,6 +354,9 @@ type ChangesetServiceHandler interface {
 	// subject; the description is Markdown. Together they are the message of the
 	// commit the changeset lands as, so they are fixed once it is submitted.
 	UpdateChangesetInfo(context.Context, *connect.Request[v1.UpdateChangesetInfoRequest]) (*connect.Response[v1.Changeset], error)
+	AddChangesetCollaborator(context.Context, *connect.Request[v1.AddChangesetCollaboratorRequest]) (*connect.Response[v1.Changeset], error)
+	RemoveChangesetCollaborator(context.Context, *connect.Request[v1.RemoveChangesetCollaboratorRequest]) (*connect.Response[v1.Changeset], error)
+	HandoffChangeset(context.Context, *connect.Request[v1.HandoffChangesetRequest]) (*connect.Response[v1.Changeset], error)
 	CopyPath(context.Context, *connect.Request[v1.CopyPathRequest]) (*connect.Response[v1.PathOperationResponse], error)
 	MovePath(context.Context, *connect.Request[v1.MovePathRequest]) (*connect.Response[v1.PathOperationResponse], error)
 }
@@ -377,6 +428,24 @@ func NewChangesetServiceHandler(svc ChangesetServiceHandler, opts ...connect.Han
 		connect.WithSchema(changesetServiceMethods.ByName("UpdateChangesetInfo")),
 		connect.WithHandlerOptions(opts...),
 	)
+	changesetServiceAddChangesetCollaboratorHandler := connect.NewUnaryHandler(
+		ChangesetServiceAddChangesetCollaboratorProcedure,
+		svc.AddChangesetCollaborator,
+		connect.WithSchema(changesetServiceMethods.ByName("AddChangesetCollaborator")),
+		connect.WithHandlerOptions(opts...),
+	)
+	changesetServiceRemoveChangesetCollaboratorHandler := connect.NewUnaryHandler(
+		ChangesetServiceRemoveChangesetCollaboratorProcedure,
+		svc.RemoveChangesetCollaborator,
+		connect.WithSchema(changesetServiceMethods.ByName("RemoveChangesetCollaborator")),
+		connect.WithHandlerOptions(opts...),
+	)
+	changesetServiceHandoffChangesetHandler := connect.NewUnaryHandler(
+		ChangesetServiceHandoffChangesetProcedure,
+		svc.HandoffChangeset,
+		connect.WithSchema(changesetServiceMethods.ByName("HandoffChangeset")),
+		connect.WithHandlerOptions(opts...),
+	)
 	changesetServiceCopyPathHandler := connect.NewUnaryHandler(
 		ChangesetServiceCopyPathProcedure,
 		svc.CopyPath,
@@ -411,6 +480,12 @@ func NewChangesetServiceHandler(svc ChangesetServiceHandler, opts ...connect.Han
 			changesetServiceAbandonChangesetHandler.ServeHTTP(w, r)
 		case ChangesetServiceUpdateChangesetInfoProcedure:
 			changesetServiceUpdateChangesetInfoHandler.ServeHTTP(w, r)
+		case ChangesetServiceAddChangesetCollaboratorProcedure:
+			changesetServiceAddChangesetCollaboratorHandler.ServeHTTP(w, r)
+		case ChangesetServiceRemoveChangesetCollaboratorProcedure:
+			changesetServiceRemoveChangesetCollaboratorHandler.ServeHTTP(w, r)
+		case ChangesetServiceHandoffChangesetProcedure:
+			changesetServiceHandoffChangesetHandler.ServeHTTP(w, r)
 		case ChangesetServiceCopyPathProcedure:
 			changesetServiceCopyPathHandler.ServeHTTP(w, r)
 		case ChangesetServiceMovePathProcedure:
@@ -462,6 +537,18 @@ func (UnimplementedChangesetServiceHandler) AbandonChangeset(context.Context, *c
 
 func (UnimplementedChangesetServiceHandler) UpdateChangesetInfo(context.Context, *connect.Request[v1.UpdateChangesetInfoRequest]) (*connect.Response[v1.Changeset], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.ChangesetService.UpdateChangesetInfo is not implemented"))
+}
+
+func (UnimplementedChangesetServiceHandler) AddChangesetCollaborator(context.Context, *connect.Request[v1.AddChangesetCollaboratorRequest]) (*connect.Response[v1.Changeset], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.ChangesetService.AddChangesetCollaborator is not implemented"))
+}
+
+func (UnimplementedChangesetServiceHandler) RemoveChangesetCollaborator(context.Context, *connect.Request[v1.RemoveChangesetCollaboratorRequest]) (*connect.Response[v1.Changeset], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.ChangesetService.RemoveChangesetCollaborator is not implemented"))
+}
+
+func (UnimplementedChangesetServiceHandler) HandoffChangeset(context.Context, *connect.Request[v1.HandoffChangesetRequest]) (*connect.Response[v1.Changeset], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.ChangesetService.HandoffChangeset is not implemented"))
 }
 
 func (UnimplementedChangesetServiceHandler) CopyPath(context.Context, *connect.Request[v1.CopyPathRequest]) (*connect.Response[v1.PathOperationResponse], error) {

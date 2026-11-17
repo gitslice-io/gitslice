@@ -62,6 +62,10 @@ func TestGitsliceApprovalChecksPatchsetAuthorAndCurrentPatchset(t *testing.T) {
 	if _, err := h.Changeset.ApproveChangeset(alice, &corev1.ApproveChangesetRequest{ChangesetId: cs.Id}); err != nil {
 		t.Fatal(err)
 	}
+	// Writers act only on changesets they own (design/36 section 2): the admin makes bob a collaborator.
+	if _, err := h.Changeset.AddChangesetCollaborator(alice, &corev1.AddChangesetCollaboratorRequest{ChangesetId: cs.Id, Username: "bob"}); err != nil {
+		t.Fatal(err)
+	}
 	upload, err := h.Blob.UploadBlob(bob, &corev1.UploadBlobRequest{
 		Data:  []byte("version: 1\nchecks:\n  pwn:\n    run: env\n"),
 		Slice: &corev1.SliceRef{Account: "acme", Slice: "payment"},

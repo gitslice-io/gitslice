@@ -110,7 +110,12 @@ func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.C
 	if err != nil {
 		return nil, err
 	}
+	collaborators, err := s.listCollaborators(ctx, changesetID)
+	if err != nil {
+		return nil, err
+	}
 	cs.Patchsets = patchsets
+	cs.Collaborators = collaborators
 	storage.PopulateChangesetHandles(cs)
 	if current := currentPatchset(cs); current != nil {
 		cs.SubmitRequirements = current.SubmitRequirements
@@ -123,7 +128,7 @@ func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.C
 // changesetRowColumns are a changeset's own fields, read with the
 // pending_publish row joined as p. scanChangesetRow reads them, plus one more
 // column: the current patchset's submit requirements (or null).
-const changesetRowColumns = `c.id, c.authoring_account, c.authoring_slice, c.author_subject_id, c.target_ref,
+const changesetRowColumns = `c.id, c.authoring_account, c.authoring_slice, c.author_subject_id, coalesce(c.original_author_subject_id, ''), c.target_ref,
 			       c.base_commit_id, c.title, c.description, c.status, c.affected_paths,
 			       coalesce(c.current_patchset_number, 0), c.current_patchset_id,
 			       c.commit_id, p.id, c.number, c.submit_blocked_reason,
@@ -137,7 +142,7 @@ func scanChangesetRow(row rowScanner) (*corev1.Changeset, []byte, error) {
 	var stackID, parentChangesetID, parentPatchsetID sql.NullString
 	var stackOrder, stackDepth, siblingOrder sql.NullInt64
 	var affectedJSON, submitRequirementsJSON []byte
-	if err := row.Scan(&cs.Id, &account, &slice, &cs.Author, &cs.TargetRef,
+	if err := row.Scan(&cs.Id, &account, &slice, &cs.Author, &cs.OriginalAuthor, &cs.TargetRef,
 		&cs.BaseCommitId, &cs.Title, &cs.Description, &cs.Status, &affectedJSON,
 		&cs.CurrentPatchsetNumber, &currentPatchsetID, &commitID, &pendingPublishID, &cs.Number, &cs.SubmitBlockedReason,
 		&stackID, &stackOrder, &parentChangesetID, &parentPatchsetID, &cs.BaseKind, &stackDepth, &siblingOrder,
@@ -194,9 +199,14 @@ func (s *ChangesetStore) listSummaries(ctx context.Context, ids []string) ([]*co
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
+	collaboratorsByCS, err := s.listCollaboratorsForChangesets(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]*corev1.Changeset, 0, len(ids))
 	for _, id := range ids {
 		if cs := byID[id]; cs != nil {
+			cs.Collaborators = collaboratorsByCS[id]
 			out = append(out, cs)
 		}
 	}
@@ -304,6 +314,10 @@ func (s *ChangesetStore) getManyByIDs(ctx context.Context, ids []string) ([]*cor
 	if err != nil {
 		return nil, err
 	}
+	collaboratorsByCS, err := s.listCollaboratorsForChangesets(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]*corev1.Changeset, 0, len(ids))
 	for _, id := range ids {
 		cs := byID[id]
@@ -311,6 +325,7 @@ func (s *ChangesetStore) getManyByIDs(ctx context.Context, ids []string) ([]*cor
 			continue
 		}
 		cs.Patchsets = patchsetsByCS[id]
+		cs.Collaborators = collaboratorsByCS[id]
 		storage.PopulateChangesetHandles(cs)
 		if current := currentPatchset(cs); current != nil {
 			cs.SubmitRequirements = current.SubmitRequirements

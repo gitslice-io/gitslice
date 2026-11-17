@@ -25,6 +25,9 @@ service ChangesetService {
   // subject; the description is Markdown. Together they are the message of the
   // commit the changeset lands as, so they are fixed once it is submitted.
   rpc UpdateChangesetInfo(UpdateChangesetInfoRequest) returns (Changeset);
+  rpc AddChangesetCollaborator(AddChangesetCollaboratorRequest) returns (Changeset);
+  rpc RemoveChangesetCollaborator(RemoveChangesetCollaboratorRequest) returns (Changeset);
+  rpc HandoffChangeset(HandoffChangesetRequest) returns (Changeset);
   rpc CopyPath(CopyPathRequest) returns (PathOperationResponse);
   rpc MovePath(MovePathRequest) returns (PathOperationResponse);
 }
@@ -67,6 +70,8 @@ message Changeset {
   string base_kind = 23;
   int64 stack_depth = 24;
   int64 sibling_order = 25;
+  string original_author = 26;
+  repeated string collaborators = 27;
 }
 
 message Patchset {
@@ -323,6 +328,24 @@ message UpdateChangesetInfoRequest {
   string changeset_id = 1;
   optional string title = 2;
   optional string description = 3;
+}
+
+message AddChangesetCollaboratorRequest {
+  string changeset_id = 1;
+  // Accepts a username or subject_id.
+  string username = 2;
+}
+
+message RemoveChangesetCollaboratorRequest {
+  string changeset_id = 1;
+  // Accepts a username or subject_id.
+  string username = 2;
+}
+
+message HandoffChangesetRequest {
+  string changeset_id = 1;
+  // Target new author (username or subject_id).
+  string username = 2;
 }
 
 message CopyPathRequest {

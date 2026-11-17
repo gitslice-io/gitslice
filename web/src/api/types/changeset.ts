@@ -106,6 +106,8 @@ export interface Changeset {
   baseKind?: string;
   stackDepth?: Int64String;
   siblingOrder?: Int64String;
+  originalAuthor?: string;
+  collaborators?: string[];
 }
 
 export interface ChangesetStack {

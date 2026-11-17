@@ -35,11 +35,6 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if strings.TrimSpace(cs.GetAuthor()) != subjectID {
-		if err := authorize(ctx, s.Auth, subjectID, slice, authz.ActionWrite); err != nil {
-			return nil, err
-		}
-	}
 	if err := requireEditBlobsAccessible(ctx, s.Blobs, slice, req.FileEdits); err != nil {
 		return nil, err
 	}

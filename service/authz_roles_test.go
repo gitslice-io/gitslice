@@ -553,11 +553,24 @@ triggers:
 	}); err != nil {
 		t.Fatalf("writer RerunTriggerRun: %v", err)
 	}
+	// A writer who does not own the changeset cannot submit it (design/36 section 2) ...
+	_, err = handlers.Changeset.SubmitChangeset(dana, &corev1.SubmitChangesetRequest{
+		ChangesetId:               bobCS.GetId(),
+		ExpectedCurrentPatchsetId: bobPatchResp.GetId(),
+	})
+	wantCode(t, err, codes.PermissionDenied, "non-owner writer SubmitChangeset")
+	// ... until a slice admin makes it a collaborator.
+	if _, err := handlers.Changeset.AddChangesetCollaborator(erin, &corev1.AddChangesetCollaboratorRequest{
+		ChangesetId: bobCS.GetId(),
+		Username:    "dana",
+	}); err != nil {
+		t.Fatalf("admin AddChangesetCollaborator: %v", err)
+	}
 	if _, err := handlers.Changeset.SubmitChangeset(dana, &corev1.SubmitChangesetRequest{
 		ChangesetId:               bobCS.GetId(),
 		ExpectedCurrentPatchsetId: bobPatchResp.GetId(),
 	}); err != nil {
-		t.Fatalf("writer SubmitChangeset: %v", err)
+		t.Fatalf("collaborator writer SubmitChangeset: %v", err)
 	}
 
 	_, err = handlers.Slice.SetSliceMember(dana, &corev1.SetSliceMemberRequest{

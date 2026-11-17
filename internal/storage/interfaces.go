@@ -248,6 +248,9 @@ type ChangesetStore interface {
 	// is its commit's message, so it is refused with ErrConflict. Both are
 	// stored as NormalizeChangesetText gives them.
 	UpdateInfo(ctx context.Context, changesetID string, title, description *string) (*corev1.Changeset, error)
+	AddCollaborator(ctx context.Context, changesetID, subjectID, addedBy string) (*corev1.Changeset, error)
+	RemoveCollaborator(ctx context.Context, changesetID, subjectID string) (*corev1.Changeset, error)
+	Handoff(ctx context.Context, changesetID, newAuthorSubjectID string) (*corev1.Changeset, error)
 }
 
 type OutboxProcessResult struct {

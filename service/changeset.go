@@ -56,6 +56,17 @@ func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.Crea
 	if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, req.AuthoringSlice, authz.ActionPropose); err != nil {
 		return nil, err
 	}
+	if stackID := strings.TrimSpace(req.StackId); stackID != "" {
+		// Adding to a stack takes the same ownership as AddStackEntry.
+		stacks := &ChangesetStackService{Auth: s.Auth, Changesets: s.Changesets, Slices: s.Slices}
+		stack, err := stacks.getStackWithSlice(ctx, stackID, authz.ActionPropose)
+		if err != nil {
+			return nil, err
+		}
+		if err := stacks.authorizeAddEntry(ctx, subjectID, stack, req.ParentChangesetId); err != nil {
+			return nil, err
+		}
+	}
 	createReq := &corev1.CreateChangesetRequest{
 		AuthoringSlice:    req.AuthoringSlice,
 		TargetRef:         targetRef,
@@ -133,9 +144,9 @@ func listStatuses(req *corev1.ListChangesetsRequest) []string {
 	return out
 }
 
-// resolveAuthors rewrites every Changeset.Author and Patchset.Author from the
-// internal subject id to the author's username. Unresolved subjects (no personal
-// account) are left unchanged so the response still carries a stable identifier.
+// resolveAuthors rewrites every Changeset.Author, OriginalAuthor, Collaborators,
+// and Patchset.Author from internal subject ids to usernames. Unresolved subjects
+// (no personal account) are left unchanged so the response still carries a stable identifier.
 func (s *ChangesetService) resolveAuthors(ctx context.Context, changesets ...*corev1.Changeset) error {
 	seen := map[string]struct{}{}
 	var subjectIDs []string
@@ -156,6 +167,10 @@ func (s *ChangesetService) resolveAuthors(ctx context.Context, changesets ...*co
 			continue
 		}
 		addSubject(cs.Author)
+		addSubject(cs.OriginalAuthor)
+		for _, collab := range cs.Collaborators {
+			addSubject(collab)
+		}
 		for _, patchset := range cs.Patchsets {
 			if patchset != nil {
 				addSubject(patchset.Author)
@@ -174,14 +189,22 @@ func (s *ChangesetService) resolveAuthors(ctx context.Context, changesets ...*co
 		if cs == nil {
 			continue
 		}
-		if username := usernames[cs.Author]; username != "" {
+		if username := usernames[strings.TrimSpace(cs.Author)]; username != "" {
 			cs.Author = username
+		}
+		if username := usernames[strings.TrimSpace(cs.OriginalAuthor)]; username != "" {
+			cs.OriginalAuthor = username
+		}
+		for i, collab := range cs.Collaborators {
+			if username := usernames[strings.TrimSpace(collab)]; username != "" {
+				cs.Collaborators[i] = username
+			}
 		}
 		for _, patchset := range cs.Patchsets {
 			if patchset == nil {
 				continue
 			}
-			if username := usernames[patchset.Author]; username != "" {
+			if username := usernames[strings.TrimSpace(patchset.Author)]; username != "" {
 				patchset.Author = username
 			}
 		}
@@ -240,7 +263,7 @@ func (s *ChangesetService) captureChangesetSubmitted(ctx context.Context, cs *co
 }
 
 // UpdateChangesetInfo changes a changeset's title and description while it is
-// open. Its author and writers of its slice may.
+// open. Only an owner of the changeset (or a slice admin) may.
 func (s *ChangesetService) UpdateChangesetInfo(ctx context.Context, req *corev1.UpdateChangesetInfoRequest) (*corev1.Changeset, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
@@ -249,7 +272,7 @@ func (s *ChangesetService) UpdateChangesetInfo(ctx context.Context, req *corev1.
 	if req.Title == nil && req.Description == nil {
 		return nil, status.Error(codes.InvalidArgument, "pass a title, a description, or both")
 	}
-	cs, err := s.getChangesetForWriteOrAuthor(ctx, subjectID, req.ChangesetId)
+	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionPropose)
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +308,7 @@ func (s *ChangesetService) ReportCheckResult(ctx context.Context, req *corev1.Re
 	if err != nil {
 		return nil, err
 	}
-	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionSubmit)
+	cs, err := s.getChangesetWithSliceAction(ctx, subjectID, req.ChangesetId, authz.ActionSubmit)
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +320,11 @@ func (s *ChangesetService) ReportCheckResult(ctx context.Context, req *corev1.Re
 	if isRequiredSliceCheck(slice, checkName) {
 		if normalized, ok := storage.NormalizeCheckStatus(req.GetStatus()); ok && normalized == storage.CheckStatusPass {
 			patchset := currentPatchset(cs)
-			isAuthor := subjectID == strings.TrimSpace(cs.GetAuthor()) || (patchset != nil && subjectID == strings.TrimSpace(patchset.GetAuthor()))
+			isController, _ := isControllerOfSubject(ctx, s.Auth, subjectID, cs.GetAuthor())
+			isAuthor := subjectID == strings.TrimSpace(cs.GetAuthor()) ||
+				isController ||
+				hasCollaboratorSubject(cs, subjectID) ||
+				(patchset != nil && subjectID == strings.TrimSpace(patchset.GetAuthor()))
 			if (isAuthor && len(storage.CIDaemonPool(slice)) > 0) || s.isRequiredCheckOwnedByCIOrTrigger(ctx, cs, slice, patchset, checkName) {
 				return nil, status.Errorf(codes.PermissionDenied, "required check %q is gated by CI or triggers and cannot be marked passing manually", checkName)
 			}
@@ -385,7 +412,7 @@ func (s *ChangesetService) AbandonChangeset(ctx context.Context, req *corev1.Aba
 	if err != nil {
 		return nil, err
 	}
-	cs, err := s.getChangesetForWriteOrAuthor(ctx, subjectID, req.ChangesetId)
+	cs, err := s.getChangesetForAction(ctx, subjectID, req.ChangesetId, authz.ActionPropose)
 	if err != nil {
 		return nil, err
 	}
@@ -406,7 +433,13 @@ func (s *ChangesetService) getAuthorizedChangeset(ctx context.Context, subjectID
 	return cs, nil
 }
 
-func (s *ChangesetService) authorizeChangesetForAction(ctx context.Context, subjectID string, cs *corev1.Changeset, action authz.Action) (*corev1.Changeset, error) {
+// getChangesetWithSliceAction checks slice-level capability without requiring
+// changeset ownership (used by ReportCheckResult).
+func (s *ChangesetService) getChangesetWithSliceAction(ctx context.Context, subjectID, changesetID string, action authz.Action) (*corev1.Changeset, error) {
+	cs, err := s.Changesets.Get(ctx, changesetID)
+	if err != nil {
+		return nil, grpcError(err)
+	}
 	if cs.AuthoringSlice == nil {
 		return nil, status.Error(codes.FailedPrecondition, "changeset has no authoring slice")
 	}
@@ -421,6 +454,91 @@ func (s *ChangesetService) authorizeChangesetForAction(ctx context.Context, subj
 	return cs, nil
 }
 
+// authorizeChangesetForAction enforces both slice capability and changeset
+// ownership (design/36 §2) in one place:
+//   - ActionRead and ActionReview apply slice-wide (plus controller(cs.Author)
+//     delegation when cs.Author holds the capability on the slice).
+//   - All other actions (ActionPropose, ActionSubmit, etc.) require the caller
+//     to own cs — cs.Author, controller(cs.Author) acting with the higher of
+//     their own role and cs.Author's role, cs.Collaborators within their own
+//     slice role, or a slice/account admin (ActionActOnAnyChangeset).
+func (s *ChangesetService) authorizeChangesetForAction(ctx context.Context, subjectID string, cs *corev1.Changeset, action authz.Action) (*corev1.Changeset, error) {
+	if cs.AuthoringSlice == nil {
+		return nil, status.Error(codes.FailedPrecondition, "changeset has no authoring slice")
+	}
+	slice, err := resolveAuthoringSlice(ctx, s.Slices, cs.AuthoringSlice, action)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+
+	subjectID = strings.TrimSpace(subjectID)
+	authorID := strings.TrimSpace(cs.GetAuthor())
+
+	if action == authz.ActionRead || action == authz.ActionReview {
+		err := authorize(ctx, s.Auth, subjectID, slice, action)
+		if err != nil && status.Code(err) == codes.PermissionDenied && subjectID != "" {
+			if isCtrl, ctrlErr := isControllerOfSubject(ctx, s.Auth, subjectID, authorID); ctrlErr != nil {
+				return nil, grpcError(ctrlErr)
+			} else if isCtrl {
+				err = authorizeWithDelegation(ctx, s.Auth, subjectID, authorID, slice, action)
+			}
+		}
+		if err != nil {
+			return nil, err
+		}
+		storage.PopulateChangesetHandles(cs)
+		return cs, nil
+	}
+
+	if subjectID == "" {
+		return nil, grpcError(storage.ErrUnauthenticated)
+	}
+
+	// 1. Direct author.
+	if subjectID == authorID {
+		if err := authorize(ctx, s.Auth, subjectID, slice, action); err != nil {
+			return nil, err
+		}
+		storage.PopulateChangesetHandles(cs)
+		return cs, nil
+	}
+
+	// 2. Controller of cs.Author (acts with the higher of controller's role and cs.Author's role).
+	isCtrl, err := isControllerOfSubject(ctx, s.Auth, subjectID, authorID)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if isCtrl {
+		if err := authorizeWithDelegation(ctx, s.Auth, subjectID, authorID, slice, action); err != nil {
+			return nil, err
+		}
+		storage.PopulateChangesetHandles(cs)
+		return cs, nil
+	}
+
+	// 3. Explicit collaborator (acts within their own slice role).
+	if hasCollaboratorSubject(cs, subjectID) {
+		if err := authorize(ctx, s.Auth, subjectID, slice, action); err != nil {
+			return nil, err
+		}
+		storage.PopulateChangesetHandles(cs)
+		return cs, nil
+	}
+
+	// 4. Slice or account admin (ActionActOnAnyChangeset). Check admin role
+	// ignoring archived first so an admin on an archived slice gets the
+	// archived FailedPrecondition error from authorize rather than PermissionDenied.
+	if authz.New(s.Auth).AuthorizeAllowArchived(ctx, subjectID, slice, authz.ActionActOnAnyChangeset) == nil {
+		if err := authorize(ctx, s.Auth, subjectID, slice, action); err != nil {
+			return nil, err
+		}
+		storage.PopulateChangesetHandles(cs)
+		return cs, nil
+	}
+
+	return nil, status.Error(codes.PermissionDenied, "only an owner or slice admin may act on this changeset")
+}
+
 func (s *ChangesetService) getChangesetForAction(ctx context.Context, subjectID, changesetID string, action authz.Action) (*corev1.Changeset, error) {
 	cs, err := s.Changesets.Get(ctx, changesetID)
 	if err != nil {
@@ -429,14 +547,43 @@ func (s *ChangesetService) getChangesetForAction(ctx context.Context, subjectID,
 	return s.authorizeChangesetForAction(ctx, subjectID, cs, action)
 }
 
-func (s *ChangesetService) getChangesetForWriteOrAuthor(ctx context.Context, subjectID, changesetID string) (*corev1.Changeset, error) {
-	cs, err := s.Changesets.Get(ctx, changesetID)
+func hasCollaboratorSubject(cs *corev1.Changeset, subjectID string) bool {
+	if cs == nil || subjectID == "" {
+		return false
+	}
+	for _, collab := range cs.GetCollaborators() {
+		if strings.TrimSpace(collab) == subjectID {
+			return true
+		}
+	}
+	return false
+}
+
+func isControllerOfSubject(ctx context.Context, auth storage.AuthStore, actorSubjectID, targetSubjectID string) (bool, error) {
+	actorSubjectID = strings.TrimSpace(actorSubjectID)
+	targetSubjectID = strings.TrimSpace(targetSubjectID)
+	if actorSubjectID == "" || targetSubjectID == "" || actorSubjectID == targetSubjectID || auth == nil {
+		return false, nil
+	}
+	subjects, err := auth.SubjectsByIDs(ctx, []string{targetSubjectID})
 	if err != nil {
-		return nil, grpcError(err)
+		return false, err
 	}
-	action := authz.ActionWrite
-	if strings.TrimSpace(cs.GetAuthor()) == subjectID {
-		action = authz.ActionPropose
+	return strings.TrimSpace(subjects[targetSubjectID].ControllerSubjectID) == actorSubjectID, nil
+}
+
+func authorizeWithDelegation(ctx context.Context, auth storage.AuthStore, actorSubjectID, delegatedSubjectID string, slice *corev1.Slice, action authz.Action) error {
+	authorizer := authz.New(auth)
+	actorErr := authorizer.Authorize(ctx, actorSubjectID, slice, action)
+	if actorErr == nil {
+		return nil
 	}
-	return s.authorizeChangesetForAction(ctx, subjectID, cs, action)
+	if !errors.Is(actorErr, storage.ErrUnauthorized) {
+		return grpcError(actorErr)
+	}
+	delegatedErr := authorizer.Authorize(ctx, delegatedSubjectID, slice, action)
+	if delegatedErr == nil {
+		return nil
+	}
+	return grpcError(delegatedErr)
 }

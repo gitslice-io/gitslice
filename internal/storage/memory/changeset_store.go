@@ -307,7 +307,106 @@ func (s *ChangesetStore) UpdateInfo(ctx context.Context, changesetID string, tit
 		return nil, fmt.Errorf("%w: a changeset needs a title", storage.ErrInvalid)
 	}
 	cs.Title, cs.Description = nextTitle, nextDescription
-	return cloneChangeset(cs), nil
+	out := cloneChangeset(cs)
+	storage.PopulateChangesetHandles(out)
+	return out, nil
+}
+
+func (s *ChangesetStore) AddCollaborator(ctx context.Context, changesetID, subjectID, addedBy string) (*corev1.Changeset, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if resolved := s.b.resolveChangesetSelectorLocked(changesetID); resolved != "" {
+		changesetID = resolved
+	}
+	subjectID = strings.TrimSpace(subjectID)
+	if subjectID == "" {
+		return nil, storage.ErrInvalid
+	}
+	cs := s.b.changesets[changesetID]
+	if cs == nil {
+		return nil, storage.ErrNotFound
+	}
+	if cs.Status != "draft" {
+		return nil, fmt.Errorf("%w: collaborators can only be modified while a changeset is open; this one is %s", storage.ErrConflict, cs.Status)
+	}
+	if subjectID != strings.TrimSpace(cs.Author) && !slices.Contains(cs.Collaborators, subjectID) {
+		cs.Collaborators = append(cs.Collaborators, subjectID)
+	}
+	out := cloneChangeset(cs)
+	storage.PopulateChangesetHandles(out)
+	return out, nil
+}
+
+func (s *ChangesetStore) RemoveCollaborator(ctx context.Context, changesetID, subjectID string) (*corev1.Changeset, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if resolved := s.b.resolveChangesetSelectorLocked(changesetID); resolved != "" {
+		changesetID = resolved
+	}
+	subjectID = strings.TrimSpace(subjectID)
+	if subjectID == "" {
+		return nil, storage.ErrInvalid
+	}
+	cs := s.b.changesets[changesetID]
+	if cs == nil {
+		return nil, storage.ErrNotFound
+	}
+	if cs.Status != "draft" {
+		return nil, fmt.Errorf("%w: collaborators can only be modified while a changeset is open; this one is %s", storage.ErrConflict, cs.Status)
+	}
+	filtered := cs.Collaborators[:0]
+	for _, existing := range cs.Collaborators {
+		if strings.TrimSpace(existing) != subjectID {
+			filtered = append(filtered, existing)
+		}
+	}
+	if len(filtered) == 0 {
+		cs.Collaborators = nil
+	} else {
+		cs.Collaborators = filtered
+	}
+	out := cloneChangeset(cs)
+	storage.PopulateChangesetHandles(out)
+	return out, nil
+}
+
+func (s *ChangesetStore) Handoff(ctx context.Context, changesetID, newAuthorSubjectID string) (*corev1.Changeset, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if resolved := s.b.resolveChangesetSelectorLocked(changesetID); resolved != "" {
+		changesetID = resolved
+	}
+	newAuthorSubjectID = strings.TrimSpace(newAuthorSubjectID)
+	if newAuthorSubjectID == "" {
+		return nil, storage.ErrInvalid
+	}
+	cs := s.b.changesets[changesetID]
+	if cs == nil {
+		return nil, storage.ErrNotFound
+	}
+	if cs.Status != "draft" {
+		return nil, fmt.Errorf("%w: a changeset can only be handed off while it is open; this one is %s", storage.ErrConflict, cs.Status)
+	}
+	if newAuthorSubjectID != strings.TrimSpace(cs.Author) {
+		if strings.TrimSpace(cs.OriginalAuthor) == "" {
+			cs.OriginalAuthor = cs.Author
+		}
+		cs.Author = newAuthorSubjectID
+		filtered := cs.Collaborators[:0]
+		for _, existing := range cs.Collaborators {
+			if strings.TrimSpace(existing) != newAuthorSubjectID {
+				filtered = append(filtered, existing)
+			}
+		}
+		if len(filtered) == 0 {
+			cs.Collaborators = nil
+		} else {
+			cs.Collaborators = filtered
+		}
+	}
+	out := cloneChangeset(cs)
+	storage.PopulateChangesetHandles(out)
+	return out, nil
 }
 
 func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {

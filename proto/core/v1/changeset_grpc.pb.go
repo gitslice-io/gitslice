@@ -19,18 +19,21 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	ChangesetService_CreateChangeset_FullMethodName     = "/gitslice.core.v1.ChangesetService/CreateChangeset"
-	ChangesetService_GetChangeset_FullMethodName        = "/gitslice.core.v1.ChangesetService/GetChangeset"
-	ChangesetService_ListChangesets_FullMethodName      = "/gitslice.core.v1.ChangesetService/ListChangesets"
-	ChangesetService_DiffChangeset_FullMethodName       = "/gitslice.core.v1.ChangesetService/DiffChangeset"
-	ChangesetService_UpdateChangeset_FullMethodName     = "/gitslice.core.v1.ChangesetService/UpdateChangeset"
-	ChangesetService_ApproveChangeset_FullMethodName    = "/gitslice.core.v1.ChangesetService/ApproveChangeset"
-	ChangesetService_ReportCheckResult_FullMethodName   = "/gitslice.core.v1.ChangesetService/ReportCheckResult"
-	ChangesetService_SubmitChangeset_FullMethodName     = "/gitslice.core.v1.ChangesetService/SubmitChangeset"
-	ChangesetService_AbandonChangeset_FullMethodName    = "/gitslice.core.v1.ChangesetService/AbandonChangeset"
-	ChangesetService_UpdateChangesetInfo_FullMethodName = "/gitslice.core.v1.ChangesetService/UpdateChangesetInfo"
-	ChangesetService_CopyPath_FullMethodName            = "/gitslice.core.v1.ChangesetService/CopyPath"
-	ChangesetService_MovePath_FullMethodName            = "/gitslice.core.v1.ChangesetService/MovePath"
+	ChangesetService_CreateChangeset_FullMethodName             = "/gitslice.core.v1.ChangesetService/CreateChangeset"
+	ChangesetService_GetChangeset_FullMethodName                = "/gitslice.core.v1.ChangesetService/GetChangeset"
+	ChangesetService_ListChangesets_FullMethodName              = "/gitslice.core.v1.ChangesetService/ListChangesets"
+	ChangesetService_DiffChangeset_FullMethodName               = "/gitslice.core.v1.ChangesetService/DiffChangeset"
+	ChangesetService_UpdateChangeset_FullMethodName             = "/gitslice.core.v1.ChangesetService/UpdateChangeset"
+	ChangesetService_ApproveChangeset_FullMethodName            = "/gitslice.core.v1.ChangesetService/ApproveChangeset"
+	ChangesetService_ReportCheckResult_FullMethodName           = "/gitslice.core.v1.ChangesetService/ReportCheckResult"
+	ChangesetService_SubmitChangeset_FullMethodName             = "/gitslice.core.v1.ChangesetService/SubmitChangeset"
+	ChangesetService_AbandonChangeset_FullMethodName            = "/gitslice.core.v1.ChangesetService/AbandonChangeset"
+	ChangesetService_UpdateChangesetInfo_FullMethodName         = "/gitslice.core.v1.ChangesetService/UpdateChangesetInfo"
+	ChangesetService_AddChangesetCollaborator_FullMethodName    = "/gitslice.core.v1.ChangesetService/AddChangesetCollaborator"
+	ChangesetService_RemoveChangesetCollaborator_FullMethodName = "/gitslice.core.v1.ChangesetService/RemoveChangesetCollaborator"
+	ChangesetService_HandoffChangeset_FullMethodName            = "/gitslice.core.v1.ChangesetService/HandoffChangeset"
+	ChangesetService_CopyPath_FullMethodName                    = "/gitslice.core.v1.ChangesetService/CopyPath"
+	ChangesetService_MovePath_FullMethodName                    = "/gitslice.core.v1.ChangesetService/MovePath"
 )
 
 // ChangesetServiceClient is the client API for ChangesetService service.
@@ -55,6 +58,9 @@ type ChangesetServiceClient interface {
 	// subject; the description is Markdown. Together they are the message of the
 	// commit the changeset lands as, so they are fixed once it is submitted.
 	UpdateChangesetInfo(ctx context.Context, in *UpdateChangesetInfoRequest, opts ...grpc.CallOption) (*Changeset, error)
+	AddChangesetCollaborator(ctx context.Context, in *AddChangesetCollaboratorRequest, opts ...grpc.CallOption) (*Changeset, error)
+	RemoveChangesetCollaborator(ctx context.Context, in *RemoveChangesetCollaboratorRequest, opts ...grpc.CallOption) (*Changeset, error)
+	HandoffChangeset(ctx context.Context, in *HandoffChangesetRequest, opts ...grpc.CallOption) (*Changeset, error)
 	CopyPath(ctx context.Context, in *CopyPathRequest, opts ...grpc.CallOption) (*PathOperationResponse, error)
 	MovePath(ctx context.Context, in *MovePathRequest, opts ...grpc.CallOption) (*PathOperationResponse, error)
 }
@@ -157,6 +163,33 @@ func (c *changesetServiceClient) UpdateChangesetInfo(ctx context.Context, in *Up
 	return out, nil
 }
 
+func (c *changesetServiceClient) AddChangesetCollaborator(ctx context.Context, in *AddChangesetCollaboratorRequest, opts ...grpc.CallOption) (*Changeset, error) {
+	out := new(Changeset)
+	err := c.cc.Invoke(ctx, ChangesetService_AddChangesetCollaborator_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *changesetServiceClient) RemoveChangesetCollaborator(ctx context.Context, in *RemoveChangesetCollaboratorRequest, opts ...grpc.CallOption) (*Changeset, error) {
+	out := new(Changeset)
+	err := c.cc.Invoke(ctx, ChangesetService_RemoveChangesetCollaborator_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *changesetServiceClient) HandoffChangeset(ctx context.Context, in *HandoffChangesetRequest, opts ...grpc.CallOption) (*Changeset, error) {
+	out := new(Changeset)
+	err := c.cc.Invoke(ctx, ChangesetService_HandoffChangeset_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *changesetServiceClient) CopyPath(ctx context.Context, in *CopyPathRequest, opts ...grpc.CallOption) (*PathOperationResponse, error) {
 	out := new(PathOperationResponse)
 	err := c.cc.Invoke(ctx, ChangesetService_CopyPath_FullMethodName, in, out, opts...)
@@ -197,6 +230,9 @@ type ChangesetServiceServer interface {
 	// subject; the description is Markdown. Together they are the message of the
 	// commit the changeset lands as, so they are fixed once it is submitted.
 	UpdateChangesetInfo(context.Context, *UpdateChangesetInfoRequest) (*Changeset, error)
+	AddChangesetCollaborator(context.Context, *AddChangesetCollaboratorRequest) (*Changeset, error)
+	RemoveChangesetCollaborator(context.Context, *RemoveChangesetCollaboratorRequest) (*Changeset, error)
+	HandoffChangeset(context.Context, *HandoffChangesetRequest) (*Changeset, error)
 	CopyPath(context.Context, *CopyPathRequest) (*PathOperationResponse, error)
 	MovePath(context.Context, *MovePathRequest) (*PathOperationResponse, error)
 }
@@ -234,6 +270,15 @@ func (UnimplementedChangesetServiceServer) AbandonChangeset(context.Context, *Ab
 }
 func (UnimplementedChangesetServiceServer) UpdateChangesetInfo(context.Context, *UpdateChangesetInfoRequest) (*Changeset, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method UpdateChangesetInfo not implemented")
+}
+func (UnimplementedChangesetServiceServer) AddChangesetCollaborator(context.Context, *AddChangesetCollaboratorRequest) (*Changeset, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddChangesetCollaborator not implemented")
+}
+func (UnimplementedChangesetServiceServer) RemoveChangesetCollaborator(context.Context, *RemoveChangesetCollaboratorRequest) (*Changeset, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RemoveChangesetCollaborator not implemented")
+}
+func (UnimplementedChangesetServiceServer) HandoffChangeset(context.Context, *HandoffChangesetRequest) (*Changeset, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method HandoffChangeset not implemented")
 }
 func (UnimplementedChangesetServiceServer) CopyPath(context.Context, *CopyPathRequest) (*PathOperationResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CopyPath not implemented")
@@ -433,6 +478,60 @@ func _ChangesetService_UpdateChangesetInfo_Handler(srv interface{}, ctx context.
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ChangesetService_AddChangesetCollaborator_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddChangesetCollaboratorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetServiceServer).AddChangesetCollaborator(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetService_AddChangesetCollaborator_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetServiceServer).AddChangesetCollaborator(ctx, req.(*AddChangesetCollaboratorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChangesetService_RemoveChangesetCollaborator_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveChangesetCollaboratorRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetServiceServer).RemoveChangesetCollaborator(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetService_RemoveChangesetCollaborator_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetServiceServer).RemoveChangesetCollaborator(ctx, req.(*RemoveChangesetCollaboratorRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _ChangesetService_HandoffChangeset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(HandoffChangesetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChangesetServiceServer).HandoffChangeset(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChangesetService_HandoffChangeset_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChangesetServiceServer).HandoffChangeset(ctx, req.(*HandoffChangesetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ChangesetService_CopyPath_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CopyPathRequest)
 	if err := dec(in); err != nil {
@@ -515,6 +614,18 @@ var ChangesetService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "UpdateChangesetInfo",
 			Handler:    _ChangesetService_UpdateChangesetInfo_Handler,
+		},
+		{
+			MethodName: "AddChangesetCollaborator",
+			Handler:    _ChangesetService_AddChangesetCollaborator_Handler,
+		},
+		{
+			MethodName: "RemoveChangesetCollaborator",
+			Handler:    _ChangesetService_RemoveChangesetCollaborator_Handler,
+		},
+		{
+			MethodName: "HandoffChangeset",
+			Handler:    _ChangesetService_HandoffChangeset_Handler,
 		},
 		{
 			MethodName: "CopyPath",

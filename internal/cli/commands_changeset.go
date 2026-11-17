@@ -9,7 +9,7 @@ func (r Runner) changesetCommand(opts *commandOptions) *cobra.Command {
 	csCmd := &cobra.Command{
 		Use:     "cs",
 		Aliases: []string{"changeset"},
-		Short:   "Manage changesets: list, show, status, edit, link, update, submit",
+		Short:   "Manage changesets: list, show, status, edit, collaborators, handoff, link, update, submit",
 		RunE:    requireSubcommand("cs"),
 	}
 	createTitle := "CLI changeset"
@@ -248,7 +248,7 @@ func (r Runner) changesetCommand(opts *commandOptions) *cobra.Command {
 	csEditCmd.Flags().StringVar(&editTitle, "title", "", "the new title")
 	csEditCmd.Flags().StringVar(&editDescription, "description", "", "the new description; --description '' clears it")
 	csEditCmd.Flags().StringVar(&editDescriptionFile, "description-file", "", "read the new description from a file, or standard input with -")
-	csCmd.AddCommand(csEditCmd)
+	csCmd.AddCommand(csEditCmd, r.collaboratorsCommand(opts), r.handoffCommand(opts))
 	csCmd.AddCommand(csCreateCmd, csCaptureCmd, csUpdateCmd, csSubmitCmd, csStatusCmd, csShowCmd, csLinkCmd, csExplainCmd, csVersionsCmd, csDiffCmd, csConversationCmd, csApproveCmd, csCheckCmd, csAbandonCmd, csListCmd)
 
 	return csCmd

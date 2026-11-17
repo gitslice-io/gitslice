@@ -465,6 +465,18 @@ func (a connectChangesetAdapter) UpdateChangesetInfo(ctx context.Context, req *c
 	return connectResponse(a.svc.UpdateChangesetInfo(ctx, req.Msg))
 }
 
+func (a connectChangesetAdapter) AddChangesetCollaborator(ctx context.Context, req *connect.Request[corev1.AddChangesetCollaboratorRequest]) (*connect.Response[corev1.Changeset], error) {
+	return connectResponse(a.svc.AddChangesetCollaborator(ctx, req.Msg))
+}
+
+func (a connectChangesetAdapter) RemoveChangesetCollaborator(ctx context.Context, req *connect.Request[corev1.RemoveChangesetCollaboratorRequest]) (*connect.Response[corev1.Changeset], error) {
+	return connectResponse(a.svc.RemoveChangesetCollaborator(ctx, req.Msg))
+}
+
+func (a connectChangesetAdapter) HandoffChangeset(ctx context.Context, req *connect.Request[corev1.HandoffChangesetRequest]) (*connect.Response[corev1.Changeset], error) {
+	return connectResponse(a.svc.HandoffChangeset(ctx, req.Msg))
+}
+
 func (a connectChangesetAdapter) CopyPath(ctx context.Context, req *connect.Request[corev1.CopyPathRequest]) (*connect.Response[corev1.PathOperationResponse], error) {
 	return connectResponse(a.svc.CopyPath(ctx, req.Msg))
 }

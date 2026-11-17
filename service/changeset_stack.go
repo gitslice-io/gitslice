@@ -103,8 +103,11 @@ func (s *ChangesetStackService) AddStackEntry(ctx context.Context, req *corev1.A
 	if err != nil {
 		return nil, err
 	}
-	stack, err := s.getAuthorizedStackForWriteOrAuthor(ctx, subjectID, req.StackId)
+	stack, err := s.getStackWithSlice(ctx, req.StackId, authz.ActionPropose)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.authorizeAddEntry(ctx, subjectID, stack, req.ParentChangesetId); err != nil {
 		return nil, err
 	}
 	cs, err := s.Changesets.Create(ctx, subjectID, &corev1.CreateChangesetRequest{
@@ -131,10 +134,18 @@ func (s *ChangesetStackService) MoveStackEntry(ctx context.Context, req *corev1.
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.getAuthorizedStackForWriteOrAuthor(ctx, subjectID, req.StackId); err != nil {
+	stack, err := s.getStackWithSlice(ctx, req.StackId, authz.ActionPropose)
+	if err != nil {
 		return nil, err
 	}
-	stack, err := s.Changesets.MoveStackEntry(ctx, req)
+	if entry := stackEntryByID(stack, strings.TrimSpace(req.ChangesetId)); entry != nil {
+		if err := s.authorizeStackEntryChangeset(ctx, subjectID, entry, authz.ActionPropose); err != nil {
+			return nil, err
+		}
+	} else if err := s.authorizeStackOwner(ctx, subjectID, stack, authz.ActionPropose); err != nil {
+		return nil, err
+	}
+	stack, err = s.Changesets.MoveStackEntry(ctx, req)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -149,10 +160,18 @@ func (s *ChangesetStackService) ReparentStackEntry(ctx context.Context, req *cor
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.getAuthorizedStackForWriteOrAuthor(ctx, subjectID, req.StackId); err != nil {
+	stack, err := s.getStackWithSlice(ctx, req.StackId, authz.ActionPropose)
+	if err != nil {
 		return nil, err
 	}
-	stack, err := s.Changesets.ReparentStackEntry(ctx, req)
+	if entry := stackEntryByID(stack, strings.TrimSpace(req.ChangesetId)); entry != nil {
+		if err := s.authorizeStackEntries(ctx, subjectID, selectedStackEntries(stack, entry.ChangesetId), authz.ActionPropose, false); err != nil {
+			return nil, err
+		}
+	} else if err := s.authorizeStackOwner(ctx, subjectID, stack, authz.ActionPropose); err != nil {
+		return nil, err
+	}
+	stack, err = s.Changesets.ReparentStackEntry(ctx, req)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -167,7 +186,17 @@ func (s *ChangesetStackService) DetachStackEntry(ctx context.Context, req *corev
 	if err != nil {
 		return nil, err
 	}
-	if _, err := s.getAuthorizedStackForWriteOrAuthor(ctx, subjectID, req.StackId); err != nil {
+	stack, err := s.getStackWithSlice(ctx, req.StackId, authz.ActionPropose)
+	if err != nil {
+		return nil, err
+	}
+	targetID := strings.TrimSpace(req.ChangesetId)
+	if targetID != "" && stackEntryByID(stack, targetID) != nil {
+		entries := selectedStackEntries(stack, targetID)
+		if err := s.authorizeStackEntries(ctx, subjectID, entries, authz.ActionPropose, false); err != nil {
+			return nil, err
+		}
+	} else if err := s.authorizeStackOwner(ctx, subjectID, stack, authz.ActionPropose); err != nil {
 		return nil, err
 	}
 	res, err := s.Changesets.DetachStackEntry(ctx, subjectID, req)
@@ -188,13 +217,19 @@ func (s *ChangesetStackService) Restack(ctx context.Context, req *corev1.Restack
 	if err != nil {
 		return nil, err
 	}
-	stack, err := s.getAuthorizedStackForWriteOrAuthor(ctx, subjectID, req.StackId)
+	stack, err := s.getStackWithSlice(ctx, req.StackId, authz.ActionPropose)
 	if err != nil {
 		return nil, err
 	}
 	entries := selectedRestackEntries(stack, req.StartChangesetId, req.IncludeSiblings)
 	if len(entries) == 0 {
+		if err := s.authorizeStackOwner(ctx, subjectID, stack, authz.ActionPropose); err != nil {
+			return nil, err
+		}
 		return nil, status.Error(codes.NotFound, "stack entry not found")
+	}
+	if err := s.authorizeStackEntries(ctx, subjectID, entries, authz.ActionPropose, true); err != nil {
+		return nil, err
 	}
 	changesetService := s.changesetService()
 	response := &corev1.RestackResponse{StackId: stack.Id, Status: "clean"}
@@ -398,13 +433,19 @@ func (s *ChangesetStackService) SubmitStack(ctx context.Context, req *corev1.Sub
 	if err != nil {
 		return nil, err
 	}
-	stack, err := s.getAuthorizedStack(ctx, subjectID, req.StackId, authz.ActionSubmit)
+	stack, err := s.getStackWithSlice(ctx, req.StackId, authz.ActionSubmit)
 	if err != nil {
 		return nil, err
 	}
 	entries := selectedStackEntries(stack, req.SubtreeRootChangesetId)
 	if len(entries) == 0 {
+		if err := s.authorizeStackOwner(ctx, subjectID, stack, authz.ActionSubmit); err != nil {
+			return nil, err
+		}
 		return nil, status.Error(codes.NotFound, "stack entry not found")
+	}
+	if err := s.authorizeStackEntries(ctx, subjectID, entries, authz.ActionSubmit, true); err != nil {
+		return nil, err
 	}
 	response := &corev1.SubmitStackResponse{StackId: stack.Id, Status: "submitted"}
 	blocked := false
@@ -493,7 +534,30 @@ func (s *ChangesetStackService) SubmitStack(ctx context.Context, req *corev1.Sub
 	return response, nil
 }
 
-func (s *ChangesetStackService) getAuthorizedStackForWriteOrAuthor(ctx context.Context, subjectID, stackID string) (*corev1.ChangesetStack, error) {
+// authorizeAddEntry checks who may add a changeset to a stack: an owner of the
+// parent entry (or of the stack), as AddStackEntry and CreateChangeset with a
+// stack_id both require.
+func (s *ChangesetStackService) authorizeAddEntry(ctx context.Context, subjectID string, stack *corev1.ChangesetStack, parentChangesetID string) error {
+	parentID := strings.TrimSpace(parentChangesetID)
+	if parentID != "" {
+		if parentEntry := stackEntryByID(stack, parentID); parentEntry != nil {
+			err := s.authorizeStackEntryChangeset(ctx, subjectID, parentEntry, authz.ActionPropose)
+			if err == nil {
+				return nil
+			}
+			if status.Code(err) != codes.PermissionDenied {
+				return err
+			}
+			if stackErr := s.authorizeStackCreatorOrAdmin(ctx, subjectID, stack, authz.ActionPropose); stackErr != nil {
+				return err
+			}
+			return nil
+		}
+	}
+	return s.authorizeStackOwner(ctx, subjectID, stack, authz.ActionPropose)
+}
+
+func (s *ChangesetStackService) getStackWithSlice(ctx context.Context, stackID string, action authz.Action) (*corev1.ChangesetStack, error) {
 	stack, err := s.Changesets.GetStack(ctx, strings.TrimSpace(stackID))
 	if err != nil {
 		return nil, grpcError(err)
@@ -501,18 +565,107 @@ func (s *ChangesetStackService) getAuthorizedStackForWriteOrAuthor(ctx context.C
 	if stack.AuthoringSlice == nil {
 		return nil, status.Error(codes.FailedPrecondition, "stack has no authoring slice")
 	}
-	action := authz.ActionWrite
-	if strings.TrimSpace(stack.GetCreatedBy()) == subjectID {
-		action = authz.ActionPropose
-	}
-	slice, err := resolveAuthoringSlice(ctx, s.Slices, stack.AuthoringSlice, action)
-	if err != nil {
+	if _, err := resolveAuthoringSlice(ctx, s.Slices, stack.AuthoringSlice, action); err != nil {
 		return nil, grpcError(err)
 	}
-	if err := authorize(ctx, s.Auth, subjectID, slice, action); err != nil {
-		return nil, err
-	}
 	return stack, nil
+}
+
+func (s *ChangesetStackService) authorizeStackEntryChangeset(ctx context.Context, subjectID string, entry *corev1.ChangesetStackEntry, action authz.Action) error {
+	if entry == nil {
+		return status.Error(codes.NotFound, "stack entry not found")
+	}
+	cs := entry.Changeset
+	if cs == nil {
+		var err error
+		cs, err = s.Changesets.Get(ctx, entry.ChangesetId)
+		if err != nil {
+			return grpcError(err)
+		}
+	}
+	changesets := s.changesetService()
+	_, err := changesets.authorizeChangesetForAction(ctx, subjectID, cs, action)
+	return err
+}
+
+func (s *ChangesetStackService) authorizeStackEntries(ctx context.Context, subjectID string, entries []*corev1.ChangesetStackEntry, action authz.Action, skipSubmittedWhenOpenRemain bool) error {
+	var openEntries []*corev1.ChangesetStackEntry
+	if skipSubmittedWhenOpenRemain {
+		for _, entry := range entries {
+			if entry == nil {
+				continue
+			}
+			cs := entry.Changeset
+			if cs == nil {
+				var err error
+				cs, err = s.Changesets.Get(ctx, entry.ChangesetId)
+				if err != nil {
+					return grpcError(err)
+				}
+			}
+			if cs.Status != "submitted" {
+				openEntries = append(openEntries, &corev1.ChangesetStackEntry{
+					StackId:     entry.StackId,
+					ChangesetId: entry.ChangesetId,
+					Changeset:   cs,
+				})
+			}
+		}
+	}
+	toCheck := entries
+	if skipSubmittedWhenOpenRemain && len(openEntries) > 0 {
+		toCheck = openEntries
+	}
+	for _, entry := range toCheck {
+		if err := s.authorizeStackEntryChangeset(ctx, subjectID, entry, action); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *ChangesetStackService) authorizeStackCreatorOrAdmin(ctx context.Context, subjectID string, stack *corev1.ChangesetStack, action authz.Action) error {
+	slice, err := resolveAuthoringSlice(ctx, s.Slices, stack.AuthoringSlice, action)
+	if err != nil {
+		return grpcError(err)
+	}
+	subjectID = strings.TrimSpace(subjectID)
+	if subjectID == "" {
+		return grpcError(storage.ErrUnauthenticated)
+	}
+	createdBy := strings.TrimSpace(stack.GetCreatedBy())
+	if subjectID == createdBy {
+		return authorize(ctx, s.Auth, subjectID, slice, action)
+	}
+	isCtrl, err := isControllerOfSubject(ctx, s.Auth, subjectID, createdBy)
+	if err != nil {
+		return grpcError(err)
+	}
+	if isCtrl {
+		return authorizeWithDelegation(ctx, s.Auth, subjectID, createdBy, slice, action)
+	}
+	if authz.New(s.Auth).AuthorizeAllowArchived(ctx, subjectID, slice, authz.ActionActOnAnyChangeset) == nil {
+		return authorize(ctx, s.Auth, subjectID, slice, action)
+	}
+	return status.Error(codes.PermissionDenied, "only an owner or slice admin may act on this stack")
+}
+
+func (s *ChangesetStackService) authorizeStackOwner(ctx context.Context, subjectID string, stack *corev1.ChangesetStack, action authz.Action) error {
+	err := s.authorizeStackCreatorOrAdmin(ctx, subjectID, stack, action)
+	if err == nil || status.Code(err) != codes.PermissionDenied {
+		return err
+	}
+	for _, entry := range stack.Entries {
+		if entry == nil {
+			continue
+		}
+		if entryErr := s.authorizeStackEntryChangeset(ctx, subjectID, entry, action); entryErr == nil {
+			return nil
+		} else if status.Code(entryErr) != codes.PermissionDenied {
+			return entryErr
+		}
+	}
+	return err
 }
 
 func (s *ChangesetStackService) getAuthorizedStack(ctx context.Context, subjectID, stackID string, action authz.Action) (*corev1.ChangesetStack, error) {
@@ -527,7 +680,23 @@ func (s *ChangesetStackService) getAuthorizedStack(ctx context.Context, subjectI
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if err := authorize(ctx, s.Auth, subjectID, slice, action); err != nil {
+	err = authorize(ctx, s.Auth, subjectID, slice, action)
+	if err != nil && action == authz.ActionRead && status.Code(err) == codes.PermissionDenied && strings.TrimSpace(subjectID) != "" {
+		if isCtrl, ctrlErr := isControllerOfSubject(ctx, s.Auth, subjectID, stack.GetCreatedBy()); ctrlErr != nil {
+			return nil, grpcError(ctrlErr)
+		} else if isCtrl {
+			err = authorizeWithDelegation(ctx, s.Auth, subjectID, stack.GetCreatedBy(), slice, authz.ActionRead)
+		}
+		if err != nil && status.Code(err) == codes.PermissionDenied {
+			for _, entry := range stack.Entries {
+				if entry != nil && s.authorizeStackEntryChangeset(ctx, subjectID, entry, authz.ActionRead) == nil {
+					err = nil
+					break
+				}
+			}
+		}
+	}
+	if err != nil {
 		return nil, err
 	}
 	return stack, nil

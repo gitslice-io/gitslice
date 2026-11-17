@@ -25,6 +25,12 @@ func printChangesetDetails(w io.Writer, cs *corev1.Changeset, explain bool) {
 	if cs.Author != "" {
 		fmt.Fprintf(w, "author: %s\n", cs.Author)
 	}
+	if cs.OriginalAuthor != "" {
+		fmt.Fprintf(w, "original_author: %s\n", cs.OriginalAuthor)
+	}
+	if len(cs.Collaborators) > 0 {
+		fmt.Fprintf(w, "collaborators: %s\n", strings.Join(cs.Collaborators, ", "))
+	}
 	fmt.Fprintf(w, "authoring_slice: %s\n", changesetSliceLabel(cs.AuthoringSlice))
 	if cs.TargetRef != "" {
 		fmt.Fprintf(w, "target_ref: %s\n", cs.TargetRef)

@@ -17,6 +17,9 @@ type changesetOutput struct {
 	PatchsetID          string                     `json:"patchset_id,omitempty"`
 	PatchsetNumber      int64                      `json:"patchset_number,omitempty"`
 	Status              string                     `json:"status,omitempty"`
+	Author              string                     `json:"author,omitempty"`
+	OriginalAuthor      string                     `json:"original_author,omitempty"`
+	Collaborators       []string                   `json:"collaborators,omitempty"`
 	SubmitBlockedReason string                     `json:"submit_blocked_reason,omitempty"`
 	SubmitRequirements  *corev1.SubmitRequirements `json:"submit_requirements,omitempty"`
 	StackID             string                     `json:"dependency_id,omitempty"`
@@ -94,6 +97,9 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		PatchsetID:          cs.CurrentPatchsetId,
 		PatchsetNumber:      cs.CurrentPatchsetNumber,
 		Status:              cs.Status,
+		Author:              cs.Author,
+		OriginalAuthor:      cs.OriginalAuthor,
+		Collaborators:       cs.Collaborators,
 		SubmitBlockedReason: displaySubmitBlockedReason(cs.SubmitBlockedReason),
 		SubmitRequirements:  currentPatchsetSubmitRequirements(cs),
 		Title:               cs.Title,
