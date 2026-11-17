@@ -65,3 +65,16 @@ export interface StreamCheckRunRequest {
   runId?: string;
   afterSeq?: Int64String | number;
 }
+
+export interface AllowPatchsetSecretsRequest {
+  changesetId?: string;
+  patchsetId?: string;
+}
+
+export interface AllowPatchsetSecretsResponse {
+  changesetId?: string;
+  patchsetId?: string;
+  allowedBySubjectId?: string;
+  allowedAt?: string;
+  rerunChecks?: CheckRun[];
+}

@@ -44,6 +44,9 @@ const (
 	// CheckServiceStreamCheckRunProcedure is the fully-qualified name of the CheckService's
 	// StreamCheckRun RPC.
 	CheckServiceStreamCheckRunProcedure = "/gitslice.core.v1.CheckService/StreamCheckRun"
+	// CheckServiceAllowPatchsetSecretsProcedure is the fully-qualified name of the CheckService's
+	// AllowPatchsetSecrets RPC.
+	CheckServiceAllowPatchsetSecretsProcedure = "/gitslice.core.v1.CheckService/AllowPatchsetSecrets"
 )
 
 // CheckServiceClient is a client for the gitslice.core.v1.CheckService service.
@@ -52,6 +55,7 @@ type CheckServiceClient interface {
 	GetCheckRun(context.Context, *connect.Request[v1.GetCheckRunRequest]) (*connect.Response[v1.CheckRun], error)
 	RerunCheck(context.Context, *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.CheckRun], error)
 	StreamCheckRun(context.Context, *connect.Request[v1.StreamCheckRunRequest]) (*connect.ServerStreamForClient[v1.CheckRunLog], error)
+	AllowPatchsetSecrets(context.Context, *connect.Request[v1.AllowPatchsetSecretsRequest]) (*connect.Response[v1.AllowPatchsetSecretsResponse], error)
 }
 
 // NewCheckServiceClient constructs a client for the gitslice.core.v1.CheckService service. By
@@ -89,15 +93,22 @@ func NewCheckServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			connect.WithSchema(checkServiceMethods.ByName("StreamCheckRun")),
 			connect.WithClientOptions(opts...),
 		),
+		allowPatchsetSecrets: connect.NewClient[v1.AllowPatchsetSecretsRequest, v1.AllowPatchsetSecretsResponse](
+			httpClient,
+			baseURL+CheckServiceAllowPatchsetSecretsProcedure,
+			connect.WithSchema(checkServiceMethods.ByName("AllowPatchsetSecrets")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // checkServiceClient implements CheckServiceClient.
 type checkServiceClient struct {
-	listCheckRuns  *connect.Client[v1.ListCheckRunsRequest, v1.ListCheckRunsResponse]
-	getCheckRun    *connect.Client[v1.GetCheckRunRequest, v1.CheckRun]
-	rerunCheck     *connect.Client[v1.RerunCheckRequest, v1.CheckRun]
-	streamCheckRun *connect.Client[v1.StreamCheckRunRequest, v1.CheckRunLog]
+	listCheckRuns        *connect.Client[v1.ListCheckRunsRequest, v1.ListCheckRunsResponse]
+	getCheckRun          *connect.Client[v1.GetCheckRunRequest, v1.CheckRun]
+	rerunCheck           *connect.Client[v1.RerunCheckRequest, v1.CheckRun]
+	streamCheckRun       *connect.Client[v1.StreamCheckRunRequest, v1.CheckRunLog]
+	allowPatchsetSecrets *connect.Client[v1.AllowPatchsetSecretsRequest, v1.AllowPatchsetSecretsResponse]
 }
 
 // ListCheckRuns calls gitslice.core.v1.CheckService.ListCheckRuns.
@@ -120,12 +131,18 @@ func (c *checkServiceClient) StreamCheckRun(ctx context.Context, req *connect.Re
 	return c.streamCheckRun.CallServerStream(ctx, req)
 }
 
+// AllowPatchsetSecrets calls gitslice.core.v1.CheckService.AllowPatchsetSecrets.
+func (c *checkServiceClient) AllowPatchsetSecrets(ctx context.Context, req *connect.Request[v1.AllowPatchsetSecretsRequest]) (*connect.Response[v1.AllowPatchsetSecretsResponse], error) {
+	return c.allowPatchsetSecrets.CallUnary(ctx, req)
+}
+
 // CheckServiceHandler is an implementation of the gitslice.core.v1.CheckService service.
 type CheckServiceHandler interface {
 	ListCheckRuns(context.Context, *connect.Request[v1.ListCheckRunsRequest]) (*connect.Response[v1.ListCheckRunsResponse], error)
 	GetCheckRun(context.Context, *connect.Request[v1.GetCheckRunRequest]) (*connect.Response[v1.CheckRun], error)
 	RerunCheck(context.Context, *connect.Request[v1.RerunCheckRequest]) (*connect.Response[v1.CheckRun], error)
 	StreamCheckRun(context.Context, *connect.Request[v1.StreamCheckRunRequest], *connect.ServerStream[v1.CheckRunLog]) error
+	AllowPatchsetSecrets(context.Context, *connect.Request[v1.AllowPatchsetSecretsRequest]) (*connect.Response[v1.AllowPatchsetSecretsResponse], error)
 }
 
 // NewCheckServiceHandler builds an HTTP handler from the service implementation. It returns the
@@ -159,6 +176,12 @@ func NewCheckServiceHandler(svc CheckServiceHandler, opts ...connect.HandlerOpti
 		connect.WithSchema(checkServiceMethods.ByName("StreamCheckRun")),
 		connect.WithHandlerOptions(opts...),
 	)
+	checkServiceAllowPatchsetSecretsHandler := connect.NewUnaryHandler(
+		CheckServiceAllowPatchsetSecretsProcedure,
+		svc.AllowPatchsetSecrets,
+		connect.WithSchema(checkServiceMethods.ByName("AllowPatchsetSecrets")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.CheckService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case CheckServiceListCheckRunsProcedure:
@@ -169,6 +192,8 @@ func NewCheckServiceHandler(svc CheckServiceHandler, opts ...connect.HandlerOpti
 			checkServiceRerunCheckHandler.ServeHTTP(w, r)
 		case CheckServiceStreamCheckRunProcedure:
 			checkServiceStreamCheckRunHandler.ServeHTTP(w, r)
+		case CheckServiceAllowPatchsetSecretsProcedure:
+			checkServiceAllowPatchsetSecretsHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -192,4 +217,8 @@ func (UnimplementedCheckServiceHandler) RerunCheck(context.Context, *connect.Req
 
 func (UnimplementedCheckServiceHandler) StreamCheckRun(context.Context, *connect.Request[v1.StreamCheckRunRequest], *connect.ServerStream[v1.CheckRunLog]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.CheckService.StreamCheckRun is not implemented"))
+}
+
+func (UnimplementedCheckServiceHandler) AllowPatchsetSecrets(context.Context, *connect.Request[v1.AllowPatchsetSecretsRequest]) (*connect.Response[v1.AllowPatchsetSecretsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.CheckService.AllowPatchsetSecrets is not implemented"))
 }

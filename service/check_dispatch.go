@@ -516,6 +516,15 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 		}
 		return nil, status.Errorf(codes.FailedPrecondition, "check %q has no runnable CI definition in this revision", checkName)
 	}
+	run, err := d.enqueueCheckRun(ctx, cs, slice, patchset, spec, daemonID, prior, "superseded by rerun")
+	if err != nil {
+		return nil, err
+	}
+	d.handOut(ctx, daemonID)
+	return run, nil
+}
+
+func (d *checkDispatcher) enqueueCheckRun(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, spec checks.CheckSpec, daemonID string, prior *corev1.CheckRun, cancelReason string) (*corev1.CheckRun, error) {
 	if d.patchsetApprovedForGitsliceSecrets(ctx, cs, slice, patchset) {
 		if _, err := d.secretsForChecks(ctx, slice.GetRef().GetAccount(), []checks.CheckSpec{spec}); err != nil {
 			return nil, status.Errorf(codes.FailedPrecondition, "CI secrets could not be loaded: %v", err)
@@ -533,16 +542,89 @@ func (d *checkDispatcher) rerunCheck(ctx context.Context, cs *corev1.Changeset, 
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if prior.GetStatus() == "queued" || prior.GetStatus() == "running" {
-		if _, err := d.Checks.UpdateCheckRunStatus(ctx, prior.GetId(), "canceled", -1, "superseded by rerun"); err != nil {
+	if prior != nil && (prior.GetStatus() == "queued" || prior.GetStatus() == "running") {
+		if _, err := d.Checks.UpdateCheckRunStatus(ctx, prior.GetId(), "canceled", -1, cancelReason); err != nil {
 			slog.Warn("failed to cancel prior check run after rerun", "run_id", prior.GetId(), "replacement_run_id", run.GetId(), "error", err)
 		} else {
 			d.cancelCheckRun(prior)
 		}
 	}
-
-	d.handOut(ctx, daemonID)
 	return run, nil
+}
+
+// dispatchAllowedPatchsetChecks queues CI runs with secrets for a patchset
+// after AllowPatchsetSecrets records an allowance. On first allowance it reruns
+// every prior CI check (which previously ran without secrets) and dispatches any
+// runnable checks that have not run yet; repeated idempotent calls only fill in
+// missing runnable checks without disturbing active or completed runs.
+func (d *checkDispatcher) dispatchAllowedPatchsetChecks(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, newlyAllowed bool) ([]*corev1.CheckRun, error) {
+	if d == nil || d.Checks == nil || cs == nil || slice == nil || patchset == nil {
+		return nil, nil
+	}
+	if strings.TrimSpace(patchset.ResultTreeId) == "" {
+		return nil, nil
+	}
+	daemonID, refusal := d.pickDaemon(ctx, slice)
+	if daemonID == "" || refusal != "" {
+		return nil, nil
+	}
+	plan, err := d.resolveCheckPlan(ctx, slice, patchset)
+	if err != nil {
+		slog.Warn("failed to resolve check plan for allowed patchset secrets", "changeset_id", cs.GetId(), "patchset_id", patchset.GetId(), "error", err)
+		return nil, nil
+	}
+	existing, err := d.Checks.ListCheckRuns(ctx, cs.GetId(), patchset.GetId())
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	existingCI := map[string]*corev1.CheckRun{}
+	existingAny := map[string]*corev1.CheckRun{}
+	for _, run := range existing {
+		if run == nil {
+			continue
+		}
+		existingAny[run.GetCheckName()] = run
+		if run.GetProvenance() == "ci" {
+			existingCI[run.GetCheckName()] = run
+		}
+	}
+
+	var queued []*corev1.CheckRun
+	handled := map[string]bool{}
+	if newlyAllowed {
+		for _, prior := range existing {
+			if prior == nil || prior.GetProvenance() != "ci" {
+				continue
+			}
+			spec, ok := runnableCICheck(plan, prior.GetCheckName())
+			if !ok {
+				continue
+			}
+			handled[spec.Name] = true
+			run, err := d.enqueueCheckRun(ctx, cs, slice, patchset, spec, daemonID, prior, "superseded by secret allowance")
+			if err != nil {
+				return nil, err
+			}
+			queued = append(queued, run)
+		}
+	}
+	for _, spec := range plan.Runnable {
+		if handled[spec.Name] || existingCI[spec.Name] != nil {
+			continue
+		}
+		if !spec.OutOfSlice && !isRequiredSliceCheck(slice, spec.Name) && existingAny[spec.Name] != nil {
+			continue
+		}
+		run, err := d.enqueueCheckRun(ctx, cs, slice, patchset, spec, daemonID, nil, "")
+		if err != nil {
+			return nil, err
+		}
+		queued = append(queued, run)
+	}
+	if len(queued) > 0 {
+		d.handOut(ctx, daemonID)
+	}
+	return queued, nil
 }
 
 // daemonOnline reports whether the store counts the daemon as online: seen
@@ -1026,9 +1108,11 @@ func (d *checkDispatcher) secretsForChecks(ctx context.Context, account string, 
 // patchsetApprovedForGitsliceSecrets reports whether CI checks running for
 // patchset may receive folder/account secrets. Unapproved draft edits under
 // .gitslice/ could alter checks.yaml to exfiltrate secrets, so secrets are
-// withheld unless patchset.Author is an account admin or an account admin has
-// approved this specific patchset. For all other edits, secrets are passed when
-// the patchset author has ActionUseSecrets on the slice (writer+) or a member
+// withheld unless patchset.Author is an account admin, an account admin
+// explicitly allowed secrets for this patchset, or an account admin approved
+// this specific patchset. For all other edits, secrets are passed when the
+// patchset author has ActionUseSecrets on the slice (writer+), a member with
+// ActionUseSecrets explicitly allowed secrets for this patchset, or a member
 // with ActionUseSecrets has approved the patchset (so contributors run
 // secretless CI until allowed by a writer).
 func (d *checkDispatcher) patchsetApprovedForGitsliceSecrets(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset) bool {
@@ -1036,22 +1120,30 @@ func (d *checkDispatcher) patchsetApprovedForGitsliceSecrets(ctx context.Context
 		return false
 	}
 	account := slice.GetRef().GetAccount()
+	touchedGitslice := patchsetTouchedGitslicePath(ctx, d.Repository, patchset) != ""
 	patchsetAuthor := strings.TrimSpace(patchset.GetAuthor())
 	if patchsetAuthor == "" && cs != nil {
 		patchsetAuthor = strings.TrimSpace(cs.GetAuthor())
 	}
 	allows := func(subjectID string) bool {
-		if patchsetTouchedGitslicePath(ctx, d.Repository, patchset) == "" {
+		if !touchedGitslice {
 			return authz.New(d.Auth).AuthorizeAllowArchived(ctx, subjectID, slice, authz.ActionUseSecrets) == nil
 		}
 		ok, err := canAuthorizeAccount(ctx, d.Auth, subjectID, account, authz.ActionAdmin)
 		return err == nil && ok
 	}
 	if d == nil || d.Auth == nil {
-		return patchsetTouchedGitslicePath(ctx, d.Repository, patchset) == ""
+		return !touchedGitslice
 	}
 	if patchsetAuthor != "" && allows(patchsetAuthor) {
 		return true
+	}
+	if d.Checks != nil && cs != nil {
+		if allowance, err := d.Checks.GetPatchsetSecretAllowance(ctx, cs.GetId(), patchset.GetId()); err == nil {
+			if subjectID := strings.TrimSpace(allowance.AllowedBySubjectID); subjectID != "" && allows(subjectID) {
+				return true
+			}
+		}
 	}
 	if d.Changesets == nil || cs == nil {
 		return false

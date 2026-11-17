@@ -556,6 +556,15 @@ type CheckRunInput struct {
 	TriggerRunID string
 }
 
+// PatchsetSecretAllowance records that a reviewer allowed a specific
+// patchset's CI checks to run with folder/account secrets (design/36 §1).
+type PatchsetSecretAllowance struct {
+	ChangesetID        string
+	PatchsetID         string
+	AllowedBySubjectID string
+	CreatedAt          time.Time
+}
+
 // CheckStore persists check runs and replayable check logs. Terminal passed,
 // failed, and errored runs update check_results so the existing submit gate stays
 // the single source of truth for required-check satisfaction.
@@ -574,6 +583,14 @@ type CheckStore interface {
 	// SetCheckRunDetails sets a run's link, summary and annotations
 	// (design/34_triggers.md).
 	SetCheckRunDetails(ctx context.Context, runID string, details CheckRunDetails) (*corev1.CheckRun, error)
+
+	// AllowPatchsetSecrets records that allowedBySubjectID allowed secrets for
+	// patchsetID only (idempotent: an existing allowance is kept and returned
+	// with created=false). Returns ErrNotFound when the patchset does not exist.
+	AllowPatchsetSecrets(ctx context.Context, changesetID, patchsetID, allowedBySubjectID string) (allowance PatchsetSecretAllowance, created bool, err error)
+	// GetPatchsetSecretAllowance returns the explicit secret allowance recorded
+	// for patchsetID, or ErrNotFound if none exists.
+	GetPatchsetSecretAllowance(ctx context.Context, changesetID, patchsetID string) (PatchsetSecretAllowance, error)
 
 	// Claims (design/32_ci_dispatch_on_cloudflare.md, layer 3). instance is
 	// a daemon process, as InstanceKey names it.

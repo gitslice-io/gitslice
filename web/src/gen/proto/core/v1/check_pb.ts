@@ -10,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/check.proto.
  */
 export const file_proto_core_v1_check: GenFile = /*@__PURE__*/
-  fileDesc("Chlwcm90by9jb3JlL3YxL2NoZWNrLnByb3RvEhBnaXRzbGljZS5jb3JlLnYxIsEDCghDaGVja1J1bhIKCgJpZBgBIAEoCRIUCgxjaGFuZ2VzZXRfaWQYAiABKAkSEwoLcGF0Y2hzZXRfaWQYAyABKAkSEgoKY2hlY2tfbmFtZRgEIAEoCRIRCglkYWVtb25faWQYBSABKAkSEgoKcHJvdmVuYW5jZRgGIAEoCRIPCgdhdHRlbXB0GAcgASgFEg4KBnN0YXR1cxgIIAEoCRIRCglleGl0X2NvZGUYCSABKAUSDwoHc3VtbWFyeRgKIAEoCRISCgpzdGFydGVkX2F0GAsgASgJEhMKC2ZpbmlzaGVkX2F0GAwgASgJEhMKC2R1cmF0aW9uX21zGA0gASgDEhIKCmNyZWF0ZWRfYXQYDiABKAkSEwoLZGFlbW9uX25hbWUYDyABKAkSFQoNZGFlbW9uX29ubGluZRgQIAEoCBIbChNkYWVtb25fbGFzdF9zZWVuX2F0GBEgASgJEhYKDnRyaWdnZXJfcnVuX2lkGBIgASgJEhMKC2RldGFpbHNfdXJsGBMgASgJEjYKC2Fubm90YXRpb25zGBQgAygLMiEuZ2l0c2xpY2UuY29yZS52MS5DaGVja0Fubm90YXRpb24iZQoPQ2hlY2tBbm5vdGF0aW9uEgwKBHBhdGgYASABKAkSEgoKc3RhcnRfbGluZRgCIAEoBRIQCghlbmRfbGluZRgDIAEoBRINCgVsZXZlbBgEIAEoCRIPCgdtZXNzYWdlGAUgASgJIl0KC0NoZWNrUnVuTG9nEg4KBnJ1bl9pZBgBIAEoCRILCgNzZXEYAiABKAMSDgoGc3RyZWFtGAMgASgJEg0KBWNodW5rGAQgASgJEhIKCmNyZWF0ZWRfYXQYBSABKAkiQQoUTGlzdENoZWNrUnVuc1JlcXVlc3QSFAoMY2hhbmdlc2V0X2lkGAEgASgJEhMKC3BhdGNoc2V0X2lkGAIgASgJIkEKFUxpc3RDaGVja1J1bnNSZXNwb25zZRIoCgRydW5zGAEgAygLMhouZ2l0c2xpY2UuY29yZS52MS5DaGVja1J1biIkChJHZXRDaGVja1J1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJIiMKEVJlcnVuQ2hlY2tSZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSI6ChVTdHJlYW1DaGVja1J1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJEhEKCWFmdGVyX3NlcRgCIAEoAzLsAgoMQ2hlY2tTZXJ2aWNlEmAKDUxpc3RDaGVja1J1bnMSJi5naXRzbGljZS5jb3JlLnYxLkxpc3RDaGVja1J1bnNSZXF1ZXN0GicuZ2l0c2xpY2UuY29yZS52MS5MaXN0Q2hlY2tSdW5zUmVzcG9uc2USTwoLR2V0Q2hlY2tSdW4SJC5naXRzbGljZS5jb3JlLnYxLkdldENoZWNrUnVuUmVxdWVzdBoaLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tSdW4STQoKUmVydW5DaGVjaxIjLmdpdHNsaWNlLmNvcmUudjEuUmVydW5DaGVja1JlcXVlc3QaGi5naXRzbGljZS5jb3JlLnYxLkNoZWNrUnVuEloKDlN0cmVhbUNoZWNrUnVuEicuZ2l0c2xpY2UuY29yZS52MS5TdHJlYW1DaGVja1J1blJlcXVlc3QaHS5naXRzbGljZS5jb3JlLnYxLkNoZWNrUnVuTG9nMAFCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw");
+  fileDesc("Chlwcm90by9jb3JlL3YxL2NoZWNrLnByb3RvEhBnaXRzbGljZS5jb3JlLnYxIsEDCghDaGVja1J1bhIKCgJpZBgBIAEoCRIUCgxjaGFuZ2VzZXRfaWQYAiABKAkSEwoLcGF0Y2hzZXRfaWQYAyABKAkSEgoKY2hlY2tfbmFtZRgEIAEoCRIRCglkYWVtb25faWQYBSABKAkSEgoKcHJvdmVuYW5jZRgGIAEoCRIPCgdhdHRlbXB0GAcgASgFEg4KBnN0YXR1cxgIIAEoCRIRCglleGl0X2NvZGUYCSABKAUSDwoHc3VtbWFyeRgKIAEoCRISCgpzdGFydGVkX2F0GAsgASgJEhMKC2ZpbmlzaGVkX2F0GAwgASgJEhMKC2R1cmF0aW9uX21zGA0gASgDEhIKCmNyZWF0ZWRfYXQYDiABKAkSEwoLZGFlbW9uX25hbWUYDyABKAkSFQoNZGFlbW9uX29ubGluZRgQIAEoCBIbChNkYWVtb25fbGFzdF9zZWVuX2F0GBEgASgJEhYKDnRyaWdnZXJfcnVuX2lkGBIgASgJEhMKC2RldGFpbHNfdXJsGBMgASgJEjYKC2Fubm90YXRpb25zGBQgAygLMiEuZ2l0c2xpY2UuY29yZS52MS5DaGVja0Fubm90YXRpb24iZQoPQ2hlY2tBbm5vdGF0aW9uEgwKBHBhdGgYASABKAkSEgoKc3RhcnRfbGluZRgCIAEoBRIQCghlbmRfbGluZRgDIAEoBRINCgVsZXZlbBgEIAEoCRIPCgdtZXNzYWdlGAUgASgJIl0KC0NoZWNrUnVuTG9nEg4KBnJ1bl9pZBgBIAEoCRILCgNzZXEYAiABKAMSDgoGc3RyZWFtGAMgASgJEg0KBWNodW5rGAQgASgJEhIKCmNyZWF0ZWRfYXQYBSABKAkiQQoUTGlzdENoZWNrUnVuc1JlcXVlc3QSFAoMY2hhbmdlc2V0X2lkGAEgASgJEhMKC3BhdGNoc2V0X2lkGAIgASgJIkEKFUxpc3RDaGVja1J1bnNSZXNwb25zZRIoCgRydW5zGAEgAygLMhouZ2l0c2xpY2UuY29yZS52MS5DaGVja1J1biIkChJHZXRDaGVja1J1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJIiMKEVJlcnVuQ2hlY2tSZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSI6ChVTdHJlYW1DaGVja1J1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJEhEKCWFmdGVyX3NlcRgCIAEoAyJIChtBbGxvd1BhdGNoc2V0U2VjcmV0c1JlcXVlc3QSFAoMY2hhbmdlc2V0X2lkGAEgASgJEhMKC3BhdGNoc2V0X2lkGAIgASgJIq4BChxBbGxvd1BhdGNoc2V0U2VjcmV0c1Jlc3BvbnNlEhQKDGNoYW5nZXNldF9pZBgBIAEoCRITCgtwYXRjaHNldF9pZBgCIAEoCRIdChVhbGxvd2VkX2J5X3N1YmplY3RfaWQYAyABKAkSEgoKYWxsb3dlZF9hdBgEIAEoCRIwCgxyZXJ1bl9jaGVja3MYBSADKAsyGi5naXRzbGljZS5jb3JlLnYxLkNoZWNrUnVuMuMDCgxDaGVja1NlcnZpY2USYAoNTGlzdENoZWNrUnVucxImLmdpdHNsaWNlLmNvcmUudjEuTGlzdENoZWNrUnVuc1JlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLkxpc3RDaGVja1J1bnNSZXNwb25zZRJPCgtHZXRDaGVja1J1bhIkLmdpdHNsaWNlLmNvcmUudjEuR2V0Q2hlY2tSdW5SZXF1ZXN0GhouZ2l0c2xpY2UuY29yZS52MS5DaGVja1J1bhJNCgpSZXJ1bkNoZWNrEiMuZ2l0c2xpY2UuY29yZS52MS5SZXJ1bkNoZWNrUmVxdWVzdBoaLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tSdW4SWgoOU3RyZWFtQ2hlY2tSdW4SJy5naXRzbGljZS5jb3JlLnYxLlN0cmVhbUNoZWNrUnVuUmVxdWVzdBodLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tSdW5Mb2cwARJ1ChRBbGxvd1BhdGNoc2V0U2VjcmV0cxItLmdpdHNsaWNlLmNvcmUudjEuQWxsb3dQYXRjaHNldFNlY3JldHNSZXF1ZXN0Gi4uZ2l0c2xpY2UuY29yZS52MS5BbGxvd1BhdGNoc2V0U2VjcmV0c1Jlc3BvbnNlQitaKWdpdHNsaWNlLmlvL2dpdHNsaWNlL3Byb3RvL2NvcmUvdjE7Y29yZXYxYgZwcm90bzM");
 
 /**
  * @generated from message gitslice.core.v1.CheckRun
@@ -310,6 +310,67 @@ export const StreamCheckRunRequestSchema: GenMessage<StreamCheckRunRequest> = /*
   messageDesc(file_proto_core_v1_check, 7);
 
 /**
+ * @generated from message gitslice.core.v1.AllowPatchsetSecretsRequest
+ */
+export type AllowPatchsetSecretsRequest = Message<"gitslice.core.v1.AllowPatchsetSecretsRequest"> & {
+  /**
+   * @generated from field: string changeset_id = 1;
+   */
+  changesetId: string;
+
+  /**
+   * Optional; defaults to the changeset's current patchset.
+   *
+   * @generated from field: string patchset_id = 2;
+   */
+  patchsetId: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.AllowPatchsetSecretsRequest.
+ * Use `create(AllowPatchsetSecretsRequestSchema)` to create a new message.
+ */
+export const AllowPatchsetSecretsRequestSchema: GenMessage<AllowPatchsetSecretsRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_check, 8);
+
+/**
+ * @generated from message gitslice.core.v1.AllowPatchsetSecretsResponse
+ */
+export type AllowPatchsetSecretsResponse = Message<"gitslice.core.v1.AllowPatchsetSecretsResponse"> & {
+  /**
+   * @generated from field: string changeset_id = 1;
+   */
+  changesetId: string;
+
+  /**
+   * @generated from field: string patchset_id = 2;
+   */
+  patchsetId: string;
+
+  /**
+   * @generated from field: string allowed_by_subject_id = 3;
+   */
+  allowedBySubjectId: string;
+
+  /**
+   * @generated from field: string allowed_at = 4;
+   */
+  allowedAt: string;
+
+  /**
+   * @generated from field: repeated gitslice.core.v1.CheckRun rerun_checks = 5;
+   */
+  rerunChecks: CheckRun[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.AllowPatchsetSecretsResponse.
+ * Use `create(AllowPatchsetSecretsResponseSchema)` to create a new message.
+ */
+export const AllowPatchsetSecretsResponseSchema: GenMessage<AllowPatchsetSecretsResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_check, 9);
+
+/**
  * @generated from service gitslice.core.v1.CheckService
  */
 export const CheckService: GenService<{
@@ -344,6 +405,14 @@ export const CheckService: GenService<{
     methodKind: "server_streaming";
     input: typeof StreamCheckRunRequestSchema;
     output: typeof CheckRunLogSchema;
+  },
+  /**
+   * @generated from rpc gitslice.core.v1.CheckService.AllowPatchsetSecrets
+   */
+  allowPatchsetSecrets: {
+    methodKind: "unary";
+    input: typeof AllowPatchsetSecretsRequestSchema;
+    output: typeof AllowPatchsetSecretsResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_proto_core_v1_check, 0);

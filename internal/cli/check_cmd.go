@@ -11,18 +11,20 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 )
 
 // checkCommand builds gs check: list a changeset's check runs, print a run's
-// log, rerun one. A check is named by its run id (run_...), or by its name
-// (full, such as gitslice/e2e, or the part after the last /) on the
-// workspace's changeset or the one given with --changeset.
+// log, rerun one, or allow secrets on a contributor's patchset. A check is
+// named by its run id (run_...), or by its name (full, such as gitslice/e2e,
+// or the part after the last /) on the workspace's changeset or the one given
+// with --changeset.
 func (r Runner) checkCommand(opts *commandOptions) *cobra.Command {
 	checkCmd := &cobra.Command{
 		Use:   "check",
-		Short: "List a changeset's check runs, print a check's log, rerun a check",
+		Short: "List a changeset's check runs, print a check's log, rerun a check, allow secrets",
 		RunE:  requireSubcommand("check"),
 	}
 	listChangeset := ""
@@ -61,8 +63,31 @@ func (r Runner) checkCommand(opts *commandOptions) *cobra.Command {
 		},
 	}
 	rerunCmd.Flags().StringVar(&rerunChangeset, "changeset", "", "changeset whose check to rerun (default: the workspace's)")
-	checkCmd.AddCommand(listCmd, logsCmd, rerunCmd)
+	allowPatchset := ""
+	allowCmd := &cobra.Command{
+		Use:   "allow [changeset]",
+		Short: "Allow a contributor patchset's CI checks to run with secrets and rerun them",
+		Args:  maxArgs(1, "gs check allow [changeset] [--patchset id]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			requested := ""
+			if len(args) > 0 {
+				requested = args[0]
+			}
+			return r.runCheckAllow(cmd.Context(), *opts, requested, allowPatchset)
+		},
+	}
+	allowCmd.Flags().StringVar(&allowPatchset, "patchset", "", "patchset id to allow secrets on (default: current patchset)")
+	checkCmd.AddCommand(listCmd, logsCmd, rerunCmd, allowCmd)
 	return checkCmd
+}
+
+type allowPatchsetSecretsOutput struct {
+	Changeset   string           `json:"changeset"`
+	ChangesetID string           `json:"changeset_id"`
+	PatchsetID  string           `json:"patchset_id"`
+	AllowedBy   string           `json:"allowed_by"`
+	AllowedAt   string           `json:"allowed_at,omitempty"`
+	RerunChecks []checkRunOutput `json:"rerun_checks,omitempty"`
 }
 
 type checkRunOutput struct {
@@ -301,6 +326,61 @@ func (r Runner) runCheckRerun(ctx context.Context, opts commandOptions, changese
 	}
 	if !opts.Quiet {
 		fmt.Fprintf(r.Stdout, "rerunning %s as %s (attempt %d); gs check logs %s --follow to watch\n", out.Name, out.RunID, out.Attempt, out.RunID)
+	}
+	return nil
+}
+
+func (r Runner) runCheckAllow(ctx context.Context, opts commandOptions, requested, patchsetID string) error {
+	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requested)
+	if err != nil {
+		return err
+	}
+	conn, err := dial(ctx, cfg.ServerAddr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	res, err := corev1.NewCheckServiceClient(conn).AllowPatchsetSecrets(authContext(ctx, cfg), &corev1.AllowPatchsetSecretsRequest{
+		ChangesetId: changesetID,
+		PatchsetId:  strings.TrimSpace(patchsetID),
+	})
+	if err != nil {
+		return err
+	}
+	runs := make([]checkRunOutput, 0, len(res.GetRerunChecks()))
+	for _, run := range res.GetRerunChecks() {
+		runs = append(runs, checkRunOutput{
+			Name:       run.GetCheckName(),
+			Status:     run.GetStatus(),
+			RunID:      run.GetId(),
+			Attempt:    run.GetAttempt(),
+			Summary:    run.GetSummary(),
+			Daemon:     run.GetDaemonName(),
+			DurationMs: run.GetDurationMs(),
+		})
+	}
+	csLabel := firstNonEmpty(storage.ShortChangesetID(res.GetChangesetId()), res.GetChangesetId(), changesetID)
+	out := allowPatchsetSecretsOutput{
+		Changeset:   csLabel,
+		ChangesetID: res.GetChangesetId(),
+		PatchsetID:  res.GetPatchsetId(),
+		AllowedBy:   res.GetAllowedBySubjectId(),
+		AllowedAt:   res.GetAllowedAt(),
+		RerunChecks: runs,
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, out)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	if len(runs) == 0 {
+		fmt.Fprintf(r.Stdout, "allowed secrets for %s (%s)\n", csLabel, out.PatchsetID)
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "allowed secrets for %s (%s); running %d check(s):\n", csLabel, out.PatchsetID, len(runs))
+	for _, c := range runs {
+		fmt.Fprintf(r.Stdout, "  %-10s %-24s %s\n", c.Status, c.Name, c.RunID)
 	}
 	return nil
 }

@@ -601,6 +601,10 @@ func (a connectCheckAdapter) StreamCheckRun(ctx context.Context, req *connect.Re
 	return connectError(a.svc.StreamCheckRun(req.Msg, connectCheckRunLogStream{ctx: ctx, stream: stream}))
 }
 
+func (a connectCheckAdapter) AllowPatchsetSecrets(ctx context.Context, req *connect.Request[corev1.AllowPatchsetSecretsRequest]) (*connect.Response[corev1.AllowPatchsetSecretsResponse], error) {
+	return connectResponse(a.svc.AllowPatchsetSecrets(ctx, req.Msg))
+}
+
 type connectGRPCServerStream struct {
 	ctx context.Context
 }

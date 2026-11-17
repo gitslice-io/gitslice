@@ -28,6 +28,7 @@ func TestRPCRetrySafe(t *testing.T) {
 		"/gitslice.core.v1.FeedbackService/ResolveFeedback":        false,
 		"/gitslice.core.v1.FeedbackService/SubmitFeedback":         false,
 		"/gitslice.core.v1.CheckService/RerunCheck":                false,
+		"/gitslice.core.v1.CheckService/AllowPatchsetSecrets":      false,
 	} {
 		if got := rpcRetrySafe(method); got != want {
 			t.Errorf("rpcRetrySafe(%s) = %v, want %v", method, got, want)

@@ -139,6 +139,7 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 			Auth:       stores.Auth,
 			Changesets: stores.Changesets,
 			Slices:     stores.Slices,
+			Repository: stores.Repository,
 			Checks:     stores.Checks,
 			Agents:     stores.Agents,
 			checkLogs:  checkLogs,

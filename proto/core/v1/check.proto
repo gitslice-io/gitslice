@@ -9,6 +9,7 @@ service CheckService {
   rpc GetCheckRun(GetCheckRunRequest) returns (CheckRun);
   rpc RerunCheck(RerunCheckRequest) returns (CheckRun);
   rpc StreamCheckRun(StreamCheckRunRequest) returns (stream CheckRunLog);
+  rpc AllowPatchsetSecrets(AllowPatchsetSecretsRequest) returns (AllowPatchsetSecretsResponse);
 }
 
 message CheckRun {
@@ -80,4 +81,18 @@ message RerunCheckRequest {
 message StreamCheckRunRequest {
   string run_id = 1;
   int64 after_seq = 2;
+}
+
+message AllowPatchsetSecretsRequest {
+  string changeset_id = 1;
+  // Optional; defaults to the changeset's current patchset.
+  string patchset_id = 2;
+}
+
+message AllowPatchsetSecretsResponse {
+  string changeset_id = 1;
+  string patchset_id = 2;
+  string allowed_by_subject_id = 3;
+  string allowed_at = 4;
+  repeated CheckRun rerun_checks = 5;
 }

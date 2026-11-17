@@ -9549,3 +9549,18 @@ pages are code-split, analytics waits for the page to load.
 
 **Verification**
 - `go test ./internal/checkexec/`: script tests on the host `sh` (dotfiles copied, `.gs` skipped, an unreadable file stops the check) and a busybox container whose tree exceeds a 1m cap.
+
+## 2026-11-17 — Multi-agent collaboration phase 1 (roles, controllers, changeset ownership, secret allowances)
+
+**Why**
+- `writer` previously bundled proposing changesets, approving/submitting anyone's changesets, tagging, and running CI checks with account secrets into one role, and approvals counted raw subjects rather than accountable controllers (`design/36_multi_agent_collaboration.md`).
+
+**What changed**
+- **Roles and named capabilities (Diff 1)**: Added the `contributor` role (`reader < contributor < writer < admin < owner`) and named `authz.Action` capabilities (`read`, `propose`, `submit`, `review`, `tag`, `use_secrets`, `manage_members`, `act_on_any_changeset`) across `internal/authz`, Postgres/memory stores, service endpoints, and CLI (`gs slice share`, `gs account`, `gs doctor`). Contributors can create/update changesets they own and run secretless CI checks on the slice's daemon, without submit, review, tag, or secret access.
+- **Subject controllers and `required_human_approvals` (Diff 2, migration `0053`)**: Added `subjects.controller_subject_id` (backfilled for `user` subjects and claimed `agent_registrations`) and `required_human_approvals` on slices and submit requirements. Approvals now count distinct non-empty controllers excluding the controller(s) of the changeset author and non-mechanical (`kind != submit_merge`) patchset authors (unclaimed agents never count), and `required_human_approvals` gates submit on distinct eligible `kind = 'user'` approvers (`gs slice create/update --required-human-approvals`).
+- **Changeset ownership, collaborators, and handoff (Diff 3, migration `0054`)**: Added `original_author_subject_id` and `changeset_collaborators`, enforcing centralized changeset/stack ownership across patchset updates, edits, submits, abandons, and stack mutations (author, author's controller acting with the higher of their and the agent's slice role, explicit collaborators, and slice/account admins), plus `AddChangesetCollaborator`, `RemoveChangesetCollaborator`, and `HandoffChangeset` RPCs and `gs cs collaborators` / `gs cs handoff` CLI commands.
+- **Patchset secret allowances (Diff 4, migration `0055`)**: Added `patchset_secret_allowances`, `CheckService.AllowPatchsetSecrets`, and `gs check allow [changeset] [--patchset id]`, allowing `writer`+ reviewers (or account `owner`/`admin` when `.gitslice/` paths are touched) to grant folder/account secrets for one specific patchset and re-queue its CI checks with secrets enabled without carrying over to subsequent patchsets.
+
+**Verification**
+- `gofmt -l`, `go vet ./...`, `go build ./cmd/...`, and Go unit suites (`./internal/authz/...`, `./internal/storage/...`, `./service/...`, `./internal/cli/...`, `./server/...`).
+- Live PostgreSQL suites (`./internal/postgres`, `./tests/rpc`, `./tests/cli`) and `web` `npm run build && npm test`.

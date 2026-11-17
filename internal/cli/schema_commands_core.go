@@ -180,6 +180,14 @@ func schemaSetupCommands() []map[string]any {
 			"machine_output": []string{"name", "status", "run_id", "attempt"},
 		},
 		{
+			"use":            "gs check allow [changeset]",
+			"summary":        "allow a contributor patchset's CI checks to run with secrets and rerun them",
+			"args":           []string{"changeset"},
+			"flags":          []string{"--patchset"},
+			"writes_stdout":  true,
+			"machine_output": []string{"changeset", "changeset_id", "patchset_id", "allowed_by", "allowed_at", "rerun_checks"},
+		},
+		{
 			"use":            "gs rpc call <service>/<method> [request-json]",
 			"summary":        "call a generated core RPC with a JSON request; a server-streaming RPC prints one JSON object per line",
 			"args":           []string{"service/method", "request-json"},

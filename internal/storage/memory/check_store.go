@@ -348,3 +348,45 @@ func (s *CheckStore) SetCheckRunDetails(ctx context.Context, runID string, detai
 	run.Annotations = storage.CheckAnnotationsProto(data)
 	return cloneCheckRun(run), nil
 }
+
+func (s *CheckStore) AllowPatchsetSecrets(ctx context.Context, changesetID, patchsetID, allowedBySubjectID string) (storage.PatchsetSecretAllowance, bool, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	changesetID = strings.TrimSpace(changesetID)
+	patchsetID = strings.TrimSpace(patchsetID)
+	allowedBySubjectID = strings.TrimSpace(allowedBySubjectID)
+	if changesetID == "" || patchsetID == "" || allowedBySubjectID == "" {
+		return storage.PatchsetSecretAllowance{}, false, storage.ErrInvalid
+	}
+	cs := s.b.changesets[changesetID]
+	if cs == nil || !changesetHasPatchsetID(cs, patchsetID) {
+		return storage.PatchsetSecretAllowance{}, false, storage.ErrNotFound
+	}
+	key := patchsetRequirementKey(changesetID, patchsetID)
+	if existing, ok := s.b.patchsetSecretAllowance[key]; ok {
+		return existing, false, nil
+	}
+	allowance := storage.PatchsetSecretAllowance{
+		ChangesetID:        changesetID,
+		PatchsetID:         patchsetID,
+		AllowedBySubjectID: allowedBySubjectID,
+		CreatedAt:          time.Now().UTC(),
+	}
+	s.b.patchsetSecretAllowance[key] = allowance
+	return allowance, true, nil
+}
+
+func (s *CheckStore) GetPatchsetSecretAllowance(ctx context.Context, changesetID, patchsetID string) (storage.PatchsetSecretAllowance, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	changesetID = strings.TrimSpace(changesetID)
+	patchsetID = strings.TrimSpace(patchsetID)
+	if changesetID == "" || patchsetID == "" {
+		return storage.PatchsetSecretAllowance{}, storage.ErrInvalid
+	}
+	allowance, ok := s.b.patchsetSecretAllowance[patchsetRequirementKey(changesetID, patchsetID)]
+	if !ok {
+		return storage.PatchsetSecretAllowance{}, storage.ErrNotFound
+	}
+	return allowance, nil
+}

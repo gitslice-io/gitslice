@@ -111,10 +111,11 @@ type backend struct {
 	agentEvents      map[string][]*corev1.ConversationEvent
 	agentConvNextSeq map[string]int64
 
-	checkRuns            map[string]*corev1.CheckRun
-	checkRunClaims       map[string]memoryCheckRunClaim
-	checkRunSupersededBy map[string]string
-	checkRunLogs         map[string][]*corev1.CheckRunLog
+	checkRuns               map[string]*corev1.CheckRun
+	checkRunClaims          map[string]memoryCheckRunClaim
+	checkRunSupersededBy    map[string]string
+	checkRunLogs            map[string][]*corev1.CheckRunLog
+	patchsetSecretAllowance map[string]storage.PatchsetSecretAllowance
 }
 
 type cliLoginSession struct {
@@ -214,6 +215,7 @@ func New() *Stores {
 		checkRunClaims:          map[string]memoryCheckRunClaim{},
 		checkRunSupersededBy:    map[string]string{},
 		checkRunLogs:            map[string][]*corev1.CheckRunLog{},
+		patchsetSecretAllowance: map[string]storage.PatchsetSecretAllowance{},
 	}
 	root := &corev1.Commit{
 		Id:         "mem_root",

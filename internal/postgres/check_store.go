@@ -481,6 +481,78 @@ func (s *CheckStore) SetCheckRunDetails(ctx context.Context, runID string, detai
 	return s.GetCheckRun(ctx, runID)
 }
 
+func (s *CheckStore) AllowPatchsetSecrets(ctx context.Context, changesetID, patchsetID, allowedBySubjectID string) (storage.PatchsetSecretAllowance, bool, error) {
+	changesetID = strings.TrimSpace(changesetID)
+	patchsetID = strings.TrimSpace(patchsetID)
+	allowedBySubjectID = strings.TrimSpace(allowedBySubjectID)
+	if changesetID == "" {
+		return storage.PatchsetSecretAllowance{}, false, fmt.Errorf("%w: changeset_id is required", storage.ErrInvalid)
+	}
+	if patchsetID == "" {
+		return storage.PatchsetSecretAllowance{}, false, fmt.Errorf("%w: patchset_id is required", storage.ErrInvalid)
+	}
+	if allowedBySubjectID == "" {
+		return storage.PatchsetSecretAllowance{}, false, fmt.Errorf("%w: allowed_by_subject_id is required", storage.ErrInvalid)
+	}
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return storage.PatchsetSecretAllowance{}, false, err
+	}
+	defer tx.Rollback()
+
+	if err := requirePatchsetForChangeset(ctx, tx, changesetID, patchsetID); err != nil {
+		return storage.PatchsetSecretAllowance{}, false, err
+	}
+
+	var out storage.PatchsetSecretAllowance
+	created := true
+	err = tx.QueryRowContext(ctx, `
+		insert into patchset_secret_allowances(changeset_id, patchset_id, allowed_by_subject_id)
+		values ($1, $2, $3)
+		on conflict (changeset_id, patchset_id) do nothing
+		returning changeset_id, patchset_id, allowed_by_subject_id, created_at
+	`, changesetID, patchsetID, allowedBySubjectID).Scan(&out.ChangesetID, &out.PatchsetID, &out.AllowedBySubjectID, &out.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		created = false
+		err = tx.QueryRowContext(ctx, `
+			select changeset_id, patchset_id, allowed_by_subject_id, created_at
+			from patchset_secret_allowances
+			where changeset_id = $1 and patchset_id = $2
+		`, changesetID, patchsetID).Scan(&out.ChangesetID, &out.PatchsetID, &out.AllowedBySubjectID, &out.CreatedAt)
+	}
+	if err != nil {
+		return storage.PatchsetSecretAllowance{}, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return storage.PatchsetSecretAllowance{}, false, err
+	}
+	out.CreatedAt = out.CreatedAt.UTC()
+	return out, created, nil
+}
+
+func (s *CheckStore) GetPatchsetSecretAllowance(ctx context.Context, changesetID, patchsetID string) (storage.PatchsetSecretAllowance, error) {
+	changesetID = strings.TrimSpace(changesetID)
+	patchsetID = strings.TrimSpace(patchsetID)
+	if changesetID == "" || patchsetID == "" {
+		return storage.PatchsetSecretAllowance{}, fmt.Errorf("%w: changeset_id and patchset_id are required", storage.ErrInvalid)
+	}
+	var out storage.PatchsetSecretAllowance
+	err := s.db.QueryRowContext(ctx, `
+		select changeset_id, patchset_id, allowed_by_subject_id, created_at
+		from patchset_secret_allowances
+		where changeset_id = $1 and patchset_id = $2
+	`, changesetID, patchsetID).Scan(&out.ChangesetID, &out.PatchsetID, &out.AllowedBySubjectID, &out.CreatedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return storage.PatchsetSecretAllowance{}, storage.ErrNotFound
+	}
+	if err != nil {
+		return storage.PatchsetSecretAllowance{}, err
+	}
+	out.CreatedAt = out.CreatedAt.UTC()
+	return out, nil
+}
+
 func scanCheckRunLog(row rowScanner) (*corev1.CheckRunLog, error) {
 	var (
 		log       corev1.CheckRunLog

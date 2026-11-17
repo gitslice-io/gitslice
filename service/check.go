@@ -15,6 +15,7 @@ type CheckService struct {
 	Auth       storage.AuthStore
 	Changesets storage.ChangesetStore
 	Slices     storage.SliceStore
+	Repository storage.RepositoryStore
 	Checks     storage.CheckStore
 	// Agents and hub say whether a run's daemon is connected, so a queued
 	// run can say what it waits for.
@@ -122,19 +123,80 @@ func (s *CheckService) RerunCheck(ctx context.Context, req *corev1.RerunCheckReq
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	cs, err := s.authorizedChangeset(ctx, subjectID, run.GetChangesetId(), authz.ActionReview)
+	cs, slice, err := s.authorizedChangesetAndSlice(ctx, subjectID, run.GetChangesetId(), authz.ActionReview)
 	if err != nil {
 		return nil, err
-	}
-	slice, err := s.Slices.Resolve(ctx, cs.GetAuthoringSlice())
-	if err != nil {
-		return nil, grpcError(err)
 	}
 	patchset := patchsetByID(cs, run.GetPatchsetId())
 	if patchset == nil {
 		return nil, grpcError(storage.ErrNotFound)
 	}
 	return s.dispatcher.rerunCheck(ctx, cs, slice, patchset, run)
+}
+
+// AllowPatchsetSecrets explicitly authorizes folder/account secrets for a
+// specific patchset's CI runs and re-queues CI checks on that patchset
+// (design/36 §1).
+func (s *CheckService) AllowPatchsetSecrets(ctx context.Context, req *corev1.AllowPatchsetSecretsRequest) (*corev1.AllowPatchsetSecretsResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	changesetID := strings.TrimSpace(req.GetChangesetId())
+	if changesetID == "" {
+		return nil, status.Error(codes.InvalidArgument, "changeset_id is required")
+	}
+	cs, slice, err := s.authorizedChangesetAndSlice(ctx, subjectID, changesetID, authz.ActionReview)
+	if err != nil {
+		return nil, err
+	}
+	if cs.GetStatus() == "submitted" || cs.GetStatus() == "abandoned" {
+		return nil, status.Errorf(codes.FailedPrecondition, "cannot allow secrets on %s changeset", cs.GetStatus())
+	}
+
+	var patchset *corev1.Patchset
+	if patchsetID := strings.TrimSpace(req.GetPatchsetId()); patchsetID != "" {
+		patchset = patchsetByID(cs, patchsetID)
+		if patchset == nil {
+			return nil, grpcError(storage.ErrNotFound)
+		}
+	} else {
+		patchset = currentPatchset(cs)
+		if patchset == nil {
+			return nil, status.Error(codes.FailedPrecondition, "changeset has no patchset")
+		}
+	}
+
+	repo := s.Repository
+	if repo == nil && s.dispatcher != nil {
+		repo = s.dispatcher.Repository
+	}
+	if touched := patchsetTouchedGitslicePath(ctx, repo, patchset); touched != "" {
+		if err := authorizeAccount(ctx, s.Auth, subjectID, slice.GetRef().GetAccount(), authz.ActionAdmin); err != nil {
+			return nil, err
+		}
+	}
+
+	allowance, created, err := s.Checks.AllowPatchsetSecrets(ctx, cs.GetId(), patchset.GetId(), subjectID)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+
+	var rerunChecks []*corev1.CheckRun
+	if s.dispatcher != nil {
+		rerunChecks, err = s.dispatcher.dispatchAllowedPatchsetChecks(ctx, cs, slice, patchset, created)
+		if err != nil {
+			return nil, err
+		}
+		s.annotateDaemons(ctx, rerunChecks...)
+	}
+	return &corev1.AllowPatchsetSecretsResponse{
+		ChangesetId:        allowance.ChangesetID,
+		PatchsetId:         allowance.PatchsetID,
+		AllowedBySubjectId: allowance.AllowedBySubjectID,
+		AllowedAt:          formatTime(allowance.CreatedAt),
+		RerunChecks:        rerunChecks,
+	}, nil
 }
 
 func (s *CheckService) StreamCheckRun(req *corev1.StreamCheckRunRequest, stream corev1.CheckService_StreamCheckRunServer) error {
@@ -221,21 +283,26 @@ func (s *CheckService) sendPersistedCheckLogs(ctx context.Context, runID string,
 }
 
 func (s *CheckService) authorizedChangeset(ctx context.Context, subjectID, changesetID string, action authz.Action) (*corev1.Changeset, error) {
+	cs, _, err := s.authorizedChangesetAndSlice(ctx, subjectID, changesetID, action)
+	return cs, err
+}
+
+func (s *CheckService) authorizedChangesetAndSlice(ctx context.Context, subjectID, changesetID string, action authz.Action) (*corev1.Changeset, *corev1.Slice, error) {
 	cs, err := s.Changesets.Get(ctx, changesetID)
 	if err != nil {
-		return nil, grpcError(err)
+		return nil, nil, grpcError(err)
 	}
 	if cs.GetAuthoringSlice() == nil {
-		return nil, status.Error(codes.FailedPrecondition, "changeset has no authoring slice")
+		return nil, nil, status.Error(codes.FailedPrecondition, "changeset has no authoring slice")
 	}
 	slice, err := resolveAuthoringSlice(ctx, s.Slices, cs.GetAuthoringSlice(), action)
 	if err != nil {
-		return nil, grpcError(err)
+		return nil, nil, grpcError(err)
 	}
 	if err := authorize(ctx, s.Auth, subjectID, slice, action); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return cs, nil
+	return cs, slice, nil
 }
 
 type checkRunLogStream interface {
