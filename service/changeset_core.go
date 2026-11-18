@@ -2,6 +2,7 @@ package service
 
 import (
 	"gitslice.io/gitslice/internal/analytics"
+	"gitslice.io/gitslice/internal/keylock"
 	"gitslice.io/gitslice/internal/storage"
 )
 
@@ -22,6 +23,7 @@ type changesetCore struct {
 	validator   diffValidator
 	dispatcher  *checkDispatcher
 	blobService *BlobService
+	mergeLocks  keylock.Locker
 }
 
 func (c *changesetCore) changesets() ChangesetService {

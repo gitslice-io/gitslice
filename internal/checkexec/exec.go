@@ -1,7 +1,6 @@
 package checkexec
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -347,111 +346,6 @@ func runCommand(ctx context.Context, cmd *exec.Cmd, timeout time.Duration, clean
 	}, nil
 }
 
-func prepareContainerImage(ctx context.Context, runtime, image string, setup []string, timeout time.Duration) (string, int64, bool, *Result, error) {
-	dockerfile, err := setupDockerfile(image, setup)
-	if err != nil {
-		return "", 0, false, nil, err
-	}
-	tag := preparedImageTag(image, setup)
-	if err := checks.ValidateImageRef(tag); err != nil {
-		return "", 0, false, nil, err
-	}
-
-	unlock, err := lockBuild(ctx, tag)
-	if err != nil {
-		return "", 0, false, nil, err
-	}
-	defer unlock()
-
-	inspect := exec.CommandContext(ctx, runtime, "image", "inspect", "--", tag)
-	inspect.Env = containerClientEnv()
-	if err := inspect.Run(); err == nil {
-		return tag, 0, true, nil, nil
-	}
-
-	// Setup is image-level, changeset-independent preparation. Build with an
-	// empty context and without mounting the workspace so the derived image can
-	// be reused across patchsets that declare the same image/setup pair.
-	contextDir, err := os.MkdirTemp("", "gitslice-ci-context-*")
-	if err != nil {
-		return "", 0, false, nil, fmt.Errorf("create setup build context: %w", err)
-	}
-	defer os.RemoveAll(contextDir)
-
-	buildCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	buildArgs := []string{
-		"build",
-		"--label", setupImageLabelKey + "=1",
-		"-t", tag,
-		"-f", "-",
-	}
-	buildArgs = append(buildArgs, containerBuildNetworkArgs()...)
-	buildArgs = append(buildArgs, contextDir)
-
-	cmd := exec.CommandContext(buildCtx, runtime, buildArgs...)
-	cmd.Env = containerClientEnv()
-	cmd.Stdin = strings.NewReader(dockerfile)
-	configureProcessGroup(cmd)
-	var output cappedBuffer
-	cmd.Stdout = &output
-	cmd.Stderr = &output
-
-	start := time.Now()
-	err = cmd.Run()
-	setupMs := time.Since(start).Milliseconds()
-	log := output.String()
-	if errors.Is(buildCtx.Err(), context.DeadlineExceeded) {
-		_ = killProcessGroup(cmd)
-		return tag, setupMs, false, &Result{
-			Status:   "errored",
-			ExitCode: -1,
-			Summary:  fmt.Sprintf("setup timed out after %s", timeout),
-			Log:      log,
-			SetupMs:  setupMs,
-		}, nil
-	}
-	if err != nil {
-		summary := "setup failed"
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			summary = fmt.Sprintf("setup failed: exit %d", exitErr.ExitCode())
-		} else if buildCtx.Err() != nil {
-			summary = "setup failed: " + buildCtx.Err().Error()
-		} else {
-			summary = fmt.Sprintf("setup failed: %v", err)
-		}
-		return tag, setupMs, false, &Result{
-			Status:   "errored",
-			ExitCode: -1,
-			Summary:  summary,
-			Log:      log,
-			SetupMs:  setupMs,
-		}, nil
-	}
-	pruneSetupImages(runtime)
-	return tag, setupMs, false, nil, nil
-}
-
-func pruneSetupImages(runtime string) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	lsCmd := exec.CommandContext(ctx, runtime, "image", "ls",
-		"--filter", "label="+setupImageLabelKey+"=1",
-		"--format", "{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}")
-	lsCmd.Env = containerClientEnv()
-	out, err := lsCmd.Output()
-	if err != nil {
-		return
-	}
-	pruneImageListing(ctx, runtime, string(out), keptSetupImages)
-}
-
-func preparedImageTag(image string, setup []string) string {
-	sum := sha256.Sum256([]byte(image + "\n" + strings.Join(setup, "\n")))
-	return "gitslice-ci/" + hex.EncodeToString(sum[:])[:24]
-}
-
 var newContainerName = randomContainerName
 
 func randomContainerName() (string, error) {
@@ -468,21 +362,6 @@ func randomSuffix() (string, error) {
 		return "", fmt.Errorf("generate container name: %w", err)
 	}
 	return hex.EncodeToString(b[:]), nil
-}
-
-func setupDockerfile(image string, setup []string) (string, error) {
-	if err := checks.ValidateImageRef(image); err != nil {
-		return "", fmt.Errorf("setup base image: %w", err)
-	}
-	if err := checks.ValidateSetupCommands(setup); err != nil {
-		return "", fmt.Errorf("setup commands: %w", err)
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "FROM %s\n", image)
-	for _, command := range setup {
-		fmt.Fprintf(&b, "RUN %s\n", command)
-	}
-	return b.String(), nil
 }
 
 func containerRunArgs(root, image, containerName string, spec checks.CheckSpec, run containerRun) ([]string, error) {
@@ -670,57 +549,4 @@ func sortedEnvKeys(env map[string]string) []string {
 	}
 	sort.Strings(keys)
 	return keys
-}
-
-// logHeadBytes is how much of a check's output is kept from the start; the
-// rest of MaxLogBytes holds the most recent output.
-const logHeadBytes = 32 * 1024
-
-type cappedBuffer struct {
-	head        bytes.Buffer
-	tail        []byte // ring holding the latest output once head is full
-	next        int    // ring write position
-	tailWritten int64  // bytes ever written past head
-}
-
-func (b *cappedBuffer) Write(p []byte) (int, error) {
-	n := len(p)
-	if room := logHeadBytes - b.head.Len(); room > 0 {
-		take := min(room, len(p))
-		_, _ = b.head.Write(p[:take])
-		p = p[take:]
-	}
-	if len(p) == 0 {
-		return n, nil
-	}
-	if b.tail == nil {
-		b.tail = make([]byte, MaxLogBytes-logHeadBytes)
-	}
-	b.tailWritten += int64(len(p))
-	if len(p) > len(b.tail) {
-		p = p[len(p)-len(b.tail):]
-	}
-	for len(p) > 0 {
-		c := copy(b.tail[b.next:], p)
-		b.next = (b.next + c) % len(b.tail)
-		p = p[c:]
-	}
-	return n, nil
-}
-
-func (b *cappedBuffer) String() string {
-	if b.tailWritten == 0 {
-		return b.head.String()
-	}
-	var out strings.Builder
-	out.WriteString(b.head.String())
-	size := int64(len(b.tail))
-	if b.tailWritten <= size {
-		out.Write(b.tail[:b.tailWritten])
-		return out.String()
-	}
-	fmt.Fprintf(&out, "\n[check log truncated: %d bytes omitted]\n", b.tailWritten-size)
-	out.Write(b.tail[b.next:])
-	out.Write(b.tail[:b.next])
-	return out.String()
 }

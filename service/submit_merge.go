@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math/rand"
 	"strings"
-	"sync"
 	"time"
 
 	"gitslice.io/gitslice/internal/storage"
@@ -94,7 +93,10 @@ func (s *ChangesetService) mergeAndSubmit(ctx context.Context, cs *corev1.Change
 	// agents landing together queue instead of each making the others' merge
 	// stale; the loop below is for what still races (another instance, or a
 	// submit that did not merge).
-	unlock := lockMergeTarget(cs)
+	unlock, err := s.lockMergeTarget(ctx, cs)
+	if err != nil {
+		return nil, status.FromContextError(err).Err(), false
+	}
 	defer unlock()
 	var merged *corev1.Patchset
 	for attempt := 0; attempt < mergeOnSubmitAttempts; attempt++ {
@@ -182,13 +184,10 @@ func withMergedNote(err error, merged *corev1.Patchset) error {
 	return status.Error(converted.Code(), mergedNote(merged)+": "+converted.Message())
 }
 
-// mergeLocks holds one mutex per slice and target ref being merged into.
-var mergeLocks sync.Map
-
-func lockMergeTarget(cs *corev1.Changeset) func() {
+func (s *ChangesetService) lockMergeTarget(ctx context.Context, cs *corev1.Changeset) (func(), error) {
+	if s == nil || s.changesetCore == nil {
+		return func() {}, nil
+	}
 	key := cs.GetAuthoringSlice().GetAccount() + "/" + cs.GetAuthoringSlice().GetSlice() + "@" + cs.GetTargetRef()
-	value, _ := mergeLocks.LoadOrStore(key, &sync.Mutex{})
-	mu := value.(*sync.Mutex)
-	mu.Lock()
-	return mu.Unlock
+	return s.changesetCore.mergeLocks.LockContext(ctx, key)
 }

@@ -210,6 +210,51 @@ func TestResolveBuiltImageKeysOnInputsOnly(t *testing.T) {
 	}
 }
 
+func TestEnsureBuiltImageClassifiesParentContextCancellation(t *testing.T) {
+	binDir := t.TempDir()
+	readyPath := filepath.Join(binDir, "ready")
+	fakeRuntime := filepath.Join(binDir, "fake-docker")
+	script := "#!/bin/sh\nif [ \"$1\" = \"image\" ] && [ \"$2\" = \"inspect\" ]; then\n  exit 1\nfi\nif [ \"$1\" = \"build\" ]; then\n  touch \"" + readyPath + "\"\n  sleep 10\n  exit 1\nfi\nexit 0\n"
+	if err := os.WriteFile(fakeRuntime, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	root := t.TempDir()
+	writeTestFile(t, root, "Dockerfile", "FROM busybox\n")
+	img, err := resolveBuiltImage(root, "cancel-test", &checks.ImageBuild{ContextDir: "/", Dockerfile: "Dockerfile"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, statErr := os.Stat(readyPath); statErr == nil {
+				cancel()
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		cancel()
+	}()
+
+	_, cached, _, result, err := ensureBuiltImage(ctx, RuntimeInfo{Name: "docker", Path: fakeRuntime}, img, 30*time.Second)
+	if err != nil {
+		t.Fatalf("ensureBuiltImage() error = %v", err)
+	}
+	if cached {
+		t.Fatal("ensureBuiltImage() reported cached = true on canceled build")
+	}
+	if result == nil || result.Status != "errored" || result.Summary != "image build failed: context canceled" {
+		t.Fatalf("result = %#v, want errored with summary %q", result, "image build failed: context canceled")
+	}
+	if got := imageBuildLocks.Len(); got != 0 {
+		t.Fatalf("imageBuildLocks.Len() = %d, want 0 after return", got)
+	}
+}
+
 func writeTestFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	p := filepath.Join(root, filepath.FromSlash(rel))

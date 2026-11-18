@@ -1,11 +1,17 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math/rand"
+	"strconv"
 	"testing"
 
 	"gitslice.io/gitslice/internal/diffutil"
+	"gitslice.io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -97,5 +103,149 @@ func TestCarriedBlameMatchesTheWalkFromAnySnapshot(t *testing.T) {
 				t.Fatalf("round %d from a snapshot of version %d:\n got %v\nwant %v", round, snap, got, want)
 			}
 		}
+	}
+}
+
+type pagedBlameTestRepo struct {
+	storage.RepositoryStore
+	commits []*corev1.Commit
+}
+
+func (r *pagedBlameTestRepo) ListCommitPageByPathPrefixes(_ context.Context, _ string, _ []string, limit int, pageToken string) (*storage.CommitListPage, error) {
+	offset := 0
+	if pageToken != "" {
+		var err error
+		offset, err = strconv.Atoi(pageToken)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if offset >= len(r.commits) {
+		return &storage.CommitListPage{}, nil
+	}
+	end := min(offset+limit, len(r.commits))
+	next := ""
+	if end < len(r.commits) {
+		next = strconv.Itoa(end)
+	}
+	return &storage.CommitListPage{Commits: r.commits[offset:end], NextPageToken: next}, nil
+}
+
+func TestBlameWalkStopsPagePrefetchAndBlobsBetweenPages(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	ctx := context.Background()
+	const filePath = "/acme/payment/paged.txt"
+
+	contents := [][]byte{
+		[]byte("line1-c1\nline2-c1\nline3-c1\nline4-c1\n"),
+		[]byte("line1-c1\nline2-c2\nline3-c1\nline4-c1\n"),
+		[]byte("line1-c1\nline2-c2\nline3-c3\nline4-c1\n"),
+		[]byte("line1-c1\nline2-c2\nline3-c3\nline4-c4\n"),
+	}
+	commitIDs := []string{"c1", "c2", "c3", "c4"}
+	for i, data := range contents {
+		hash := objectid.RawContentHash(data)
+		mem.PutObject(filesystem.BlobKey(hash), data)
+		mem.PutCommitWithFiles(commitIDs[i], []storage.FileEntry{{
+			Path:        filePath,
+			BlobID:      objectid.BlobID(data),
+			ContentHash: hash,
+			Mode:        0o100644,
+			Size:        int64(len(data)),
+		}}, []string{filePath})
+	}
+	var newestFirst []*corev1.Commit
+	for i := len(commitIDs) - 1; i >= 0; i-- {
+		c, err := mem.Repository.GetCommit(ctx, commitIDs[i])
+		if err != nil {
+			t.Fatal(err)
+		}
+		newestFirst = append(newestFirst, c)
+	}
+	handlers.Repository.Repository = &pagedBlameTestRepo{
+		RepositoryStore: mem.Repository,
+		commits:         newestFirst,
+	}
+
+	headEntry, found, err := handlers.Repository.blameEntry(ctx, "c4", filePath)
+	if err != nil || !found {
+		t.Fatalf("blameEntry(c4) = (%v, %v, %v)", headEntry, found, err)
+	}
+
+	type pagePair struct {
+		blobsCtx    context.Context
+		prefetchCtx context.Context
+	}
+	var pages []pagePair
+	state := &blameWalkState{
+		refName:      storage.DefaultTargetRef,
+		filters:      listCommitFilters{prefixes: []string{filePath}},
+		headCommitID: "c4",
+		headPath:     filePath,
+		headEntry:    headEntry,
+		pageSize:     2,
+		result:       blameResult{commits: map[string]*corev1.Commit{}},
+		trackedPath:  filePath,
+		trackedHash:  headEntry.ContentHash,
+		first:        true,
+		onPageContexts: func(blobsCtx, prefetchCtx context.Context) {
+			for idx, prev := range pages {
+				if !errors.Is(prev.blobsCtx.Err(), context.Canceled) {
+					t.Errorf("page %d blobsCtx.Err() = %v when starting page %d, want context.Canceled", idx, prev.blobsCtx.Err(), len(pages))
+				}
+				if !errors.Is(prev.prefetchCtx.Err(), context.Canceled) {
+					t.Errorf("page %d prefetchCtx.Err() = %v when starting page %d, want context.Canceled", idx, prev.prefetchCtx.Err(), len(pages))
+				}
+			}
+			pages = append(pages, pagePair{blobsCtx: blobsCtx, prefetchCtx: prefetchCtx})
+		},
+	}
+
+	res, err := handlers.Repository.blameWalkWithState(ctx, state)
+	if err != nil {
+		t.Fatalf("blameWalkWithState() error = %v", err)
+	}
+	if len(pages) != 2 {
+		t.Fatalf("walked %d pages, want 2", len(pages))
+	}
+	for idx, p := range pages {
+		if !errors.Is(p.blobsCtx.Err(), context.Canceled) || !errors.Is(p.prefetchCtx.Err(), context.Canceled) {
+			t.Fatalf("page %d contexts not canceled after walk: blobs=%v prefetch=%v", idx, p.blobsCtx.Err(), p.prefetchCtx.Err())
+		}
+	}
+	wantOwners := []string{"c1", "c2", "c3", "c4"}
+	if fmt.Sprint(res.owners) != fmt.Sprint(wantOwners) {
+		t.Fatalf("owners = %v, want %v", res.owners, wantOwners)
+	}
+}
+
+func TestClaimAndMergeLocksEvictWhenIdle(t *testing.T) {
+	_, handlers := newMemoryHandlers()
+	ctx := context.Background()
+
+	for i := 0; i < 5; i++ {
+		daemonID := fmt.Sprintf("daemon-ephemeral-%d", i)
+		conn := handlers.Agent.hub.registerDaemon(daemonID, daemonID+"/inst", 2)
+		handlers.Agent.dispatcher.dispatchQueued(ctx, daemonID)
+		handlers.Agent.hub.unregisterDaemon(conn)
+	}
+	if got := handlers.Agent.dispatcher.claimLocks.Len(); got != 0 {
+		t.Fatalf("claimLocks.Len() = %d, want 0 when idle", got)
+	}
+
+	cs := &corev1.Changeset{
+		AuthoringSlice: &corev1.SliceRef{Account: "acme", Slice: "payment"},
+		TargetRef:      storage.DefaultTargetRef,
+	}
+	unlock, err := handlers.Changeset.lockMergeTarget(ctx, cs)
+	if err != nil {
+		t.Fatalf("lockMergeTarget() error = %v", err)
+	}
+	if got := handlers.Changeset.changesetCore.mergeLocks.Len(); got != 1 {
+		t.Fatalf("mergeLocks.Len() while held = %d, want 1", got)
+	}
+	unlock()
+	if got := handlers.Changeset.changesetCore.mergeLocks.Len(); got != 0 {
+		t.Fatalf("mergeLocks.Len() after unlock = %d, want 0", got)
 	}
 }

@@ -14,7 +14,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"gitslice.io/gitslice/internal/checks"
@@ -295,126 +294,6 @@ func hashContextEntry(srcRoot *os.Root, canonicalRoot, rel string) (string, stri
 		return "", "", fmt.Errorf("build input %s has unsupported file mode", rel)
 	}
 	return hex.EncodeToString(h.Sum(nil)), mode, nil
-}
-
-type refBuildLock struct {
-	ch   chan struct{}
-	refs int
-}
-
-var (
-	buildLocksMu sync.Mutex
-	buildLocks   = map[string]*refBuildLock{}
-)
-
-func lockBuild(ctx context.Context, tag string) (func(), error) {
-	buildLocksMu.Lock()
-	entry, ok := buildLocks[tag]
-	if !ok {
-		entry = &refBuildLock{ch: make(chan struct{}, 1)}
-		buildLocks[tag] = entry
-	}
-	entry.refs++
-	buildLocksMu.Unlock()
-
-	releaseRef := func() {
-		buildLocksMu.Lock()
-		entry.refs--
-		if entry.refs == 0 {
-			delete(buildLocks, tag)
-		}
-		buildLocksMu.Unlock()
-	}
-
-	select {
-	case entry.ch <- struct{}{}:
-		return sync.OnceFunc(func() {
-			<-entry.ch
-			releaseRef()
-		}), nil
-	case <-ctx.Done():
-		releaseRef()
-		return nil, ctx.Err()
-	}
-}
-
-// ensureBuiltImage returns the image for a build, building it unless an
-// image with its tag exists. note says which happened, for the check's log.
-func ensureBuiltImage(ctx context.Context, rt RuntimeInfo, img builtImage, timeout time.Duration) (setupMs int64, cached bool, note string, result *Result, err error) {
-	if err := checks.ValidateImageRef(img.Tag); err != nil {
-		return 0, false, "", nil, err
-	}
-	unlock, err := lockBuild(ctx, img.Tag)
-	if err != nil {
-		return 0, false, "", nil, err
-	}
-	defer unlock()
-
-	inspectCmd := exec.CommandContext(ctx, rt.Path, "image", "inspect", "--", img.Tag)
-	inspectCmd.Env = containerClientEnv()
-	if inspectCmd.Run() == nil {
-		return 0, true, "using image " + img.Tag + ", built earlier from the same Dockerfile and inputs", nil, nil
-	}
-
-	contextDir, err := os.MkdirTemp("", "gitslice-ci-build-*")
-	if err != nil {
-		return 0, false, "", nil, fmt.Errorf("create build context: %w", err)
-	}
-	defer os.RemoveAll(contextDir)
-	if err := copyContext(img.root, contextDir, img.files); err != nil {
-		return 0, false, "", nil, err
-	}
-
-	if timeout <= 0 {
-		timeout = checks.DefaultBuildTimeout
-	}
-	buildCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	dockerfile := filepath.Join(contextDir, filepath.FromSlash(img.dockerfile))
-	buildArgs := []string{
-		"build",
-		"--label", builtImageFamilyKey + "=" + img.Family,
-		"-t", img.Tag,
-		"-f", dockerfile,
-	}
-	buildArgs = append(buildArgs, containerBuildNetworkArgs()...)
-	buildArgs = append(buildArgs, contextDir)
-
-	cmd := exec.CommandContext(buildCtx, rt.Path, buildArgs...)
-	cmd.Env = containerClientEnv()
-	configureProcessGroup(cmd)
-	var output cappedBuffer
-	cmd.Stdout = &output
-	cmd.Stderr = &output
-	start := time.Now()
-	err = cmd.Run()
-	setupMs = time.Since(start).Milliseconds()
-	if errors.Is(buildCtx.Err(), context.DeadlineExceeded) {
-		_ = killProcessGroup(cmd)
-		return setupMs, false, "", &Result{
-			Status:   "errored",
-			ExitCode: -1,
-			Summary:  fmt.Sprintf("image build timed out after %s", timeout),
-			Log:      output.String(),
-			SetupMs:  setupMs,
-		}, nil
-	}
-	if err != nil {
-		summary := fmt.Sprintf("image build failed: %v", err)
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			summary = fmt.Sprintf("image build failed: exit %d", exitErr.ExitCode())
-		}
-		return setupMs, false, "", &Result{
-			Status:   "errored",
-			ExitCode: -1,
-			Summary:  summary,
-			Log:      output.String(),
-			SetupMs:  setupMs,
-		}, nil
-	}
-	pruneBuiltImages(rt, img.Family)
-	return setupMs, false, fmt.Sprintf("built image %s in %s; later runs reuse it until the Dockerfile or its inputs change", img.Tag, time.Duration(setupMs)*time.Millisecond), nil, nil
 }
 
 func copyContext(srcDir, dstDir string, files []string) error {
