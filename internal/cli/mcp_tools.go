@@ -697,69 +697,9 @@ func (b *mcpBackend) fileEdits(ctx context.Context, s mcpSlice, edits []mcpEdit)
 		return out, nil
 	}
 
-	callCtx := b.ctx(ctx)
-	blobClient := corev1.NewBlobServiceClient(b.conn)
-	hashes := make([]string, 0, len(writeDataByHash))
-	for hash := range writeDataByHash {
-		hashes = append(hashes, hash)
-	}
-	blobIDs := map[string]string{}
-	const statusBatchSize = 512
-	for start := 0; start < len(hashes); start += statusBatchSize {
-		end := min(start+statusBatchSize, len(hashes))
-		status, err := blobClient.GetBlobStatus(callCtx, &corev1.GetBlobStatusRequest{
-			ContentHashes: hashes[start:end],
-			Slice:         s.ref,
-		})
-		if err != nil {
-			if grpcstatus.Code(err) == codes.Unimplemented {
-				break
-			}
-			return nil, err
-		}
-		for _, rec := range status.GetBlobs() {
-			if rec.GetId() != "" && rec.GetState() == "available" {
-				blobIDs[rec.GetContentHash()] = rec.GetId()
-			}
-		}
-	}
-
-	var pending []pendingBlobUpload
-	for _, hash := range hashes {
-		if blobIDs[hash] != "" {
-			continue
-		}
-		data := writeDataByHash[hash]
-		h := hash
-		pending = append(pending, pendingBlobUpload{
-			hash: h,
-			size: int64(len(data)),
-			read: func() ([]byte, error) { return data, nil },
-			uploadOne: func() (*corev1.UploadBlobResponse, error) {
-				return uploadBlobBytes(callCtx, blobClient, s.ref, h, data)
-			},
-		})
-	}
-	if len(pending) > 0 {
-		uploaded, err := uploadBlobsInBatches(callCtx, blobClient, s.ref, pending, defaultUploadConcurrency())
-		if err != nil {
-			return nil, err
-		}
-		for hash, resp := range uploaded {
-			if resp != nil && resp.GetBlobId() != "" {
-				blobIDs[hash] = resp.GetBlobId()
-			}
-		}
-	}
-	for _, edit := range out {
-		if edit.Op != "upsert" || edit.BlobId != "" {
-			continue
-		}
-		id := blobIDs[edit.ContentHash]
-		if id == "" {
-			return nil, fmt.Errorf("blob upload did not return blob id for %s", edit.Path)
-		}
-		edit.BlobId = id
+	tm := NewTransferManager(nil, corev1.NewBlobServiceClient(b.conn), s.ref, b.cache)
+	if _, err := tm.AttachAndUploadBlobs(b.ctx(ctx), out, BlobBytesSources(writeDataByHash), nil, defaultUploadConcurrency()); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

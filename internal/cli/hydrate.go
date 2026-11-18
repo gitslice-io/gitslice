@@ -380,29 +380,22 @@ func (h *workspaceHydrator) materialize(ctx context.Context) error {
 	return group.Wait()
 }
 
-// fetchBatch reads one file per content hash, caches it, and writes it to
-// every path that has it.
+// fetchBatch reads one file per content hash through a TransferManager (which
+// caches and verifies it), and writes it to every path that has it.
 func (h *workspaceHydrator) fetchBatch(ctx context.Context, hashes []string, misses map[string][]*corev1.TreeEntry) error {
-	paths := make([]string, len(hashes))
+	targets := make([]remoteReadTarget, len(hashes))
 	for i, hash := range hashes {
-		paths[i] = misses[hash][0].Path
+		first := misses[hash][0]
+		targets[i] = remoteReadTarget{Path: first.Path, ContentHash: hash, Size: first.Size}
 	}
-	// Compressed: source shrinks several times.
-	res, err := h.repo.ReadFiles(ctx, &corev1.ReadFilesRequest{CommitId: h.commitID, Paths: paths}, grpc.UseCompressor(gzip.Name))
-	if err != nil {
+	tm := NewTransferManager(h.repo, nil, nil, h.cache)
+	if _, err := tm.FetchFilesToCache(ctx, TransferFetchRequest{CommitID: h.commitID, Targets: targets, SkipExistingCheck: true, Workers: 1}); err != nil {
 		return err
 	}
-	if len(res.GetFiles()) != len(paths) {
-		return fmt.Errorf("server returned %d of %d files", len(res.GetFiles()), len(paths))
-	}
-	for i, hash := range hashes {
-		data := res.GetFiles()[i].GetData()
-		cached, err := h.cache.PutBytes(data)
+	for _, hash := range hashes {
+		data, err := h.cache.Read(hash)
 		if err != nil {
 			return err
-		}
-		if cached.ContentHash != hash {
-			return fmt.Errorf("hydrated content hash mismatch for %s: got %s, want %s", paths[i], cached.ContentHash, hash)
 		}
 		h.mu.Lock()
 		h.result.CacheMisses++

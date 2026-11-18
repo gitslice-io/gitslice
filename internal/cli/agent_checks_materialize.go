@@ -15,6 +15,8 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 const (
@@ -87,9 +89,13 @@ func (d *agentDaemon) materializeCheckTree(ctx context.Context, repo RepoClient,
 			return err
 		}
 	}
+	files := plan.sortedFiles()
+	if err := prefetchCheckFiles(ctx, repo, cache, rootTreeID, files); err != nil {
+		return err
+	}
 	g, groupCtx := errgroup.WithContext(ctx)
 	g.SetLimit(checkMaterializeReadConcurrency)
-	for _, entry := range plan.sortedFiles() {
+	for _, entry := range files {
 		entry := entry
 		g.Go(func() error {
 			return materializeCheckFile(groupCtx, repo, cache, rootTreeID, entry, destRoot)
@@ -270,6 +276,42 @@ func checkMaterializeParentDir(filePath string) string {
 		return "/"
 	}
 	return filePath[:strings.LastIndex(filePath, "/")]
+}
+
+// prefetchCheckFiles brings the files the plan names but the cache lacks in
+// through batched ReadFiles calls (a TransferManager), instead of one ReadFile
+// per file. A repository client without ReadFiles keeps the per-file reads.
+func prefetchCheckFiles(ctx context.Context, repo RepoClient, cache *clientcache.ObjectCache, rootTreeID string, files []*corev1.TreeEntry) error {
+	rf, ok := repo.(TransferRepoClient)
+	if !ok || cache == nil {
+		return nil
+	}
+	if tree, isTree := repo.(checkTreeRepoClient); isTree {
+		if _, hasBatch := tree.inner.(TransferRepoClient); !hasBatch {
+			return nil
+		}
+	}
+	var targets []remoteReadTarget
+	for _, entry := range files {
+		hash := entry.GetContentHash()
+		if hash == "" || cache.Exists(hash) {
+			continue
+		}
+		entryPath, err := entryLogicalPath(entry)
+		if err != nil {
+			return err
+		}
+		targets = append(targets, remoteReadTarget{Path: logicalAbsPath(entryPath), ContentHash: hash, Size: entry.GetSize()})
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	_, err := NewTransferManager(rf, nil, nil, cache).FetchFilesToCache(ctx, TransferFetchRequest{
+		RootTreeID: rootTreeID,
+		Targets:    targets,
+		Workers:    checkMaterializeReadConcurrency / 8,
+	})
+	return err
 }
 
 func materializeCheckFile(ctx context.Context, repo RepoClient, cache *clientcache.ObjectCache, rootTreeID string, entry *corev1.TreeEntry, destRoot string) error {
@@ -578,6 +620,23 @@ func (c checkTreeRepoClient) ListDirectory(ctx context.Context, req *corev1.List
 		})
 	}
 	return out, nil
+}
+
+func (c checkTreeRepoClient) ReadFiles(ctx context.Context, req *corev1.ReadFilesRequest, opts ...grpc.CallOption) (*corev1.ReadFilesResponse, error) {
+	inner, ok := c.inner.(TransferRepoClient)
+	if !ok {
+		return nil, grpcstatus.Error(codes.Unimplemented, "repository client cannot read files in batches")
+	}
+	paths := make([]string, len(req.GetPaths()))
+	for i, p := range req.GetPaths() {
+		paths[i] = c.storagePath(p)
+	}
+	return inner.ReadFiles(ctx, &corev1.ReadFilesRequest{
+		CommitId:   req.GetCommitId(),
+		Paths:      paths,
+		RootTreeId: req.GetRootTreeId(),
+		Slice:      req.GetSlice(),
+	}, opts...)
 }
 
 func (c checkTreeRepoClient) ReadFile(ctx context.Context, req *corev1.ReadFileRequest, opts ...grpc.CallOption) (*corev1.ReadFileResponse, error) {

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"io/fs"
 	"os"
 	"path"
@@ -207,43 +206,18 @@ func (r Runner) uploadLocalFiles(ctx context.Context, cfg UserConfig, conn *grpc
 	if err := hashLocalUploadFiles(ctx, files, boundedUploadConcurrency(concurrency, len(files))); err != nil {
 		return nil, err
 	}
-	blobClient := corev1.NewBlobServiceClient(conn)
-	callCtx := authContext(ctx, cfg)
-	known, err := remoteBlobRecords(callCtx, blobClient, sliceRef, files)
-	if err != nil {
-		return nil, err
-	}
-	missingByHash := map[string]localUploadFile{}
-	for _, file := range files {
-		if record, ok := known[file.ContentHash]; ok && record.Id != "" && record.State != "missing" {
-			continue
-		}
-		if _, ok := missingByHash[file.ContentHash]; !ok {
-			missingByHash[file.ContentHash] = file
-		}
-	}
-	if len(missingByHash) > 0 {
-		uploaded, err := uploadMissingLocalBlobs(callCtx, blobClient, sliceRef, missingByHash, boundedUploadConcurrency(concurrency, len(missingByHash)))
-		if err != nil {
-			return nil, err
-		}
-		for hash, record := range uploaded {
-			known[hash] = record
-		}
-	}
 	edits := make([]*corev1.FileEdit, 0, len(files))
 	for _, file := range files {
-		record, ok := known[file.ContentHash]
-		if !ok || record.Id == "" {
-			return nil, fmt.Errorf("blob upload did not return blob id for %s", file.LocalPath)
-		}
 		edits = append(edits, &corev1.FileEdit{
 			Op:          "upsert",
 			Path:        file.RemotePath,
-			BlobId:      record.Id,
 			ContentHash: file.ContentHash,
 			Mode:        file.Mode,
 		})
+	}
+	tm := NewTransferManager(nil, corev1.NewBlobServiceClient(conn), sliceRef, nil)
+	if _, err := tm.AttachAndUploadBlobs(authContext(ctx, cfg), edits, BlobLocalFileSources(files), nil, concurrency); err != nil {
+		return nil, err
 	}
 	return edits, nil
 }

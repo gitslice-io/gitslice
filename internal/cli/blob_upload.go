@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"runtime"
-	"sort"
 	"sync"
 	"time"
 
@@ -77,71 +76,6 @@ func boundedUploadConcurrency(value, itemCount int) int {
 	return value
 }
 
-func remoteBlobRecords(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, files []localUploadFile) (map[string]*corev1.BlobRecord, error) {
-	seen := map[string]struct{}{}
-	hashes := make([]string, 0, len(files))
-	for _, file := range files {
-		if file.ContentHash == "" {
-			return nil, fmt.Errorf("missing content hash for %s", file.LocalPath)
-		}
-		if _, ok := seen[file.ContentHash]; ok {
-			continue
-		}
-		seen[file.ContentHash] = struct{}{}
-		hashes = append(hashes, file.ContentHash)
-	}
-	records := map[string]*corev1.BlobRecord{}
-	const batchSize = 512
-	for start := 0; start < len(hashes); start += batchSize {
-		end := start + batchSize
-		if end > len(hashes) {
-			end = len(hashes)
-		}
-		res, err := blobClient.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: hashes[start:end], Slice: sliceRef})
-		if err != nil {
-			return nil, err
-		}
-		for _, record := range res.Blobs {
-			records[record.ContentHash] = record
-		}
-	}
-	return records, nil
-}
-
-func uploadMissingLocalBlobs(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, missing map[string]localUploadFile, concurrency int) (map[string]*corev1.BlobRecord, error) {
-	hashes := make([]string, 0, len(missing))
-	for hash := range missing {
-		hashes = append(hashes, hash)
-	}
-	sort.Strings(hashes)
-	blobs := make([]pendingBlobUpload, 0, len(hashes))
-	for _, hash := range hashes {
-		file := missing[hash]
-		blobs = append(blobs, pendingBlobUpload{
-			hash: hash,
-			size: file.Size,
-			read: func() ([]byte, error) { return os.ReadFile(file.LocalPath) },
-			uploadOne: func() (*corev1.UploadBlobResponse, error) {
-				return uploadLocalBlob(ctx, blobClient, sliceRef, file)
-			},
-		})
-	}
-	uploaded, err := uploadBlobsInBatches(ctx, blobClient, sliceRef, blobs, concurrency)
-	records := make(map[string]*corev1.BlobRecord, len(uploaded))
-	for hash, upload := range uploaded {
-		if upload == nil {
-			continue
-		}
-		records[hash] = &corev1.BlobRecord{
-			Id:          upload.BlobId,
-			ContentHash: upload.ContentHash,
-			Size:        upload.Size,
-			State:       "present",
-		}
-	}
-	return records, err
-}
-
 func uploadLocalBlob(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, file localUploadFile) (*corev1.UploadBlobResponse, error) {
 	f, err := os.Open(file.LocalPath)
 	if err != nil {
@@ -172,94 +106,7 @@ func attachBlobIDsWithStats(ctx context.Context, blobClient corev1.BlobServiceCl
 }
 
 func attachBlobIDsFromFilesWithStats(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, edits []*corev1.FileEdit, workingFiles map[string]workingFile, concurrency int) (blobAttachStats, error) {
-	var stats blobAttachStats
-	hashSet := map[string]struct{}{}
-	for _, edit := range edits {
-		if edit == nil || edit.Op == "delete" || edit.Op == "rename" || edit.BlobId != "" || edit.ContentHash == "" {
-			continue
-		}
-		hashSet[edit.ContentHash] = struct{}{}
-	}
-	if len(hashSet) == 0 {
-		return stats, nil
-	}
-
-	hashes := make([]string, 0, len(hashSet))
-	for hash := range hashSet {
-		hashes = append(hashes, hash)
-	}
-	sort.Strings(hashes)
-	stats.RequiredBlobs = len(hashes)
-
-	blobIDs := map[string]string{}
-	statusStarted := time.Now()
-	const statusBatchSize = 512
-	for start := 0; start < len(hashes); start += statusBatchSize {
-		end := start + statusBatchSize
-		if end > len(hashes) {
-			end = len(hashes)
-		}
-		status, err := blobClient.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{ContentHashes: hashes[start:end], Slice: sliceRef})
-		if err != nil {
-			stats.StatusDuration = time.Since(statusStarted)
-			return stats, err
-		}
-		for _, record := range status.Blobs {
-			if record.Id != "" && record.State == "available" {
-				blobIDs[record.ContentHash] = record.Id
-			}
-		}
-	}
-	stats.StatusDuration = time.Since(statusStarted)
-	stats.AvailableBlobs = len(blobIDs)
-
-	missing := make([]string, 0, len(hashes)-len(blobIDs))
-	for _, hash := range hashes {
-		if blobIDs[hash] != "" {
-			continue
-		}
-		missing = append(missing, hash)
-	}
-	if len(missing) > 0 {
-		stats.UploadWorkers = boundedUploadConcurrency(concurrency, len(missing))
-	}
-	filesByHash := map[string]workingFile{}
-	for _, edit := range edits {
-		if edit == nil || edit.ContentHash == "" {
-			continue
-		}
-		if wf, ok := workingFiles[edit.Path]; ok && wf.AbsPath != "" {
-			if _, exists := filesByHash[edit.ContentHash]; !exists {
-				filesByHash[edit.ContentHash] = wf
-			}
-		}
-	}
-	uploadStarted := time.Now()
-	uploaded, err := uploadCachedBlobsWithFallback(ctx, blobClient, sliceRef, cache, missing, filesByHash, stats.UploadWorkers)
-	stats.UploadDuration = time.Since(uploadStarted)
-	for hash, response := range uploaded {
-		if response == nil || response.BlobId == "" {
-			continue
-		}
-		blobIDs[hash] = response.BlobId
-		stats.UploadedBlobs++
-		stats.UploadedBytes += response.Size
-	}
-	if err != nil {
-		return stats, err
-	}
-
-	for _, edit := range edits {
-		if edit == nil || edit.Op == "delete" || edit.Op == "rename" || edit.BlobId != "" {
-			continue
-		}
-		blobID := blobIDs[edit.ContentHash]
-		if blobID == "" {
-			return stats, fmt.Errorf("blob upload did not return blob id for content hash %s", edit.ContentHash)
-		}
-		edit.BlobId = blobID
-	}
-	return stats, nil
+	return NewTransferManager(nil, blobClient, sliceRef, cache).AttachAndUploadBlobs(ctx, edits, nil, workingFiles, concurrency)
 }
 
 func uploadCachedBlobs(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, hashes []string, concurrency int) (map[string]*corev1.UploadBlobResponse, error) {

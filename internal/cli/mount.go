@@ -29,7 +29,6 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/encoding/gzip"
 	grpcstatus "google.golang.org/grpc/status"
 )
 
@@ -797,68 +796,17 @@ func (c mountContent) Open(ctx context.Context, hash string) (io.ReadCloser, err
 	return c.cacheContent.Open(ctx, hash)
 }
 
-// fetchBaseFiles fetches base files into the cache: small ones in ReadFiles
-// batches, large ones, and content known by hash only (no path), as streams.
-// It returns how many it fetched and their size.
+// fetchBaseFiles fetches base files into the cache through a TransferManager:
+// small ones in ReadFiles batches, large ones, and content known by hash only
+// (no path), as streams. It returns how many it fetched and their size.
 func fetchBaseFiles(ctx context.Context, conn *grpc.ClientConn, slice *corev1.SliceRef, commitID string, entries []lazyfs.BaseEntry, cache *clientcache.ObjectCache) (int, int64, error) {
-	repo := corev1.NewRepositoryServiceClient(conn)
-	blob := corev1.NewBlobServiceClient(conn)
-	var small []lazyfs.BaseEntry
-	files, total := 0, int64(0)
+	targets := make([]remoteReadTarget, 0, len(entries))
 	for _, entry := range entries {
-		if cache.Exists(entry.ContentHash) {
-			continue
-		}
-		if entry.Path != "" && entry.Size <= mountLargeFileBytes {
-			small = append(small, entry)
-			continue
-		}
-		stream, err := blob.ReadBlobStream(ctx, &corev1.ReadBlobStreamRequest{Slice: slice, ContentHash: entry.ContentHash})
-		if err != nil {
-			return files, total, err
-		}
-		cached, err := cache.PutReader(newBlobStreamReader(stream))
-		if err != nil {
-			return files, total, err
-		}
-		if cached.ContentHash != entry.ContentHash {
-			return files, total, fmt.Errorf("content hash mismatch for %s: got %s, want %s", firstNonEmpty(entry.Path, entry.ContentHash), cached.ContentHash, entry.ContentHash)
-		}
-		files++
-		total += cached.Size
+		targets = append(targets, remoteReadTarget{Path: entry.Path, ContentHash: entry.ContentHash, Size: entry.Size})
 	}
-	for start := 0; start < len(small); {
-		end, size := start, int64(0)
-		for end < len(small) && end-start < mountBatchMaxFiles && (end == start || size+small[end].Size <= mountBatchMaxBytes) {
-			size += small[end].Size
-			end++
-		}
-		batch := small[start:end]
-		paths := make([]string, len(batch))
-		for i, entry := range batch {
-			paths[i] = entry.Path
-		}
-		res, err := repo.ReadFiles(ctx, &corev1.ReadFilesRequest{CommitId: commitID, Paths: paths, Slice: slice}, grpc.UseCompressor(gzip.Name))
-		if err != nil {
-			return files, total, err
-		}
-		if len(res.GetFiles()) != len(paths) {
-			return files, total, fmt.Errorf("server returned %d of %d files", len(res.GetFiles()), len(paths))
-		}
-		for i, entry := range batch {
-			cached, err := cache.PutBytes(res.GetFiles()[i].GetData())
-			if err != nil {
-				return files, total, err
-			}
-			if cached.ContentHash != entry.ContentHash {
-				return files, total, fmt.Errorf("content hash mismatch for %s: got %s, want %s", entry.Path, cached.ContentHash, entry.ContentHash)
-			}
-			files++
-			total += entry.Size
-		}
-		start = end
-	}
-	return files, total, nil
+	tm := NewTransferManager(corev1.NewRepositoryServiceClient(conn), corev1.NewBlobServiceClient(conn), slice, cache)
+	res, err := tm.FetchFilesToCache(ctx, TransferFetchRequest{CommitID: commitID, Targets: targets, Workers: 1})
+	return res.FetchedFiles, res.FetchedBytes, err
 }
 
 // fetchConcurrently splits entries into groups fetched side by side.

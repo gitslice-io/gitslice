@@ -200,7 +200,7 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 				return err
 			}
 		}
-	} else if err := r.applyWorkspaceSyncPlan(ctx, callCtx, repo, blobClient, cache, root, ws, oldBaseCommitID, newBaseCommitID, base, current, remoteFiles, plan); err != nil {
+	} else if err := r.applyWorkspaceSyncPlan(ctx, callCtx, repo, cache, root, ws, oldBaseCommitID, newBaseCommitID, base, current, remoteFiles, plan); err != nil {
 		return err
 	}
 	remoteSnapshot := BaseSnapshot{CommitID: newBaseCommitID, Files: remoteBaseSnapshotFiles(remoteFiles)}
@@ -656,11 +656,9 @@ func prefetchSyncPlanBlobs(
 }
 
 // applyWorkspaceSyncPlan writes a sync's result into a gs init workspace.
-func (r Runner) applyWorkspaceSyncPlan(ctx, callCtx context.Context, repo corev1.RepositoryServiceClient, blob corev1.BlobServiceClient, cache *clientcache.ObjectCache, root string, ws WorkspaceConfig, oldBaseCommitID, newBaseCommitID string, base BaseSnapshot, current map[string]workingFile, remoteFiles map[string]remoteWorkspaceFile, plan workspaceSyncPlan) error {
-	sliceRef := &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}
-	if err := prefetchSyncPlanBlobs(callCtx, repo, blob, sliceRef, cache, oldBaseCommitID, newBaseCommitID, base, remoteFiles, plan, false); err != nil {
-		return err
-	}
+func (r Runner) applyWorkspaceSyncPlan(ctx, callCtx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, root string, ws WorkspaceConfig, oldBaseCommitID, newBaseCommitID string, base BaseSnapshot, current map[string]workingFile, remoteFiles map[string]remoteWorkspaceFile, plan workspaceSyncPlan) error {
+	// runWorkspaceSync already prefetched this plan's blobs into the cache;
+	// prefetching again would only re-hash every cached blob on disk.
 	progress := startProgress(ctx, "syncing", "paths", len(plan.RemoteDeletes)+len(plan.RemoteUpserts)+len(plan.MergedFiles)+len(plan.Conflicts))
 	defer progress.Finish()
 	for _, p := range plan.RemoteDeletes {
