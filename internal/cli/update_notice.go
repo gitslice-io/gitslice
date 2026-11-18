@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"gitslice.io/gitslice/internal/selfupdate"
 )
 
 // Once a day, a command also looks up the latest gs release, and when it is
@@ -64,10 +66,10 @@ func (r Runner) startUpdateCheck(ctx context.Context, args []string) *updateChec
 func (r Runner) lookUpLatestRelease(ctx context.Context, timeout time.Duration) string {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	base := strings.TrimRight(firstNonEmpty(os.Getenv("GS_DOWNLOAD_BASE"), defaultReleasesBase), "/")
+	base := strings.TrimRight(firstNonEmpty(os.Getenv("GS_DOWNLOAD_BASE"), selfupdate.DefaultReleasesBase), "/")
 	latest := ""
-	if baseURL, err := validateReleaseBaseURL(base); err == nil {
-		if resolved, err := latestReleaseTag(ctx, newReleaseHTTPClient(timeout, baseURL), base); err == nil {
+	if baseURL, err := selfupdate.ValidateReleaseBaseURL(base); err == nil {
+		if resolved, err := selfupdate.LatestReleaseTag(ctx, selfupdate.NewReleaseHTTPClient(timeout, baseURL), base); err == nil {
 			latest = resolved
 		}
 	}
@@ -93,7 +95,7 @@ func (r Runner) latestKnownRelease(ctx context.Context) string {
 	}
 	var state updateCheckState
 	if err := readJSONFile(r.updateCheckPath(), &state); err == nil && time.Since(state.CheckedAt) < updateCheckInterval {
-		if state.Latest != "" && validateReleaseTag(state.Latest) != nil {
+		if state.Latest != "" && selfupdate.ValidateReleaseTag(state.Latest) != nil {
 			return ""
 		}
 		return state.Latest
@@ -143,7 +145,7 @@ func (c *updateCheck) finish(r Runner) {
 	case <-time.After(updateCheckGrace):
 		return
 	}
-	if latest == "" || !newerVersion(latest, c.current) {
+	if latest == "" || !selfupdate.NewerVersion(latest, c.current) {
 		return
 	}
 	fmt.Fprintf(r.stderr(), "\ngs %s is available (this is %s). Run %s to install it.\n", latest, c.current, upgradeHint())
@@ -153,7 +155,7 @@ func updateNoticeWanted(args []string, current string) bool {
 	if updateCheckDisabled() {
 		return false
 	}
-	if _, ok := parseVersion(current); !ok {
+	if _, ok := selfupdate.ParseVersion(current); !ok {
 		return false
 	}
 	if wantsJSON(args) {

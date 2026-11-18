@@ -28,6 +28,23 @@ func (e commandError) Unwrap() error {
 	return e.Cause
 }
 
+type userCodedError interface {
+	UserError() (code, message, hint string)
+}
+
+func asCommandError(err error) (commandError, bool) {
+	var cmdErr commandError
+	if errors.As(err, &cmdErr) {
+		return cmdErr, true
+	}
+	var coded userCodedError
+	if errors.As(err, &coded) {
+		code, msg, hint := coded.UserError()
+		return commandError{Code: code, Message: msg, Hint: hint, Cause: err}, true
+	}
+	return commandError{}, false
+}
+
 type errorResponse struct {
 	Error errorBody `json:"error"`
 }
@@ -161,8 +178,7 @@ func exitCodeForError(err error) int {
 	if errors.Is(err, context.Canceled) {
 		return 2
 	}
-	var cmdErr commandError
-	if errors.As(err, &cmdErr) {
+	if cmdErr, ok := asCommandError(err); ok {
 		switch cmdErr.Code {
 		case "not_logged_in", "invalid_user_config", "unauthenticated":
 			return 4
@@ -180,9 +196,8 @@ func (r Runner) enhanceCommandError(err error) error {
 	if err == nil {
 		return nil
 	}
-	var cmdErr commandError
-	if errors.As(err, &cmdErr) {
-		return err
+	if cmdErr, ok := asCommandError(err); ok {
+		return cmdErr
 	}
 	baseErr, overrides := extractDomainErrorOverrides(err)
 	st, ok := grpcstatus.FromError(baseErr)
@@ -284,8 +299,8 @@ func userError(code, message, hint string) error {
 }
 
 func isUserErrorCode(err error, code string) bool {
-	var cmdErr commandError
-	return errors.As(err, &cmdErr) && cmdErr.Code == code
+	cmdErr, ok := asCommandError(err)
+	return ok && cmdErr.Code == code
 }
 
 func classifyError(err error) errorResponse {
@@ -300,8 +315,7 @@ func classifyErrorBody(err error, mcpMode bool) errorBody {
 	if err == nil {
 		return errorBody{Code: defaultCode}
 	}
-	var cmdErr commandError
-	if errors.As(err, &cmdErr) {
+	if cmdErr, ok := asCommandError(err); ok {
 		return errorBody{
 			Code:      cmdErr.Code,
 			Message:   cmdErr.Message,
@@ -309,6 +323,7 @@ func classifyErrorBody(err error, mcpMode bool) errorBody {
 			Retriable: cmdErr.Retriable,
 		}
 	}
+	var cmdErr commandError
 	baseErr, overrides := extractDomainErrorOverrides(err)
 	if explained := explainUnavailable(baseErr); explained != nil && errors.As(explained, &cmdErr) {
 		return errorBody{

@@ -1,4 +1,4 @@
-package cli
+package mountd
 
 import (
 	"context"
@@ -12,14 +12,11 @@ import (
 	"gitslice.io/gitslice/internal/lazyfs"
 )
 
-// readAheadFixture is a fetcher over dirs×perDir files, each declared larger
-// than the sibling batching takes, so without read-ahead every open is a
-// miss. Its server is a stub that records what it was asked for.
 type readAheadFixture struct {
-	f       *mountFetcher
+	f       *Fetcher
 	order   []lazyfs.BaseEntry
 	mu      sync.Mutex
-	fetched map[string]int // path -> times fetched
+	fetched map[string]int
 }
 
 func newReadAheadFixture(t *testing.T, dirs, perDir int) *readAheadFixture {
@@ -52,9 +49,8 @@ func newReadAheadFixture(t *testing.T, dirs, perDir int) *readAheadFixture {
 		t.Fatal(err)
 	}
 	x := &readAheadFixture{fetched: map[string]int{}}
-	x.f = &mountFetcher{cache: cache, inflight: map[string]*fetchCall{}, commitID: "commit1", manifest: m}
-	x.f.fetchFn = func(ctx context.Context, commitID string, batch []lazyfs.BaseEntry) (int, int64, error) {
-		time.Sleep(2 * time.Millisecond) // a round trip
+	x.f = NewFetcher(nil, nil, cache, m, func(ctx context.Context, commitID string, batch []lazyfs.BaseEntry) (int, int64, error) {
+		time.Sleep(2 * time.Millisecond)
 		for _, entry := range batch {
 			if _, err := cache.PutBytes(content[entry.ContentHash]); err != nil {
 				return 0, 0, err
@@ -64,12 +60,11 @@ func newReadAheadFixture(t *testing.T, dirs, perDir int) *readAheadFixture {
 			x.mu.Unlock()
 		}
 		return len(batch), 0, nil
-	}
-	x.order = walkOrder(m)
+	})
+	x.order = WalkOrder(m)
 	return x
 }
 
-// open opens p as the FUSE layer does and reports whether it was a miss.
 func (x *readAheadFixture) open(t *testing.T, entry lazyfs.BaseEntry) bool {
 	t.Helper()
 	_, fetched, err := x.f.Fetch(context.Background(), entry.Path, lazyfs.Attr{Kind: lazyfs.KindFile, Size: entry.Size, ContentHash: entry.ContentHash})
@@ -101,17 +96,15 @@ func TestWalkOrderIsReaddirOrder(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got []string
-	for _, entry := range walkOrder(m) {
+	for _, entry := range WalkOrder(m) {
 		got = append(got, entry.Path)
 	}
-	// A sort of whole paths would put /a-b before /a/... ('-' < '/').
 	want := []string{"/a/x/w.txt", "/a/y.txt", "/a-b/z.txt", "/b.txt"}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
-		t.Fatalf("walkOrder = %v, want %v", got, want)
+		t.Fatalf("WalkOrder = %v, want %v", got, want)
 	}
 }
 
-// A walk of the tree soon finds what it opens already fetched.
 func TestReadAheadRunsAheadOfAWalk(t *testing.T) {
 	x := newReadAheadFixture(t, 20, 30)
 	misses := 0
@@ -120,7 +113,6 @@ func TestReadAheadRunsAheadOfAWalk(t *testing.T) {
 			misses++
 		}
 	}
-	t.Logf("%d of %d opens were misses", misses, len(x.order))
 	if misses > 40 {
 		t.Fatalf("%d of %d opens of a walk were misses; read-ahead should have fetched most first", misses, len(x.order))
 	}
@@ -130,7 +122,6 @@ func TestReadAheadRunsAheadOfAWalk(t *testing.T) {
 	}
 }
 
-// rg takes a directory's entries from the end, so it walks the tree backwards.
 func TestReadAheadRunsAheadOfAWalkFromTheEnd(t *testing.T) {
 	x := newReadAheadFixture(t, 20, 30)
 	misses := 0
@@ -139,7 +130,6 @@ func TestReadAheadRunsAheadOfAWalkFromTheEnd(t *testing.T) {
 			misses++
 		}
 	}
-	t.Logf("%d of %d opens were misses", misses, len(x.order))
 	if misses > 40 {
 		t.Fatalf("%d of %d opens of a backward walk were misses", misses, len(x.order))
 	}
@@ -148,8 +138,6 @@ func TestReadAheadRunsAheadOfAWalkFromTheEnd(t *testing.T) {
 	}
 }
 
-// Readers in parallel (ripgrep) open files a little out of order; that is
-// still a walk.
 func TestReadAheadToleratesParallelReaders(t *testing.T) {
 	x := newReadAheadFixture(t, 20, 30)
 	var wg sync.WaitGroup
@@ -174,7 +162,6 @@ func TestReadAheadToleratesParallelReaders(t *testing.T) {
 	}
 	close(next)
 	wg.Wait()
-	t.Logf("%d of %d opens were misses", misses, len(x.order))
 	if misses > 80 {
 		t.Fatalf("%d of %d opens by parallel readers were misses", misses, len(x.order))
 	}
@@ -183,7 +170,6 @@ func TestReadAheadToleratesParallelReaders(t *testing.T) {
 	}
 }
 
-// Opens in no particular order fetch only what is opened.
 func TestReadAheadStaysOffForScatteredReads(t *testing.T) {
 	x := newReadAheadFixture(t, 20, 30)
 	r := rand.New(rand.NewSource(1))

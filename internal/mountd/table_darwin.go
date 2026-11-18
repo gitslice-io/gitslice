@@ -1,4 +1,4 @@
-package cli
+package mountd
 
 import (
 	"fmt"
@@ -9,10 +9,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// isMounted reports whether a file system is mounted at dir. It reads the
-// mount table (getfsstat, without waiting on any file system), never dir
-// itself, which hangs when its daemon is gone.
-func isMounted(dir string) bool {
+// IsMounted reports whether a file system is mounted at dir by inspecting the
+// kernel mount table without statting dir itself.
+func IsMounted(dir string) bool {
 	n, err := unix.Getfsstat(nil, unix.MNT_NOWAIT)
 	if err != nil || n == 0 {
 		return false
@@ -22,8 +21,6 @@ func isMounted(dir string) bool {
 	if err != nil {
 		return false
 	}
-	// /tmp and /var are symlinks into /private on macOS; the table has the
-	// resolved paths.
 	resolved := dir
 	if real, err := filepath.EvalSymlinks(filepath.Dir(dir)); err == nil {
 		resolved = filepath.Join(real, filepath.Base(dir))
@@ -37,7 +34,7 @@ func isMounted(dir string) bool {
 	return false
 }
 
-func fileOwnerUID(info os.FileInfo) (int, bool) {
+func FileOwnerUID(info os.FileInfo) (int, bool) {
 	st, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
 		return 0, false
@@ -45,7 +42,7 @@ func fileOwnerUID(info os.FileInfo) (int, bool) {
 	return int(st.Uid), true
 }
 
-func socketPeerUID(fd int) (int, error) {
+func SocketPeerUID(fd int) (int, error) {
 	const darwinXucredVersion = 0
 	cred, err := unix.GetsockoptXucred(fd, unix.SOL_LOCAL, unix.LOCAL_PEERCRED)
 	if err != nil {

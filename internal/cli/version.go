@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"runtime"
 	"runtime/debug"
+
+	"gitslice.io/gitslice/internal/selfupdate"
 )
 
 var (
@@ -42,8 +44,8 @@ func (r Runner) runVersion(ctx context.Context, opts commandOptions) error {
 	}
 	// A release build says when a newer release is out (source builds have
 	// no release to compare; --json stays offline).
-	if _, ok := parseVersion(out.Version); ok {
-		if latest := r.latestKnownRelease(ctx); latest != "" && newerVersion(latest, out.Version) {
+	if _, ok := selfupdate.ParseVersion(out.Version); ok {
+		if latest := r.latestKnownRelease(ctx); latest != "" && selfupdate.NewerVersion(latest, out.Version) {
 			fmt.Fprintf(r.Stdout, "update: %s is available; run %s\n", latest, upgradeHint())
 		}
 	}

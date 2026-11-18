@@ -19,6 +19,7 @@ import (
 	grpcstatus "google.golang.org/grpc/status"
 
 	"gitslice.io/gitslice/internal/model"
+	"gitslice.io/gitslice/internal/selfupdate"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -124,13 +125,13 @@ func (d *doctor) checkVersion(ctx context.Context) {
 	current := cliVersionInfo().Version
 	ctx, cancel := context.WithTimeout(ctx, doctorStepTimeout)
 	defer cancel()
-	base := strings.TrimRight(firstNonEmpty(os.Getenv("GS_DOWNLOAD_BASE"), defaultReleasesBase), "/")
-	latest, err := latestReleaseTag(ctx, &http.Client{Timeout: doctorStepTimeout}, base)
+	base := strings.TrimRight(firstNonEmpty(os.Getenv("GS_DOWNLOAD_BASE"), selfupdate.DefaultReleasesBase), "/")
+	latest, err := selfupdate.LatestReleaseTag(ctx, &http.Client{Timeout: doctorStepTimeout}, base)
 	switch {
 	case err != nil:
 		d.add("version", "warn", fmt.Sprintf("gs %s; could not look up the latest release: %v", current, err), "Check your network; gs upgrade --check tries again.")
-	case newerVersion(latest, current):
-		if _, ok := parseVersion(current); !ok {
+	case selfupdate.NewerVersion(latest, current):
+		if _, ok := selfupdate.ParseVersion(current); !ok {
 			d.add("version", "ok", fmt.Sprintf("gs %s (a source build); the latest release is %s", current, latest), "")
 			return
 		}

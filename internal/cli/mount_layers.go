@@ -107,7 +107,7 @@ func (r Runner) lazyListingAt(ctx context.Context, conn *grpc.ClientConn, cfg Us
 	if err != nil {
 		return nil, err
 	}
-	checkout, err := receiveCheckoutListingAt(authContext(ctx, cfg), conn, lw.rec.ref(), commitID, cache)
+	checkout, err := receiveCheckoutListingAt(authContext(ctx, cfg), conn, lw.rec.Ref(), commitID, cache)
 	if err != nil {
 		return nil, err
 	}

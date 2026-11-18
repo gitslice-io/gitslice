@@ -2,7 +2,6 @@ package cli
 
 import (
 	"archive/tar"
-	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -17,6 +16,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"gitslice.io/gitslice/internal/selfupdate"
 )
 
 func tarGz(t *testing.T, name string, data []byte) []byte {
@@ -44,75 +45,11 @@ func sumLine(name string, data []byte) string {
 	return hex.EncodeToString(sum[:]) + "  " + name + "\n"
 }
 
-func TestReleaseAssetsAndArchives(t *testing.T) {
-	for _, tc := range []struct{ goos, goarch, want string }{
-		{"linux", "amd64", "gs_linux_amd64.tar.gz"},
-		{"darwin", "arm64", "gs_darwin_arm64.tar.gz"},
-		{"windows", "amd64", "gs_windows_amd64.zip"},
-	} {
-		if got, err := releaseAsset(tc.goos, tc.goarch); err != nil || got != tc.want {
-			t.Fatalf("releaseAsset(%s, %s) = %q, %v", tc.goos, tc.goarch, got, err)
-		}
-	}
-	if _, err := releaseAsset("plan9", "amd64"); err == nil {
-		t.Fatal("plan9 has no release")
-	}
-
-	archive := tarGz(t, "gs", []byte("binary"))
-	if got, err := extractGS("gs_linux_amd64.tar.gz", archive); err != nil || string(got) != "binary" {
-		t.Fatalf("extract tar.gz = %q, %v", got, err)
-	}
-	var zbuf bytes.Buffer
-	zw := zip.NewWriter(&zbuf)
-	w, _ := zw.Create("gs.exe")
-	_, _ = w.Write([]byte("exe"))
-	_ = zw.Close()
-	if got, err := extractGS("gs_windows_amd64.zip", zbuf.Bytes()); err != nil || string(got) != "exe" {
-		t.Fatalf("extract zip = %q, %v", got, err)
-	}
-	if _, err := extractGS("gs_linux_amd64.tar.gz", tarGz(t, "README", []byte("x"))); err == nil {
-		t.Fatal("an archive without gs must be refused")
-	}
-
-	sums := []byte(sumLine("other.tar.gz", []byte("o")) + sumLine("gs_linux_amd64.tar.gz", archive))
-	if err := verifyChecksum(sums, "gs_linux_amd64.tar.gz", archive); err != nil {
-		t.Fatal(err)
-	}
-	if err := verifyChecksum(sums, "gs_linux_amd64.tar.gz", []byte("tampered")); err == nil {
-		t.Fatal("a tampered download must be refused")
-	}
-	if err := verifyChecksum(sums, "gs_linux_arm64.tar.gz", archive); err == nil {
-		t.Fatal("an asset without a checksum must be refused")
-	}
-}
-
-func TestVersionComparison(t *testing.T) {
-	if !sameVersion("v0.4.0", "0.4.0") || sameVersion("v0.4.0", "v0.4.1") || sameVersion("", "") {
-		t.Fatal("sameVersion")
-	}
-	for _, tc := range []struct {
-		a, b string
-		want bool
-	}{
-		{"v0.5.0", "v0.4.9", true},
-		{"v0.4.10", "v0.4.9", true},
-		{"v0.4.0", "v0.4.0", false},
-		{"v0.3.0", "v0.4.0", false},
-		{"dev", "v0.4.0", false},
-		{"v0.4.0", "dev", true},
-		{"v1.0.0-rc1", "v0.9.0", true},
-	} {
-		if got := newerVersion(tc.a, tc.b); got != tc.want {
-			t.Fatalf("newerVersion(%s, %s) = %v", tc.a, tc.b, got)
-		}
-	}
-}
-
 // releaseServer serves a fake release v9.9.9 whose gs is a shell script that
 // reports reportVersion, the way the release workflow lays the files out.
 func releaseServer(t *testing.T, reportVersion string, tamper bool) string {
 	t.Helper()
-	asset, err := releaseAsset(runtime.GOOS, runtime.GOARCH)
+	asset, err := selfupdate.ReleaseAsset(runtime.GOOS, runtime.GOARCH)
 	if err != nil {
 		t.Skip(err)
 	}
@@ -161,11 +98,9 @@ func TestUpgradeReplacesTheBinary(t *testing.T) {
 	var out bytes.Buffer
 	r := Runner{Stdout: &out, Stderr: &out}
 
-	// --check reports without touching anything.
 	if err := r.runUpgrade(context.Background(), commandOptions{Format: "text"}, upgradeRequest{check: true, path: path}); err != nil {
 		t.Fatal(err)
 	}
-	// It reports the version of the binary at --path, not of this gs.
 	if !strings.Contains(out.String(), "gs v1.2.3 is installed; v9.9.9 is available") {
 		t.Fatalf("check output: %s", out.String())
 	}
@@ -286,7 +221,6 @@ func TestUpgradeLeavesHomebrewInstallsToHomebrew(t *testing.T) {
 	if data, _ := os.ReadFile(path); string(data) != oldScript("v0.1.0") {
 		t.Fatal("a Homebrew install was replaced")
 	}
-	// --check still reports.
 	if err := r.runUpgrade(context.Background(), commandOptions{Format: "text"}, upgradeRequest{path: path, check: true}); err != nil || !strings.Contains(out.String(), "v9.9.9 is available") {
 		t.Fatalf("check: %v\n%s", err, out.String())
 	}

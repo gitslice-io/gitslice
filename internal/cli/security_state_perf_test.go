@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"gitslice.io/gitslice/internal/clientcache"
+	"gitslice.io/gitslice/internal/mcpserver"
 	"gitslice.io/gitslice/internal/objectid"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
@@ -195,16 +196,16 @@ func TestContentHashVerifiedInRemoteDiffAndMCP(t *testing.T) {
 		t.Fatalf("workspaceBaseDiffFile accepted tampered payload: %v", err)
 	}
 
-	// 3. mcpBackend.contents rejects mismatched content hash.
+	// 3. mcpserver.Backend.Contents rejects mismatched content hash.
 	cache3, err := clientcache.New(filepath.Join(t.TempDir(), "c3"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	mcp := &mcpBackend{r: r, conn: conn, cache: cache3}
-	if _, err := mcp.contents(context.Background(), mcpSlice{ref: sliceRef, included: []string{"/acme/app"}}, "c1", []*corev1.TreeEntry{
+	mcp := r.newMCPBackend(UserConfig{}, conn, cache3, "")
+	if _, err := mcp.Contents(context.Background(), mcpserver.Slice{Ref: sliceRef, Included: []string{"/acme/app"}}, "c1", []*corev1.TreeEntry{
 		{Path: "/acme/app/a.txt", ContentHash: expectedHash, Size: 24},
 	}); err == nil || !strings.Contains(err.Error(), "hash mismatch") {
-		t.Fatalf("mcpBackend.contents accepted tampered payload: %v", err)
+		t.Fatalf("mcpBackend.Contents accepted tampered payload: %v", err)
 	}
 }
 
@@ -438,17 +439,17 @@ func TestPerfStatCacheFallbackUploadAndBatchedRPCs(t *testing.T) {
 			svc.readFilesCalls, svc.readFileCalls, svc.streamReadCalls)
 	}
 
-	// 3. mcpBackend.fileEdits batches multiple small writes into 1 UploadBlobs RPC and streams large writes.
+	// 3. mcpserver.Backend.FileEdits batches multiple small writes into 1 UploadBlobs RPC and streams large writes.
 	mcpCache, _ := clientcache.New(filepath.Join(t.TempDir(), "mcp"))
-	mcp := &mcpBackend{r: r, conn: conn, cache: mcpCache}
+	mcp := r.newMCPBackend(UserConfig{}, conn, mcpCache, "")
 	s1, s2, sLarge := "alpha", "beta", string(largeData)
 	svc.uploadBlobsCall = 0
 	svc.uploadBlobCall = 0
 	svc.streamUpCalls = 0
-	mcpEdits, err := mcp.fileEdits(context.Background(), mcpSlice{
-		ref:      &corev1.SliceRef{Account: "acme", Slice: "app"},
-		included: []string{"/acme/app"},
-	}, []mcpEdit{
+	mcpEdits, err := mcp.FileEdits(context.Background(), mcpserver.Slice{
+		Ref:      &corev1.SliceRef{Account: "acme", Slice: "app"},
+		Included: []string{"/acme/app"},
+	}, []mcpserver.EditSpec{
 		{Op: "write", Path: "a.txt", Content: &s1},
 		{Op: "write", Path: "b.txt", Content: &s2},
 		{Op: "write", Path: "big.bin", Content: &sLarge},

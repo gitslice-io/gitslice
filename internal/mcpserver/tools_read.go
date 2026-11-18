@@ -1,4 +1,4 @@
-package cli
+package mcpserver
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-func (b *mcpBackend) readFile(ctx context.Context, raw json.RawMessage) (any, error) {
+func (b *Backend) readFile(ctx context.Context, raw json.RawMessage) (any, error) {
 	var args struct {
 		Path      string `json:"path"`
 		Slice     string `json:"slice"`
@@ -30,7 +30,7 @@ func (b *mcpBackend) readFile(ctx context.Context, raw json.RawMessage) (any, er
 	if err != nil {
 		return nil, err
 	}
-	p, err := s.repoPath(args.Path)
+	p, err := s.RepoPath(args.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -38,9 +38,7 @@ func (b *mcpBackend) readFile(ctx context.Context, raw json.RawMessage) (any, er
 	if err != nil {
 		return nil, err
 	}
-	repoClient := corev1.NewRepositoryServiceClient(b.conn)
-	blobClient := corev1.NewBlobServiceClient(b.conn)
-	data, ok, err := fetchSingleRemoteTarget(b.ctx(ctx), repoClient, blobClient, s.ref, b.cache, commit, remoteReadTarget{Path: p})
+	data, ok, err := b.deps.FetchSingle(b.ctx(ctx), s.Ref, commit, p)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +76,7 @@ func (b *mcpBackend) readFile(ctx context.Context, raw json.RawMessage) (any, er
 	return out, nil
 }
 
-func (b *mcpBackend) listDirectory(ctx context.Context, raw json.RawMessage) (any, error) {
+func (b *Backend) listDirectory(ctx context.Context, raw json.RawMessage) (any, error) {
 	var args struct {
 		Path      string `json:"path"`
 		Slice     string `json:"slice"`
@@ -91,7 +89,7 @@ func (b *mcpBackend) listDirectory(ctx context.Context, raw json.RawMessage) (an
 	if err != nil {
 		return nil, err
 	}
-	p, err := s.repoPath(args.Path)
+	p, err := s.RepoPath(args.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -114,10 +112,21 @@ func (b *mcpBackend) listDirectory(ctx context.Context, raw json.RawMessage) (an
 	return map[string]any{"path": p, "entries": out, "truncated": truncated}, nil
 }
 
-// list lists a folder, recursively when asked (walking a level at a time if
-// the server lists one level only), up to limit entries.
-func (b *mcpBackend) list(ctx context.Context, s mcpSlice, commit, dir string, recursive bool, limit int) ([]*corev1.TreeEntry, bool, error) {
-	client := corev1.NewRepositoryServiceClient(b.conn)
+func entryKindName(kind corev1.EntryKind) string {
+	switch kind {
+	case corev1.EntryKind_ENTRY_KIND_FILE:
+		return "file"
+	case corev1.EntryKind_ENTRY_KIND_DIRECTORY:
+		return "directory"
+	case corev1.EntryKind_ENTRY_KIND_SYMLINK:
+		return "symlink"
+	default:
+		return "unspecified"
+	}
+}
+
+func (b *Backend) list(ctx context.Context, s Slice, commit, dir string, recursive bool, limit int) ([]*corev1.TreeEntry, bool, error) {
+	client := corev1.NewRepositoryServiceClient(b.deps.Conn)
 	var out []*corev1.TreeEntry
 	pending := []string{dir}
 	for len(pending) > 0 {
@@ -125,7 +134,7 @@ func (b *mcpBackend) list(ctx context.Context, s mcpSlice, commit, dir string, r
 		pending = pending[1:]
 		cursor := ""
 		for {
-			page, err := client.ListDirectory(b.ctx(ctx), &corev1.ListDirectoryRequest{CommitId: commit, Path: current, Slice: s.ref, Cursor: cursor, PageSize: 1000, Recursive: recursive})
+			page, err := client.ListDirectory(b.ctx(ctx), &corev1.ListDirectoryRequest{CommitId: commit, Path: current, Slice: s.Ref, Cursor: cursor, PageSize: 1000, Recursive: recursive})
 			if err != nil {
 				return nil, false, err
 			}
@@ -147,7 +156,7 @@ func (b *mcpBackend) list(ctx context.Context, s mcpSlice, commit, dir string, r
 	return out, false, nil
 }
 
-func (b *mcpBackend) search(ctx context.Context, raw json.RawMessage) (any, error) {
+func (b *Backend) search(ctx context.Context, raw json.RawMessage) (any, error) {
 	var args struct {
 		Pattern    string `json:"pattern"`
 		Path       string `json:"path"`
@@ -165,10 +174,10 @@ func (b *mcpBackend) search(ctx context.Context, raw json.RawMessage) (any, erro
 	}
 	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, userError("invalid_pattern", "invalid regular expression: "+err.Error(), "Use RE2 syntax, as Go does.")
+		return nil, newUserError("invalid_pattern", "invalid regular expression: "+err.Error(), "Use RE2 syntax, as Go does.")
 	}
 	if args.Glob != "" && !doublestar.ValidatePattern(args.Glob) {
-		return nil, userError("invalid_glob", "invalid glob "+args.Glob, "Use a pattern such as **/*.go.")
+		return nil, newUserError("invalid_glob", "invalid glob "+args.Glob, "Use a pattern such as **/*.go.")
 	}
 	limit := args.MaxResults
 	if limit <= 0 {
@@ -179,9 +188,9 @@ func (b *mcpBackend) search(ctx context.Context, raw json.RawMessage) (any, erro
 	if err != nil {
 		return nil, err
 	}
-	roots := s.included
+	roots := s.Included
 	if strings.TrimSpace(args.Path) != "" || len(roots) == 1 {
-		p, err := s.repoPath(args.Path)
+		p, err := s.RepoPath(args.Path)
 		if err != nil {
 			return nil, err
 		}
@@ -217,7 +226,7 @@ func (b *mcpBackend) search(ctx context.Context, raw json.RawMessage) (any, erro
 	truncated := false
 	for start := 0; start < len(files) && !truncated; start += mcpSearchBatch {
 		batch := files[start:min(start+mcpSearchBatch, len(files))]
-		contents, err := b.contents(ctx, s, commit, batch)
+		contents, err := b.Contents(ctx, s, commit, batch)
 		if err != nil {
 			return nil, err
 		}
@@ -253,17 +262,14 @@ func (b *mcpBackend) search(ctx context.Context, raw json.RawMessage) (any, erro
 	}, nil
 }
 
-// contents reads files from the local cache, fetching the ones it lacks in
-// bounded compressed batches (falling back to ReadBlobStream for large files)
-// and verifying every file's content hash.
-func (b *mcpBackend) contents(ctx context.Context, s mcpSlice, commit string, entries []*corev1.TreeEntry) (map[string][]byte, error) {
+func (b *Backend) Contents(ctx context.Context, s Slice, commit string, entries []*corev1.TreeEntry) (map[string][]byte, error) {
 	out := make(map[string][]byte, len(entries))
-	var missing []remoteReadTarget
+	var missing []ReadTarget
 	var missingEntries []*corev1.TreeEntry
 	for _, entry := range entries {
 		hash := entry.GetContentHash()
-		if hash != "" && b.cache != nil && b.cache.Exists(hash) {
-			data, ok, err := readVerifiedCachedBytes(b.cache, hash)
+		if hash != "" && b.deps.Cache != nil && b.deps.Cache.Exists(hash) && b.deps.ReadCached != nil {
+			data, ok, err := b.deps.ReadCached(hash)
 			if err != nil {
 				return nil, err
 			}
@@ -272,7 +278,7 @@ func (b *mcpBackend) contents(ctx context.Context, s mcpSlice, commit string, en
 				continue
 			}
 		}
-		missing = append(missing, remoteReadTarget{
+		missing = append(missing, ReadTarget{
 			Path:        entry.GetPath(),
 			ContentHash: hash,
 			Size:        entry.GetSize(),
@@ -282,9 +288,7 @@ func (b *mcpBackend) contents(ctx context.Context, s mcpSlice, commit string, en
 	if len(missing) == 0 {
 		return out, nil
 	}
-	repoClient := corev1.NewRepositoryServiceClient(b.conn)
-	blobClient := corev1.NewBlobServiceClient(b.conn)
-	unhashed, err := prefetchRemoteFilesToCache(b.ctx(ctx), repoClient, blobClient, s.ref, b.cache, commit, missing)
+	unhashed, err := b.deps.PrefetchToCache(b.ctx(ctx), s.Ref, commit, missing)
 	if err != nil {
 		return nil, err
 	}
@@ -296,7 +300,7 @@ func (b *mcpBackend) contents(ctx context.Context, s mcpSlice, commit string, en
 			}
 			continue
 		}
-		data, ok, err := readVerifiedCachedBytes(b.cache, hash)
+		data, ok, err := b.deps.ReadCached(hash)
 		if err != nil {
 			return nil, err
 		}
@@ -308,7 +312,7 @@ func (b *mcpBackend) contents(ctx context.Context, s mcpSlice, commit string, en
 	return out, nil
 }
 
-func (b *mcpBackend) history(ctx context.Context, raw json.RawMessage) (any, error) {
+func (b *Backend) history(ctx context.Context, raw json.RawMessage) (any, error) {
 	var args struct {
 		Path  string `json:"path"`
 		Slice string `json:"slice"`
@@ -323,7 +327,7 @@ func (b *mcpBackend) history(ctx context.Context, raw json.RawMessage) (any, err
 	}
 	p := ""
 	if strings.TrimSpace(args.Path) != "" {
-		if p, err = s.repoPath(args.Path); err != nil {
+		if p, err = s.RepoPath(args.Path); err != nil {
 			return nil, err
 		}
 	}
@@ -331,7 +335,7 @@ func (b *mcpBackend) history(ctx context.Context, raw json.RawMessage) (any, err
 	if limit <= 0 {
 		limit = mcpDefaultHistory
 	}
-	resp, err := corev1.NewRepositoryServiceClient(b.conn).ListCommits(b.ctx(ctx), &corev1.ListCommitsRequest{RefName: model.DefaultTargetRef, Slice: s.ref, Path: p, Limit: int32(min(limit, mcpMaxHistory))})
+	resp, err := corev1.NewRepositoryServiceClient(b.deps.Conn).ListCommits(b.ctx(ctx), &corev1.ListCommitsRequest{RefName: model.DefaultTargetRef, Slice: s.Ref, Path: p, Limit: int32(min(limit, mcpMaxHistory))})
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +346,7 @@ func (b *mcpBackend) history(ctx context.Context, raw json.RawMessage) (any, err
 	return map[string]any{"path": p, "commits": commits, "more": resp.GetNextPageToken() != ""}, nil
 }
 
-func (b *mcpBackend) blame(ctx context.Context, raw json.RawMessage) (any, error) {
+func (b *Backend) blame(ctx context.Context, raw json.RawMessage) (any, error) {
 	var args struct {
 		Path  string `json:"path"`
 		Slice string `json:"slice"`
@@ -354,11 +358,11 @@ func (b *mcpBackend) blame(ctx context.Context, raw json.RawMessage) (any, error
 	if err != nil {
 		return nil, err
 	}
-	p, err := s.repoPath(args.Path)
+	p, err := s.RepoPath(args.Path)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := corev1.NewRepositoryServiceClient(b.conn).BlameFile(b.ctx(ctx), &corev1.BlameFileRequest{Path: p, Slice: s.ref})
+	resp, err := corev1.NewRepositoryServiceClient(b.deps.Conn).BlameFile(b.ctx(ctx), &corev1.BlameFileRequest{Path: p, Slice: s.Ref})
 	if err != nil {
 		return nil, err
 	}
