@@ -1,4 +1,5 @@
 import type { CreateApiClientOptions } from "./rpcError";
+import { SERVER_STREAMING_METHODS } from "./streamingMethods";
 import type { ApiClient } from "./useApi";
 
 type ClientModule = typeof import("./client");
@@ -38,8 +39,9 @@ export function createLazyApiClient(options: CreateApiClientOptions): ApiClient 
           const target = (await load()) as unknown as Record<string, (...args: unknown[]) => unknown>;
           return target[name](...args);
         };
-        // The stream* methods are async generators; the rest return promises.
-        method = name.startsWith("stream")
+        // The server-streaming methods are async generators; the rest return
+        // promises (streamingMethods.ts, checked against the descriptors).
+        method = SERVER_STREAMING_METHODS.has(name)
           ? async function* (...args: unknown[]) {
               yield* (await call(args)) as AsyncGenerator<unknown>;
             }

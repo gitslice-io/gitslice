@@ -2,6 +2,7 @@ import { useAuth } from "@clerk/tanstack-react-start";
 import { useCallback, useEffect, useMemo } from "react";
 
 import { afterPageLoad } from "../analytics/idle";
+import type { GeneratedApi } from "./generated";
 import { createLazyApiClient, loadApiClientModule } from "./lazyClient";
 import { defaultApiBaseUrl } from "./rpcError";
 import type {
@@ -157,7 +158,10 @@ import type {
   SliceDefinition
 } from "./types";
 
-export interface ApiClient {
+// The calls the app makes, as the app sees them (./types). The curated types
+// are hand-written; ApiClient below adds every other RPC the generated
+// services have, typed from the protos, so the client offers all of them.
+interface CuratedApiClient {
   getAuthStatus(
     request: GetAuthStatusRequest
   ): Promise<GetAuthStatusResponse>;
@@ -315,6 +319,16 @@ export interface ApiClient {
     signal: AbortSignal
   ): AsyncGenerator<ConversationEvent>;
 }
+
+// Every RPC the browser can call: the curated ones as written above, and the
+// rest (createDelegatedAgent, createGroup, allowPatchsetSecrets,
+// createPathIntent, handoffChangeset, ...) as the proto types them.
+export type ApiClient = CuratedApiClient & Omit<GeneratedApi, keyof CuratedApiClient>;
+
+// A curated method that is not an RPC of the generated services (a typo, or one
+// the server dropped) is a compile error here.
+const curatedMethodsAreRpcs: keyof CuratedApiClient extends keyof GeneratedApi ? true : false = true;
+void curatedMethodsAreRpcs;
 
 export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
   const { getToken, isLoaded, isSignedIn } = useAuth();

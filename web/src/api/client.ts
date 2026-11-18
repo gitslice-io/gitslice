@@ -1,5 +1,6 @@
 import { ConnectError, Code, createClient, type Interceptor } from "@connectrpc/connect";
 import { createConnectTransport } from "@connectrpc/connect-web";
+import type { DescMethod, DescService } from "@bufbuild/protobuf";
 
 import { AgentService } from "../gen/proto/core/v1/agent_pb";
 import { AuthService } from "../gen/proto/core/v1/auth_pb";
@@ -9,12 +10,13 @@ import {
   ChangesetService,
   ChangesetStackService
 } from "../gen/proto/core/v1/changeset_pb";
+import { FeedbackService } from "../gen/proto/core/v1/feedback_pb";
 import { RepositoryService } from "../gen/proto/core/v1/repository_pb";
 import { SecretService } from "../gen/proto/core/v1/secret_pb";
 import { SliceService } from "../gen/proto/core/v1/slice_pb";
 import { TriggerService } from "../gen/proto/core/v1/trigger_pb";
 import type { ApiClient } from "./useApi";
-import type * as Api from "./types";
+import { decodeMessage, encodeMessage } from "./codec";
 
 import { RpcError, defaultApiBaseUrl, type CreateApiClientOptions } from "./rpcError";
 
@@ -31,6 +33,42 @@ export {
 } from "./rpcError";
 export type { CreateApiClientOptions, RpcErrorBody } from "./rpcError";
 
+// The services a browser calls. TriggerRunService, WorkspaceService and the
+// daemon half of AgentService are for the CLI and agents, and share method
+// names (readFile, listDirectory, getChangeset) with these.
+export const API_SERVICES: readonly DescService[] = [
+  AuthService,
+  AgentService,
+  BlobService,
+  CheckService,
+  ChangesetService,
+  ChangesetStackService,
+  FeedbackService,
+  RepositoryService,
+  SecretService,
+  SliceService,
+  TriggerService
+];
+
+// RPCs that legitimately run longer than the transport's default: a blame of
+// a long history, and a submit, copy or move that lands a large changeset.
+const METHOD_TIMEOUTS_MS: Record<string, number> = {
+  blameFile: 120_000,
+  copyPath: 300_000,
+  movePath: 300_000,
+  submitChangeset: 300_000
+};
+
+// A method of the client: a promise for a unary RPC, an async generator (that
+// takes a signal) for a server-streaming one. A client- or bidirectional-
+// streaming RPC is not offered.
+type ClientMethod = (request: unknown, signal?: AbortSignal) => unknown;
+
+// createApiClient builds the client from the generated service descriptors:
+// every unary and server-streaming RPC of API_SERVICES is a method named as
+// the proto names it, its request and response converted by ./codec from the
+// message descriptors. A new RPC is in the client as soon as it is in the
+// generated code; ApiClient (./useApi) types the ones the app uses.
 export function createApiClient({
   getToken,
   baseUrl = defaultApiBaseUrl,
@@ -42,316 +80,48 @@ export function createApiClient({
     ...(fetchFn ? { fetch: fetchFn } : {})
   });
 
-  const auth = createClient(AuthService, transport);
-  const repository = createClient(RepositoryService, transport);
-  const blob = createClient(BlobService, transport);
-  const slice = createClient(SliceService, transport);
-  const changeset = createClient(ChangesetService, transport);
-  const stack = createClient(ChangesetStackService, transport);
-  const agent = createClient(AgentService, transport);
-  const check = createClient(CheckService, transport);
-  const secret = createClient(SecretService, transport);
-  const trigger = createClient(TriggerService, transport);
-
-  const unary = async <TResponse>(call: () => Promise<unknown>) => {
-    try {
-      return fromProto<TResponse>(await call());
-    } catch (error) {
-      throw rpcErrorFrom(error);
-    }
-  };
-
-  return {
-    getAuthStatus: (request) =>
-      unary<Api.GetAuthStatusResponse>(() =>
-        auth.getAuthStatus(toProtoRequest(request))
-      ),
-    checkUsernameAvailable: (request) =>
-      unary<Api.CheckUsernameAvailableResponse>(() =>
-        auth.checkUsernameAvailable(toProtoRequest(request))
-      ),
-    chooseUsername: (request) =>
-      unary<Api.ChooseUsernameResponse>(() =>
-        auth.chooseUsername(toProtoRequest(request))
-      ),
-    completeCliLogin: (request) =>
-      unary<Api.CompleteCliLoginResponse>(() =>
-        auth.completeCliLogin(toProtoRequest(request))
-      ),
-    listPendingClaims: (request) =>
-      unary<Api.ListPendingClaimsResponse>(() =>
-        auth.listPendingClaims(toProtoRequest(request))
-      ),
-    acceptClaim: (request) =>
-      unary<Api.AcceptClaimResponse>(() =>
-        auth.acceptClaim(toProtoRequest(request))
-      ),
-    listOwnedAgents: (request) =>
-      unary<Api.ListOwnedAgentsResponse>(() =>
-        auth.listOwnedAgents(toProtoRequest(request))
-      ),
-    listAccountMembers: (request) =>
-      unary<Api.ListAccountMembersResponse>(() =>
-        auth.listAccountMembers(toProtoRequest(request))
-      ),
-    setAccountMember: (request) =>
-      unary<Api.SetAccountMemberResponse>(() =>
-        auth.setAccountMember(toProtoRequest(request))
-      ),
-    removeAccountMember: (request) =>
-      unary<Api.RemoveAccountMemberResponse>(() =>
-        auth.removeAccountMember(toProtoRequest(request))
-      ),
-    createOrganization: (request) =>
-      unary<Api.CreateOrganizationResponse>(() =>
-        auth.createOrganization(toProtoRequest(request))
-      ),
-    inviteAccountMember: (request) =>
-      unary<Api.InviteAccountMemberResponse>(() =>
-        auth.inviteAccountMember(toProtoRequest(request))
-      ),
-    listAccountInvitations: (request) =>
-      unary<Api.ListInvitationsResponse>(() =>
-        auth.listAccountInvitations(toProtoRequest(request))
-      ),
-    listMyInvitations: (request) =>
-      unary<Api.ListInvitationsResponse>(() =>
-        auth.listMyInvitations(toProtoRequest(request))
-      ),
-    respondToInvitation: (request) =>
-      unary<Api.RespondToInvitationResponse>(() =>
-        auth.respondToInvitation(toProtoRequest(request))
-      ),
-    cancelAccountInvitation: (request) =>
-      unary<Record<string, never>>(() =>
-        auth.cancelAccountInvitation(toProtoRequest(request))
-      ),
-    getAccountProfile: (request) =>
-      unary<Api.AccountProfile>(() => auth.getAccountProfile(toProtoRequest(request))),
-    updateAccountProfile: (request) =>
-      unary<Api.AccountProfile>(() =>
-        auth.updateAccountProfile(toProtoRequest(request))
-      ),
-    setAccountAvatar: (request) =>
-      unary<Api.AccountProfile>(() =>
-        auth.setAccountAvatar(toProtoRequest(request))
-      ),
-    resolvePath: (request) =>
-      unary<Api.ResolvePathResponse>(() =>
-        repository.resolvePath(toProtoRequest(request))
-      ),
-    listDirectory: (request) =>
-      unary<Api.ListDirectoryResponse>(() =>
-        repository.listDirectory(toProtoRequest(request))
-      ),
-    readFile: (request) =>
-      unary<Api.ReadFileResponse>(() => repository.readFile(toProtoRequest(request))),
-    renderFile: (request) =>
-      unary<Api.RenderFileResponse>(() => repository.renderFile(toProtoRequest(request))),
-    blameFile: (request) =>
-      unary<Api.BlameFileResponse>(() => repository.blameFile(toProtoRequest(request), { timeoutMs: 120000 })),
-    getCommit: (request) =>
-      unary<Api.Commit>(() => repository.getCommit(toProtoRequest(request))),
-    listCommits: (request) =>
-      unary<Api.ListCommitsResponse>(() =>
-        repository.listCommits(toProtoRequest(request))
-      ),
-    getRef: (request) =>
-      unary<Api.Ref>(() => repository.getRef(toProtoRequest(request))),
-    getBlobStatus: (request) =>
-      unary<Api.GetBlobStatusResponse>(() =>
-        blob.getBlobStatus(toProtoRequest(request))
-      ),
-    uploadBlob: (request) =>
-      unary<Api.UploadBlobResponse>(() => blob.uploadBlob(toProtoRequest(request))),
-    resolveSlice: (request) =>
-      unary<Api.Slice>(() => slice.resolveSlice(toProtoRequest(request))),
-    getSlice: (request) =>
-      unary<Api.Slice>(() => slice.getSlice(toProtoRequest(request))),
-    listSlices: (request) =>
-      unary<Api.ListSlicesResponse>(() => slice.listSlices(toProtoRequest(request))),
-    createSlice: (request) =>
-      unary<Api.Slice>(() => slice.createSlice(toProtoRequest(request))),
-    updateSliceDefinition: (request) =>
-      unary<Api.SliceDefinition>(() =>
-        slice.updateSliceDefinition(toProtoRequest(request))
-      ),
-    setSliceCIDaemon: (request) =>
-      unary<Api.Slice>(() => slice.setSliceCIDaemon(toProtoRequest(request))),
-    setSliceDescription: (request) =>
-      unary<Api.Slice>(() => slice.setSliceDescription(toProtoRequest(request))),
-    setSliceMergeOnSubmit: (request) =>
-      unary<Api.Slice>(() => slice.setSliceMergeOnSubmit(toProtoRequest(request))),
-    getSliceGitMirror: (request) =>
-      unary<Api.SliceGitMirror>(() => slice.getSliceGitMirror(toProtoRequest(request))),
-    setSliceGitMirror: (request) =>
-      unary<Api.SliceGitMirror>(() => slice.setSliceGitMirror(toProtoRequest(request))),
-    deleteSliceGitMirror: (request) =>
-      unary<Api.Empty>(() => slice.deleteSliceGitMirror(toProtoRequest(request))),
-    pushSliceGitMirror: (request) =>
-      unary<Api.SliceGitMirror>(() => slice.pushSliceGitMirror(toProtoRequest(request))),
-    createChangeset: (request) =>
-      unary<Api.Changeset>(() =>
-        changeset.createChangeset(toProtoRequest(request))
-      ),
-    listChangesets: (request) =>
-      unary<Api.ListChangesetsResponse>(() =>
-        changeset.listChangesets(toProtoRequest(request))
-      ),
-    getChangeset: (request) =>
-      unary<Api.Changeset>(() => changeset.getChangeset(toProtoRequest(request))),
-    diffChangeset: (request) =>
-      unary<Api.DiffChangesetResponse>(() =>
-        changeset.diffChangeset(toProtoRequest(request))
-      ),
-    updateChangeset: (request) =>
-      unary<Api.Patchset>(() =>
-        changeset.updateChangeset(toProtoRequest(request))
-      ),
-    approveChangeset: (request) =>
-      unary<Api.ApproveChangesetResponse>(() =>
-        changeset.approveChangeset(toProtoRequest(request))
-      ),
-    submitChangeset: (request) =>
-      unary<Api.SubmitChangesetResponse>(() =>
-        changeset.submitChangeset(toProtoRequest(request), { timeoutMs: 300000 })
-      ),
-    updateChangesetInfo: (request) =>
-      unary<Api.Changeset>(() =>
-        changeset.updateChangesetInfo(toProtoRequest(request))
-      ),
-    abandonChangeset: (request) =>
-      unary<Api.Empty>(() => changeset.abandonChangeset(toProtoRequest(request))),
-    copyPath: (request) =>
-      unary<Api.PathOperationResponse>(() =>
-        changeset.copyPath(toProtoRequest(request), { timeoutMs: 300000 })
-      ),
-    movePath: (request) =>
-      unary<Api.PathOperationResponse>(() =>
-        changeset.movePath(toProtoRequest(request), { timeoutMs: 300000 })
-      ),
-    listCheckRuns: (request) =>
-      unary<Api.ListCheckRunsResponse>(() =>
-        check.listCheckRuns(toProtoRequest(request))
-      ),
-    getCheckRun: (request) =>
-      unary<Api.CheckRun>(() => check.getCheckRun(toProtoRequest(request))),
-    rerunCheck: (request) =>
-      unary<Api.CheckRun>(() => check.rerunCheck(toProtoRequest(request))),
-    streamCheckRun: async function* (request, signal) {
-      try {
-        for await (const log of check.streamCheckRun(toProtoRequest(request), {
-          signal
-        })) {
-          yield fromProto<Api.CheckRunLog>(log);
-        }
-      } catch (error) {
-        throw rpcErrorFrom(error);
+  const methods = new Map<string, ClientMethod>();
+  for (const service of API_SERVICES) {
+    const client = createClient(service, transport) as unknown as Record<string, (...args: unknown[]) => unknown>;
+    for (const method of service.methods) {
+      if (methods.has(method.localName)) {
+        throw new Error(`two services of the API client both have a method ${method.localName}`);
       }
-    },
-    createStack: (request) =>
-      unary<Api.ChangesetStack>(() => stack.createStack(toProtoRequest(request))),
-    getStack: (request) =>
-      unary<Api.ChangesetStack>(() => stack.getStack(toProtoRequest(request))),
-    listStacks: (request) =>
-      unary<Api.ListStacksResponse>(() => stack.listStacks(toProtoRequest(request))),
-    addStackEntry: (request) =>
-      unary<Api.Changeset>(() => stack.addStackEntry(toProtoRequest(request))),
-    moveStackEntry: (request) =>
-      unary<Api.ChangesetStack>(() =>
-        stack.moveStackEntry(toProtoRequest(request))
-      ),
-    reparentStackEntry: (request) =>
-      unary<Api.ChangesetStack>(() =>
-        stack.reparentStackEntry(toProtoRequest(request))
-      ),
-    detachStackEntry: (request) =>
-      unary<Api.DetachStackEntryResponse>(() =>
-        stack.detachStackEntry(toProtoRequest(request))
-      ),
-    restack: (request) =>
-      unary<Api.RestackResponse>(() => stack.restack(toProtoRequest(request))),
-    submitStack: (request) =>
-      unary<Api.SubmitStackResponse>(() => stack.submitStack(toProtoRequest(request))),
-    listTriggers: (request) =>
-      unary<Api.ListTriggersResponse>(() => trigger.listTriggers(toProtoRequest(request))),
-    listTriggerRuns: (request) =>
-      unary<Api.ListTriggerRunsResponse>(() => trigger.listTriggerRuns(toProtoRequest(request))),
-    getTriggerRun: (request) =>
-      unary<Api.TriggerRun>(() => trigger.getTriggerRun(toProtoRequest(request))),
-    listTriggerRunLogs: (request) =>
-      unary<Api.ListTriggerRunLogsResponse>(() => trigger.listTriggerRunLogs(toProtoRequest(request))),
-    runTrigger: (request) =>
-      unary<Api.TriggerRun>(() => trigger.runTrigger(toProtoRequest(request))),
-    rerunTriggerRun: (request) =>
-      unary<Api.TriggerRun>(() => trigger.rerunTriggerRun(toProtoRequest(request))),
-    cancelTriggerRun: (request) =>
-      unary<Api.TriggerRun>(() => trigger.cancelTriggerRun(toProtoRequest(request))),
-    listSecrets: (request) =>
-      unary<Api.ListSecretsResponse>(() => secret.listSecrets(toProtoRequest(request))),
-    createSecret: (request) =>
-      unary<Api.Secret>(() => secret.createSecret(toProtoRequest(request))),
-    updateSecret: (request) =>
-      unary<Api.Secret>(() => secret.updateSecret(toProtoRequest(request))),
-    deleteSecret: (request) =>
-      unary<Api.Empty>(() => secret.deleteSecret(toProtoRequest(request))),
-    listSliceSecrets: (request) =>
-      unary<Api.ListSliceSecretsResponse>(() =>
-        slice.listSliceSecrets(toProtoRequest(request))
-      ),
-    listSliceMembers: (request) =>
-      unary<Api.ListSliceMembersResponse>(() => slice.listSliceMembers(toProtoRequest(request))),
-    setSliceMember: (request) =>
-      unary<Api.SliceMember>(() => slice.setSliceMember(toProtoRequest(request))),
-    removeSliceMember: (request) =>
-      unary<Api.Empty>(() => slice.removeSliceMember(toProtoRequest(request))),
-    listSharedSlices: (request) =>
-      unary<Api.ListSharedSlicesResponse>(() => slice.listSharedSlices(toProtoRequest(request))),
-    listDaemons: (request) =>
-      unary<Api.ListDaemonsResponse>(() => agent.listDaemons(toProtoRequest(request))),
-    renameDaemon: (request) =>
-      unary<Api.AgentDaemon>(() => agent.renameDaemon(toProtoRequest(request))),
-    exposeDaemon: (request) =>
-      unary<Api.AgentDaemon>(() => agent.exposeDaemon(toProtoRequest(request))),
-    unexposeDaemon: (request) =>
-      unary<Api.AgentDaemon>(() => agent.unexposeDaemon(toProtoRequest(request))),
-    createConversation: (request) =>
-      unary<Api.Conversation>(() =>
-        agent.createConversation(toProtoRequest(request))
-      ),
-    listConversations: (request) =>
-      unary<Api.ListConversationsResponse>(() =>
-        agent.listConversations(toProtoRequest(request))
-      ),
-    getConversation: (request) =>
-      unary<Api.Conversation>(() => agent.getConversation(toProtoRequest(request))),
-    closeConversation: (request) =>
-      unary<Api.Conversation>(() =>
-        agent.closeConversation(toProtoRequest(request))
-      ),
-    sendAgentMessage: (request) =>
-      unary<Api.SendAgentMessageResponse>(() =>
-        agent.sendAgentMessage(toProtoRequest(request))
-      ),
-    getConversationEvents: (request) =>
-      unary<Api.GetConversationEventsResponse>(() =>
-        agent.getConversationEvents(
-          toProtoRequest(request, conversationEventInt64FieldNames)
-        )
-      ),
-    streamConversation: async function* (request, signal) {
-      try {
-        for await (const event of agent.streamConversation(
-          toProtoRequest(request),
-          { signal }
-        )) {
-          yield fromProto<Api.ConversationEvent>(event);
-        }
-      } catch (error) {
-        throw rpcErrorFrom(error);
+      const call = clientMethod(client, method);
+      if (call) {
+        methods.set(method.localName, call);
       }
     }
-  };
+  }
+  return Object.fromEntries(methods) as unknown as ApiClient;
+}
+
+function clientMethod(client: Record<string, (...args: unknown[]) => unknown>, method: DescMethod): ClientMethod | undefined {
+  const invoke = client[method.localName];
+  const timeoutMs = METHOD_TIMEOUTS_MS[method.localName];
+  const options = (signal?: AbortSignal) => (timeoutMs || signal ? { ...(timeoutMs ? { timeoutMs } : {}), ...(signal ? { signal } : {}) } : undefined);
+  switch (method.methodKind) {
+    case "unary":
+      return async (request) => {
+        try {
+          return decodeMessage(method.output, await invoke(encodeMessage(method.input, request), options()));
+        } catch (error) {
+          throw rpcErrorFrom(error);
+        }
+      };
+    case "server_streaming":
+      return async function* (request, signal) {
+        try {
+          for await (const message of invoke(encodeMessage(method.input, request), options(signal)) as AsyncIterable<unknown>) {
+            yield decodeMessage(method.output, message);
+          }
+        } catch (error) {
+          throw rpcErrorFrom(error);
+        }
+      };
+    default:
+      return undefined;
+  }
 }
 
 function authInterceptor(
@@ -364,166 +134,6 @@ function authInterceptor(
     }
     return next(req);
   };
-}
-
-const int64FieldNames = new Set([
-  "afterSeq",
-  "ackedClientSeq",
-  "authoringConversationSeq",
-  "beforeSeq",
-  "clientSeq",
-  "current",
-  "currentPatchsetNumber",
-  "depth",
-  "displayOrder",
-  "length",
-  "number",
-  "offset",
-  "seq",
-  "siblingOrder",
-  "size",
-  "stackDepth",
-  "stackOrder",
-  "total",
-  "version"
-]);
-
-// Most list limits are int32. GetConversationEventsRequest is the one API
-// request whose identically named limit field is int64.
-const conversationEventInt64FieldNames = new Set(["limit"]);
-
-const bytesFieldNames = new Set(["data"]);
-
-function toProtoRequest(
-  value: unknown,
-  additionalInt64FieldNames: ReadonlySet<string> = new Set()
-): any {
-  return toProtoValue("", value, additionalInt64FieldNames);
-}
-
-function toProtoValue(
-  key: string,
-  value: unknown,
-  additionalInt64FieldNames: ReadonlySet<string>
-): unknown {
-  if (value === undefined || value === null) {
-    return undefined;
-  }
-  if (int64FieldNames.has(key) || additionalInt64FieldNames.has(key)) {
-    return toBigInt(value);
-  }
-  if (bytesFieldNames.has(key)) {
-    return toBytes(value);
-  }
-  // Bytes a caller already holds (an uploaded file) go as they are.
-  if (value instanceof Uint8Array) {
-    return value;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) =>
-      toProtoValue("", item, additionalInt64FieldNames)
-    );
-  }
-  if (typeof value === "object") {
-    if (value instanceof Uint8Array) {
-      return value;
-    }
-    const out: Record<string, unknown> = {};
-    for (const [childKey, childValue] of Object.entries(
-      value as Record<string, unknown>
-    )) {
-      const converted = toProtoValue(
-        childKey,
-        childValue,
-        additionalInt64FieldNames
-      );
-      if (converted !== undefined) {
-        out[childKey] = converted;
-      }
-    }
-    return out;
-  }
-  return value;
-}
-
-function fromProto<T>(value: unknown): T {
-  return fromProtoValue("", value) as T;
-}
-
-function fromProtoValue(key: string, value: unknown): unknown {
-  if (typeof value === "bigint") {
-    return value.toString();
-  }
-  if (value instanceof Uint8Array) {
-    return bytesToBase64(value);
-  }
-  if (key === "kind" && typeof value === "number") {
-    return entryKindName(value);
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => fromProtoValue("", item));
-  }
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [childKey, childValue] of Object.entries(
-      value as Record<string, unknown>
-    )) {
-      if (childKey === "$typeName" || childKey === "$unknown") {
-        continue;
-      }
-      out[childKey] = fromProtoValue(childKey, childValue);
-    }
-    return out;
-  }
-  return value;
-}
-
-function toBigInt(value: unknown): bigint | undefined {
-  if (typeof value === "bigint") {
-    return value;
-  }
-  if (typeof value === "number") {
-    return BigInt(Math.trunc(value));
-  }
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed ? BigInt(trimmed) : undefined;
-  }
-  return undefined;
-}
-
-function toBytes(value: unknown): Uint8Array | undefined {
-  if (value instanceof Uint8Array) {
-    return value;
-  }
-  if (typeof value !== "string") {
-    return undefined;
-  }
-  const binary = globalThis.atob(value);
-  return Uint8Array.from(binary, (char) => char.charCodeAt(0));
-}
-
-function bytesToBase64(bytes: Uint8Array) {
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    const chunk = bytes.subarray(index, index + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-  return globalThis.btoa(binary);
-}
-
-function entryKindName(value: number): Api.EntryKind {
-  switch (value) {
-    case 1:
-      return "ENTRY_KIND_FILE";
-    case 2:
-      return "ENTRY_KIND_DIRECTORY";
-    case 3:
-      return "ENTRY_KIND_SYMLINK";
-    default:
-      return "ENTRY_KIND_UNSPECIFIED";
-  }
 }
 
 function rpcErrorFrom(error: unknown): RpcError {
