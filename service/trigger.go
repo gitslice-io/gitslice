@@ -197,8 +197,8 @@ func (s *TriggerService) RunTrigger(ctx context.Context, req *corev1.RunTriggerR
 		return nil, err
 	}
 	envelope := map[string]any{"created_at": time.Now().UTC().Format(time.RFC3339)}
-	if names, err := s.Auth.UsernamesForSubjects(ctx, []string{subjectID}); err == nil && names[subjectID] != "" {
-		envelope["sender"] = map[string]any{"username": names[subjectID]}
+	if sender := newSubjectDirectory(s.Auth).bestEffortUsername(ctx, subjectID); sender != "" {
+		envelope["sender"] = map[string]any{"username": sender}
 	}
 	if id := strings.TrimSpace(req.GetChangesetId()); id != "" {
 		cs, err := s.authorizedChangeset(ctx, subjectID, id, authz.ActionRead)

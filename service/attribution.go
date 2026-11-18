@@ -130,28 +130,25 @@ func enrichActorAttributions(ctx context.Context, auth storage.AuthStore, agents
 		}
 	}
 
-	var usernames map[string]string
-	if auth != nil && len(subjectIDs) > 0 {
-		var err error
-		usernames, err = auth.UsernamesForSubjects(ctx, subjectIDs)
-		if err != nil {
-			return err
-		}
+	usernames, err := newSubjectDirectory(auth).usernames(ctx, subjectIDs...)
+	if err != nil {
+		return err
 	}
 
 	daemonNames := make(map[string]string, len(daemonIDs))
 	if agents != nil && len(daemonIDs) > 0 {
-		for _, dID := range daemonIDs {
-			d, err := agents.GetDaemon(ctx, dID)
-			if err != nil || d == nil {
-				continue
-			}
-			label := strings.TrimSpace(d.GetDisplayName())
-			if label == "" {
-				label = strings.TrimSpace(d.GetName())
-			}
-			if label != "" {
-				daemonNames[dID] = label
+		if daemons, err := agents.GetDaemonsByIDs(ctx, daemonIDs); err == nil {
+			for dID, d := range daemons {
+				if d == nil {
+					continue
+				}
+				label := strings.TrimSpace(d.GetDisplayName())
+				if label == "" {
+					label = strings.TrimSpace(d.GetName())
+				}
+				if label != "" {
+					daemonNames[dID] = label
+				}
 			}
 		}
 	}

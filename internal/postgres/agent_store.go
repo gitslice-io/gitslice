@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 
 	"gitslice.io/gitslice/internal/objectid"
@@ -79,6 +80,46 @@ func (s *AgentStore) GetDaemon(ctx context.Context, daemonID string) (*corev1.Ag
 		from agent_daemons where id = $1
 	`, daemonID)
 	return scanDaemon(row)
+}
+
+func (s *AgentStore) GetDaemonsByIDs(ctx context.Context, daemonIDs []string) (map[string]*corev1.AgentDaemon, error) {
+	ids := make([]string, 0, len(daemonIDs))
+	seen := make(map[string]struct{}, len(daemonIDs))
+	for _, raw := range daemonIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return map[string]*corev1.AgentDaemon{}, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select id, account, name, runtime, version, status, last_seen_at, created_at, label, standby_until
+		from agent_daemons
+		where id = any($1)
+	`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make(map[string]*corev1.AgentDaemon, len(ids))
+	for rows.Next() {
+		d, err := scanDaemon(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[d.Id] = d
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // DaemonSubject returns the subject that registered the daemon.

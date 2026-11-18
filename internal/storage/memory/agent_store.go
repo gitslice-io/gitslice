@@ -84,6 +84,25 @@ func (s *AgentStore) GetDaemon(ctx context.Context, daemonID string) (*corev1.Ag
 	return s.b.cloneDaemon(d), nil
 }
 
+func (s *AgentStore) GetDaemonsByIDs(ctx context.Context, daemonIDs []string) (map[string]*corev1.AgentDaemon, error) {
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	out := make(map[string]*corev1.AgentDaemon, len(daemonIDs))
+	for _, raw := range daemonIDs {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			continue
+		}
+		if _, ok := out[id]; ok {
+			continue
+		}
+		if d, ok := s.b.agentDaemons[id]; ok {
+			out[id] = s.b.cloneDaemon(d)
+		}
+	}
+	return out, nil
+}
+
 func (s *AgentStore) ListDaemons(ctx context.Context, subjectID string) ([]*corev1.AgentDaemon, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()

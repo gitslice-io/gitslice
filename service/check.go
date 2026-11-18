@@ -29,20 +29,25 @@ type CheckService struct {
 // annotateDaemons fills in whether each run's daemon is online and when it
 // was last seen. A lookup that fails leaves the run as stored.
 func (s *CheckService) annotateDaemons(ctx context.Context, runs ...*corev1.CheckRun) {
-	if s == nil || s.Agents == nil {
+	if s == nil || s.Agents == nil || len(runs) == 0 {
 		return
 	}
-	seen := map[string]*corev1.AgentDaemon{}
+	var daemonIDs []string
+	for _, run := range runs {
+		if daemonID := strings.TrimSpace(run.GetDaemonId()); daemonID != "" {
+			daemonIDs = append(daemonIDs, daemonID)
+		}
+	}
+	if len(daemonIDs) == 0 {
+		return
+	}
+	daemons, err := s.Agents.GetDaemonsByIDs(ctx, daemonIDs)
+	if err != nil {
+		return
+	}
 	for _, run := range runs {
 		daemonID := strings.TrimSpace(run.GetDaemonId())
-		if daemonID == "" {
-			continue
-		}
-		daemon, ok := seen[daemonID]
-		if !ok {
-			daemon, _ = s.Agents.GetDaemon(ctx, daemonID)
-			seen[daemonID] = daemon
-		}
+		daemon := daemons[daemonID]
 		if daemon == nil {
 			continue
 		}

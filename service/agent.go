@@ -646,10 +646,8 @@ func (s *AgentService) daemonAccountForSubject(ctx context.Context, subjectID st
 	if s.Auth == nil {
 		return "", nil
 	}
-	if usernames, err := s.Auth.UsernamesForSubjects(ctx, []string{subjectID}); err == nil {
-		if personal := strings.TrimSpace(usernames[subjectID]); personal != "" {
-			return personal, nil
-		}
+	if personal := newSubjectDirectory(s.Auth).bestEffortUsername(ctx, subjectID); personal != "" {
+		return personal, nil
 	}
 	accounts, err := s.Auth.ListSubjectAccountSlugs(ctx, subjectID)
 	if err != nil {

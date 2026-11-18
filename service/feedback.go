@@ -89,13 +89,13 @@ func (s *FeedbackService) SubmitFeedback(ctx context.Context, req *corev1.Submit
 	if sent >= feedbackPerDay {
 		return nil, status.Errorf(codes.ResourceExhausted, "you have sent %d pieces of feedback in the last day, the most allowed; send more tomorrow, or put several points in one", sent)
 	}
-	usernames, err := s.Auth.UsernamesForSubjects(ctx, []string{subjectID})
+	account, err := newSubjectDirectory(s.Auth).username(ctx, subjectID)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	created, err := s.Feedback.CreateFeedback(ctx, storage.Feedback{
 		SubjectID: subjectID,
-		Account:   usernames[subjectID],
+		Account:   account,
 		Body:      body,
 		Category:  category,
 		Context:   feedbackContext,
@@ -234,11 +234,11 @@ func (s *FeedbackService) ResolveFeedback(ctx context.Context, req *corev1.Resol
 	if n := utf8.RuneCountInString(resolution); n > maxFeedbackResolution {
 		return nil, status.Errorf(codes.InvalidArgument, "resolution is %d characters; the limit is %d", n, maxFeedbackResolution)
 	}
-	usernames, err := s.Auth.UsernamesForSubjects(ctx, []string{subjectID})
+	resolvedBy, err := newSubjectDirectory(s.Auth).usernameOrID(ctx, subjectID)
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	resolved, err := s.Feedback.SetFeedbackStatus(ctx, id, storage.FeedbackResolved, resolution, firstNonEmptyString(usernames[subjectID], subjectID))
+	resolved, err := s.Feedback.SetFeedbackStatus(ctx, id, storage.FeedbackResolved, resolution, resolvedBy)
 	if err != nil {
 		return nil, grpcError(err)
 	}

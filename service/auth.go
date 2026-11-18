@@ -88,15 +88,15 @@ func (s *AuthService) GetAuthStatus(ctx context.Context, req *corev1.GetAuthStat
 	}
 	// A claimed agent account is a membership but not the caller's own personal
 	// account, so "needs username" asks the store for the personal account.
-	usernames, err := s.Auth.UsernamesForSubjects(ctx, []string{subjectID})
+	username, err := newSubjectDirectory(s.Auth).username(ctx, subjectID)
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	memberships, err := s.memberships(ctx, subjectID, usernames[subjectID], accounts)
+	memberships, err := s.memberships(ctx, subjectID, username, accounts)
 	if err != nil {
 		return nil, err
 	}
-	return &corev1.GetAuthStatusResponse{SubjectId: subjectID, Accounts: accounts, NeedsUsername: usernames[subjectID] == "", Memberships: memberships}, nil
+	return &corev1.GetAuthStatusResponse{SubjectId: subjectID, Accounts: accounts, NeedsUsername: username == "", Memberships: memberships}, nil
 }
 
 // memberships describes each of the subject's accounts: the subject's own

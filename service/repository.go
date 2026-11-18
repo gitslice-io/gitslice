@@ -24,8 +24,9 @@ type RepositoryService struct {
 	Slices      storage.SliceStore
 	ObjectStore ObjectStore
 	// Blames stores blame snapshots (design/27_blame.md); optional.
-	Blames    storage.BlameStore
-	validator diffValidator
+	Blames         storage.BlameStore
+	validator      diffValidator
+	changesetsCore *changesetCore
 
 	// importClones keeps clones between attempts of a deep import.
 	importClonesOnce sync.Once

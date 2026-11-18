@@ -121,7 +121,7 @@ func (s *RepositoryService) resolveCommitAuthors(ctx context.Context, commits ..
 	if len(subjectIDs) > 0 {
 		group.Go(func() error {
 			var err error
-			usernames, err = s.Auth.UsernamesForSubjects(ctx, subjectIDs)
+			usernames, err = newSubjectDirectory(s.Auth).usernames(ctx, subjectIDs...)
 			return err
 		})
 	}

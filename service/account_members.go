@@ -51,11 +51,10 @@ func (s *AuthService) CreateOrganization(ctx context.Context, req *corev1.Create
 	if !operator {
 		// A user creates an organization for themselves: they are its only owner
 		// and invite the rest.
-		names, err := s.Auth.UsernamesForSubjects(ctx, []string{subjectID})
+		self, err := newSubjectDirectory(s.Auth).username(ctx, subjectID)
 		if err != nil {
 			return nil, grpcError(err)
 		}
-		self := names[subjectID]
 		if self == "" {
 			return nil, status.Error(codes.FailedPrecondition, "choose a username before creating an organization")
 		}

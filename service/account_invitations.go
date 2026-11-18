@@ -213,11 +213,11 @@ func (s *AuthService) authorizeProfileChange(ctx context.Context, subjectID, acc
 	if s.isOperator(subjectID) {
 		return nil
 	}
-	names, err := s.Auth.UsernamesForSubjects(ctx, []string{subjectID})
+	self, err := newSubjectDirectory(s.Auth).username(ctx, subjectID)
 	if err != nil {
 		return grpcError(err)
 	}
-	if names[subjectID] != account {
+	if self != account {
 		return status.Error(codes.PermissionDenied, "only its person can change a personal profile")
 	}
 	return nil
@@ -228,7 +228,7 @@ func (s *AuthService) invitationsProto(ctx context.Context, invitations []storag
 	for _, invitation := range invitations {
 		ids = append(ids, invitation.SubjectID, invitation.InvitedBySubjectID)
 	}
-	names, err := s.Auth.UsernamesForSubjects(ctx, ids)
+	names, err := newSubjectDirectory(s.Auth).usernames(ctx, ids...)
 	if err != nil {
 		return nil, grpcError(err)
 	}

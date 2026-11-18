@@ -316,14 +316,7 @@ func (s *SecretService) resolveScope(ctx context.Context, account string, scope 
 }
 
 func (s *SecretService) usernames(ctx context.Context, subjects []string) map[string]string {
-	if len(subjects) == 0 || s.Auth == nil {
-		return nil
-	}
-	names, err := s.Auth.UsernamesForSubjects(ctx, subjects)
-	if err != nil {
-		return nil
-	}
-	return names
+	return newSubjectDirectory(s.Auth).bestEffortUsernames(ctx, subjects...)
 }
 
 func (s *SecretService) secretProto(ctx context.Context, secret storage.Secret) *corev1.Secret {

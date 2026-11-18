@@ -620,14 +620,19 @@ func (s *RepositoryService) requireImportSubmitApprovals(ctx context.Context, ch
 	if err != nil {
 		return grpcError(err)
 	}
-	rules := &ChangesetService{
-		Auth:        s.Auth,
-		Blobs:       s.Blobs,
-		Changesets:  s.Changesets,
-		Repository:  s.Repository,
-		Slices:      s.Slices,
-		ObjectStore: s.ObjectStore,
+	core := s.changesetsCore
+	if core == nil {
+		core = &changesetCore{
+			Auth:        s.Auth,
+			Blobs:       s.Blobs,
+			Changesets:  s.Changesets,
+			Repository:  s.Repository,
+			Slices:      s.Slices,
+			ObjectStore: s.ObjectStore,
+			validator:   s.validator,
+		}
 	}
+	rules := core.changesets()
 	if err := rules.requireGitsliceApproval(ctx, cs, headCommitID); err != nil {
 		return importRequirementError(cs, err)
 	}

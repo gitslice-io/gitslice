@@ -95,11 +95,11 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 		s.dispatchCIChecks(ctx, cs, slice, patchset, req.BundledCheckRuns)
 	}
 	if patchset.Author != "" && s.Auth != nil {
-		usernames, err := s.Auth.UsernamesForSubjects(ctx, []string{patchset.Author})
+		username, err := newSubjectDirectory(s.Auth).username(ctx, patchset.Author)
 		if err != nil {
 			return nil, grpcError(err)
 		}
-		if username := usernames[patchset.Author]; username != "" {
+		if username != "" {
 			patchset.Author = username
 		}
 	}

@@ -651,6 +651,9 @@ type AgentStore interface {
 	// until, so it counts as online without polling; zero clears it.
 	SetDaemonStandby(ctx context.Context, daemonID string, until time.Time) error
 	GetDaemon(ctx context.Context, daemonID string) (*corev1.AgentDaemon, error)
+	// GetDaemonsByIDs returns the daemons matching daemonIDs keyed by daemon id;
+	// unknown ids are omitted.
+	GetDaemonsByIDs(ctx context.Context, daemonIDs []string) (map[string]*corev1.AgentDaemon, error)
 	// ListDaemons lists the daemons the subject registered.
 	ListDaemons(ctx context.Context, subjectID string) ([]*corev1.AgentDaemon, error)
 	// ListDaemonsForAccounts lists the daemons registered under the accounts.

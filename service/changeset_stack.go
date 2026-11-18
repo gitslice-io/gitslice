@@ -14,18 +14,7 @@ import (
 )
 
 type ChangesetStackService struct {
-	Auth        storage.AuthStore
-	Blobs       storage.BlobStore
-	Changesets  storage.ChangesetStore
-	Repository  storage.RepositoryStore
-	Slices      storage.SliceStore
-	Agents      storage.AgentStore
-	Checks      storage.CheckStore
-	ObjectStore ObjectStore
-	validator   diffValidator
-	// dispatcher sends restacked patchsets to the slice's CI daemon, like
-	// patchsets made through ChangesetService.
-	dispatcher *checkDispatcher
+	*changesetCore
 }
 
 func (s *ChangesetStackService) CreateStack(ctx context.Context, req *corev1.CreateStackRequest) (*corev1.ChangesetStack, error) {
@@ -520,6 +509,9 @@ func (s *ChangesetStackService) SubmitStack(ctx context.Context, req *corev1.Sub
 			})
 			continue
 		}
+		if cs.Status != "pending_publish" && cs.Status != "submitted" {
+			changesets.captureChangesetSubmitted(ctx, cs)
+		}
 		response.Results = append(response.Results, &corev1.SubmitStackEntryResult{
 			ChangesetId:      entry.ChangesetId,
 			Status:           res.Status,
@@ -724,8 +716,8 @@ func (s *ChangesetStackService) resolveStackAuthors(ctx context.Context, stack *
 }
 
 func (s *ChangesetStackService) resolveChangesetAuthors(ctx context.Context, changesets ...*corev1.Changeset) error {
-	changesetService := ChangesetService{Auth: s.Auth, Agents: s.Agents}
-	return changesetService.resolveAuthors(ctx, changesets...)
+	cs := s.changesetService()
+	return cs.resolveAuthors(ctx, changesets...)
 }
 
 func selectedStackEntries(stack *corev1.ChangesetStack, subtreeRoot string) []*corev1.ChangesetStackEntry {
@@ -825,19 +817,8 @@ func submitBlockReason(err error) string {
 	return err.Error()
 }
 
-// changesetService is a ChangesetService over the same stores, for the
-// changeset operations a stack operation makes (new patchsets, submits).
+// changesetService is a ChangesetService over the shared changesetCore, for
+// the changeset operations a stack operation makes (new patchsets, submits).
 func (s *ChangesetStackService) changesetService() ChangesetService {
-	return ChangesetService{
-		Auth:        s.Auth,
-		Blobs:       s.Blobs,
-		Changesets:  s.Changesets,
-		Repository:  s.Repository,
-		Slices:      s.Slices,
-		Agents:      s.Agents,
-		Checks:      s.Checks,
-		ObjectStore: s.ObjectStore,
-		validator:   s.validator,
-		dispatcher:  s.dispatcher,
-	}
+	return s.changesets()
 }

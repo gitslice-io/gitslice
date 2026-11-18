@@ -17,17 +17,7 @@ import (
 )
 
 type ChangesetService struct {
-	Auth        storage.AuthStore
-	Blobs       storage.BlobStore
-	Changesets  storage.ChangesetStore
-	Repository  storage.RepositoryStore
-	Slices      storage.SliceStore
-	Agents      storage.AgentStore
-	Checks      storage.CheckStore
-	ObjectStore ObjectStore
-	Analytics   analytics.Client
-	validator   diffValidator
-	dispatcher  *checkDispatcher
+	*changesetCore
 }
 
 type diffValidator struct {
@@ -59,7 +49,7 @@ func (s *ChangesetService) CreateChangeset(ctx context.Context, req *corev1.Crea
 	}
 	if stackID := strings.TrimSpace(req.StackId); stackID != "" {
 		// Adding to a stack takes the same ownership as AddStackEntry.
-		stacks := &ChangesetStackService{Auth: s.Auth, Changesets: s.Changesets, Slices: s.Slices}
+		stacks := s.stacks()
 		stack, err := stacks.getStackWithSlice(ctx, stackID, authz.ActionPropose)
 		if err != nil {
 			return nil, err
@@ -186,7 +176,7 @@ func (s *ChangesetService) resolveAuthors(ctx context.Context, changesets ...*co
 		}
 	}
 	if len(subjectIDs) > 0 && s.Auth != nil {
-		usernames, err := s.Auth.UsernamesForSubjects(ctx, subjectIDs)
+		usernames, err := newSubjectDirectory(s.Auth).usernames(ctx, subjectIDs...)
 		if err != nil {
 			return err
 		}

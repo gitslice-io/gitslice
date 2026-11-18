@@ -184,8 +184,7 @@ func (s *ChangesetStackService) mergeUpstream(ctx context.Context, cs *corev1.Ch
 			}
 		}
 	}
-	stored, err := (&BlobService{Auth: s.Auth, Blobs: s.Blobs, Slices: s.Slices, ObjectStore: s.ObjectStore}).
-		uploadBlobs(ctx, cs.GetAuthoringSlice(), []*corev1.UploadBlobsEntry{{Data: merged}})
+	stored, err := s.blobs().uploadBlobs(ctx, cs.GetAuthoringSlice(), []*corev1.UploadBlobsEntry{{Data: merged}})
 	if err != nil {
 		return nil, "", err
 	}

@@ -224,14 +224,11 @@ func (s *SliceService) subjectForUsername(ctx context.Context, username string) 
 }
 
 func (s *SliceService) usernameOf(ctx context.Context, subjectID string) (string, error) {
-	usernames, err := s.Auth.UsernamesForSubjects(ctx, []string{subjectID})
+	name, err := newSubjectDirectory(s.Auth).usernameOrID(ctx, subjectID)
 	if err != nil {
 		return "", grpcError(err)
 	}
-	if name := usernames[subjectID]; name != "" {
-		return name, nil
-	}
-	return subjectID, nil
+	return name, nil
 }
 
 // hasSliceRole reports whether the subject has any role on the slice: in its

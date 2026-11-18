@@ -53,17 +53,7 @@ func (s *ChangesetService) mergeStaleOnSubmit(ctx context.Context, cs *corev1.Ch
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	stack := ChangesetStackService{
-		Auth:        s.Auth,
-		Blobs:       s.Blobs,
-		Changesets:  s.Changesets,
-		Repository:  s.Repository,
-		Slices:      s.Slices,
-		Checks:      s.Checks,
-		ObjectStore: s.ObjectStore,
-		validator:   s.validator,
-		dispatcher:  s.dispatcher,
-	}
+	stack := s.stacks()
 	update, err := stack.rebasedUpdate(ctx, cs, current, head.GetCommitId(), "", &corev1.UpdateChangesetRequest{
 		ChangesetId:               cs.GetId(),
 		ExpectedCurrentPatchsetId: cs.GetCurrentPatchsetId(),

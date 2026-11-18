@@ -223,7 +223,7 @@ func (s *ChangesetService) toProtoPathIntents(ctx context.Context, items []stora
 				}
 			}
 		}
-		usernames, err = s.Auth.UsernamesForSubjects(ctx, needNames)
+		usernames, err = newSubjectDirectory(s.Auth).usernames(ctx, needNames...)
 		if err != nil {
 			return nil, err
 		}

@@ -104,7 +104,7 @@ func (s *SliceService) tagsProto(ctx context.Context, ref *corev1.SliceRef, tags
 	for _, tag := range tags {
 		subjects = append(subjects, tag.CreatedBy)
 	}
-	usernames, err := s.Auth.UsernamesForSubjects(ctx, subjects)
+	usernames, err := newSubjectDirectory(s.Auth).usernames(ctx, subjects...)
 	if err != nil {
 		return nil, err
 	}
