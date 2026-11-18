@@ -1,6 +1,5 @@
 import {
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState
@@ -13,11 +12,14 @@ import { useApi, type ApiClient } from "../../api/useApi";
 import { checkRunsQuery, triggerRunsKey } from "../../queries/checks";
 import { cn } from "../../lib/cn";
 import { formatRelativeTime } from "../../lib/time";
+import { useConnectStream } from "../../lib/useConnectStream";
+import { useStickToBottomScroll } from "../../lib/useStickToBottomScroll";
 import { isTerminalCheckStatus, normalizeCheckStatus } from "./checkStatus";
 import { errorMessage } from "./status";
 import { TriggerRunLog } from "./TriggerRunsPanel";
 
 const CHECK_POLL_INTERVAL_MS = 3500;
+export const MAX_CHECK_LOG_CHARS = 512 * 1024;
 
 interface ChecksPanelProps {
   changesetId: string;
@@ -247,6 +249,46 @@ export function ChecksPanel({ changesetId, patchsetId, signedOut = false }: Chec
   );
 }
 
+export interface CheckLogBuffer {
+  text: string;
+  chunkCount: number;
+  lastSeq: number;
+  seenSeqs: ReadonlySet<number>;
+}
+
+export function createEmptyCheckLogBuffer(): CheckLogBuffer {
+  return {
+    text: "",
+    chunkCount: 0,
+    lastSeq: 0,
+    seenSeqs: new Set<number>()
+  };
+}
+
+export function appendCheckLogChunk(
+  current: CheckLogBuffer,
+  nextLog: CheckRunLog,
+  maxChars: number = MAX_CHECK_LOG_CHARS
+): CheckLogBuffer {
+  const nextSeq = Number(nextLog.seq ?? 0);
+  const validSeq = Number.isFinite(nextSeq) && nextSeq > 0 ? nextSeq : undefined;
+  if (validSeq !== undefined && current.seenSeqs.has(validSeq)) {
+    return current;
+  }
+  const nextSeen = new Set(current.seenSeqs);
+  if (validSeq !== undefined) {
+    nextSeen.add(validSeq);
+  }
+  const combined = current.text + (nextLog.chunk ?? "");
+  const text = combined.length > maxChars ? combined.slice(combined.length - maxChars) : combined;
+  return {
+    text,
+    chunkCount: current.chunkCount + 1,
+    lastSeq: validSeq !== undefined ? Math.max(current.lastSeq, validSeq) : current.lastSeq,
+    seenSeqs: nextSeen
+  };
+}
+
 function CheckRunLogTail({
   api,
   run
@@ -254,59 +296,35 @@ function CheckRunLogTail({
   api: ApiClient;
   run: CheckRun;
 }) {
-  const [logs, setLogs] = useState<CheckRunLog[]>([]);
-  const [streamError, setStreamError] = useState("");
-  const [streamClosed, setStreamClosed] = useState(false);
+  const [logBuffer, setLogBuffer] = useState<CheckLogBuffer>(createEmptyCheckLogBuffer);
   const preRef = useRef<HTMLPreElement | null>(null);
   const runId = run.id ?? "";
-  const logText = logs.map((log) => log.chunk ?? "").join("");
-  const live = !isTerminalCheckStatus(run.status) && !streamClosed;
 
   useEffect(() => {
-    if (!runId) {
-      return;
-    }
+    setLogBuffer(createEmptyCheckLogBuffer());
+  }, [runId]);
 
-    const controller = new AbortController();
-    setLogs([]);
-    setStreamError("");
-    setStreamClosed(false);
+  const { streamError, streamClosed } = useConnectStream<CheckRunLog>({
+    streamKey: runId,
+    attemptDeps: [api],
+    enabled: Boolean(runId),
+    openStream: (afterSeq, signal) => api.streamCheckRun({ runId, afterSeq }, signal),
+    getSeq: (log) => log.seq,
+    onItem: (log) => {
+      setLogBuffer((current) => appendCheckLogChunk(current, log));
+    },
+    reconnectOnError: () => !isTerminalCheckStatus(run.status),
+    formatError: errorMessage
+  });
 
-    async function readStream() {
-      try {
-        for await (const log of api.streamCheckRun(
-          { runId, afterSeq: 0 },
-          controller.signal
-        )) {
-          if (controller.signal.aborted) {
-            return;
-          }
-          setLogs((current) => appendCheckLog(current, log));
-        }
-      } catch (error) {
-        if (!controller.signal.aborted) {
-          setStreamError(errorMessage(error));
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setStreamClosed(true);
-        }
-      }
-    }
+  const logText = logBuffer.text;
+  const live = !isTerminalCheckStatus(run.status) && !streamClosed;
 
-    void readStream();
-
-    return () => {
-      controller.abort();
-    };
-  }, [api, runId]);
-
-  useLayoutEffect(() => {
-    const node = preRef.current;
-    if (node) {
-      node.scrollTop = node.scrollHeight;
-    }
-  }, [logText]);
+  useStickToBottomScroll({
+    containerRef: preRef,
+    pinDeps: [logText],
+    thresholdPx: 48
+  });
 
   return (
     <div className="border-t border-slate-100 dark:border-zinc-800 bg-slate-950 px-3 py-3 md:px-5">
@@ -333,7 +351,7 @@ function CheckRunLogTail({
           </span>
         </div>
         <span className="font-mono text-xs text-slate-500 dark:text-zinc-400">
-          {logs.length ? `${logs.length} chunks` : "after_seq=0"}
+          {logBuffer.chunkCount ? `${logBuffer.chunkCount} chunks` : "after_seq=0"}
         </span>
       </div>
 
@@ -390,14 +408,6 @@ function ProvenanceTag({ provenance }: { provenance?: string }) {
       {normalized}
     </span>
   );
-}
-
-function appendCheckLog(current: CheckRunLog[], nextLog: CheckRunLog) {
-  const nextSeq = Number(nextLog.seq ?? 0);
-  if (Number.isFinite(nextSeq) && current.some((log) => Number(log.seq ?? 0) === nextSeq)) {
-    return current;
-  }
-  return [...current, nextLog];
 }
 
 function sortCheckRuns(runs: CheckRun[]) {

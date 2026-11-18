@@ -13,7 +13,11 @@ import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RpcError } from "../../api/client";
-import { ChecksPanel } from "./ChecksPanel";
+import {
+  ChecksPanel,
+  appendCheckLogChunk,
+  createEmptyCheckLogBuffer
+} from "./ChecksPanel";
 
 const apiMock = vi.hoisted(() => ({
   current: {} as Record<string, unknown>
@@ -207,6 +211,67 @@ describe("ChecksPanel", () => {
 
     await screen.findByRole("button", { name: /e2e/i });
     expect(screen.queryByText(/^Waiting for Main CI/)).not.toBeInTheDocument();
+  });
+
+  it("accumulates check log chunks incrementally, deduplicates by seq, and bounds buffer size", () => {
+    let buf = createEmptyCheckLogBuffer();
+    buf = appendCheckLogChunk(buf, { seq: "1", chunk: "line1\n" }, 20);
+    buf = appendCheckLogChunk(buf, { seq: "1", chunk: "duplicate\n" }, 20);
+    buf = appendCheckLogChunk(buf, { seq: "2", chunk: "line2\n" }, 20);
+    expect(buf.text).toBe("line1\nline2\n");
+    expect(buf.chunkCount).toBe(2);
+    expect(buf.lastSeq).toBe(2);
+
+    buf = appendCheckLogChunk(buf, { seq: "3", chunk: "0123456789abcdefghij" }, 20);
+    expect(buf.text).toBe("0123456789abcdefghij");
+    expect(buf.chunkCount).toBe(3);
+    expect(buf.lastSeq).toBe(3);
+  });
+
+  it("resumes check run log stream from afterSeq after a transient error on a running check", async () => {
+    const seenAfterSeqs: number[] = [];
+    let attempt = 0;
+    apiMock.current = {
+      listCheckRuns: vi.fn().mockResolvedValue({
+        runs: [
+          {
+            checkName: "build",
+            changesetId: "cs_1",
+            id: "run_live",
+            patchsetId: "ps_2",
+            provenance: "ci",
+            status: "running"
+          }
+        ]
+      }),
+      rerunCheck: vi.fn(),
+      streamCheckRun: vi.fn(async function* (
+        request: { runId: string; afterSeq?: number },
+        signal: AbortSignal
+      ) {
+        seenAfterSeqs.push(Number(request.afterSeq ?? 0));
+        attempt += 1;
+        if (attempt === 1) {
+          yield { seq: "3", chunk: "step 1\n" };
+          if (!signal.aborted) {
+            throw new Error("transient disconnect");
+          }
+          return;
+        }
+        yield { seq: "4", chunk: "step 2\n" };
+      })
+    };
+
+    renderRoute(<ChecksPanel changesetId="cs_1" patchsetId="ps_2" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /build/i }));
+
+    expect(
+      await screen.findByText(/step 2/, {}, { timeout: 3000 })
+    ).toBeInTheDocument();
+    expect(seenAfterSeqs[0]).toBe(0);
+    expect(seenAfterSeqs).toContain(3);
+    expect(screen.getByText("2 chunks")).toBeInTheDocument();
   });
 });
 
