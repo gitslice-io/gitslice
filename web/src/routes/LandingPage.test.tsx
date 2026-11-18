@@ -43,6 +43,9 @@ describe("LandingPage", () => {
     expect(screen.queryByRole("link", { name: /github/i })).not.toBeInTheDocument();
     const footer = within(screen.getByRole("navigation", { name: "Footer" }));
     expect(footer.getByRole("link", { name: "Source" })).toHaveAttribute("href", "/slices/gitslice/gitslice");
+    expect(footer.getByRole("link", { name: "Blog" })).toHaveAttribute("href", "/blogs");
+    const header = within(screen.getByRole("navigation", { name: "Landing page" }));
+    expect(header.getByRole("link", { name: "Blog" })).toHaveAttribute("href", "/blogs");
     expect(footer.getByRole("link", { name: "contact@gitslice.io" })).toHaveAttribute(
       "href",
       "mailto:contact@gitslice.io"

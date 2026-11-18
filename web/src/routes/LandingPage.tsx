@@ -61,6 +61,12 @@ export function LandingPage() {
               Source
             </Link>
             <Link
+              className="hidden rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:inline-flex sm:px-4"
+              to="/blogs"
+            >
+              Blog
+            </Link>
+            <Link
               className="rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:px-4"
               reloadDocument
               to="/login"
@@ -267,6 +273,9 @@ export function LandingPage() {
               to="/slices/$account/$slice"
             >
               Source
+            </Link>
+            <Link className={footerLinkClass} to="/blogs">
+              Blog
             </Link>
             <a className={footerLinkClass} href={`mailto:${contactEmail}`}>
               {contactEmail}
