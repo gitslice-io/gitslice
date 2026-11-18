@@ -4,6 +4,7 @@ package mountd
 
 import (
 	"context"
+	"net"
 
 	"gitslice.io/gitslice/internal/clientcache"
 	"gitslice.io/gitslice/internal/lazyfs"
@@ -38,3 +39,14 @@ func (e Env) AttachViaSupervisor(rec Record) error { return errUnsupported() }
 func (e Env) RunSupervisor(ctx context.Context) error { return errUnsupported() }
 
 func ForceUnmount(dir string) error { return errUnsupported() }
+
+// ListenMountControl has nothing to listen for without mounts.
+func ListenMountControl(runtimeDir, id string) (net.Listener, func()) { return nil, func() {} }
+
+// ServeMountControl returns at once: there is no listener without mounts.
+func ServeMountControl(listener net.Listener, handle func(ControlRequest) ControlReply) {}
+
+// PopulateReplyBaseFiles records the digest; no mount serves base files here.
+func PopulateReplyBaseFiles(reply *ControlReply, manifest *lazyfs.Manifest, digest string, edits []lazyfs.Edit) {
+	reply.BaseFilesDigest = digest
+}
