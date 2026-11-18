@@ -50,9 +50,8 @@ describe("blog posts", () => {
     expect(html).toContain("<th>CI checkout of the Gitslice tree</th>");
   });
 
-  it("include the Git mirrors post first", () => {
+  it("include the Git mirrors post", () => {
     const post = getPost("slice-git-mirrors");
-    expect(blogPosts[0]).toBe(post);
     expect(post?.markdown).toContain("gs slice mirror set acme/app --url https://github.com/acme/app.git");
     const html = marked.parse(post?.markdown ?? "", { async: false });
     expect(html).toContain('<a href="/doc/mirrors">Git Mirrors docs</a>');
@@ -60,6 +59,19 @@ describe("blog posts", () => {
       expect(post?.markdown).not.toContain(internal);
     }
     expect(html).toContain('<code class="language-bash">gs slice secret set acme/app GITHUB_MIRROR_TOKEN');
+  });
+
+  it("include the ABFS post first", () => {
+    const post = getPost("what-we-learned-from-abfs");
+    expect(blogPosts[0]).toBe(post);
+    expect(post?.markdown).toContain("| `rm -rf` them | 0.2 s | 15.9 s | **2.6 s** |");
+    expect(post?.markdown).toContain("gs cache prune --max 2G --dry-run");
+    const html = marked.parse(post?.markdown ?? "", { async: false });
+    expect(html).toContain('<a href="/doc/lazy">Lazy Workspaces docs</a>');
+    expect(html).toContain('<td align="right"><strong>36 KB</strong>, only what changed</td>');
+    for (const internal of ["Cloud Run", "Postgres", "~/.cache", "design/", "since_commit_id", "lazyfs", "treestore"]) {
+      expect(post?.markdown).not.toContain(internal);
+    }
   });
 
   it("exposes metadata-only postIndex and lazy per-slug loadPost", async () => {

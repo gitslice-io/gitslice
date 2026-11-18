@@ -13,6 +13,14 @@ export interface BlogPost extends BlogPostMeta {
 
 export const blogPostIndex: BlogPostMeta[] = [
   {
+    slug: "what-we-learned-from-abfs",
+    title: "What we learned from Google's ABFS: smaller syncs, a bounded cache, faster deletes",
+    dek: "We compared lazy workspaces with the file system Android engineers use for their giant source tree. A sync now downloads only what changed, the local cache stays under a limit, and deleting 10,000 files in a mount went from 15.9 s to 2.6 s.",
+    date: "2026-11-18",
+    readingMinutes: 6,
+    tags: ["performance", "lazy-workspaces"]
+  },
+  {
     slug: "slice-git-mirrors",
     title: "Back up any slice to GitHub with one setting",
     dek: "A slice can now keep a copy of itself in a GitHub repository, or any Git host. Every landing and tag is pushed within seconds, with nothing for you to run, and it never force-pushes.",
@@ -55,6 +63,7 @@ export const blogPostIndex: BlogPostMeta[] = [
 ];
 
 const postMarkdownLoaders: Record<string, () => Promise<{ markdown: string }>> = {
+  "what-we-learned-from-abfs": () => import("./content/what-we-learned-from-abfs"),
   "slice-git-mirrors": () => import("./content/slice-git-mirrors"),
   "pando-style-git-covers": () => import("./content/pando-style-git-covers"),
   "benchmarking-gitslice-against-git": () => import("./content/benchmarking-gitslice-against-git"),

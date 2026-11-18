@@ -3,11 +3,13 @@ import { markdown as benchmarkMarkdown } from "./content/benchmarking-gitslice-a
 import { markdown as nativeGraphMarkdown } from "./content/native-source-graph";
 import { markdown as pandoMarkdown } from "./content/pando-style-git-covers";
 import { markdown as mirrorsMarkdown } from "./content/slice-git-mirrors";
+import { markdown as abfsMarkdown } from "./content/what-we-learned-from-abfs";
 import { blogPostIndex, type BlogPost, type BlogPostMeta } from "./postIndex";
 
 export type { BlogPost, BlogPostMeta };
 
 const markdownBySlug: Record<string, string> = {
+  "what-we-learned-from-abfs": abfsMarkdown,
   "slice-git-mirrors": mirrorsMarkdown,
   "pando-style-git-covers": pandoMarkdown,
   "benchmarking-gitslice-against-git": benchmarkMarkdown,
