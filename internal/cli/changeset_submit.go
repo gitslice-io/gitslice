@@ -3,12 +3,10 @@ package cli
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
 	"gitslice.io/gitslice/internal/lazyfs"
-	"gitslice.io/gitslice/internal/postgres"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
@@ -29,52 +27,29 @@ type submitDependencyResultOutput struct {
 	BlockedReason    string `json:"blocked_reason,omitempty"`
 }
 
-// pendingCheckPattern matches a submit blocked only because a required check
-// has no result yet (storage.EvaluateSubmitRequirements).
-var pendingCheckPattern = regexp.MustCompile(`required check "([^"]+)" has no result`)
-
-// submitRetryInterval is how often gs create --submit retries while required
-// checks have not reported.
-var submitRetryInterval = 5 * time.Second
-
 // submitWhenChecksReport submits a changeset gs create just made. Its required
 // checks start when it is created, so a submit right away is often blocked
 // only because they have not reported; it waits for them (up to timeout) and
 // tries again. Anything else that blocks the submit is returned as it is.
 func (r Runner) submitWhenChecksReport(ctx context.Context, opts commandOptions, conn *grpc.ClientConn, cfg UserConfig, state WorkspaceState, timeout time.Duration) (*corev1.SubmitStackResponse, error) {
-	deadline := time.Now().Add(timeout)
-	waitingFor := ""
-	var daemons *checkDaemonWatch
-	if !opts.Quiet && !opts.jsonOutput() {
-		daemons = newCheckDaemonWatch(r.stderr())
-	}
-	for {
-		res, err := r.submitActivePath(ctx, conn, cfg, state, true, time.Until(deadline))
+	var res *corev1.SubmitStackResponse
+	err := r.retrySubmitWhileChecksPending(ctx, opts, conn, cfg, timeout, func(remaining time.Duration) (string, string, error) {
+		var err error
+		res, err = r.submitActivePath(ctx, conn, cfg, state, true, remaining)
 		if err != nil {
-			return nil, err
+			return "", "", err
 		}
-		check, checkChangeset := "", ""
 		for _, result := range res.Results {
-			if match := pendingCheckPattern.FindStringSubmatch(result.BlockedReason); match != nil {
-				check, checkChangeset = match[1], result.ChangesetId
-				break
+			if check := pendingRequiredCheckName(result.BlockedReason); check != "" {
+				return check, result.ChangesetId, nil
 			}
 		}
-		remaining := time.Until(deadline)
-		if check == "" || remaining <= 0 {
-			return res, nil
-		}
-		if check != waitingFor && !opts.Quiet && !opts.jsonOutput() {
-			fmt.Fprintf(r.stderr(), "waiting for required check %q to pass...\n", check)
-		}
-		daemons.look(ctx, conn, cfg, checkChangeset, check, check != waitingFor)
-		waitingFor = check
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(min(submitRetryInterval, remaining)):
-		}
+		return "", "", nil
+	})
+	if err != nil {
+		return nil, err
 	}
+	return res, nil
 }
 
 func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, requestedID string, watch bool, watchTimeout time.Duration) error {
@@ -110,31 +85,25 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 		ChangesetId:               changesetID,
 		ExpectedCurrentPatchsetId: expectedPatchsetID,
 	}
-	res, err := changesetClient.SubmitChangeset(authContext(ctx, cfg), submitReq)
-	// Required checks that have not reported yet are waited for (up to the
-	// watch timeout), as gs create --submit does.
-	deadline := time.Now().Add(watchTimeout)
-	waitingFor := ""
-	var daemons *checkDaemonWatch
-	if !opts.Quiet && !opts.jsonOutput() {
-		daemons = newCheckDaemonWatch(r.stderr())
-	}
-	for watch && err != nil {
-		match := pendingCheckPattern.FindStringSubmatch(grpcstatus.Convert(err).Message())
-		remaining := time.Until(deadline)
-		if match == nil || remaining <= 0 {
-			break
+	var res *corev1.SubmitChangesetResponse
+	if watch {
+		// Required checks that have not reported yet are waited for (up to the
+		// watch timeout), as gs create --submit does.
+		var submitErr error
+		if err := r.retrySubmitWhileChecksPending(ctx, opts, conn, cfg, watchTimeout, func(_ time.Duration) (string, string, error) {
+			res, submitErr = changesetClient.SubmitChangeset(authContext(ctx, cfg), submitReq)
+			if submitErr != nil {
+				if check := pendingRequiredCheckName(grpcstatus.Convert(submitErr).Message()); check != "" {
+					return check, changesetID, nil
+				}
+				return "", "", submitErr
+			}
+			return "", "", nil
+		}); err != nil {
+			return err
 		}
-		if match[1] != waitingFor && !opts.Quiet && !opts.jsonOutput() {
-			fmt.Fprintf(r.stderr(), "waiting for required check %q to pass...\n", match[1])
-		}
-		daemons.look(ctx, conn, cfg, changesetID, match[1], match[1] != waitingFor)
-		waitingFor = match[1]
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(min(submitRetryInterval, remaining)):
-		}
+		err = submitErr
+	} else {
 		res, err = changesetClient.SubmitChangeset(authContext(ctx, cfg), submitReq)
 	}
 	if err != nil {
@@ -231,41 +200,6 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 		fmt.Fprintf(r.Stdout, "landed as commit %s (a commit id, not a changeset id; share the view link)\n", commitID)
 	}
 	return nil
-}
-
-func (r Runner) waitForChangesetPublished(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, changesetID, changesetLabel string, timeout time.Duration, progress bool) (string, string, error) {
-	waitCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	ticker := time.NewTicker(20 * time.Millisecond)
-	defer ticker.Stop()
-	changesetClient := corev1.NewChangesetServiceClient(conn)
-	repoClient := corev1.NewRepositoryServiceClient(conn)
-	lastStatus := ""
-	for {
-		cs, err := changesetClient.GetChangeset(authContext(waitCtx, cfg), &corev1.GetChangesetRequest{ChangesetId: changesetID})
-		if err != nil {
-			return "", "", err
-		}
-		if progress && cs.Status != lastStatus {
-			fmt.Fprintf(r.stderr(), "changeset %s status: %s\n", firstNonEmpty(changesetLabel, displayChangesetID(cs), changesetID), cs.Status)
-			lastStatus = cs.Status
-		}
-		if cs.Status == "submitted" && cs.CommitId != "" {
-			ref, err := repoClient.GetRef(authContext(waitCtx, cfg), &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
-			if err != nil {
-				return "", "", err
-			}
-			return cs.CommitId, ref.CommitId, nil
-		}
-		if cs.Status != "pending_publish" && cs.Status != "draft" {
-			return "", "", userError("publish_failed", "changeset publish failed with status "+cs.Status, "Run gs cs status for details.")
-		}
-		select {
-		case <-waitCtx.Done():
-			return "", "", userError("publish_timeout", "changeset accepted but not published before timeout", "Run gs cs status to check publish progress.")
-		case <-ticker.C:
-		}
-	}
 }
 
 func (r Runner) runStackSubmit(ctx context.Context, opts commandOptions, requestedID string, stackFlag bool, subtree string, watch bool, watchTimeout time.Duration) error {

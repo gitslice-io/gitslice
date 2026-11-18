@@ -86,14 +86,11 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 	if err != nil {
 		return err
 	}
-	if watch && cs.Status != "submitted" {
-		if _, _, err := r.waitForChangesetPublished(ctx, conn, cfg, changesetID, displayChangesetID(cs), watchTimeout, !opts.Quiet && !opts.jsonOutput()); err != nil {
+	if watch && (cs.Status != "submitted" || cs.CommitId == "") {
+		cs, _, err = r.waitForChangesetSubmitted(ctx, conn, cfg, changesetID, displayChangesetID(cs), cs, watchTimeout, !opts.Quiet && !opts.jsonOutput(), false)
+		if err != nil {
 			return err
 		}
-		cs, err = changesetClient.GetChangeset(authContext(ctx, cfg), &corev1.GetChangesetRequest{ChangesetId: changesetID})
-	}
-	if err != nil {
-		return err
 	}
 	output := changesetOutput{
 		ChangesetID:          cs.Id,

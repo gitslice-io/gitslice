@@ -20,6 +20,7 @@ type Runner struct {
 	// to unit tests; nil uses the real machine.
 	AgentDoctorProbes *agentDoctorProbes
 	AgentService      *agentServiceProbes
+	changesetWait     *changesetWaitConfig
 }
 
 type commandOptions struct {
