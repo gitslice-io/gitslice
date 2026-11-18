@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"gitslice.io/gitslice/proto/core/v1"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 )
 
@@ -57,71 +56,46 @@ func (r Runner) tagCommand(opts *commandOptions) *cobra.Command {
 	return tagCmd
 }
 
-func (r Runner) tagSliceRef(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, value string) (*corev1.SliceRef, error) {
-	if strings.TrimSpace(value) != "" {
-		return r.resolveSliceRefInput(ctx, cfg, conn, value)
-	}
-	ws, err := r.readWorkspaceConfig()
-	if err != nil {
-		return nil, userError("slice_required", "--slice is required outside a workspace", "Pass --slice account/slice.")
-	}
-	return &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, nil
-}
-
 func (r Runner) runTagCreate(ctx context.Context, opts commandOptions, slice, name, commitID, message string) error {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	ref, err := r.tagSliceRef(callCtx, cfg, conn, slice)
-	if err != nil {
-		return err
-	}
-	tag, err := corev1.NewSliceServiceClient(conn).CreateTag(callCtx, &corev1.CreateTagRequest{
-		Slice:    ref,
-		Name:     strings.TrimSpace(name),
-		CommitId: strings.TrimSpace(commitID),
-		Message:  message,
+	return r.withSliceSession(ctx, slice, true, func(s *Session, ref *corev1.SliceRef) error {
+		tag, err := s.Slice().CreateTag(s.Ctx(), &corev1.CreateTagRequest{
+			Slice:    ref,
+			Name:     strings.TrimSpace(name),
+			CommitId: strings.TrimSpace(commitID),
+			Message:  message,
+		})
+		if err != nil {
+			return tagError(err)
+		}
+		out := tagToOutput(tag)
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, out)
+		}
+		if !opts.Quiet {
+			fmt.Fprintf(r.Stdout, "tagged %s as %s in %s\n", shortID(out.CommitID), out.Name, out.Slice)
+		}
+		return nil
 	})
-	if err != nil {
-		return tagError(err)
-	}
-	out := tagToOutput(tag)
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if !opts.Quiet {
-		fmt.Fprintf(r.Stdout, "tagged %s as %s in %s\n", shortID(out.CommitID), out.Name, out.Slice)
-	}
-	return nil
 }
 
 func (r Runner) runTagList(ctx context.Context, opts commandOptions, slice string) error {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	ref, err := r.tagSliceRef(callCtx, cfg, conn, slice)
-	if err != nil {
-		return err
-	}
-	resp, err := corev1.NewSliceServiceClient(conn).ListTags(callCtx, &corev1.ListTagsRequest{Slice: ref})
-	if err != nil {
-		return tagError(err)
-	}
-	out := make([]tagOutput, 0, len(resp.Tags))
-	for _, tag := range resp.Tags {
-		out = append(out, tagToOutput(tag))
-	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{"tags": out})
-	}
-	for _, tag := range out {
-		fmt.Fprintf(r.Stdout, "%s\t%s\t%s\n", tag.Name, shortID(tag.CommitID), tag.CreatedAt)
-	}
-	return nil
+	return r.withSliceSession(ctx, slice, true, func(s *Session, ref *corev1.SliceRef) error {
+		resp, err := s.Slice().ListTags(s.Ctx(), &corev1.ListTagsRequest{Slice: ref})
+		if err != nil {
+			return tagError(err)
+		}
+		out := make([]tagOutput, 0, len(resp.Tags))
+		for _, tag := range resp.Tags {
+			out = append(out, tagToOutput(tag))
+		}
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, map[string]any{"tags": out})
+		}
+		for _, tag := range out {
+			fmt.Fprintf(r.Stdout, "%s\t%s\t%s\n", tag.Name, shortID(tag.CommitID), tag.CreatedAt)
+		}
+		return nil
+	})
 }
 
 func tagToOutput(tag *corev1.Tag) tagOutput {

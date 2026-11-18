@@ -90,36 +90,34 @@ func nonNilCollaborators(cs *corev1.Changeset) []string {
 }
 
 func (r Runner) runChangesetCollaboratorsList(ctx context.Context, opts commandOptions, requestedID string) error {
-	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)
-	if err != nil {
-		return err
-	}
-	cs, err := r.getChangeset(ctx, cfg, changesetID)
-	if err != nil {
-		return err
-	}
-	handle := firstNonEmpty(displayChangesetID(cs), cs.GetId())
-	collaborators := nonNilCollaborators(cs)
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{
-			"changeset":       handle,
-			"changeset_id":    cs.GetId(),
-			"author":          cs.GetAuthor(),
-			"original_author": cs.GetOriginalAuthor(),
-			"collaborators":   collaborators,
-		})
-	}
-	if opts.Quiet {
+	return r.withChangesetSession(ctx, requestedID, func(s *Session, target ChangesetTarget) error {
+		cs, err := s.GetChangeset(target.ChangesetID)
+		if err != nil {
+			return err
+		}
+		handle := firstNonEmpty(displayChangesetID(cs), cs.GetId())
+		collaborators := nonNilCollaborators(cs)
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, map[string]any{
+				"changeset":       handle,
+				"changeset_id":    cs.GetId(),
+				"author":          cs.GetAuthor(),
+				"original_author": cs.GetOriginalAuthor(),
+				"collaborators":   collaborators,
+			})
+		}
+		if opts.Quiet {
+			return nil
+		}
+		if len(collaborators) == 0 {
+			fmt.Fprintln(r.Stdout, "no collaborators")
+			return nil
+		}
+		for _, collab := range collaborators {
+			fmt.Fprintln(r.Stdout, collab)
+		}
 		return nil
-	}
-	if len(collaborators) == 0 {
-		fmt.Fprintln(r.Stdout, "no collaborators")
-		return nil
-	}
-	for _, collab := range collaborators {
-		fmt.Fprintln(r.Stdout, collab)
-	}
-	return nil
+	})
 }
 
 func (r Runner) runChangesetCollaboratorAdd(ctx context.Context, opts commandOptions, requestedID, user string) error {
@@ -127,35 +125,28 @@ func (r Runner) runChangesetCollaboratorAdd(ctx context.Context, opts commandOpt
 	if user == "" {
 		return userError("invalid_args", "user is required", "Pass a username or subject id.")
 	}
-	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)
-	if err != nil {
-		return err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	cs, err := corev1.NewChangesetServiceClient(conn).AddChangesetCollaborator(authContext(ctx, cfg), &corev1.AddChangesetCollaboratorRequest{
-		ChangesetId: changesetID,
-		Username:    user,
-	})
-	if err != nil {
-		return err
-	}
-	handle := firstNonEmpty(displayChangesetID(cs), cs.GetId())
-	collaborators := nonNilCollaborators(cs)
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{
-			"changeset":     handle,
-			"changeset_id":  cs.GetId(),
-			"collaborators": collaborators,
+	return r.withChangesetSession(ctx, requestedID, func(s *Session, target ChangesetTarget) error {
+		cs, err := s.Changeset().AddChangesetCollaborator(s.Ctx(), &corev1.AddChangesetCollaboratorRequest{
+			ChangesetId: target.ChangesetID,
+			Username:    user,
 		})
-	}
-	if !opts.Quiet {
-		fmt.Fprintf(r.Stdout, "added %s as collaborator on %s\n", user, handle)
-	}
-	return nil
+		if err != nil {
+			return err
+		}
+		handle := firstNonEmpty(displayChangesetID(cs), cs.GetId())
+		collaborators := nonNilCollaborators(cs)
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, map[string]any{
+				"changeset":     handle,
+				"changeset_id":  cs.GetId(),
+				"collaborators": collaborators,
+			})
+		}
+		if !opts.Quiet {
+			fmt.Fprintf(r.Stdout, "added %s as collaborator on %s\n", user, handle)
+		}
+		return nil
+	})
 }
 
 func (r Runner) runChangesetCollaboratorRemove(ctx context.Context, opts commandOptions, requestedID, user string) error {
@@ -163,35 +154,28 @@ func (r Runner) runChangesetCollaboratorRemove(ctx context.Context, opts command
 	if user == "" {
 		return userError("invalid_args", "user is required", "Pass a username or subject id.")
 	}
-	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)
-	if err != nil {
-		return err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	cs, err := corev1.NewChangesetServiceClient(conn).RemoveChangesetCollaborator(authContext(ctx, cfg), &corev1.RemoveChangesetCollaboratorRequest{
-		ChangesetId: changesetID,
-		Username:    user,
-	})
-	if err != nil {
-		return err
-	}
-	handle := firstNonEmpty(displayChangesetID(cs), cs.GetId())
-	collaborators := nonNilCollaborators(cs)
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{
-			"changeset":     handle,
-			"changeset_id":  cs.GetId(),
-			"collaborators": collaborators,
+	return r.withChangesetSession(ctx, requestedID, func(s *Session, target ChangesetTarget) error {
+		cs, err := s.Changeset().RemoveChangesetCollaborator(s.Ctx(), &corev1.RemoveChangesetCollaboratorRequest{
+			ChangesetId: target.ChangesetID,
+			Username:    user,
 		})
-	}
-	if !opts.Quiet {
-		fmt.Fprintf(r.Stdout, "removed %s from collaborators on %s\n", user, handle)
-	}
-	return nil
+		if err != nil {
+			return err
+		}
+		handle := firstNonEmpty(displayChangesetID(cs), cs.GetId())
+		collaborators := nonNilCollaborators(cs)
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, map[string]any{
+				"changeset":     handle,
+				"changeset_id":  cs.GetId(),
+				"collaborators": collaborators,
+			})
+		}
+		if !opts.Quiet {
+			fmt.Fprintf(r.Stdout, "removed %s from collaborators on %s\n", user, handle)
+		}
+		return nil
+	})
 }
 
 func (r Runner) runChangesetHandoff(ctx context.Context, opts commandOptions, requestedID, user string) error {
@@ -199,37 +183,30 @@ func (r Runner) runChangesetHandoff(ctx context.Context, opts commandOptions, re
 	if user == "" {
 		return userError("invalid_args", "user is required", "Pass a username or subject id.")
 	}
-	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)
-	if err != nil {
-		return err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	cs, err := corev1.NewChangesetServiceClient(conn).HandoffChangeset(authContext(ctx, cfg), &corev1.HandoffChangesetRequest{
-		ChangesetId: changesetID,
-		Username:    user,
-	})
-	if err != nil {
-		return err
-	}
-	handle := firstNonEmpty(displayChangesetID(cs), cs.GetId())
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{
-			"changeset":       handle,
-			"changeset_id":    cs.GetId(),
-			"author":          cs.GetAuthor(),
-			"original_author": cs.GetOriginalAuthor(),
+	return r.withChangesetSession(ctx, requestedID, func(s *Session, target ChangesetTarget) error {
+		cs, err := s.Changeset().HandoffChangeset(s.Ctx(), &corev1.HandoffChangesetRequest{
+			ChangesetId: target.ChangesetID,
+			Username:    user,
 		})
-	}
-	if !opts.Quiet {
-		if cs.GetOriginalAuthor() != "" {
-			fmt.Fprintf(r.Stdout, "handed off %s to %s (original author: %s)\n", handle, cs.GetAuthor(), cs.GetOriginalAuthor())
-		} else {
-			fmt.Fprintf(r.Stdout, "handed off %s to %s\n", handle, cs.GetAuthor())
+		if err != nil {
+			return err
 		}
-	}
-	return nil
+		handle := firstNonEmpty(displayChangesetID(cs), cs.GetId())
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, map[string]any{
+				"changeset":       handle,
+				"changeset_id":    cs.GetId(),
+				"author":          cs.GetAuthor(),
+				"original_author": cs.GetOriginalAuthor(),
+			})
+		}
+		if !opts.Quiet {
+			if cs.GetOriginalAuthor() != "" {
+				fmt.Fprintf(r.Stdout, "handed off %s to %s (original author: %s)\n", handle, cs.GetAuthor(), cs.GetOriginalAuthor())
+			} else {
+				fmt.Fprintf(r.Stdout, "handed off %s to %s\n", handle, cs.GetAuthor())
+			}
+		}
+		return nil
+	})
 }

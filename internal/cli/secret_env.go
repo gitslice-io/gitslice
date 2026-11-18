@@ -108,32 +108,31 @@ func (r Runner) runSecretEnv(ctx context.Context, opts commandOptions, templateP
 			return err
 		}
 	}
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	client := corev1.NewSecretServiceClient(conn)
 	var values map[string]string
 	var missing []string
 	where, hint := folder, "Create it with gs secret create NAME --path "+folder+" < value, or fix the template."
-	if slice != "" {
-		ref, err := r.tagSliceRef(callCtx, cfg, conn, slice)
-		if err != nil {
-			return err
+	if err := r.withSession(ctx, func(s *Session) error {
+		if slice != "" {
+			ref, err := s.ResolveSliceRef(slice, true)
+			if err != nil {
+				return err
+			}
+			resp, err := s.Secret().RevealSliceSecrets(s.Ctx(), &corev1.RevealSliceSecretsRequest{Slice: ref, Names: names})
+			if err != nil {
+				return secretError(err)
+			}
+			values, missing = resp.Values, resp.Missing
+			where, hint = ref.Account+"/"+ref.Slice, "Create it with gs secret create NAME --slice "+ref.Slice+" < value, or fix the template."
+			return nil
 		}
-		resp, err := client.RevealSliceSecrets(callCtx, &corev1.RevealSliceSecretsRequest{Slice: ref, Names: names})
+		resp, err := s.Secret().RevealSecrets(s.Ctx(), &corev1.RevealSecretsRequest{Path: folder, Names: names})
 		if err != nil {
 			return secretError(err)
 		}
 		values, missing = resp.Values, resp.Missing
-		where, hint = ref.Account+"/"+ref.Slice, "Create it with gs secret create NAME --slice "+ref.Slice+" < value, or fix the template."
-	} else {
-		resp, err := client.RevealSecrets(callCtx, &corev1.RevealSecretsRequest{Path: folder, Names: names})
-		if err != nil {
-			return secretError(err)
-		}
-		values, missing = resp.Values, resp.Missing
+		return nil
+	}); err != nil {
+		return err
 	}
 	if len(missing) > 0 {
 		return userError("secret_missing", fmt.Sprintf("no secret at %s is named %s", where, strings.Join(missing, ", ")), hint)

@@ -44,70 +44,55 @@ func (r Runner) sliceLifecycleCommands(opts *commandOptions) []*cobra.Command {
 }
 
 func (r Runner) runSliceRename(ctx context.Context, opts commandOptions, sliceRef, newName string) error {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
-	if err != nil {
-		return err
-	}
-	newName, err = normalizeCLISlug(newName, "new slice name")
-	if err != nil {
-		return err
-	}
-	client := corev1.NewSliceServiceClient(conn)
-	renamed, err := client.RenameSlice(callCtx, &corev1.RenameSliceRequest{Slice: ref, NewName: newName})
-	if err != nil {
-		return err
-	}
-	r.followRenamedWorkspace(ref, renamed.GetRef())
-	if opts.jsonOutput() {
-		out := sliceToOutput(renamed)
-		return r.writeJSONOutput(opts, struct {
-			sliceOutput
-			PreviousRef string `json:"previous_ref"`
-		}{out, sliceRefLabel(ref)})
-	}
-	if opts.Quiet {
+	return r.withSliceSession(ctx, sliceRef, false, func(s *Session, ref *corev1.SliceRef) error {
+		normalizedName, err := normalizeCLISlug(newName, "new slice name")
+		if err != nil {
+			return err
+		}
+		renamed, err := s.Slice().RenameSlice(s.Ctx(), &corev1.RenameSliceRequest{Slice: ref, NewName: normalizedName})
+		if err != nil {
+			return err
+		}
+		r.followRenamedWorkspace(ref, renamed.GetRef())
+		if opts.jsonOutput() {
+			out := sliceToOutput(renamed)
+			return r.writeJSONOutput(opts, struct {
+				sliceOutput
+				PreviousRef string `json:"previous_ref"`
+			}{out, sliceRefLabel(ref)})
+		}
+		if opts.Quiet {
+			return nil
+		}
+		fmt.Fprintf(r.Stdout, "renamed slice %s to %s\n", sliceRefLabel(ref), sliceRefLabel(renamed.GetRef()))
+		fmt.Fprintf(r.Stdout, "the old name %s still resolves to it and stays reserved\n", sliceRefLabel(ref))
 		return nil
-	}
-	fmt.Fprintf(r.Stdout, "renamed slice %s to %s\n", sliceRefLabel(ref), sliceRefLabel(renamed.GetRef()))
-	fmt.Fprintf(r.Stdout, "the old name %s still resolves to it and stays reserved\n", sliceRefLabel(ref))
-	return nil
+	})
 }
 
 func (r Runner) runSliceArchive(ctx context.Context, opts commandOptions, sliceRef string, archived bool) error {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
-	if err != nil {
-		return err
-	}
-	updated, err := corev1.NewSliceServiceClient(conn).SetSliceArchived(callCtx, &corev1.SetSliceArchivedRequest{Slice: ref, Archived: archived})
-	if err != nil {
-		return err
-	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{
-			"id":       updated.Id,
-			"ref":      sliceRefLabel(updated.Ref),
-			"archived": updated.Archived,
-		})
-	}
-	if opts.Quiet {
+	return r.withSliceSession(ctx, sliceRef, false, func(s *Session, ref *corev1.SliceRef) error {
+		updated, err := s.Slice().SetSliceArchived(s.Ctx(), &corev1.SetSliceArchivedRequest{Slice: ref, Archived: archived})
+		if err != nil {
+			return err
+		}
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, map[string]any{
+				"id":       updated.Id,
+				"ref":      sliceRefLabel(updated.Ref),
+				"archived": updated.Archived,
+			})
+		}
+		if opts.Quiet {
+			return nil
+		}
+		if archived {
+			fmt.Fprintf(r.Stdout, "archived slice %s: hidden from listings and read-only; gs slice unarchive restores it\n", sliceRefLabel(updated.Ref))
+		} else {
+			fmt.Fprintf(r.Stdout, "unarchived slice %s\n", sliceRefLabel(updated.Ref))
+		}
 		return nil
-	}
-	if archived {
-		fmt.Fprintf(r.Stdout, "archived slice %s: hidden from listings and read-only; gs slice unarchive restores it\n", sliceRefLabel(updated.Ref))
-	} else {
-		fmt.Fprintf(r.Stdout, "unarchived slice %s\n", sliceRefLabel(updated.Ref))
-	}
-	return nil
+	})
 }
 
 // followRenamedWorkspace points the current workspace at the slice's new name

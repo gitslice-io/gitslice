@@ -69,91 +69,66 @@ func (r Runner) sliceMirrorCommand(opts *commandOptions) *cobra.Command {
 	return mirrorCmd
 }
 
-func (r Runner) sliceMirrorClient(ctx context.Context, sliceRef string) (corev1.SliceServiceClient, *corev1.SliceRef, context.Context, func(), error) {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return nil, nil, nil, nil, err
-	}
-	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
-	if err != nil {
-		conn.Close()
-		return nil, nil, nil, nil, err
-	}
-	return corev1.NewSliceServiceClient(conn), ref, callCtx, func() { conn.Close() }, nil
-}
-
 func noMirrorError(sliceRef string) error {
 	return userError("mirror_not_found", "slice "+sliceRef+" has no Git mirror", "Set one with gs slice mirror set "+sliceRef+" --url https://github.com/<owner>/<repo>.git --token-secret <NAME>.")
 }
 
 func (r Runner) runSliceMirrorShow(ctx context.Context, opts commandOptions, sliceRef string) error {
-	client, ref, callCtx, done, err := r.sliceMirrorClient(ctx, sliceRef)
-	if err != nil {
-		return err
-	}
-	defer done()
-	mirror, err := client.GetSliceGitMirror(callCtx, &corev1.GetSliceGitMirrorRequest{Slice: ref})
-	if grpcstatus.Code(err) == codes.NotFound {
-		if opts.jsonOutput() {
-			return r.writeJSONOutput(opts, map[string]any{"mirror": nil})
+	return r.withSliceSession(ctx, sliceRef, false, func(s *Session, ref *corev1.SliceRef) error {
+		mirror, err := s.Slice().GetSliceGitMirror(s.Ctx(), &corev1.GetSliceGitMirrorRequest{Slice: ref})
+		if grpcstatus.Code(err) == codes.NotFound {
+			if opts.jsonOutput() {
+				return r.writeJSONOutput(opts, map[string]any{"mirror": nil})
+			}
+			return noMirrorError(sliceRef)
 		}
-		return noMirrorError(sliceRef)
-	}
-	if err != nil {
-		return err
-	}
-	return r.writeSliceMirror(opts, mirror, "")
+		if err != nil {
+			return err
+		}
+		return r.writeSliceMirror(opts, mirror, "")
+	})
 }
 
 func (r Runner) runSliceMirrorSet(ctx context.Context, opts commandOptions, sliceRef string, req *corev1.SetSliceGitMirrorRequest) error {
-	client, ref, callCtx, done, err := r.sliceMirrorClient(ctx, sliceRef)
-	if err != nil {
-		return err
-	}
-	defer done()
-	req.Slice = ref
-	mirror, err := client.SetSliceGitMirror(callCtx, req)
-	if grpcstatus.Code(err) == codes.FailedPrecondition {
-		return userError("secret_not_found", grpcstatus.Convert(err).Message(), "Create the secret first, for example: gs slice secret set "+sliceRef+" "+req.TokenSecret+" < token.txt")
-	}
-	if err != nil {
-		return err
-	}
-	return r.writeSliceMirror(opts, mirror, "mirror set; the first push starts in a moment")
+	return r.withSliceSession(ctx, sliceRef, false, func(s *Session, ref *corev1.SliceRef) error {
+		req.Slice = ref
+		mirror, err := s.Slice().SetSliceGitMirror(s.Ctx(), req)
+		if grpcstatus.Code(err) == codes.FailedPrecondition {
+			return userError("secret_not_found", grpcstatus.Convert(err).Message(), "Create the secret first, for example: gs slice secret set "+sliceRef+" "+req.TokenSecret+" < token.txt")
+		}
+		if err != nil {
+			return err
+		}
+		return r.writeSliceMirror(opts, mirror, "mirror set; the first push starts in a moment")
+	})
 }
 
 func (r Runner) runSliceMirrorPush(ctx context.Context, opts commandOptions, sliceRef string) error {
-	client, ref, callCtx, done, err := r.sliceMirrorClient(ctx, sliceRef)
-	if err != nil {
-		return err
-	}
-	defer done()
-	mirror, err := client.PushSliceGitMirror(callCtx, &corev1.PushSliceGitMirrorRequest{Slice: ref})
-	if grpcstatus.Code(err) == codes.NotFound {
-		return noMirrorError(sliceRef)
-	}
-	if err != nil {
-		return err
-	}
-	return r.writeSliceMirror(opts, mirror, "push queued; run gs slice mirror "+sliceRef+" to see how it went")
+	return r.withSliceSession(ctx, sliceRef, false, func(s *Session, ref *corev1.SliceRef) error {
+		mirror, err := s.Slice().PushSliceGitMirror(s.Ctx(), &corev1.PushSliceGitMirrorRequest{Slice: ref})
+		if grpcstatus.Code(err) == codes.NotFound {
+			return noMirrorError(sliceRef)
+		}
+		if err != nil {
+			return err
+		}
+		return r.writeSliceMirror(opts, mirror, "push queued; run gs slice mirror "+sliceRef+" to see how it went")
+	})
 }
 
 func (r Runner) runSliceMirrorRemove(ctx context.Context, opts commandOptions, sliceRef string) error {
-	client, ref, callCtx, done, err := r.sliceMirrorClient(ctx, sliceRef)
-	if err != nil {
-		return err
-	}
-	defer done()
-	if _, err := client.DeleteSliceGitMirror(callCtx, &corev1.DeleteSliceGitMirrorRequest{Slice: ref}); err != nil {
-		return err
-	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{"removed": true})
-	}
-	if !opts.Quiet {
-		fmt.Fprintf(r.Stdout, "stopped mirroring %s; the remote keeps what it has\n", sliceRef)
-	}
-	return nil
+	return r.withSliceSession(ctx, sliceRef, false, func(s *Session, ref *corev1.SliceRef) error {
+		if _, err := s.Slice().DeleteSliceGitMirror(s.Ctx(), &corev1.DeleteSliceGitMirrorRequest{Slice: ref}); err != nil {
+			return err
+		}
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, map[string]any{"removed": true})
+		}
+		if !opts.Quiet {
+			fmt.Fprintf(r.Stdout, "stopped mirroring %s; the remote keeps what it has\n", sliceRef)
+		}
+		return nil
+	})
 }
 
 type sliceMirrorOutput struct {

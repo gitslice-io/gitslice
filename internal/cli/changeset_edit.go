@@ -40,39 +40,31 @@ func (r Runner) runChangesetEdit(ctx context.Context, opts commandOptions, reque
 	if title == nil && description == nil {
 		return userError("invalid_args", "nothing to change", "Pass --title, --description or --description-file.")
 	}
-	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)
-	if err != nil {
-		return err
-	}
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	_ = cfg
-	cs, err := corev1.NewChangesetServiceClient(conn).UpdateChangesetInfo(callCtx, &corev1.UpdateChangesetInfoRequest{
-		ChangesetId: changesetID,
-		Title:       title,
-		Description: description,
-	})
-	if err != nil {
-		return err
-	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{
-			"changeset":   firstNonEmpty(displayChangesetID(cs), cs.Id),
-			"title":       cs.Title,
-			"description": cs.Description,
+	return r.withChangesetSession(ctx, requestedID, func(s *Session, target ChangesetTarget) error {
+		cs, err := s.Changeset().UpdateChangesetInfo(s.Ctx(), &corev1.UpdateChangesetInfoRequest{
+			ChangesetId: target.ChangesetID,
+			Title:       title,
+			Description: description,
 		})
-	}
-	if !opts.Quiet {
-		fmt.Fprintf(r.Stdout, "updated %s\n", firstNonEmpty(displayChangesetID(cs), cs.Id))
-		fmt.Fprintf(r.Stdout, "title: %s\n", cs.Title)
-		if cs.Description != "" {
-			fmt.Fprintf(r.Stdout, "description:\n%s\n", indentLines(cs.Description, "  "))
+		if err != nil {
+			return err
 		}
-	}
-	return nil
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, map[string]any{
+				"changeset":   firstNonEmpty(displayChangesetID(cs), cs.Id),
+				"title":       cs.Title,
+				"description": cs.Description,
+			})
+		}
+		if !opts.Quiet {
+			fmt.Fprintf(r.Stdout, "updated %s\n", firstNonEmpty(displayChangesetID(cs), cs.Id))
+			fmt.Fprintf(r.Stdout, "title: %s\n", cs.Title)
+			if cs.Description != "" {
+				fmt.Fprintf(r.Stdout, "description:\n%s\n", indentLines(cs.Description, "  "))
+			}
+		}
+		return nil
+	})
 }
 
 func optionalString(set bool, value string) *string {

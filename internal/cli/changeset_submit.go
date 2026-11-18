@@ -53,10 +53,11 @@ func (r Runner) submitWhenChecksReport(ctx context.Context, opts commandOptions,
 }
 
 func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, requestedID string, watch bool, watchTimeout time.Duration) error {
-	cfg, ws, state, hasWorkspace, changesetID, usingWorkspaceCurrent, err := r.resolveChangesetCommandState(requestedID)
+	target, err := r.resolveChangesetTarget(requestedID)
 	if err != nil {
 		return err
 	}
+	cfg, ws, state, hasWorkspace, changesetID, usingWorkspaceCurrent := target.Config, target.Workspace, target.State, target.HasWorkspace, target.ChangesetID, target.UsingWorkspaceCurrent
 	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
@@ -218,10 +219,11 @@ func (r Runner) runStackSubmit(ctx context.Context, opts commandOptions, request
 		}
 		return r.runChangesetSubmit(ctx, opts, requestedID, watch, watchTimeout)
 	}
-	cfg, _, state, _, _, _, err := r.resolveChangesetCommandState(requestedID)
+	target, err := r.resolveChangesetTarget(requestedID)
 	if err != nil {
 		return err
 	}
+	cfg, state := target.Config, target.State
 	if err := rejectPreStackWorkspaceState(state); err != nil {
 		return err
 	}

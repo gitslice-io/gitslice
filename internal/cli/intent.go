@@ -175,61 +175,59 @@ func (r Runner) runIntentCreate(ctx context.Context, opts commandOptions, sliceF
 	return nil
 }
 
+var intentSliceResolveOptions = SliceResolveOptions{
+	FallbackToWorkspace: true,
+	MissingCode:         "slice_required",
+	MissingMessage:      "slice is required outside a workspace",
+	MissingHint:         "Pass <account>/<slice> or --slice <account/slice>, or run inside a slice checkout.",
+}
+
 func (r Runner) runIntentList(ctx context.Context, opts commandOptions, rawSlice string) error {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	sliceRef, err := r.resolveIntentSliceRef(callCtx, cfg, conn, rawSlice)
-	if err != nil {
-		return err
-	}
-
-	resp, err := corev1.NewChangesetServiceClient(conn).ListPathIntents(callCtx, &corev1.ListPathIntentsRequest{
-		Slice: sliceRef,
-	})
-	if err != nil {
-		return intentRPCError(err)
-	}
-
-	items := make([]pathIntentOutput, 0, len(resp.GetIntents()))
-	for _, item := range resp.GetIntents() {
-		items = append(items, pathIntentFromProto(item))
-	}
-	label := sliceRefLabel(resp.GetSlice())
-	if label == "" {
-		label = sliceRefLabel(sliceRef)
-	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{
-			"slice":   label,
-			"intents": items,
+	return r.withSliceSessionOpts(ctx, rawSlice, intentSliceResolveOptions, func(s *Session, sliceRef *corev1.SliceRef) error {
+		resp, err := s.Changeset().ListPathIntents(s.Ctx(), &corev1.ListPathIntentsRequest{
+			Slice: sliceRef,
 		})
-	}
-	if opts.Quiet {
-		return nil
-	}
-	if len(items) == 0 {
-		fmt.Fprintf(r.Stdout, "no active path intents on %s\n", label)
-		return nil
-	}
-	now := time.Now().UTC()
-	for _, item := range items {
-		actor := formatIntentActorLabel(item.Username, item.ControllerUsername, item.SubjectID)
-		exp, _ := time.Parse(time.RFC3339, item.ExpiresAt)
-		rem := intents.FormatRemaining(exp.Sub(now))
-		line := fmt.Sprintf("%s\t%s\t%s\t%s left", item.ID, item.Pattern, actor, rem)
-		if item.ChangesetID != "" {
-			line += fmt.Sprintf("\t[%s]", item.ChangesetID)
+		if err != nil {
+			return intentRPCError(err)
 		}
-		if item.Message != "" {
-			line += fmt.Sprintf("\t%q", item.Message)
+
+		items := make([]pathIntentOutput, 0, len(resp.GetIntents()))
+		for _, item := range resp.GetIntents() {
+			items = append(items, pathIntentFromProto(item))
 		}
-		fmt.Fprintln(r.Stdout, line)
-	}
-	return nil
+		label := sliceRefLabel(resp.GetSlice())
+		if label == "" {
+			label = sliceRefLabel(sliceRef)
+		}
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, map[string]any{
+				"slice":   label,
+				"intents": items,
+			})
+		}
+		if opts.Quiet {
+			return nil
+		}
+		if len(items) == 0 {
+			fmt.Fprintf(r.Stdout, "no active path intents on %s\n", label)
+			return nil
+		}
+		now := time.Now().UTC()
+		for _, item := range items {
+			actor := formatIntentActorLabel(item.Username, item.ControllerUsername, item.SubjectID)
+			exp, _ := time.Parse(time.RFC3339, item.ExpiresAt)
+			rem := intents.FormatRemaining(exp.Sub(now))
+			line := fmt.Sprintf("%s\t%s\t%s\t%s left", item.ID, item.Pattern, actor, rem)
+			if item.ChangesetID != "" {
+				line += fmt.Sprintf("\t[%s]", item.ChangesetID)
+			}
+			if item.Message != "" {
+				line += fmt.Sprintf("\t%q", item.Message)
+			}
+			fmt.Fprintln(r.Stdout, line)
+		}
+		return nil
+	})
 }
 
 func (r Runner) runIntentClear(ctx context.Context, opts commandOptions, sliceFlag, target string, clearAll bool) error {
@@ -241,100 +239,83 @@ func (r Runner) runIntentClear(ctx context.Context, opts commandOptions, sliceFl
 		return userError("intent_target_required", "pass an intent ID, a glob pattern, or --all", "Usage: gs intent clear [<id-or-glob>] [--all]")
 	}
 
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	csClient := corev1.NewChangesetServiceClient(conn)
+	return r.withSession(ctx, func(s *Session) error {
+		csClient := s.Changeset()
+		callCtx := s.Ctx()
 
-	// Direct delete by explicit intent ID ("int_...").
-	if !clearAll && strings.HasPrefix(target, "int_") && !strings.Contains(target, "/") {
-		if _, err := csClient.DeletePathIntent(callCtx, &corev1.DeletePathIntentRequest{IntentId: target}); err != nil {
+		// Direct delete by explicit intent ID ("int_...").
+		if !clearAll && strings.HasPrefix(target, "int_") && !strings.Contains(target, "/") {
+			if _, err := csClient.DeletePathIntent(callCtx, &corev1.DeletePathIntentRequest{IntentId: target}); err != nil {
+				return intentRPCError(err)
+			}
+			if opts.jsonOutput() {
+				return r.writeJSONOutput(opts, map[string]any{
+					"deleted_ids": []string{target},
+					"deleted":     1,
+				})
+			}
+			if !opts.Quiet {
+				fmt.Fprintf(r.Stdout, "cleared intent %s\n", target)
+			}
+			return nil
+		}
+
+		subjectID := r.bestEffortSubjectID(callCtx, s.Conn(), s.Config())
+		var sliceRef *corev1.SliceRef
+		var normPattern string
+		var err error
+		if clearAll {
+			sliceRef, err = s.ResolveSliceRefWithOptions(sliceFlag, intentSliceResolveOptions)
+			if err != nil {
+				return err
+			}
+		} else {
+			sliceRef, normPattern, err = r.resolveIntentTarget(callCtx, s.Config(), s.Conn(), sliceFlag, target)
+			if err != nil {
+				return err
+			}
+			normPattern, err = intents.NormalizePattern(normPattern)
+			if err != nil {
+				return userError("invalid_intent_pattern", err.Error(), "Pass an intent ID (int_...) or a valid path/glob pattern.")
+			}
+		}
+
+		listResp, err := csClient.ListPathIntents(callCtx, &corev1.ListPathIntentsRequest{Slice: sliceRef})
+		if err != nil {
 			return intentRPCError(err)
 		}
+
+		deletedIDs := []string{}
+		for _, item := range listResp.GetIntents() {
+			ownedByCaller := subjectID != "" && (item.GetSubjectId() == subjectID || item.GetControllerSubjectId() == subjectID)
+			if !ownedByCaller {
+				continue
+			}
+			if !clearAll && item.GetPattern() != normPattern && !intents.PatternsOverlap(normPattern, item.GetPattern()) {
+				continue
+			}
+			if _, err := csClient.DeletePathIntent(callCtx, &corev1.DeletePathIntentRequest{IntentId: item.GetId()}); err != nil {
+				return intentRPCError(err)
+			}
+			deletedIDs = append(deletedIDs, item.GetId())
+		}
+
 		if opts.jsonOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
-				"deleted_ids": []string{target},
-				"deleted":     1,
+				"slice":       sliceRefLabel(sliceRef),
+				"deleted_ids": deletedIDs,
+				"deleted":     len(deletedIDs),
 			})
 		}
 		if !opts.Quiet {
-			fmt.Fprintf(r.Stdout, "cleared intent %s\n", target)
+			if len(deletedIDs) == 0 {
+				fmt.Fprintf(r.Stdout, "no matching intents to clear on %s\n", sliceRefLabel(sliceRef))
+			} else {
+				fmt.Fprintf(r.Stdout, "cleared %d intent(s): %s\n", len(deletedIDs), strings.Join(deletedIDs, ", "))
+			}
 		}
 		return nil
-	}
-
-	subjectID := r.bestEffortSubjectID(callCtx, conn, cfg)
-	var sliceRef *corev1.SliceRef
-	var normPattern string
-	if clearAll {
-		sliceRef, err = r.resolveIntentSliceRef(callCtx, cfg, conn, sliceFlag)
-		if err != nil {
-			return err
-		}
-	} else {
-		sliceRef, normPattern, err = r.resolveIntentTarget(callCtx, cfg, conn, sliceFlag, target)
-		if err != nil {
-			return err
-		}
-		normPattern, err = intents.NormalizePattern(normPattern)
-		if err != nil {
-			return userError("invalid_intent_pattern", err.Error(), "Pass an intent ID (int_...) or a valid path/glob pattern.")
-		}
-	}
-
-	listResp, err := csClient.ListPathIntents(callCtx, &corev1.ListPathIntentsRequest{Slice: sliceRef})
-	if err != nil {
-		return intentRPCError(err)
-	}
-
-	deletedIDs := []string{}
-	for _, item := range listResp.GetIntents() {
-		ownedByCaller := subjectID != "" && (item.GetSubjectId() == subjectID || item.GetControllerSubjectId() == subjectID)
-		if !ownedByCaller {
-			continue
-		}
-		if !clearAll && item.GetPattern() != normPattern && !intents.PatternsOverlap(normPattern, item.GetPattern()) {
-			continue
-		}
-		if _, err := csClient.DeletePathIntent(callCtx, &corev1.DeletePathIntentRequest{IntentId: item.GetId()}); err != nil {
-			return intentRPCError(err)
-		}
-		deletedIDs = append(deletedIDs, item.GetId())
-	}
-
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{
-			"slice":       sliceRefLabel(sliceRef),
-			"deleted_ids": deletedIDs,
-			"deleted":     len(deletedIDs),
-		})
-	}
-	if !opts.Quiet {
-		if len(deletedIDs) == 0 {
-			fmt.Fprintf(r.Stdout, "no matching intents to clear on %s\n", sliceRefLabel(sliceRef))
-		} else {
-			fmt.Fprintf(r.Stdout, "cleared %d intent(s): %s\n", len(deletedIDs), strings.Join(deletedIDs, ", "))
-		}
-	}
-	return nil
-}
-
-func (r Runner) resolveIntentSliceRef(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, rawSlice string) (*corev1.SliceRef, error) {
-	rawSlice = strings.TrimSpace(rawSlice)
-	if rawSlice != "" {
-		return r.resolveSliceRefInput(ctx, cfg, conn, rawSlice)
-	}
-	ws, err := r.readWorkspaceConfig()
-	if err != nil || strings.TrimSpace(ws.Account) == "" || strings.TrimSpace(ws.Slice) == "" {
-		return nil, userError(
-			"slice_required",
-			"slice is required outside a workspace",
-			"Pass <account>/<slice> or --slice <account/slice>, or run inside a slice checkout.",
-		)
-	}
-	return &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, nil
+	})
 }
 
 func (r Runner) resolveIntentTarget(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, sliceFlag, rawTarget string) (*corev1.SliceRef, string, error) {

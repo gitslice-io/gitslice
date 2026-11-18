@@ -105,16 +105,20 @@ type checkRunOutput struct {
 // latestCheckRuns is the latest attempt of each check on the changeset's
 // current patchset, by name.
 func (r Runner) latestCheckRuns(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, requested string) (*corev1.Changeset, []*corev1.CheckRun, error) {
-	_, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requested)
+	return newSession(r, cfg, conn, authContext(ctx, cfg)).latestCheckRuns(requested)
+}
+
+func (s *Session) latestCheckRuns(requested string) (*corev1.Changeset, []*corev1.CheckRun, error) {
+	target, err := s.ResolveChangesetTarget(requested)
 	if err != nil {
 		return nil, nil, err
 	}
-	cs, err := corev1.NewChangesetServiceClient(conn).GetChangeset(authContext(ctx, cfg), &corev1.GetChangesetRequest{ChangesetId: changesetID})
+	cs, err := s.GetChangeset(target.ChangesetID)
 	if err != nil {
 		return nil, nil, err
 	}
 	patchsetID := cs.GetCurrentPatchsetId()
-	res, err := corev1.NewCheckServiceClient(conn).ListCheckRuns(authContext(ctx, cfg), &corev1.ListCheckRunsRequest{ChangesetId: cs.GetId(), PatchsetId: patchsetID})
+	res, err := s.Check().ListCheckRuns(s.Ctx(), &corev1.ListCheckRunsRequest{ChangesetId: cs.GetId(), PatchsetId: patchsetID})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -136,50 +140,47 @@ func (r Runner) latestCheckRuns(ctx context.Context, conn *grpc.ClientConn, cfg 
 }
 
 func (r Runner) runCheckList(ctx context.Context, opts commandOptions, requested string) error {
-	cfg, err := r.readUserConfig()
-	if err != nil {
-		return err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	cs, runs, err := r.latestCheckRuns(ctx, conn, cfg, requested)
-	if err != nil {
-		return err
-	}
-	out := make([]checkRunOutput, 0, len(runs))
-	for _, run := range runs {
-		out = append(out, checkRunOutput{Name: run.GetCheckName(), Status: run.GetStatus(), RunID: run.GetId(), Attempt: run.GetAttempt(), Summary: run.GetSummary(), Daemon: run.GetDaemonName(), DurationMs: run.GetDurationMs()})
-	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{"changeset": firstNonEmpty(displayChangesetID(cs), cs.GetId()), "checks": out})
-	}
-	if opts.Quiet {
-		return nil
-	}
-	if len(out) == 0 {
-		fmt.Fprintf(r.Stdout, "no check runs on %s's current patchset\n", firstNonEmpty(displayChangesetID(cs), cs.GetId()))
-		return nil
-	}
-	for _, c := range out {
-		line := fmt.Sprintf("%-10s %-24s %s", c.Status, c.Name, c.RunID)
-		if c.Summary != "" && c.Status != "passed" {
-			line += "  " + c.Summary
+	return r.withSession(ctx, func(s *Session) error {
+		cs, runs, err := s.latestCheckRuns(requested)
+		if err != nil {
+			return err
 		}
-		fmt.Fprintln(r.Stdout, line)
-	}
-	return nil
+		out := make([]checkRunOutput, 0, len(runs))
+		for _, run := range runs {
+			out = append(out, checkRunOutput{Name: run.GetCheckName(), Status: run.GetStatus(), RunID: run.GetId(), Attempt: run.GetAttempt(), Summary: run.GetSummary(), Daemon: run.GetDaemonName(), DurationMs: run.GetDurationMs()})
+		}
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, map[string]any{"changeset": firstNonEmpty(displayChangesetID(cs), cs.GetId()), "checks": out})
+		}
+		if opts.Quiet {
+			return nil
+		}
+		if len(out) == 0 {
+			fmt.Fprintf(r.Stdout, "no check runs on %s's current patchset\n", firstNonEmpty(displayChangesetID(cs), cs.GetId()))
+			return nil
+		}
+		for _, c := range out {
+			line := fmt.Sprintf("%-10s %-24s %s", c.Status, c.Name, c.RunID)
+			if c.Summary != "" && c.Status != "passed" {
+				line += "  " + c.Summary
+			}
+			fmt.Fprintln(r.Stdout, line)
+		}
+		return nil
+	})
 }
 
 // resolveCheckRun finds the run a gs check argument names.
 func (r Runner) resolveCheckRun(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, changeset, target string) (*corev1.CheckRun, error) {
+	return newSession(r, cfg, conn, authContext(ctx, cfg)).resolveCheckRun(changeset, target)
+}
+
+func (s *Session) resolveCheckRun(changeset, target string) (*corev1.CheckRun, error) {
 	target = strings.TrimSpace(target)
 	if strings.HasPrefix(target, "run_") {
-		return corev1.NewCheckServiceClient(conn).GetCheckRun(authContext(ctx, cfg), &corev1.GetCheckRunRequest{RunId: target})
+		return s.Check().GetCheckRun(s.Ctx(), &corev1.GetCheckRunRequest{RunId: target})
 	}
-	_, runs, err := r.latestCheckRuns(ctx, conn, cfg, changeset)
+	_, runs, err := s.latestCheckRuns(changeset)
 	if err != nil {
 		return nil, err
 	}
@@ -205,28 +206,21 @@ func (r Runner) resolveCheckRun(ctx context.Context, conn *grpc.ClientConn, cfg 
 }
 
 func (r Runner) runCheckLogs(ctx context.Context, opts commandOptions, changeset, target string, follow bool, tail int) error {
-	cfg, err := r.readUserConfig()
-	if err != nil {
-		return err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	run, err := r.resolveCheckRun(ctx, conn, cfg, changeset, target)
-	if err != nil {
-		return err
-	}
-	if tail > 0 {
-		text, err := r.checkRunLog(ctx, conn, cfg, run, follow)
+	return r.withSession(ctx, func(s *Session) error {
+		run, err := s.resolveCheckRun(changeset, target)
 		if err != nil {
 			return err
 		}
-		_, err = io.WriteString(r.Stdout, tailLines(text, tail))
-		return err
-	}
-	return r.streamCheckRunLog(ctx, conn, cfg, run, follow, r.Stdout)
+		if tail > 0 {
+			text, err := r.checkRunLog(ctx, s.Conn(), s.Config(), run, follow)
+			if err != nil {
+				return err
+			}
+			_, err = io.WriteString(r.Stdout, tailLines(text, tail))
+			return err
+		}
+		return r.streamCheckRunLog(ctx, s.Conn(), s.Config(), run, follow, r.Stdout)
+	})
 }
 
 // checkRunLog reads a run's whole log (until it ends when follow is set).
@@ -305,86 +299,73 @@ func tailLines(text string, n int) string {
 }
 
 func (r Runner) runCheckRerun(ctx context.Context, opts commandOptions, changeset, target string) error {
-	cfg, err := r.readUserConfig()
-	if err != nil {
-		return err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	run, err := r.resolveCheckRun(ctx, conn, cfg, changeset, target)
-	if err != nil {
-		return err
-	}
-	next, err := corev1.NewCheckServiceClient(conn).RerunCheck(authContext(ctx, cfg), &corev1.RerunCheckRequest{RunId: run.GetId()})
-	if err != nil {
-		return err
-	}
-	out := checkRunOutput{Name: next.GetCheckName(), Status: next.GetStatus(), RunID: next.GetId(), Attempt: next.GetAttempt()}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if !opts.Quiet {
-		fmt.Fprintf(r.Stdout, "rerunning %s as %s (attempt %d); gs check logs %s --follow to watch\n", out.Name, out.RunID, out.Attempt, out.RunID)
-	}
-	return nil
+	return r.withSession(ctx, func(s *Session) error {
+		run, err := s.resolveCheckRun(changeset, target)
+		if err != nil {
+			return err
+		}
+		next, err := s.Check().RerunCheck(s.Ctx(), &corev1.RerunCheckRequest{RunId: run.GetId()})
+		if err != nil {
+			return err
+		}
+		out := checkRunOutput{Name: next.GetCheckName(), Status: next.GetStatus(), RunID: next.GetId(), Attempt: next.GetAttempt()}
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, out)
+		}
+		if !opts.Quiet {
+			fmt.Fprintf(r.Stdout, "rerunning %s as %s (attempt %d); gs check logs %s --follow to watch\n", out.Name, out.RunID, out.Attempt, out.RunID)
+		}
+		return nil
+	})
 }
 
 func (r Runner) runCheckAllow(ctx context.Context, opts commandOptions, requested, patchsetID string) error {
-	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requested)
-	if err != nil {
-		return err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	res, err := corev1.NewCheckServiceClient(conn).AllowPatchsetSecrets(authContext(ctx, cfg), &corev1.AllowPatchsetSecretsRequest{
-		ChangesetId: changesetID,
-		PatchsetId:  strings.TrimSpace(patchsetID),
-	})
-	if err != nil {
-		return err
-	}
-	runs := make([]checkRunOutput, 0, len(res.GetRerunChecks()))
-	for _, run := range res.GetRerunChecks() {
-		runs = append(runs, checkRunOutput{
-			Name:       run.GetCheckName(),
-			Status:     run.GetStatus(),
-			RunID:      run.GetId(),
-			Attempt:    run.GetAttempt(),
-			Summary:    run.GetSummary(),
-			Daemon:     run.GetDaemonName(),
-			DurationMs: run.GetDurationMs(),
+	return r.withChangesetSession(ctx, requested, func(s *Session, target ChangesetTarget) error {
+		changesetID := target.ChangesetID
+		res, err := s.Check().AllowPatchsetSecrets(s.Ctx(), &corev1.AllowPatchsetSecretsRequest{
+			ChangesetId: changesetID,
+			PatchsetId:  strings.TrimSpace(patchsetID),
 		})
-	}
-	csLabel := firstNonEmpty(model.ShortChangesetID(res.GetChangesetId()), res.GetChangesetId(), changesetID)
-	out := allowPatchsetSecretsOutput{
-		Changeset:   csLabel,
-		ChangesetID: res.GetChangesetId(),
-		PatchsetID:  res.GetPatchsetId(),
-		AllowedBy:   res.GetAllowedBySubjectId(),
-		AllowedAt:   res.GetAllowedAt(),
-		RerunChecks: runs,
-	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if opts.Quiet {
+		if err != nil {
+			return err
+		}
+		runs := make([]checkRunOutput, 0, len(res.GetRerunChecks()))
+		for _, run := range res.GetRerunChecks() {
+			runs = append(runs, checkRunOutput{
+				Name:       run.GetCheckName(),
+				Status:     run.GetStatus(),
+				RunID:      run.GetId(),
+				Attempt:    run.GetAttempt(),
+				Summary:    run.GetSummary(),
+				Daemon:     run.GetDaemonName(),
+				DurationMs: run.GetDurationMs(),
+			})
+		}
+		csLabel := firstNonEmpty(model.ShortChangesetID(res.GetChangesetId()), res.GetChangesetId(), changesetID)
+		out := allowPatchsetSecretsOutput{
+			Changeset:   csLabel,
+			ChangesetID: res.GetChangesetId(),
+			PatchsetID:  res.GetPatchsetId(),
+			AllowedBy:   res.GetAllowedBySubjectId(),
+			AllowedAt:   res.GetAllowedAt(),
+			RerunChecks: runs,
+		}
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, out)
+		}
+		if opts.Quiet {
+			return nil
+		}
+		if len(runs) == 0 {
+			fmt.Fprintf(r.Stdout, "allowed secrets for %s (%s)\n", csLabel, out.PatchsetID)
+			return nil
+		}
+		fmt.Fprintf(r.Stdout, "allowed secrets for %s (%s); running %d check(s):\n", csLabel, out.PatchsetID, len(runs))
+		for _, c := range runs {
+			fmt.Fprintf(r.Stdout, "  %-10s %-24s %s\n", c.Status, c.Name, c.RunID)
+		}
 		return nil
-	}
-	if len(runs) == 0 {
-		fmt.Fprintf(r.Stdout, "allowed secrets for %s (%s)\n", csLabel, out.PatchsetID)
-		return nil
-	}
-	fmt.Fprintf(r.Stdout, "allowed secrets for %s (%s); running %d check(s):\n", csLabel, out.PatchsetID, len(runs))
-	for _, c := range runs {
-		fmt.Fprintf(r.Stdout, "  %-10s %-24s %s\n", c.Status, c.Name, c.RunID)
-	}
-	return nil
+	})
 }
 
 var failingCheckPattern = regexp.MustCompile(`required check "([^"]+)" is failing`)

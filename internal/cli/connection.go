@@ -18,16 +18,13 @@ import (
 )
 
 func (r Runner) resolveSlice(ctx context.Context, sliceRef string) (*corev1.Slice, error) {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceRef)
-	if err != nil {
-		return nil, err
-	}
-	return corev1.NewSliceServiceClient(conn).ResolveSlice(callCtx, &corev1.ResolveSliceRequest{Ref: ref})
+	var resolved *corev1.Slice
+	err := r.withSession(ctx, func(s *Session) error {
+		slice, _, err := s.ResolveSlice(sliceRef)
+		resolved = slice
+		return err
+	})
+	return resolved, err
 }
 
 func (r Runner) authenticatedConn(ctx context.Context) (UserConfig, *grpc.ClientConn, context.Context, error) {

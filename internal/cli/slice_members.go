@@ -93,143 +93,121 @@ func (r Runner) sliceMemberCommands(opts *commandOptions) []*cobra.Command {
 	return []*cobra.Command{shareCmd, unshareCmd, leaveCmd, membersCmd}
 }
 
-func (r Runner) sliceMemberConn(ctx context.Context, value string) (UserConfig, corev1.SliceServiceClient, context.Context, *corev1.SliceRef, func(), error) {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return UserConfig{}, nil, nil, nil, nil, err
-	}
-	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, value)
-	if err != nil {
-		conn.Close()
-		return UserConfig{}, nil, nil, nil, nil, err
-	}
-	return cfg, corev1.NewSliceServiceClient(conn), callCtx, ref, func() { conn.Close() }, nil
-}
-
 func (r Runner) runSliceShare(ctx context.Context, opts commandOptions, sliceValue, username, role string) error {
 	normalizedRole := strings.ToLower(strings.TrimSpace(role))
 	if model.SliceRoleRank(normalizedRole) >= len(model.SliceRoles) {
 		return userError("invalid_role", fmt.Sprintf("role must be one of %s", strings.Join(model.SliceRoles, ", ")), "Pass --role reader, contributor, writer or admin.")
 	}
-	_, client, callCtx, ref, done, err := r.sliceMemberConn(ctx, sliceValue)
-	if err != nil {
-		return err
-	}
-	defer done()
-	member, err := client.SetSliceMember(callCtx, &corev1.SetSliceMemberRequest{Slice: ref, Username: strings.TrimSpace(username), Role: normalizedRole})
-	if err != nil {
-		return sliceMemberError(err, ref)
-	}
-	out := sliceMemberFromProto(member)
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if opts.Quiet {
+	return r.withSliceSession(ctx, sliceValue, false, func(s *Session, ref *corev1.SliceRef) error {
+		member, err := s.Slice().SetSliceMember(s.Ctx(), &corev1.SetSliceMemberRequest{Slice: ref, Username: strings.TrimSpace(username), Role: normalizedRole})
+		if err != nil {
+			return sliceMemberError(err, ref)
+		}
+		out := sliceMemberFromProto(member)
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, out)
+		}
+		if opts.Quiet {
+			return nil
+		}
+		label := ref.Account + "/" + ref.Slice
+		fmt.Fprintf(r.Stdout, "shared %s with %s as %s\n", label, out.Username, out.Role)
+		if ref.Slice == "home" {
+			fmt.Fprintf(r.Stdout, "note: %s/home covers everything in /%s; a narrower slice shares less\n", ref.Account, ref.Account)
+		}
+		if strings.HasPrefix(out.Username, "@") {
+			fmt.Fprintf(r.Stdout, "members of %s can now run: gs init %s\n", out.Username, label)
+		} else {
+			fmt.Fprintf(r.Stdout, "%s can now run: gs init %s\n", out.Username, label)
+		}
 		return nil
-	}
-	label := ref.Account + "/" + ref.Slice
-	fmt.Fprintf(r.Stdout, "shared %s with %s as %s\n", label, out.Username, out.Role)
-	if ref.Slice == "home" {
-		fmt.Fprintf(r.Stdout, "note: %s/home covers everything in /%s; a narrower slice shares less\n", ref.Account, ref.Account)
-	}
-	if strings.HasPrefix(out.Username, "@") {
-		fmt.Fprintf(r.Stdout, "members of %s can now run: gs init %s\n", out.Username, label)
-	} else {
-		fmt.Fprintf(r.Stdout, "%s can now run: gs init %s\n", out.Username, label)
-	}
-	return nil
+	})
 }
 
 func (r Runner) runSliceRemoveMember(ctx context.Context, opts commandOptions, sliceValue, username string) error {
-	_, client, callCtx, ref, done, err := r.sliceMemberConn(ctx, sliceValue)
-	if err != nil {
-		return err
-	}
-	defer done()
-	if _, err := client.RemoveSliceMember(callCtx, &corev1.RemoveSliceMemberRequest{Slice: ref, Username: strings.TrimSpace(username)}); err != nil {
-		return sliceMemberError(err, ref)
-	}
-	label := ref.Account + "/" + ref.Slice
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{"slice": label, "removed": firstNonEmpty(strings.TrimSpace(username), "you")})
-	}
-	if opts.Quiet {
+	return r.withSliceSession(ctx, sliceValue, false, func(s *Session, ref *corev1.SliceRef) error {
+		if _, err := s.Slice().RemoveSliceMember(s.Ctx(), &corev1.RemoveSliceMemberRequest{Slice: ref, Username: strings.TrimSpace(username)}); err != nil {
+			return sliceMemberError(err, ref)
+		}
+		label := ref.Account + "/" + ref.Slice
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, map[string]any{"slice": label, "removed": firstNonEmpty(strings.TrimSpace(username), "you")})
+		}
+		if opts.Quiet {
+			return nil
+		}
+		if strings.TrimSpace(username) == "" {
+			fmt.Fprintf(r.Stdout, "left %s\n", label)
+			return nil
+		}
+		fmt.Fprintf(r.Stdout, "%s no longer has a role on %s\n", strings.TrimSpace(username), label)
 		return nil
-	}
-	if strings.TrimSpace(username) == "" {
-		fmt.Fprintf(r.Stdout, "left %s\n", label)
-		return nil
-	}
-	fmt.Fprintf(r.Stdout, "%s no longer has a role on %s\n", strings.TrimSpace(username), label)
-	return nil
+	})
 }
 
 func (r Runner) runSliceMembers(ctx context.Context, opts commandOptions, sliceValue string) error {
-	_, client, callCtx, ref, done, err := r.sliceMemberConn(ctx, sliceValue)
-	if err != nil {
-		return err
-	}
-	defer done()
-	res, err := client.ListSliceMembers(callCtx, &corev1.ListSliceMembersRequest{Slice: ref})
-	if err != nil {
-		return sliceMemberError(err, ref)
-	}
-	label := ref.Account + "/" + ref.Slice
-	out := sliceMembersOutput{
-		Slice:        label,
-		Members:      []sliceMemberOutput{},
-		GroupMembers: []sliceGroupMemberOutput{},
-	}
-	for _, member := range res.GetMembers() {
-		out.Members = append(out.Members, sliceMemberFromProto(member))
-	}
-	for _, groupMember := range res.GetGroupMembers() {
-		out.GroupMembers = append(out.GroupMembers, sliceGroupMemberOutput{
-			GroupID:   groupMember.GetGroupId(),
-			Account:   groupMember.GetAccount(),
-			Name:      groupMember.GetName(),
-			Handle:    groupMember.GetHandle(),
-			Role:      groupMember.GetRole(),
-			AddedBy:   groupMember.GetAddedBy(),
-			CreatedAt: groupMember.GetCreatedAt(),
-		})
-	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if opts.Quiet {
+	return r.withSliceSession(ctx, sliceValue, false, func(s *Session, ref *corev1.SliceRef) error {
+		res, err := s.Slice().ListSliceMembers(s.Ctx(), &corev1.ListSliceMembersRequest{Slice: ref})
+		if err != nil {
+			return sliceMemberError(err, ref)
+		}
+		label := ref.Account + "/" + ref.Slice
+		out := sliceMembersOutput{
+			Slice:        label,
+			Members:      []sliceMemberOutput{},
+			GroupMembers: []sliceGroupMemberOutput{},
+		}
+		for _, member := range res.GetMembers() {
+			out.Members = append(out.Members, sliceMemberFromProto(member))
+		}
+		for _, groupMember := range res.GetGroupMembers() {
+			out.GroupMembers = append(out.GroupMembers, sliceGroupMemberOutput{
+				GroupID:   groupMember.GetGroupId(),
+				Account:   groupMember.GetAccount(),
+				Name:      groupMember.GetName(),
+				Handle:    groupMember.GetHandle(),
+				Role:      groupMember.GetRole(),
+				AddedBy:   groupMember.GetAddedBy(),
+				CreatedAt: groupMember.GetCreatedAt(),
+			})
+		}
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, out)
+		}
+		if opts.Quiet {
+			return nil
+		}
+		if len(out.Members) == 0 && len(out.GroupMembers) == 0 {
+			fmt.Fprintf(r.Stdout, "%s is not shared with anyone outside account %s\n", label, ref.Account)
+		} else {
+			for _, member := range out.Members {
+				notes := []string{}
+				if member.DisplayName != "" {
+					notes = append(notes, member.DisplayName)
+				}
+				if member.Kind != "" {
+					notes = append(notes, member.Kind)
+				}
+				if member.AddedBy != "" {
+					notes = append(notes, "added by "+member.AddedBy)
+				}
+				fmt.Fprintf(r.Stdout, "%s\t%s\t(%s)\n", firstNonEmpty(member.Username, member.SubjectID), member.Role, strings.Join(notes, ", "))
+			}
+			for _, groupMember := range out.GroupMembers {
+				notes := []string{"group"}
+				if groupMember.AddedBy != "" {
+					notes = append(notes, "added by "+groupMember.AddedBy)
+				}
+				handle := groupMember.Handle
+				if handle == "" && groupMember.Account != "" && groupMember.Name != "" {
+					handle = model.FormatGroupHandle(groupMember.Account, groupMember.Name)
+				}
+				fmt.Fprintf(r.Stdout, "%s\t%s\t(%s)\n", handle, groupMember.Role, strings.Join(notes, ", "))
+			}
+		}
+		fmt.Fprintf(r.Stdout, "The members of account %s have access too: gs account members %s\n", ref.Account, ref.Account)
 		return nil
-	}
-	if len(out.Members) == 0 && len(out.GroupMembers) == 0 {
-		fmt.Fprintf(r.Stdout, "%s is not shared with anyone outside account %s\n", label, ref.Account)
-	} else {
-		for _, member := range out.Members {
-			notes := []string{}
-			if member.DisplayName != "" {
-				notes = append(notes, member.DisplayName)
-			}
-			if member.Kind != "" {
-				notes = append(notes, member.Kind)
-			}
-			if member.AddedBy != "" {
-				notes = append(notes, "added by "+member.AddedBy)
-			}
-			fmt.Fprintf(r.Stdout, "%s\t%s\t(%s)\n", firstNonEmpty(member.Username, member.SubjectID), member.Role, strings.Join(notes, ", "))
-		}
-		for _, groupMember := range out.GroupMembers {
-			notes := []string{"group"}
-			if groupMember.AddedBy != "" {
-				notes = append(notes, "added by "+groupMember.AddedBy)
-			}
-			handle := groupMember.Handle
-			if handle == "" && groupMember.Account != "" && groupMember.Name != "" {
-				handle = model.FormatGroupHandle(groupMember.Account, groupMember.Name)
-			}
-			fmt.Fprintf(r.Stdout, "%s\t%s\t(%s)\n", handle, groupMember.Role, strings.Join(notes, ", "))
-		}
-	}
-	fmt.Fprintf(r.Stdout, "The members of account %s have access too: gs account members %s\n", ref.Account, ref.Account)
-	return nil
+	})
 }
 
 // listSharedSlices lists the slices shared with the caller.
