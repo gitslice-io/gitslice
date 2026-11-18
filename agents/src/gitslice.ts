@@ -69,15 +69,69 @@ export interface SubmitResult {
   newRefCommitId?: string;
 }
 
+export interface ConnectErrorDetail {
+  type?: string;
+  value?: string;
+  debug?: unknown;
+  [key: string]: unknown;
+}
+
+export interface ConnectErrorEnvelope {
+  code: string;
+  message: string;
+  details: ConnectErrorDetail[];
+}
+
+export function parseConnectErrorEnvelope(text: string, fallbackMessage: string): ConnectErrorEnvelope {
+  const trimmed = text.trim();
+  if (trimmed) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const record = parsed as { code?: unknown; message?: unknown; details?: unknown };
+        const code = typeof record.code === "string" && record.code.trim() ? record.code.trim() : "unknown";
+        const message = typeof record.message === "string" && record.message.trim() ? record.message : fallbackMessage;
+        const details = Array.isArray(record.details)
+          ? record.details.filter((d): d is ConnectErrorDetail => Boolean(d && typeof d === "object" && !Array.isArray(d)))
+          : [];
+        return { code, message, details };
+      }
+    } catch {
+      // not a Connect error body
+    }
+  }
+  return {
+    code: "unknown",
+    message: trimmed || fallbackMessage,
+    details: [],
+  };
+}
+
 export const TARGET_REF = "refs/global/main";
 
 export class GitsliceError extends Error {
+  readonly httpStatus: number;
+  readonly status: number;
+  readonly code: string;
+  readonly details: readonly ConnectErrorDetail[];
+
   constructor(
-    readonly httpStatus: number,
-    readonly code: string,
+    httpStatus: number,
+    code: string,
     message: string,
+    details: readonly ConnectErrorDetail[] = [],
   ) {
     super(message);
+    this.name = "GitsliceError";
+    this.httpStatus = httpStatus;
+    this.status = httpStatus;
+    this.code = code;
+    this.details = details;
+  }
+
+  static fromResponse(httpStatus: number, text: string, fallbackMessage = `HTTP ${httpStatus}`): GitsliceError {
+    const env = parseConnectErrorEnvelope(text, fallbackMessage);
+    return new GitsliceError(httpStatus, env.code, env.message, env.details);
   }
 
   get conflict(): boolean {
@@ -95,10 +149,13 @@ export class GitsliceError extends Error {
 }
 
 export class Gitslice {
-  constructor(
-    private readonly api: string,
-    private readonly token: string,
-  ) {}
+  private readonly api: string;
+  private readonly token: string;
+
+  constructor(api: string, token: string) {
+    this.api = api;
+    this.token = token;
+  }
 
   async call<T>(service: string, method: string, body: unknown): Promise<T> {
     let lastError: unknown;
@@ -115,19 +172,11 @@ export class Gitslice {
       if (res.ok) {
         return (text ? JSON.parse(text) : {}) as T;
       }
-      let code = "unknown";
-      let message = text;
-      try {
-        const parsed = JSON.parse(text) as { code?: string; message?: string };
-        code = parsed.code ?? code;
-        message = parsed.message ?? message;
-      } catch {
-        // not a Connect error body
-      }
-      lastError = new GitsliceError(res.status, code, message);
+      const err = GitsliceError.fromResponse(res.status, text, `${service}/${method}: HTTP ${res.status}`);
+      lastError = err;
       // Cloud Run cold starts and overload: retry transient failures only.
-      if (res.status !== 503 && res.status !== 502 && code !== "unavailable") {
-        throw lastError;
+      if (res.status !== 503 && res.status !== 502 && err.code !== "unavailable") {
+        throw err;
       }
       await sleep(250 * 2 ** attempt);
     }

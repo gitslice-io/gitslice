@@ -3,77 +3,96 @@
 // the live stream the dashboard renders.
 
 import { DurableObject } from "cloudflare:workers";
-import { nativeCommitOf, sessionRepoName, slugify } from "./artifacts";
-import { Gitslice } from "./gitslice";
-import type { Env } from "./env";
-import { mapLimit, retryEscalated } from "./land";
+import type { Env } from "./env.ts";
 import {
-  capRetiredList,
-  computeNextAlarmMs,
-  filterSlicePaths,
-  FIX_AFTER_MS,
-  isUnreviewedEscalation,
-  PROCESSING_STATUSES,
-  protectedPatterns,
-  pruneNativeQueued,
-  pruneSessionsMap,
-  REREVIEW_AFTER_MS,
-  RETRY_LIMIT,
-  STALL_MS,
-} from "./policy";
-import type { Baseline, HubEvent, Session, Signal, Stats } from "./types";
+  adoptHubBaseline,
+  forkHubSession,
+  importHubBaseline,
+  retireBaselineRepo,
+  useHubBaseline,
+  type BaselineHost,
+  type OpenSessionInput,
+} from "./hubBaseline.ts";
+import {
+  appendHubEvent,
+  broadcastToSockets,
+  buildHubSnapshot,
+  computeHubStats,
+  evictStaleSockets,
+  parseStreamSliceFromUrl,
+  resetHubState,
+  type HubCounters,
+  type ResettableHubHost,
+} from "./hubDashboard.ts";
+import {
+  findSessionForChange,
+  isNativeEnabled,
+  registerNativePatchset,
+  runHubAlarmSweep,
+  watchNativeSlice,
+  type NativeHost,
+  type RegisterNativeInput,
+} from "./hubNative.ts";
+import {
+  followFixerSession,
+  globalPath,
+  markSessionLanded,
+  openFixerSession,
+  pushSignal,
+  touchSessionPaths,
+  type SessionLifecycleHost,
+} from "./hubOverlap.ts";
+import { retryEscalated } from "./land.ts";
+import { computeNextAlarmMs, FIX_AFTER_MS, protectedPatterns, pruneSessionsMap } from "./policy.ts";
+import type { Baseline, HubEvent, Session, Signal, Stats } from "./types.ts";
 
-export { protectedPatterns };
+export { globalPath, protectedPatterns, type OpenSessionInput };
 
-const MAX_EVENTS = 300;
-const MAX_HUB_SOCKETS = 64;
-const MIN_IMPORT_INTERVAL_MS = 4000;
-const PROCESSING = PROCESSING_STATUSES;
-const unreviewed = isUnreviewedEscalation;
-const MAX_SIGNALS = 40;
-const ACTIVE: ReadonlySet<string> = new Set(["forked", "pushed", "reviewing", "approved", "landing", "merging", "needs-human", "changes-requested"]);
-
-export interface OpenSessionInput {
-  account: string;
-  slice: string;
-  agent: string;
-  task: string;
-  intent?: string[];
-  resume?: string;
-}
+type HubHost = BaselineHost & NativeHost & SessionLifecycleHost & ResettableHubHost;
 
 export class Hub extends DurableObject<Env> {
-  private sessions = new Map<string, Session>();
-  private events: HubEvent[] = [];
-  private baseline: Baseline | null = null;
-  private baselineGen = 0; // bumped whenever something lands
-  private baselineFor = -1; // generation the current baseline reflects
-  private refreshing: Promise<Baseline> | null = null;
-  private lastImportAt = 0;
-  private floor = 0; // baselines imported before this may not be forked (set on reset)
-  private ident: { account: string; slice: string } | null = null;
-  private nativeActiveAt = 0;
-  private nativeQueued = new Map<string, number>(); // changeset:patchset → when its review was queued
-  private nativePollAt = 0;
-  private nativeSince = 0; // patchsets pushed before this are left alone (old drafts)
-  private retired: string[] = []; // replaced baselines, deleted on reset
-  private counters = { forks: 0, baselines: 0, pushes: 0 };
+  private readonly host: HubHost = {
+    env: this.env,
+    storage: this.ctx.storage,
+    sessions: new Map<string, Session>(),
+    events: [] as HubEvent[],
+    baseline: null as Baseline | null,
+    baselineGen: 0,
+    baselineFor: -1,
+    refreshing: null as Promise<Baseline> | null,
+    lastImportAt: 0,
+    floor: 0,
+    ident: null as { account: string; slice: string } | null,
+    nativeActiveAt: 0,
+    nativeQueued: new Map<string, number>(),
+    nativePollAt: 0,
+    nativeSince: 0,
+    retired: [] as string[],
+    counters: { forks: 0, baselines: 0, pushes: 0 } as HubCounters,
+    saveSession: (session: Session) => this.save(session),
+    landed: (id: string, commit: string) => this.landed(id, commit),
+    recordEvent: (event: Omit<HubEvent, "at">) => this.event(event),
+    broadcast: (message: unknown) => this.broadcast(message),
+    broadcastStats: () => this.broadcastStats(),
+    scheduleAlarm: () => this.scheduleAlarm(),
+  };
   private loaded: Promise<void> | null = null;
 
   private load(): Promise<void> {
     if (!this.loaded) {
       this.loaded = (async () => {
+        const h = this.host;
         const stored = await this.ctx.storage.list<Session>({ prefix: "s:" });
-        for (const session of stored.values()) this.sessions.set(session.id, session);
-        this.events = (await this.ctx.storage.get<HubEvent[]>("events")) ?? [];
-        this.baseline = (await this.ctx.storage.get<Baseline>("baseline")) ?? null;
-        this.baselineGen = (await this.ctx.storage.get<number>("baselineGen")) ?? 0;
-        this.baselineFor = (await this.ctx.storage.get<number>("baselineFor")) ?? -1;
-        this.retired = (await this.ctx.storage.get<string[]>("retired")) ?? [];
-        this.floor = (await this.ctx.storage.get<number>("floor")) ?? 0;
-        this.ident = (await this.ctx.storage.get<{ account: string; slice: string }>("ident")) ?? null;
-        this.nativeSince = (await this.ctx.storage.get<number>("nativeSince")) ?? 0;
-        this.counters = (await this.ctx.storage.get<typeof this.counters>("counters")) ?? this.counters;
+        for (const session of stored.values()) h.sessions.set(session.id, session);
+        h.events = (await this.ctx.storage.get<HubEvent[]>("events")) ?? [];
+        h.baseline = (await this.ctx.storage.get<Baseline>("baseline")) ?? null;
+        h.baselineGen = (await this.ctx.storage.get<number>("baselineGen")) ?? 0;
+        h.baselineFor = (await this.ctx.storage.get<number>("baselineFor")) ?? -1;
+        h.retired = (await this.ctx.storage.get<string[]>("retired")) ?? [];
+        h.floor = (await this.ctx.storage.get<number>("floor")) ?? 0;
+        h.ident = (await this.ctx.storage.get<{ account: string; slice: string }>("ident")) ?? null;
+        h.nativeSince = (await this.ctx.storage.get<number>("nativeSince")) ?? 0;
+        h.counters = (await this.ctx.storage.get<HubCounters>("counters")) ?? h.counters;
       })();
     }
     return this.loaded;
@@ -83,76 +102,22 @@ export class Hub extends DurableObject<Env> {
 
   async openSession(input: OpenSessionInput): Promise<{ session: Session; token: string }> {
     await this.load();
-    const previous = input.resume ? this.sessions.get(input.resume) : undefined;
-    const baseline = await this.baselineToFork(input.account, input.slice, Boolean(previous));
-    const name = sessionRepoName(input.account, input.slice, input.agent, nonce());
-
-    using base = await this.env.ARTIFACTS.get(baseline.repo);
-    const forked = await base.fork(name, {
-      defaultBranchOnly: true,
-      readOnly: false,
-      description: `${input.agent}: ${input.task}`.slice(0, 200),
-    });
-    let token = forked.token;
-    if (!token) {
-      using repo = await this.env.ARTIFACTS.get(name);
-      token = (await repo.createToken("write", 4 * 3600)).plaintext;
-    }
-
-    const now = Date.now();
-    const session: Session = {
-      id: name,
-      agent: input.agent,
-      task: input.task,
-      account: input.account,
-      slice: input.slice,
-      remote: forked.remote,
-      baseline,
-      intent: (input.intent ?? []).map(globalPath),
-      touched: [],
-      status: "forked",
-      pushes: 0,
-      signals: [],
-      createdAt: now,
-      updatedAt: now,
-    };
-    if (previous) {
-      session.resumedFrom = previous.id;
-      session.changesetId = previous.changesetId;
-      session.handle = previous.handle;
-      previous.supersededBy = session.id;
-      await this.save(previous);
-      this.broadcast({ type: "session", session: previous });
-    }
-    // Coordination starts at the fork: tell the agent who already works on
-    // the paths it intends to change.
-    for (const other of this.overlapping(session, session.intent)) {
-      pushSignal(session, overlapSignal(other, intersect(session.intent, pathsOf(other))));
-    }
-    this.counters.forks++;
-    await this.save(session);
-    await this.ctx.storage.put("counters", this.counters);
-    this.event({ kind: "forked", session: session.id, agent: session.agent, message: `forked ${shortRepo(baseline.repo)} → ${shortRepo(name)}` });
-    this.broadcast({ type: "session", session });
-    this.broadcastStats();
-    return { session, token };
+    return forkHubSession(this.host, input);
   }
 
   async getSession(id: string): Promise<Session | null> {
     await this.load();
-    return this.sessions.get(id) ?? null;
+    return this.host.sessions.get(id) ?? null;
   }
 
   async listSessions(): Promise<Session[]> {
     await this.load();
-    return [...this.sessions.values()].sort((a, b) => b.createdAt - a.createdAt);
+    return [...this.host.sessions.values()].sort((a, b) => b.createdAt - a.createdAt);
   }
 
-  // claimPush records a push once. Artifacts events and explicit notifications
-  // can both report the same commit; only the first one lands it.
   async claimPush(id: string, commit: string): Promise<Session | null> {
     await this.load();
-    const session = this.sessions.get(id);
+    const session = this.host.sessions.get(id);
     if (!session || session.lastCommit === commit || session.supersededBy) return null;
     session.lastCommit = commit;
     delete session.fixAt;
@@ -160,9 +125,9 @@ export class Hub extends DurableObject<Env> {
     session.pushedAt = Date.now();
     session.status = "pushed";
     session.updatedAt = Date.now();
-    this.counters.pushes++;
+    this.host.counters.pushes++;
     await this.save(session);
-    await this.ctx.storage.put("counters", this.counters);
+    await this.ctx.storage.put("counters", this.host.counters);
     this.event({ kind: "pushed", session: id, agent: session.agent, message: `pushed ${commit.slice(0, 7)}` });
     this.broadcast({ type: "session", session });
     this.broadcastStats();
@@ -171,12 +136,10 @@ export class Hub extends DurableObject<Env> {
 
   async patch(id: string, partial: Partial<Session>, signal?: Omit<Signal, "at">, eventMessage?: string): Promise<Session | null> {
     await this.load();
-    const session = this.sessions.get(id);
+    const session = this.host.sessions.get(id);
     if (!session) return null;
     Object.assign(session, partial, { updatedAt: Date.now() });
     if (signal) pushSignal(session, signal);
-    // A rejected change gets a fixer agent if its author stays quiet. Fixers
-    // do not get fixers: when one is rejected too, a person takes over.
     if (session.status === "changes-requested" && !session.fixerFor && !session.fixedBy && !session.fixAt && this.env.FIXER !== "off") {
       session.fixAt = Date.now() + FIX_AFTER_MS;
     } else if (session.status !== "changes-requested") {
@@ -186,518 +149,84 @@ export class Hub extends DurableObject<Env> {
     if (eventMessage) this.event({ kind: partial.status ?? "update", session: id, agent: session.agent, message: eventMessage });
     this.broadcast({ type: "session", session });
     this.broadcastStats();
-    if (session.fixerFor) await this.followFixer(session, partial);
+    if (session.fixerFor) await followFixerSession(this.host, session, partial);
     await this.scheduleAlarm();
     return session;
   }
 
-  // touch records the paths a push changed and signals overlaps both ways.
   async touch(id: string, paths: string[]): Promise<void> {
     await this.load();
-    const session = this.sessions.get(id);
-    if (!session) return;
-    session.touched = paths;
-    for (const other of this.overlapping(session, paths)) {
-      const shared = intersect(paths, pathsOf(other));
-      if (!hasOverlapSignal(session, other.id)) pushSignal(session, overlapSignal(other, shared));
-      if (!hasOverlapSignal(other, session.id)) {
-        pushSignal(other, overlapSignal(session, shared));
-        await this.save(other);
-        this.broadcast({ type: "session", session: other });
-      }
-      this.event({ kind: "overlap", session: id, agent: session.agent, message: `overlaps ${other.agent} on ${shared.map(shortPath).join(", ")}` });
-    }
-    await this.save(session);
-    this.broadcast({ type: "session", session });
+    await touchSessionPaths(this.host, id, paths);
   }
 
   async landed(id: string, commit: string): Promise<void> {
     await this.load();
-    const session = this.sessions.get(id);
-    if (!session) return;
-    session.status = "landed";
-    session.landedCommit = commit;
-    session.landedAt = Date.now();
-    session.updatedAt = Date.now();
-    pushSignal(session, { kind: "landed", message: `Landed as ${commit.slice(0, 19)}.` });
-    // New sessions should start from a baseline that includes this change.
-    this.baselineGen++;
-    await this.ctx.storage.put("baselineGen", this.baselineGen);
-    await this.save(session);
-    this.event({ kind: "landed", session: id, agent: session.agent, message: `landed ${session.handle ?? ""}${session.autoMerged ? " (auto-merged)" : ""}` });
-    this.broadcast({ type: "session", session });
-    const original = session.fixerFor ? this.sessions.get(session.fixerFor) : undefined;
-    if (original && original.status !== "landed") {
-      original.status = "landed";
-      original.landedCommit = commit;
-      original.landedAt = session.landedAt;
-      original.updatedAt = Date.now();
-      pushSignal(original, { kind: "landed", message: `Landed by ${session.agent} as ${commit.slice(0, 19)}.` });
-      await this.save(original);
-      this.broadcast({ type: "session", session: original });
-    }
-    this.broadcastStats();
+    await markSessionLanded(this.host, id, commit);
   }
 
-  // expectPush is the author saying "I pushed an answer" before the push has
-  // made its way through the landing queue: the fixer waits for it.
   async expectPush(id: string): Promise<void> {
     await this.load();
-    const session = this.sessions.get(id);
+    const session = this.host.sessions.get(id);
     if (!session?.fixAt) return;
     session.fixAt = Date.now() + FIX_AFTER_MS;
     await this.save(session);
     await this.scheduleAlarm();
   }
 
-  // openFix forks the failing session's repository for a fixer agent. The
-  // fork starts from the author's exact commits and shares its changeset, so
-  // the fix lands as another patchset of the same change.
   async openFix(failingId: string): Promise<{ session: Session; token: string } | null> {
     await this.load();
-    const failing = this.sessions.get(failingId);
-    if (!failing || failing.status !== "changes-requested" || failing.supersededBy) return null;
-    // A change pushed straight to Gitslice has no Artifacts repository to
-    // fork: the fixer works on the changeset itself, with the bridge identity.
-    const name = sessionRepoName(failing.account, failing.slice, `fixer-${failing.agent}`, failing.native ? `n${nonce()}` : nonce());
-    let remote = failing.remote;
-    let token = this.env.GITSLICE_TOKEN;
-    if (!failing.native) {
-      using source = await this.env.ARTIFACTS.get(failing.id);
-      const forked = await source.fork(name, {
-        defaultBranchOnly: true,
-        readOnly: false,
-        description: `Fixer for ${failing.agent}`.slice(0, 200),
-      });
-      remote = forked.remote;
-      token = forked.token ?? "";
-      if (!token) {
-        using repo = await this.env.ARTIFACTS.get(name);
-        token = (await repo.createToken("write", 3600)).plaintext;
-      }
-    }
-    const now = Date.now();
-    const session: Session = {
-      id: name,
-      agent: `fixer-${failing.agent}`,
-      task: `Fix: ${failing.task}`.slice(0, 300),
-      account: failing.account,
-      slice: failing.slice,
-      remote,
-      baseline: failing.baseline,
-      native: failing.native,
-      intent: failing.touched.length ? failing.touched : failing.intent,
-      touched: [],
-      status: "forked",
-      changesetId: failing.changesetId,
-      handle: failing.handle,
-      patchsetId: failing.patchsetId,
-      fixerFor: failing.id,
-      pushes: 0,
-      signals: [],
-      createdAt: now,
-      updatedAt: now,
-    };
-    failing.fixedBy = name;
-    delete failing.fixAt;
-    pushSignal(failing, {
-      kind: "info",
-      message: failing.native
-        ? `No answer to the review after ${FIX_AFTER_MS / 1000} s, so ${session.agent} took over your changeset to repair it. You need not act.`
-        : `No answer to the review after ${FIX_AFTER_MS / 1000} s, so ${session.agent} forked your repository to repair the change. You need not act.`,
-    });
-    this.counters.forks++;
-    await this.save(failing);
-    await this.save(session);
-    await this.ctx.storage.put("counters", this.counters);
-    this.event({ kind: "forked", session: name, agent: session.agent, message: `fixer forked ${shortRepo(failing.id)} → ${shortRepo(name)}` });
-    this.broadcast({ type: "session", session: failing });
-    this.broadcast({ type: "session", session });
-    this.broadcastStats();
-    return { session, token };
-  }
-
-  // followFixer carries a fixer's progress back to the session it repairs.
-  private async followFixer(fixer: Session, partial: Partial<Session>): Promise<void> {
-    const original = this.sessions.get(fixer.fixerFor!);
-    if (!original) return;
-    if (partial.patchsetId) original.patchsetId = partial.patchsetId;
-    if (fixer.status === "changes-requested" || fixer.status === "failed") {
-      original.status = "needs-human";
-      pushSignal(original, {
-        kind: "escalated",
-        message: `${fixer.agent} could not repair the change either: ${fixer.signals.at(-1)?.message ?? "see its session"}. A person needs to look.`,
-      });
-    }
-    await this.save(original);
-    this.broadcast({ type: "session", session: original });
+    return openFixerSession(this.host, failingId);
   }
 
   async stats(): Promise<Stats> {
     await this.load();
-    return this.computeStats();
+    return computeHubStats(this.host.sessions.values(), this.host.counters);
   }
 
-  // reset clears the board for a new run and deletes the previous run's
-  // Artifacts repos. The current baseline stays.
   async reset(): Promise<{ deleted: number }> {
     await this.load();
-    const repos = [...this.sessions.keys(), ...this.retired.filter((name) => name !== this.baseline?.repo)];
-    await this.ctx.storage.deleteAll();
-    this.sessions.clear();
-    this.events = [];
-    this.retired = [];
-    this.counters = { forks: 0, baselines: 0, pushes: 0 };
-    this.baselineGen++;
-    // The codebase may have been restored: the next session waits for a
-    // baseline imported after now.
-    this.floor = Date.now();
-    this.lastImportAt = 0;
-    this.nativeSince = this.floor;
-    this.nativeQueued.clear();
-    await this.ctx.storage.put({ baselineGen: this.baselineGen, floor: this.floor, nativeSince: this.nativeSince });
-    if (this.ident) await this.ctx.storage.put("ident", this.ident);
-    if (this.baseline) await this.ctx.storage.put({ baseline: this.baseline, baselineFor: this.baselineFor });
-    this.broadcast({ type: "snapshot", ...this.snapshot() });
-    const deleted = await mapLimit(repos, 8, (name) => this.env.ARTIFACTS.delete(name).catch(() => false));
-    return { deleted: deleted.filter(Boolean).length };
+    return resetHubState(this.host);
   }
 
-  // ---- baselines ----------------------------------------------------------
+  // ---- baselines, native & alarm ------------------------------------------
 
-  // baselineToFork picks the baseline a new session forks. New sessions never
-  // wait for an import when a baseline exists: a slightly stale one only
-  // means the bridge merges more, and the import runs in the background. A
-  // rework waits for a fresh import, because it has to see the change it
-  // conflicted with.
-  private async baselineToFork(account: string, slice: string, fresh: boolean): Promise<Baseline> {
-    if (fresh) {
-      const gen = this.baselineGen;
-      try {
-        return await this.useBaseline(await this.importBaseline(account, slice), gen, "imported");
-      } catch (err) {
-        if (!this.baseline) throw err;
-        return this.importFailed(err, gen);
-      }
-    }
-    if (this.baseline && this.baselineFor === this.baselineGen) return this.baseline;
-    const refresh = this.refresh(account, slice);
-    return this.baseline && this.baseline.createdAt >= this.floor ? this.baseline : refresh;
-  }
-
-  private refresh(account: string, slice: string): Promise<Baseline> {
-    if (this.refreshing) return this.refreshing;
-    if (this.baseline && Date.now() - this.lastImportAt < MIN_IMPORT_INTERVAL_MS) return Promise.resolve(this.baseline);
-    const gen = this.baselineGen;
-    this.lastImportAt = Date.now();
-    this.refreshing = this.importBaseline(account, slice)
-      .then((baseline) => this.useBaseline(baseline, gen, "imported"))
-      .catch((err) => {
-        if (!this.baseline) throw err;
-        return this.importFailed(err, gen);
-      })
-      .finally(() => {
-        this.refreshing = null;
-      });
-    return this.refreshing;
-  }
-
-  // importFailed keeps agents working on the last baseline: a stale baseline
-  // only means more merging.
-  private importFailed(err: unknown, gen: number): Baseline {
-    console.warn(JSON.stringify({ msg: "baseline import failed", error: String(err) }));
-    this.baselineFor = Math.max(this.baselineFor, gen);
-    this.event({ kind: "baseline", message: `baseline import failed; reusing ${shortRepo(this.baseline!.repo)}` });
-    return this.baseline!;
-  }
-
-  // importNow imports a fresh baseline straight away, so the next session
-  // does not wait for one (after a restore, say).
   async importNow(account: string, slice: string): Promise<Baseline> {
     await this.load();
-    return this.useBaseline(await this.importBaseline(account, slice), this.baselineGen, "imported");
+    return useHubBaseline(this.host, await importHubBaseline(this.env, account, slice), this.host.baselineGen, "imported");
   }
 
-  // adoptBaseline uses a repo someone pushed the slice's projection to, for
-  // slices Artifacts cannot import directly (private slices).
   async adoptBaseline(repoName: string): Promise<Baseline> {
     await this.load();
-    using repo = await this.env.ARTIFACTS.get(repoName);
-    const [head] = await repo.log({ limit: 1 });
-    if (!head) throw new Error(`${repoName} has no commits`);
-    const nativeCommit = nativeCommitOf(head.message);
-    if (!nativeCommit) throw new Error(`${repoName} head ${head.hash} has no Gitslice-Commit trailer`);
-    return this.useBaseline({ repo: repoName, gitCommit: head.hash, nativeCommit, tree: head.treeHash, createdAt: Date.now() }, this.baselineGen, "adopted");
+    return adoptHubBaseline(this.host, repoName);
   }
 
-  private async useBaseline(baseline: Baseline, gen: number, how: string): Promise<Baseline> {
-    if (this.baseline && baseline.createdAt < this.baseline.createdAt) {
-      // An import that started earlier finished later: keep the newer one.
-      this.retire(baseline.repo);
-      await this.ctx.storage.put("retired", this.retired);
-      return this.baseline;
-    }
-    if (this.baseline && this.baseline.repo !== baseline.repo) this.retire(this.baseline.repo);
-    this.baseline = baseline;
-    this.baselineFor = Math.max(this.baselineFor, gen);
-    this.counters.baselines++;
-    await this.ctx.storage.put({ baseline, baselineFor: this.baselineFor, counters: this.counters, retired: this.retired });
-    this.event({ kind: "baseline", message: `${how} baseline ${shortRepo(baseline.repo)} at ${baseline.nativeCommit.slice(7, 19)}` });
-    this.broadcast({ type: "baseline", baseline });
-    this.broadcastStats();
-    return baseline;
-  }
-
-  // importBaseline asks Artifacts to import the slice straight from Gitslice's
-  // Git endpoint. The projection is deterministic, so the baseline's commits
-  // are the same commits every Gitslice clone sees.
-  private async importBaseline(account: string, slice: string): Promise<Baseline> {
-    const started = Date.now();
-    const name = `base.${account}.${slice}.${started.toString(36)}${nonce().slice(0, 3)}`;
-    const depth = Number(this.env.BASELINE_DEPTH || 0) || undefined;
-    await this.env.ARTIFACTS.import({
-      source: { url: `${this.env.GITSLICE_GIT}/${account}/${slice}.git`, ...(depth ? { depth } : {}) },
-      target: { name, opts: { readOnly: true, description: `Baseline of ${account}/${slice}` } },
-    });
-    for (let attempt = 0; attempt < 40; attempt++) {
-      try {
-        using repo = await this.env.ARTIFACTS.get(name);
-        const [head] = await repo.log({ limit: 1 });
-        if (head) {
-          const nativeCommit = nativeCommitOf(head.message);
-          if (!nativeCommit) throw new Error(`baseline head ${head.hash} has no Gitslice-Commit trailer`);
-          return { repo: name, gitCommit: head.hash, nativeCommit, tree: head.treeHash, createdAt: started };
-        }
-      } catch (err) {
-        if (String(err).includes("Gitslice-Commit")) throw err;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-    throw new Error(`baseline ${name} did not become ready`);
-  }
-
-  // ---- escalations --------------------------------------------------------
-
-  async alarm(): Promise<void> {
-    await this.load();
-    const waiting = [...this.sessions.values()].filter((s) => s.status === "needs-human" && !s.supersededBy && !s.native);
-    for (const session of waiting) {
-      try {
-        await retryEscalated(this.env, this, session);
-      } catch (err) {
-        console.warn(JSON.stringify({ msg: "escalation retry failed", session: session.id, error: String(err) }));
-      }
-    }
-    const now = Date.now();
-    for (const session of this.sessions.values()) {
-      if (session.status !== "changes-requested" || !session.fixAt || session.fixAt > now || session.fixedBy || session.supersededBy) continue;
-      session.fixedBy = "pending";
-      delete session.fixAt;
-      await this.save(session);
-      await this.env.EVENTS.send({ kind: "fix", session: session.id });
-      this.event({ kind: "fix", session: session.id, agent: session.agent, message: "no answer to the review; sending a fixer agent" });
-      this.broadcast({ type: "session", session });
-    }
-    for (const session of this.sessions.values()) {
-      const stalled = PROCESSING.has(session.status) && now - session.updatedAt >= STALL_MS;
-      const rereview = unreviewed(session) && now - session.updatedAt >= REREVIEW_AFTER_MS;
-      if (!(stalled || rereview) || session.supersededBy || !session.lastCommit) continue;
-      if ((session.retries ?? 0) >= RETRY_LIMIT) {
-        if (!stalled) continue; // still unreviewed: it stays with a person
-        session.status = "failed";
-        pushSignal(session, { kind: "error", message: "The landing stalled and did not recover after several attempts." });
-      } else {
-        session.retries = (session.retries ?? 0) + 1;
-        session.updatedAt = now;
-        if (session.native && this.ident) {
-          await this.env.EVENTS.send({ kind: "review-native", account: this.ident.account, slice: this.ident.slice, changeset: session.changesetId, force: true });
-        } else {
-          await this.env.EVENTS.send({ kind: "land", session: session.id, commit: session.lastCommit, retry: true });
-        }
-        this.event({ kind: "retry", session: session.id, agent: session.agent, message: `landing stalled in ${session.status}; trying again (${session.retries}/${RETRY_LIMIT})` });
-      }
-      await this.save(session);
-      this.broadcast({ type: "session", session });
-    }
-    try {
-      await this.pollNative();
-    } catch (err) {
-      console.warn(JSON.stringify({ msg: "native poll failed", error: String(err) }));
-    }
-    await this.scheduleAlarm();
-  }
-
-  // ---- changesets agents pushed straight to Gitslice -----------------------
-
-  private nativeEnabled(): boolean {
-    if (!this.ident) return false;
-    const slices = (this.env.NATIVE_SLICES || "").split(",").map((s) => s.trim());
-    return slices.includes(`${this.ident.account}/${this.ident.slice}`);
-  }
-
-  // watchNative tells the Hub which slice it serves, so it can look for
-  // changesets pushed to Gitslice without an Artifacts repo while active or
-  // watched on a live dashboard socket.
   async watchNative(account: string, slice: string, active = false): Promise<void> {
     await this.load();
-    if (!this.ident) {
-      this.ident = { account, slice };
-      this.nativeSince = Date.now();
-      await this.ctx.storage.put({ ident: this.ident, nativeSince: this.nativeSince });
-    }
-    if (active) {
-      this.nativeActiveAt = Date.now();
-    }
-    if (this.nativeEnabled()) await this.scheduleAlarm();
+    await watchNativeSlice(this.host, account, slice, active);
   }
 
   async sessionForChange(idOrHandle: string): Promise<Session | null> {
     await this.load();
-    const matches = [...this.sessions.values()].filter(
-      (s) => s.changesetId && (s.changesetId === idOrHandle || s.handle === idOrHandle || s.changesetId.startsWith(`cs_${idOrHandle}`)),
-    );
-    // The fixer's session is the live one while a fix is under way.
-    return matches.find((s) => s.fixerFor && s.status !== "landed") ?? matches.find((s) => !s.fixerFor) ?? null;
+    return findSessionForChange(this.host.sessions.values(), idOrHandle);
   }
 
-  // registerNative records a patchset an agent pushed to Gitslice. It returns
-  // the session to review, or null when this patchset is already known.
-  async registerNative(input: {
-    account: string;
-    slice: string;
-    changeset: { id: string; handle?: string; title: string; author?: string; baseCommitId: string };
-    patchset: { id: string; number?: string; createdAtMs: number; changedPaths: string[]; baseTreeId?: string };
-    force?: boolean;
-  }): Promise<Session | null> {
+  async registerNative(input: RegisterNativeInput): Promise<Session | null> {
     await this.load();
-    const { changeset: cs, patchset: ps } = input;
-    const scopedPaths = filterSlicePaths(ps.changedPaths, input.account, input.slice, {
-      allowDotGitslice: true,
-      leadingSlash: true,
-    });
-    const related = [...this.sessions.values()].filter((s) => s.changesetId === cs.id);
-    const known = related.find((s) => s.patchsetId === ps.id);
-    if (known) return input.force ? known : null;
-    const now = Date.now();
-    const author = related.find((s) => !s.fixerFor);
-    const fixer = related.find((s) => s.fixerFor && s.status === "forked");
-    const target = fixer ?? author;
-    this.nativeActiveAt = now;
-    if (target) {
-      target.patchsetId = ps.id;
-      target.lastCommit = ps.id;
-      target.pushes++;
-      target.pushedAt = ps.createdAtMs || now;
-      target.status = "pushed";
-      target.touched = scopedPaths;
-      target.updatedAt = now;
-      delete target.fixAt;
-      this.counters.pushes++;
-      pushSignal(target, { kind: "info", message: `Patchset ${ps.number ?? "?"} pushed to ${cs.handle ?? cs.id}.` });
-      await this.save(target);
-      await this.ctx.storage.put("counters", this.counters);
-      this.event({ kind: "pushed", session: target.id, agent: target.agent, message: `pushed patchset ${ps.number ?? "?"} of ${cs.handle ?? cs.id}` });
-      this.broadcast({ type: "session", session: target });
-      this.broadcastStats();
-      return target;
-    }
-    // The first patchset of a change nobody has seen: a new native session.
-    const { agent, task } = parseTitle(cs.title, cs.author);
-    const id = sessionRepoName(input.account, input.slice, agent, `n${cs.id.slice(-8)}`);
-    const session: Session = {
-      id,
-      agent,
-      task,
-      account: input.account,
-      slice: input.slice,
-      remote: `${this.env.GITSLICE_GIT}/${input.account}/${input.slice}.git`,
-      baseline: { repo: "gitslice", gitCommit: "", nativeCommit: cs.baseCommitId, tree: ps.baseTreeId ?? "", createdAt: now },
-      intent: scopedPaths,
-      touched: scopedPaths,
-      status: "pushed",
-      changesetId: cs.id,
-      handle: cs.handle || cs.id,
-      patchsetId: ps.id,
-      native: true,
-      pushes: 1,
-      lastCommit: ps.id,
-      signals: [],
-      createdAt: now,
-      updatedAt: now,
-      pushedAt: ps.createdAtMs || now,
-    };
-    for (const other of this.overlapping(session, session.touched)) {
-      pushSignal(session, overlapSignal(other, intersect(session.touched, pathsOf(other))));
-      if (!hasOverlapSignal(other, session.id)) {
-        pushSignal(other, overlapSignal(session, intersect(session.touched, pathsOf(other))));
-        await this.save(other);
-        this.broadcast({ type: "session", session: other });
-      }
-    }
-    this.counters.forks++;
-    this.counters.pushes++;
-    await this.save(session);
-    await this.ctx.storage.put("counters", this.counters);
-    this.event({ kind: "pushed", session: id, agent, message: `pushed ${cs.handle ?? cs.id} straight to Gitslice` });
-    this.broadcast({ type: "session", session });
-    this.broadcastStats();
-    return session;
+    return registerNativePatchset(this.host, input);
   }
 
-  // pollNative looks for patchsets agents pushed straight to Gitslice and for
-  // those that have landed. The Worker is not told about these pushes, so it
-  // asks. Agents that nudge the Worker skip the wait.
-  private async pollNative(): Promise<void> {
-    if (!this.ident || !this.nativeEnabled()) return;
-    const now = Date.now();
-    if (now - this.nativePollAt < 1000) return;
-    this.nativePollAt = now;
-    pruneNativeQueued(this.nativeQueued, now);
-    const slice = { account: this.ident.account, slice: this.ident.slice };
-    const gitslice = new Gitslice(this.env.GITSLICE_API, this.env.GITSLICE_TOKEN);
-    const open = await gitslice.listChangesets(slice, "draft", 200);
-    for (const cs of open) {
-      if (cs.description?.includes("Artifacts session:")) continue; // landed through an Artifacts session
-      const ps = cs.patchsets?.find((p) => p.id === cs.currentPatchsetId) ?? cs.patchsets?.at(-1);
-      if (!ps) continue;
-      if ((Date.parse(ps.createdAt ?? "") || now) < this.nativeSince - 5000) continue; // from before this run
-      const key = `${cs.id}:${ps.id}`;
-      const queued = this.nativeQueued.get(key);
-      if (queued && now - queued < 30_000) continue;
-      if ([...this.sessions.values()].some((s) => s.changesetId === cs.id && s.patchsetId === ps.id)) continue;
-      this.nativeQueued.set(key, now);
-      pruneNativeQueued(this.nativeQueued, now);
-      this.nativeActiveAt = now;
-      await this.env.EVENTS.send({ kind: "review-native", account: slice.account, slice: slice.slice, changeset: cs.id });
-    }
-    const waiting = [...this.sessions.values()].filter((s) => s.native && s.status !== "landed" && !s.supersededBy);
-    if (waiting.length === 0) return;
-    // Ask about each open change, not for a list of submitted ones: the list
-    // is capped and not ordered by time, so new landings would go unnoticed.
-    const ids = [...new Set(waiting.map((s) => s.changesetId!))];
-    const current = await mapLimit(ids, 8, (id) => gitslice.getChangeset(id).catch(() => null));
-    for (const done of current) {
-      if (!done || done.status !== "submitted" || !done.commitId) continue;
-      for (const session of waiting.filter((s) => s.changesetId === done.id && !s.fixerFor)) {
-        // A fixer's session lands the change; it carries the author's with it.
-        const fixer = [...this.sessions.values()].find((s) => s.fixerFor === session.id && s.status !== "landed");
-        await this.landed(fixer ? fixer.id : session.id, done.commitId);
-      }
-      this.nativeActiveAt = now;
-    }
+  async alarm(): Promise<void> {
+    await this.load();
+    await runHubAlarmSweep(this.host, (session) => retryEscalated(this.env, this, session));
   }
 
-  // scheduleAlarm wakes the Hub for the next thing that needs a timer:
-  // escalations a person may have approved, due fixers, or active native
-  // sessions. When completely idle with no viewers, no alarm is scheduled so
-  // the DO, Cloud Run, and Neon scale to zero.
   private async scheduleAlarm(): Promise<void> {
     const now = Date.now();
     const target = computeNextAlarmMs({
       now,
-      sessions: this.sessions.values(),
-      nativeEnabled: this.nativeEnabled(),
-      nativeActiveAt: this.nativeActiveAt,
+      sessions: this.host.sessions.values(),
+      nativeEnabled: isNativeEnabled(this.env, this.host.ident),
+      nativeActiveAt: this.host.nativeActiveAt,
       openWebSockets: this.ctx.getWebSockets().length,
     });
     const existing = await this.ctx.storage.getAlarm();
@@ -705,8 +234,6 @@ export class Hub extends DurableObject<Env> {
       if (existing !== null) await this.ctx.storage.deleteAlarm();
       return;
     }
-    // Keep an alarm that is already due sooner: patches arrive constantly and
-    // must not push it back.
     if (existing === null || existing <= now || existing > target) {
       await this.ctx.storage.setAlarm(target);
     }
@@ -717,20 +244,11 @@ export class Hub extends DurableObject<Env> {
   async fetch(request: Request): Promise<Response> {
     if (request.headers.get("Upgrade") !== "websocket") return new Response("expected websocket", { status: 426 });
     await this.load();
-    const open = this.ctx.getWebSockets();
-    if (open.length >= MAX_HUB_SOCKETS) {
-      for (const stale of open.slice(0, open.length - MAX_HUB_SOCKETS + 1)) {
-        try {
-          stale.close(1008, "too many connections");
-        } catch {
-          // already closed
-        }
-      }
-    }
+    evictStaleSockets(this.ctx.getWebSockets());
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
-    const where = /\/v1\/slices\/([^/]+)\/([^/]+)\/stream/.exec(new URL(request.url).pathname);
-    if (where) await this.watchNative(where[1], where[2], false);
+    const where = parseStreamSliceFromUrl(request.url);
+    if (where) await this.watchNative(where.account, where.slice, false);
     pair[1].send(JSON.stringify({ type: "snapshot", ...this.snapshot() }));
     return new Response(null, { status: 101, webSocket: pair[0] });
   }
@@ -765,161 +283,39 @@ export class Hub extends DurableObject<Env> {
   // ---- internals ----------------------------------------------------------
 
   private snapshot() {
-    return {
-      sessions: [...this.sessions.values()].sort((a, b) => a.createdAt - b.createdAt),
-      events: this.events.slice(-120),
-      stats: this.computeStats(),
-      baseline: this.baseline,
-    };
-  }
-
-  private computeStats(): Stats {
-    const all = [...this.sessions.values()];
-    const live = all.filter((s) => !s.supersededBy);
-    const landed = all.filter((s) => s.status === "landed");
-    const landedChangesets = new Set(landed.map((s) => s.changesetId ?? s.id)).size;
-    const times = landed
-      .map((s) => (s.landedAt ?? 0) - (s.pushedAt ?? s.createdAt))
-      .filter((ms) => ms > 0)
-      .sort((a, b) => a - b);
-    return {
-      agents: new Set(all.map((s) => s.agent)).size,
-      sessions: all.length,
-      forks: this.counters.forks,
-      baselines: this.counters.baselines,
-      pushes: this.counters.pushes,
-      changesets: new Set(all.map((s) => s.changesetId).filter(Boolean)).size,
-      reviewed: all.filter((s) => s.review).length,
-      landed: landedChangesets,
-      autoMerged: landed.filter((s) => s.autoMerged).length,
-      conflicts: all.filter((s) => s.status === "conflict" || s.resumedFrom).length,
-      escalated: all.filter((s) => s.signals.some((sig) => sig.kind === "escalated")).length,
-      fixes: all.filter((s) => s.fixerFor && s.status === "landed").length,
-      inFlight: live.filter((s) => ACTIVE.has(s.status) && !s.fixedBy).length,
-      medianLandMs: times.length ? times[Math.floor(times.length / 2)] : null,
-    };
-  }
-
-  private overlapping(session: Session, paths: string[]): Session[] {
-    if (paths.length === 0) return [];
-    return [...this.sessions.values()].filter(
-      (other) =>
-        other.id !== session.id &&
-        !other.supersededBy &&
-        other.id !== session.resumedFrom &&
-        other.id !== session.fixerFor &&
-        other.fixerFor !== session.id &&
-        ACTIVE.has(other.status) &&
-        intersect(paths, pathsOf(other)).length > 0,
-    );
-  }
-
-  private retire(repo: string): void {
-    if (!this.retired.includes(repo)) this.retired.push(repo);
-    const overflow = capRetiredList(this.retired, this.baseline?.repo);
-    if (overflow.length > 0) {
-      mapLimit(overflow, 4, (name) => this.env.ARTIFACTS.delete(name).catch(() => {})).catch(() => {});
-    }
+    return buildHubSnapshot(this.host.sessions.values(), this.host.events, this.host.counters, this.host.baseline);
   }
 
   private async save(session: Session): Promise<void> {
-    this.sessions.set(session.id, session);
+    this.host.sessions.set(session.id, session);
     await this.ctx.storage.put(`s:${session.id}`, session);
-    const evicted = pruneSessionsMap(this.sessions);
+    const evicted = pruneSessionsMap(this.host.sessions);
     if (evicted.length > 0) {
       await this.ctx.storage.delete(evicted.map((s) => `s:${s.id}`));
       let retiredChanged = false;
       for (const s of evicted) {
         if (!s.native) {
-          this.retire(s.id);
+          retireBaselineRepo(this.host, s.id);
           retiredChanged = true;
         }
       }
       if (retiredChanged) {
-        await this.ctx.storage.put("retired", this.retired);
+        await this.ctx.storage.put("retired", this.host.retired);
       }
     }
   }
 
   private event(event: Omit<HubEvent, "at">): void {
-    const full = { at: Date.now(), ...event };
-    this.events.push(full);
-    if (this.events.length > MAX_EVENTS) this.events.splice(0, this.events.length - MAX_EVENTS);
-    this.ctx.storage.put("events", this.events).catch(() => {});
+    const full = appendHubEvent(this.host.events, event);
+    this.ctx.storage.put("events", this.host.events).catch(() => {});
     this.broadcast({ type: "event", event: full });
   }
 
   private broadcastStats(): void {
-    this.broadcast({ type: "stats", stats: this.computeStats() });
+    this.broadcast({ type: "stats", stats: computeHubStats(this.host.sessions.values(), this.host.counters) });
   }
 
   private broadcast(message: unknown): void {
-    const text = JSON.stringify(message);
-    for (const ws of this.ctx.getWebSockets()) {
-      try {
-        ws.send(text);
-      } catch {
-        // the dashboard reconnects
-      }
-    }
+    broadcastToSockets(this.ctx.getWebSockets(), message);
   }
-}
-
-function pathsOf(session: Session): string[] {
-  return session.touched.length ? session.touched : session.intent;
-}
-
-// intersect matches paths exactly, and directory intents ("…/") by prefix.
-function intersect(a: string[], b: string[]): string[] {
-  const out = new Set<string>();
-  for (const x of a) {
-    for (const y of b) {
-      if (x === y || (x.endsWith("/") && y.startsWith(x)) || (y.endsWith("/") && x.startsWith(y))) {
-        out.add(x.length >= y.length ? x : y);
-      }
-    }
-  }
-  return [...out];
-}
-
-function overlapSignal(other: Session, paths: string[]): Omit<Signal, "at"> {
-  return {
-    kind: "overlap",
-    message: `${other.agent} is also working on ${paths.map(shortPath).join(", ")} (${other.status}).`,
-    data: { session: other.id, agent: other.agent, paths, status: other.status, changeset: other.handle ?? null },
-  };
-}
-
-function hasOverlapSignal(session: Session, otherId: string): boolean {
-  return session.signals.some((s) => s.kind === "overlap" && (s.data as { session?: string } | undefined)?.session === otherId);
-}
-
-function pushSignal(session: Session, signal: Omit<Signal, "at">): void {
-  session.signals.push({ at: Date.now(), ...signal });
-  if (session.signals.length > MAX_SIGNALS) session.signals.splice(0, session.signals.length - MAX_SIGNALS);
-}
-
-export function globalPath(path: string): string {
-  return path.startsWith("/") ? path : `/${path}`;
-}
-
-function shortPath(path: string): string {
-  return path.split("/").slice(3).join("/") || path;
-}
-
-function shortRepo(name: string): string {
-  return name.length > 36 ? `${name.slice(0, 33)}…` : name;
-}
-
-function nonce(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(4));
-  return [...bytes].map((b) => b.toString(36).padStart(2, "0")).join("").slice(0, 6);
-}
-
-// parseTitle reads "<agent>: <task>" from a changeset title, the convention for
-// naming an agent whose changeset is authored by a shared identity.
-function parseTitle(title: string, author?: string): { agent: string; task: string } {
-  const m = /^([A-Za-z0-9][A-Za-z0-9-]{2,39}): (.+)$/.exec(title);
-  if (m) return { agent: slugify(m[1]), task: m[2].slice(0, 300) };
-  return { agent: slugify(author || "agent"), task: title.slice(0, 300) };
 }

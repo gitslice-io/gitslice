@@ -1,14 +1,60 @@
 // A client for the server's TriggerRunService over Connect's JSON protocol
 // (proto/core/v1/trigger.proto).
 
+export interface ConnectErrorDetail {
+  type?: string;
+  value?: string;
+  debug?: unknown;
+  [key: string]: unknown;
+}
+
+export interface ConnectErrorEnvelope {
+  code: string;
+  message: string;
+  details: ConnectErrorDetail[];
+}
+
+export function parseConnectErrorEnvelope(text: string, fallbackMessage: string): ConnectErrorEnvelope {
+  const trimmed = text.trim();
+  if (trimmed) {
+    try {
+      const parsed = JSON.parse(trimmed) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const record = parsed as { code?: unknown; message?: unknown; details?: unknown };
+        const code = typeof record.code === "string" && record.code.trim() ? record.code.trim() : "unknown";
+        const message = typeof record.message === "string" && record.message.trim() ? record.message : fallbackMessage;
+        const details = Array.isArray(record.details)
+          ? record.details.filter((d): d is ConnectErrorDetail => Boolean(d && typeof d === "object" && !Array.isArray(d)))
+          : [];
+        return { code, message, details };
+      }
+    } catch {
+      // not a Connect error body
+    }
+  }
+  return {
+    code: "unknown",
+    message: trimmed || fallbackMessage,
+    details: [],
+  };
+}
+
 export class ApiError extends Error {
   readonly code: string;
   readonly status: number;
+  readonly details: readonly ConnectErrorDetail[];
 
-  constructor(code: string, message: string, status: number) {
+  constructor(code: string, message: string, status: number, details: readonly ConnectErrorDetail[] = []) {
     super(message);
+    this.name = "ApiError";
     this.code = code;
     this.status = status;
+    this.details = details;
+  }
+
+  static fromResponse(status: number, text: string, fallbackMessage = `HTTP ${status}`): ApiError {
+    const env = parseConnectErrorEnvelope(text, fallbackMessage);
+    return new ApiError(env.code, env.message, status, env.details);
   }
 }
 
@@ -85,13 +131,7 @@ export class Api {
     });
     const text = await res.text();
     if (!res.ok) {
-      let err: { code?: string; message?: string } = {};
-      try {
-        err = JSON.parse(text);
-      } catch {
-        // not a Connect error body
-      }
-      throw new ApiError(err.code ?? "unknown", err.message ?? `${method}: HTTP ${res.status}`, res.status);
+      throw ApiError.fromResponse(res.status, text, `${method}: HTTP ${res.status}`);
     }
     return (text ? JSON.parse(text) : {}) as T;
   }
