@@ -72,6 +72,75 @@ type BaseSnapshotFile struct {
 	Size        int64  `json:"size"`
 }
 
+// WorkspaceMetadataStore coordinates reads and atomic multi-file commits across
+// .gs/{slice.json,state.json,base_snapshot.json,conflicts.json} so BaseCommitID
+// never drifts across files if a sync or submit step fails midway.
+type WorkspaceMetadataStore struct {
+	r        Runner
+	Config   WorkspaceConfig
+	State    WorkspaceState
+	Snapshot BaseSnapshot
+}
+
+func (r Runner) openWorkspaceMetadataStore() (*WorkspaceMetadataStore, error) {
+	ws, err := r.readWorkspaceConfig()
+	if err != nil {
+		return nil, err
+	}
+	state, err := r.readWorkspaceState()
+	if err != nil {
+		return nil, err
+	}
+	snapshot, err := r.readBaseSnapshot()
+	if err != nil {
+		return nil, err
+	}
+	return &WorkspaceMetadataStore{
+		r:        r,
+		Config:   ws,
+		State:    state,
+		Snapshot: snapshot,
+	}, nil
+}
+
+// CommitBase updates slice.json, state.json, and base_snapshot.json to the same
+// BaseCommitID in one step, and optionally updates or clears conflicts.json.
+func (m *WorkspaceMetadataStore) CommitBase(ws WorkspaceConfig, state WorkspaceState, snapshot BaseSnapshot, conflicts *WorkspaceConflictState) error {
+	commitID := firstNonEmpty(snapshot.CommitID, state.BaseCommitID, ws.BaseCommitID)
+	if commitID != "" {
+		ws.BaseCommitID = commitID
+		state.BaseCommitID = commitID
+		snapshot.CommitID = commitID
+	}
+	if err := m.r.writeWorkspaceConfig(ws); err != nil {
+		return err
+	}
+	if err := m.r.writeBaseSnapshot(snapshot); err != nil {
+		return err
+	}
+	if err := m.r.writeWorkspaceState(state); err != nil {
+		return err
+	}
+	if conflicts != nil {
+		if len(conflicts.Conflicts) > 0 {
+			if err := m.r.writeWorkspaceConflictState(*conflicts); err != nil {
+				return err
+			}
+		} else if err := m.r.clearWorkspaceConflictState(); err != nil {
+			return err
+		}
+	}
+	m.Config = ws
+	m.State = state
+	m.Snapshot = snapshot
+	return nil
+}
+
+func (r Runner) commitWorkspaceBase(ws WorkspaceConfig, state WorkspaceState, snapshot BaseSnapshot) error {
+	store := &WorkspaceMetadataStore{r: r}
+	return store.CommitBase(ws, state, snapshot, nil)
+}
+
 func (r Runner) loadLocalState() (UserConfig, WorkspaceConfig, WorkspaceState, error) {
 	cfg, err := r.readUserConfig()
 	if err != nil {

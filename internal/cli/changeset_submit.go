@@ -146,19 +146,15 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 			fmt.Fprintln(r.stderr(), "the base had moved, so the server merged this changeset onto the latest base before landing it; run gs sync to bring the merge into this workspace")
 		}
 	} else if status == "submitted" && usingWorkspaceCurrent && lazy != nil {
-		if err := r.landLazyWorkspace(ctx, conn, cfg, lazy, landedPatchset(cs, expectedPatchsetID), refCommitID, state); err != nil {
+		if err := r.landLazyWorkspace(ctx, conn, cfg, ws, lazy, landedPatchset(cs, expectedPatchsetID), refCommitID, state); err != nil {
 			fmt.Fprintf(r.stderr(), "warning: the changeset landed, but the lazy workspace keeps its old base (%v); run gs sync\n", err)
 		}
 	} else if status == "submitted" && usingWorkspaceCurrent && hasWorkspace {
-		state.BaseCommitID = refCommitID
-		if err := r.writeWorkspaceState(state); err != nil {
-			return err
-		}
 		current, err := r.scanWorkspaceFiles(ws)
 		if err != nil {
 			return err
 		}
-		if err := r.writeBaseSnapshot(BaseSnapshot{CommitID: refCommitID, Files: snapshotFiles(current)}); err != nil {
+		if err := r.commitWorkspaceBase(ws, state, BaseSnapshot{CommitID: refCommitID, Files: snapshotFiles(current)}); err != nil {
 			return err
 		}
 	}
@@ -483,7 +479,7 @@ func landedPatchset(cs *corev1.Changeset, patchsetID string) *corev1.Patchset {
 // landed in. Local changes the changeset carried leave the local layer: the
 // new base has them, merged with whatever landed meanwhile. Changes made
 // since the last gs create or gs modify stay local.
-func (r Runner) landLazyWorkspace(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, lazy *lazyWorkspace, landed *corev1.Patchset, commitID string, state WorkspaceState) error {
+func (r Runner) landLazyWorkspace(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, lazy *lazyWorkspace, landed *corev1.Patchset, commitID string, state WorkspaceState) error {
 	manifest, err := r.lazyListingAt(ctx, conn, cfg, lazy, commitID)
 	if err != nil {
 		return err
@@ -511,9 +507,5 @@ func (r Runner) landLazyWorkspace(ctx context.Context, conn *grpc.ClientConn, cf
 	}); err != nil {
 		return err
 	}
-	state.BaseCommitID = commitID
-	if err := r.writeWorkspaceState(state); err != nil {
-		return err
-	}
-	return r.writeBaseSnapshot(manifestSnapshot(manifest))
+	return r.commitWorkspaceBase(ws, state, manifestSnapshot(manifest))
 }

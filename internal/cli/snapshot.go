@@ -145,9 +145,15 @@ func (r Runner) stackBaseSnapshotThroughChangeset(ctx context.Context, conn *grp
 	if err != nil {
 		return BaseSnapshot{}, err
 	}
-	if base.Files == nil {
-		base.Files = map[string]BaseSnapshotFile{}
+	return r.stackSnapshotThroughChangesetFromBase(ctx, conn, cfg, ws, base, stack, throughChangesetID)
+}
+
+func (r Runner) stackSnapshotThroughChangesetFromBase(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, base BaseSnapshot, stack *corev1.ChangesetStack, throughChangesetID string) (BaseSnapshot, error) {
+	clonedFiles := make(map[string]BaseSnapshotFile, len(base.Files))
+	for k, v := range base.Files {
+		clonedFiles[k] = v
 	}
+	base.Files = clonedFiles
 	if stack == nil || strings.TrimSpace(throughChangesetID) == "" {
 		return base, nil
 	}
