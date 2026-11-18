@@ -198,6 +198,7 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 		    current_patchset_number = $2,
 		    affected_paths = $3,
 		    submit_blocked_reason = '',
+		    submit_blocked_code = '',
 		    daemon_id = case when acting_subject_id = $5 and daemon_id = '' then $6 else daemon_id end,
 		    conversation_id = case when acting_subject_id = $5 and conversation_id = '' then $7 else conversation_id end,
 		    updated_at = now()

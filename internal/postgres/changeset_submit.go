@@ -142,7 +142,7 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 			return nil, err
 		}
 		if parentStatus != "submitted" && parentStatus != "pending_publish" {
-			return nil, blockSubmitTx(ctx, tx, cs.ID, "BlockedOnBaseChangeset")
+			return nil, blockSubmitTx(ctx, tx, cs.ID, storage.SubmitBlockCodeBlockedOnParent, "BlockedOnBaseChangeset")
 		}
 	}
 	latestReq, latestIncludedPaths, err := activeSliceRequirementsAndIncludedPathsTx(ctx, tx, cs.SliceID)
@@ -151,7 +151,7 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 	}
 	for _, p := range patchset.ChangedPaths {
 		if !pathInAnyPrefix(latestIncludedPaths, p) {
-			return nil, blockSubmitTx(ctx, tx, cs.ID, fmt.Sprintf("changed path %s is outside latest slice definition, refresh the changeset", p))
+			return nil, blockSubmitTx(ctx, tx, cs.ID, storage.SubmitBlockCodeRequirementsChanged, fmt.Sprintf("changed path %s is outside latest slice definition, refresh the changeset", p))
 		}
 	}
 	nonMechanicalAuthors, err := nonMechanicalPatchsetAuthorsTx(ctx, tx, cs.ID)
@@ -184,8 +184,8 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 			return nil, err
 		}
 	}
-	if reason := storage.EvaluateSubmitRequirementsWithGroup(latestReq, excludedAuthors, approvers, checkStatuses, approverGroupMembers); reason != "" && !bypassRequirements {
-		return nil, blockSubmitTx(ctx, tx, cs.ID, reason)
+	if code, reason := storage.EvaluateSubmitRequirementsWithCode(latestReq, excludedAuthors, approvers, checkStatuses, approverGroupMembers); reason != "" && !bypassRequirements {
+		return nil, blockSubmitTx(ctx, tx, cs.ID, code, reason)
 	}
 	var currentCommitID string
 	err = tx.QueryRowContext(ctx, `
@@ -203,7 +203,7 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 		if !errors.Is(err, ErrConflict) {
 			return nil, err
 		}
-		return nil, blockSubmitTx(ctx, tx, cs.ID, storage.StaleBaseReason)
+		return nil, blockSubmitTx(ctx, tx, cs.ID, storage.SubmitBlockCodeStalePathBase, storage.StaleBaseReason)
 	}
 	if err := applyPathHeadEditsTx(ctx, tx, cs.ID, patchset.Id, patchset.FileEdits); err != nil {
 		return nil, err
@@ -244,6 +244,7 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 		update changesets
 		set status = 'pending_publish',
 		    submit_blocked_reason = '',
+		    submit_blocked_code = '',
 		    submitted_by_subject_id = $2,
 		    submitted_controller_subject_id = $3,
 		    submitted_key_id = $4,

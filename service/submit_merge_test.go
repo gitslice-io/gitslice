@@ -33,10 +33,18 @@ func TestAcceptedExpectedPatchsetMeansTheServersMergeOfIt(t *testing.T) {
 }
 
 func TestIsStaleBaseOnlyMatchesTheStaleBaseRefusal(t *testing.T) {
+	if !isStaleBase(storage.NewSubmitBlockedError(storage.SubmitBlockCodeStalePathBase, "custom stale message")) {
+		t.Fatal("typed SubmitBlockCodeStalePathBase error is not recognized")
+	}
 	if !isStaleBase(fmt.Errorf("%w: %s", storage.ErrConflict, storage.StaleBaseReason)) {
 		t.Fatal("the stale-base refusal is not recognized")
 	}
-	for _, err := range []error{nil, errors.New(storage.StaleBaseReason), fmt.Errorf("%w: required approvals not satisfied", storage.ErrConflict)} {
+	for _, err := range []error{
+		nil,
+		errors.New(storage.StaleBaseReason),
+		storage.NewSubmitBlockedError(storage.SubmitBlockCodeApprovalsMissing, storage.StaleBaseReason),
+		fmt.Errorf("%w: required approvals not satisfied", storage.ErrConflict),
+	} {
 		if isStaleBase(err) {
 			t.Fatalf("isStaleBase(%v) = true", err)
 		}

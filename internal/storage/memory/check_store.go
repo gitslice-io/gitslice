@@ -238,7 +238,7 @@ func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status str
 		}
 		s.b.checkResults[key][run.CheckName] = resultStatus
 		if cs := s.b.changesets[run.ChangesetId]; cs != nil {
-			clearRequirementBlockLocked(cs, run.PatchsetId)
+			s.b.clearRequirementBlockLocked(cs, run.PatchsetId)
 		}
 	}
 	return cloneCheckRun(run), nil

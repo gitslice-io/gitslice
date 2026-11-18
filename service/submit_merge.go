@@ -26,7 +26,13 @@ import (
 // isStaleBase reports whether a submit was refused because the base went
 // stale.
 func isStaleBase(err error) bool {
-	return err != nil && errors.Is(err, storage.ErrConflict) && strings.Contains(err.Error(), storage.StaleBaseReason)
+	if err == nil {
+		return false
+	}
+	if code, ok := storage.SubmitBlockCodeOf(err); ok {
+		return code == storage.SubmitBlockCodeStalePathBase
+	}
+	return errors.Is(err, storage.ErrConflict) && strings.Contains(err.Error(), storage.StaleBaseReason)
 }
 
 // mergeStaleOnSubmit makes the merged patchset for a changeset whose submit

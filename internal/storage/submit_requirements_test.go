@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -159,5 +160,82 @@ func TestSubmitRequirementsHashCanonicalizesInputs(t *testing.T) {
 	}
 	if included[0] != "/acme/payment" || checks[0] != " integration " || checks[1] != "" {
 		t.Fatalf("SubmitRequirementsHash mutated caller inputs: included=%#v checks=%#v", included, checks)
+	}
+}
+
+func TestSubmitBlockedErrorAndCodeClassification(t *testing.T) {
+	cases := []struct {
+		code         SubmitBlockCode
+		reason       string
+		wantCode     SubmitBlockCode
+		wantReqBlock bool
+		wantCategory string
+	}{
+		{
+			code:         SubmitBlockCodeStalePathBase,
+			reason:       StaleBaseReason,
+			wantCode:     SubmitBlockCodeStalePathBase,
+			wantReqBlock: false,
+			wantCategory: SubmitReasonStalePathBase,
+		},
+		{
+			code:         SubmitBlockCodeNone,
+			reason:       "changed path /acme/foo is outside latest slice definition, refresh the changeset",
+			wantCode:     SubmitBlockCodeRequirementsChanged,
+			wantReqBlock: false,
+			wantCategory: SubmitReasonRequirementsChanged,
+		},
+		{
+			code:         SubmitBlockCodeNone,
+			reason:       "required approvals not satisfied: requires 1 distinct non-author approval(s), has 0",
+			wantCode:     SubmitBlockCodeApprovalsMissing,
+			wantReqBlock: true,
+			wantCategory: SubmitReasonApprovalsMissing,
+		},
+		{
+			code:         SubmitBlockCodeNone,
+			reason:       "path owner approvals not satisfied for /acme/v2/api.go",
+			wantCode:     SubmitBlockCodeApprovalsMissing,
+			wantReqBlock: true,
+			wantCategory: SubmitReasonApprovalsMissing,
+		},
+		{
+			code:         SubmitBlockCodeNone,
+			reason:       ".gitslice configuration path /acme/.gitslice/checks.yaml requires approval",
+			wantCode:     SubmitBlockCodeApprovalsMissing,
+			wantReqBlock: true,
+			wantCategory: SubmitReasonApprovalsMissing,
+		},
+		{
+			code:         SubmitBlockCodeNone,
+			reason:       `required check "unit" has no result for current patchset`,
+			wantCode:     SubmitBlockCodeChecksMissing,
+			wantReqBlock: true,
+			wantCategory: SubmitReasonChecksMissing,
+		},
+		{
+			code:         SubmitBlockCodeNone,
+			reason:       "BlockedOnBaseChangeset",
+			wantCode:     SubmitBlockCodeBlockedOnParent,
+			wantReqBlock: false,
+			wantCategory: SubmitReasonConflict,
+		},
+	}
+
+	for _, tc := range cases {
+		err := NewSubmitBlockedError(tc.code, tc.reason)
+		if !errors.Is(err, ErrConflict) {
+			t.Fatalf("NewSubmitBlockedError(%q, %q) does not unwrap to ErrConflict", tc.code, tc.reason)
+		}
+		gotCode, ok := SubmitBlockCodeOf(err)
+		if !ok || gotCode != tc.wantCode {
+			t.Fatalf("SubmitBlockCodeOf(%v) = (%q, %v), want (%q, true)", err, gotCode, ok, tc.wantCode)
+		}
+		if gotCode.IsRequirementBlock() != tc.wantReqBlock || IsRequirementBlock(tc.reason) != tc.wantReqBlock {
+			t.Fatalf("IsRequirementBlock(%q) = %v, want %v", tc.reason, gotCode.IsRequirementBlock(), tc.wantReqBlock)
+		}
+		if gotCode.Category() != tc.wantCategory || SubmitBlockedReasonCategory(tc.reason) != tc.wantCategory {
+			t.Fatalf("Category(%q) = %q, want %q", tc.reason, gotCode.Category(), tc.wantCategory)
+		}
 	}
 }

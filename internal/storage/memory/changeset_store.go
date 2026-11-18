@@ -219,6 +219,7 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	cs.CurrentPatchsetNumber = next.Number
 	cs.AffectedPaths = append([]string(nil), next.ChangedPaths...)
 	cs.SubmitBlockedReason = ""
+	delete(s.b.submitBlockedCodes, cs.Id)
 	if cs.Attribution != nil && cs.Attribution.ActingSubjectId == psAttr.ActingSubjectID {
 		if cs.Attribution.DaemonId == "" && psAttr.DaemonID != "" {
 			cs.Attribution.DaemonId = psAttr.DaemonID
@@ -283,7 +284,7 @@ func (s *ChangesetStore) Approve(ctx context.Context, changesetID, subjectID str
 			Attribution: storedAttr,
 		})
 	}
-	clearRequirementBlockLocked(cs, patchset.Id)
+	s.b.clearRequirementBlockLocked(cs, patchset.Id)
 	return &corev1.ApproveChangesetResponse{
 		ChangesetId: changesetID,
 		PatchsetId:  patchset.Id,
@@ -319,14 +320,23 @@ func (s *ChangesetStore) ReportCheckResult(ctx context.Context, changesetID, sub
 		s.b.checkResults[key] = map[string]string{}
 	}
 	s.b.checkResults[key][checkName] = resultStatus
-	clearRequirementBlockLocked(cs, patchset.Id)
+	s.b.clearRequirementBlockLocked(cs, patchset.Id)
 	return &corev1.ReportCheckResultResponse{ChangesetId: changesetID, PatchsetId: patchset.Id, CheckName: checkName, Status: resultStatus}, nil
 }
 
 // clearRequirementBlockLocked is the Postgres store's clearRequirementBlockTx.
-func clearRequirementBlockLocked(cs *corev1.Changeset, patchsetID string) {
-	if current := currentPatchset(cs); current != nil && current.Id == patchsetID && storage.IsRequirementBlock(cs.SubmitBlockedReason) {
+func (b *backend) clearRequirementBlockLocked(cs *corev1.Changeset, patchsetID string) {
+	current := currentPatchset(cs)
+	if current == nil || current.Id != patchsetID {
+		return
+	}
+	code := b.submitBlockedCodes[cs.Id]
+	if code == storage.SubmitBlockCodeNone && cs.SubmitBlockedReason != "" {
+		code = storage.ClassifySubmitBlockedReason(cs.SubmitBlockedReason)
+	}
+	if code.IsRequirementBlock() {
 		cs.SubmitBlockedReason = ""
+		delete(b.submitBlockedCodes, cs.Id)
 	}
 }
 
@@ -476,6 +486,11 @@ func (s *ChangesetStore) RecordSubmitBlockedReason(_ context.Context, changesetI
 	cs := s.b.changesets[changesetID]
 	if cs != nil && cs.Status == "draft" && cs.CurrentPatchsetId == strings.TrimSpace(expectedCurrentPatchsetID) {
 		cs.SubmitBlockedReason = reason
+		if reason == "" {
+			delete(s.b.submitBlockedCodes, cs.Id)
+		} else {
+			s.b.submitBlockedCodes[cs.Id] = storage.ClassifySubmitBlockedReason(reason)
+		}
 	}
 	return nil
 }
@@ -515,7 +530,7 @@ func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurren
 			return nil, storage.ErrNotFound
 		}
 		if parent.Status != "submitted" && parent.Status != "pending_publish" {
-			return nil, s.b.blockSubmitLocked(cs, "BlockedOnBaseChangeset")
+			return nil, s.b.blockSubmitLocked(cs, storage.SubmitBlockCodeBlockedOnParent, "BlockedOnBaseChangeset")
 		}
 	}
 	if len(patchset.Conflicts) > 0 {
@@ -535,7 +550,7 @@ func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurren
 	latestReq := submitRequirementsForMemorySlice(slice)
 	for _, p := range patchset.ChangedPaths {
 		if slice.Definition == nil || !pathInAnyPrefix(slice.Definition.IncludedPaths, p) {
-			return nil, s.b.blockSubmitLocked(cs, fmt.Sprintf("changed path %s is outside latest slice definition, refresh the changeset", p))
+			return nil, s.b.blockSubmitLocked(cs, storage.SubmitBlockCodeRequirementsChanged, fmt.Sprintf("changed path %s is outside latest slice definition, refresh the changeset", p))
 		}
 	}
 	key := patchsetRequirementKey(changesetID, patchset.Id)
@@ -566,12 +581,13 @@ func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurren
 	if latestReq.GetApprovers() != "" && !bypassRequirements {
 		approverGroupMembers = s.b.groupMemberSubjectIDsLocked(latestReq.GetApprovers())
 	}
-	if reason := storage.EvaluateSubmitRequirementsWithGroup(latestReq, excludedAuthors, approvers, checkStatuses, approverGroupMembers); reason != "" && !bypassRequirements {
-		return nil, s.b.blockSubmitLocked(cs, reason)
+	if code, reason := storage.EvaluateSubmitRequirementsWithCode(latestReq, excludedAuthors, approvers, checkStatuses, approverGroupMembers); reason != "" && !bypassRequirements {
+		return nil, s.b.blockSubmitLocked(cs, code, reason)
 	}
 	submitAttr := s.b.resolveAttributionLocked(ctx, "")
 	cs.Status = "pending_publish"
 	cs.SubmitBlockedReason = ""
+	delete(s.b.submitBlockedCodes, cs.Id)
 	if submitAttr.ActingSubjectID != "" {
 		cs.SubmittedAttribution = submitAttr.ToProto()
 	}
@@ -745,9 +761,13 @@ func (b *backend) subjectOrIDLocked(subjectID string) storage.Subject {
 	return storage.Subject{ID: subjectID}
 }
 
-func (b *backend) blockSubmitLocked(cs *corev1.Changeset, reason string) error {
+func (b *backend) blockSubmitLocked(cs *corev1.Changeset, code storage.SubmitBlockCode, reason string) error {
+	if code == storage.SubmitBlockCodeNone {
+		code = storage.ClassifySubmitBlockedReason(reason)
+	}
 	cs.SubmitBlockedReason = reason
-	return fmt.Errorf("%w: %s", storage.ErrConflict, reason)
+	b.submitBlockedCodes[cs.Id] = code
+	return storage.NewSubmitBlockedError(code, reason)
 }
 
 func sortedChangesets(changesets map[string]*corev1.Changeset) []*corev1.Changeset {

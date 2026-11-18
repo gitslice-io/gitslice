@@ -152,7 +152,7 @@ func (s *ChangesetService) requireGitsliceApproval(ctx context.Context, cs *core
 	}
 	reason := fmt.Sprintf(".gitslice configuration path %s requires approval: an owner or admin of %s must approve this patchset", touched, account)
 	s.recordRequirementBlock(ctx, cs, reason)
-	return fmt.Errorf("%w: %s", storage.ErrConflict, reason)
+	return storage.NewSubmitBlockedError(storage.SubmitBlockCodeApprovalsMissing, reason)
 }
 
 func (s *ChangesetService) patchsetTouchedGitslicePathForSubmit(ctx context.Context, patchset *corev1.Patchset, headCommitID string) (string, error) {
@@ -254,7 +254,7 @@ func (s *ChangesetService) requirePathOwnersApproval(ctx context.Context, cs *co
 		return nil
 	}
 	s.recordRequirementBlock(ctx, cs, reason)
-	return fmt.Errorf("%w: %s", storage.ErrConflict, reason)
+	return storage.NewSubmitBlockedError(storage.SubmitBlockCodeApprovalsMissing, reason)
 }
 
 func (s *ChangesetService) requirePathOwnersForDirectOperation(ctx context.Context, baseCommitID, subjectID string, allPaths []string) error {

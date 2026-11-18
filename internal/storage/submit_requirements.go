@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -11,6 +12,123 @@ import (
 	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
+
+// SubmitBlockCode classifies why a draft changeset was blocked at submit time.
+type SubmitBlockCode string
+
+const (
+	SubmitBlockCodeNone                SubmitBlockCode = ""
+	SubmitBlockCodeStalePathBase       SubmitBlockCode = "stale_path_base"
+	SubmitBlockCodeRequirementsChanged SubmitBlockCode = "requirements_changed"
+	SubmitBlockCodeApprovalsMissing    SubmitBlockCode = "approvals_missing"
+	SubmitBlockCodeChecksMissing       SubmitBlockCode = "checks_missing"
+	SubmitBlockCodeBlockedOnParent     SubmitBlockCode = "blocked_on_parent"
+)
+
+// RequirementBlockCodes returns the submit_blocked_code values that represent
+// transient check or approval blocks cleared when a new check result or
+// approval arrives for the current patchset.
+func RequirementBlockCodes() []string {
+	return []string{
+		string(SubmitBlockCodeApprovalsMissing),
+		string(SubmitBlockCodeChecksMissing),
+	}
+}
+
+// IsRequirementBlock reports whether c is a check or approval requirement block.
+func (c SubmitBlockCode) IsRequirementBlock() bool {
+	return c == SubmitBlockCodeApprovalsMissing || c == SubmitBlockCodeChecksMissing
+}
+
+// Category maps a typed SubmitBlockCode to its Prometheus submit metric reason label.
+func (c SubmitBlockCode) Category() string {
+	switch c {
+	case SubmitBlockCodeStalePathBase:
+		return SubmitReasonStalePathBase
+	case SubmitBlockCodeRequirementsChanged:
+		return SubmitReasonRequirementsChanged
+	case SubmitBlockCodeApprovalsMissing:
+		return SubmitReasonApprovalsMissing
+	case SubmitBlockCodeChecksMissing:
+		return SubmitReasonChecksMissing
+	default:
+		return SubmitReasonConflict
+	}
+}
+
+// SubmitBlockedError wraps a submit conflict with a typed SubmitBlockCode while
+// unwrapping to ErrConflict so errors.Is(err, ErrConflict) remains true.
+type SubmitBlockedError struct {
+	Code   SubmitBlockCode
+	Reason string
+}
+
+func (e *SubmitBlockedError) Error() string {
+	if e == nil {
+		return ""
+	}
+	return fmt.Sprintf("%s: %s", ErrConflict, e.Reason)
+}
+
+func (e *SubmitBlockedError) Unwrap() error {
+	return ErrConflict
+}
+
+// NewSubmitBlockedError constructs a typed *SubmitBlockedError. If code is
+// empty, it classifies reason into a SubmitBlockCode automatically.
+func NewSubmitBlockedError(code SubmitBlockCode, reason string) error {
+	if code == SubmitBlockCodeNone {
+		code = ClassifySubmitBlockedReason(reason)
+	}
+	return &SubmitBlockedError{
+		Code:   code,
+		Reason: reason,
+	}
+}
+
+// SubmitBlockCodeOf extracts the typed SubmitBlockCode from err if it wraps
+// *SubmitBlockedError.
+func SubmitBlockCodeOf(err error) (SubmitBlockCode, bool) {
+	var blocked *SubmitBlockedError
+	if errors.As(err, &blocked) && blocked != nil {
+		return blocked.Code, true
+	}
+	return SubmitBlockCodeNone, false
+}
+
+// ClassifySubmitBlockedReason maps a human-readable submit block reason string
+// to its canonical SubmitBlockCode.
+func ClassifySubmitBlockedReason(reason string) SubmitBlockCode {
+	trimmed := strings.TrimSpace(reason)
+	if trimmed == "" {
+		return SubmitBlockCodeNone
+	}
+	if trimmed == "BlockedOnBaseChangeset" {
+		return SubmitBlockCodeBlockedOnParent
+	}
+	lower := strings.ToLower(trimmed)
+	switch {
+	case strings.Contains(lower, "path base conflict"):
+		return SubmitBlockCodeStalePathBase
+	case strings.Contains(lower, "requirements changed"),
+		strings.Contains(lower, "outside latest slice definition"):
+		return SubmitBlockCodeRequirementsChanged
+	case strings.HasPrefix(trimmed, "required approvals "),
+		strings.HasPrefix(trimmed, "required human approvals "),
+		strings.HasPrefix(trimmed, "path owner"),
+		strings.HasPrefix(trimmed, ".gitslice"),
+		strings.Contains(lower, "required approvals"),
+		strings.Contains(lower, "required human approvals"),
+		strings.Contains(lower, "path owner"),
+		strings.Contains(lower, ".gitslice"):
+		return SubmitBlockCodeApprovalsMissing
+	case strings.HasPrefix(trimmed, "required check "),
+		strings.Contains(lower, "required check"):
+		return SubmitBlockCodeChecksMissing
+	default:
+		return SubmitBlockCodeNone
+	}
+}
 
 const (
 	CheckStatusPass = model.CheckStatusPass
@@ -42,8 +160,16 @@ func EvaluateSubmitRequirements(req *corev1.SubmitRequirements, excludedAuthors 
 // to members of that group (approverGroupMembers) before controller-dedup and
 // human-approval counting.
 func EvaluateSubmitRequirementsWithGroup(req *corev1.SubmitRequirements, excludedAuthors []Subject, approvers []Subject, checkStatuses map[string]string, approverGroupMembers map[string]bool) string {
+	_, reason := EvaluateSubmitRequirementsWithCode(req, excludedAuthors, approvers, checkStatuses, approverGroupMembers)
+	return reason
+}
+
+// EvaluateSubmitRequirementsWithCode evaluates approval, human approval, and
+// required check policies for a changeset and returns both a typed
+// SubmitBlockCode and the human-readable failure reason.
+func EvaluateSubmitRequirementsWithCode(req *corev1.SubmitRequirements, excludedAuthors []Subject, approvers []Subject, checkStatuses map[string]string, approverGroupMembers map[string]bool) (SubmitBlockCode, string) {
 	if req == nil {
-		return ""
+		return SubmitBlockCodeNone, ""
 	}
 	if req.RequiredApprovals > 0 || req.RequiredHumanApprovals > 0 {
 		candidates := approvers
@@ -56,18 +182,18 @@ func EvaluateSubmitRequirementsWithGroup(req *corev1.SubmitRequirements, exclude
 			count := DistinctControllerApprovalCount(eligible)
 			if count < req.RequiredApprovals {
 				if approversGroup != "" {
-					return fmt.Sprintf("required approvals not satisfied: requires %d distinct non-author approval(s) from %s, has %d", req.RequiredApprovals, approversGroup, count)
+					return SubmitBlockCodeApprovalsMissing, fmt.Sprintf("required approvals not satisfied: requires %d distinct non-author approval(s) from %s, has %d", req.RequiredApprovals, approversGroup, count)
 				}
-				return fmt.Sprintf("required approvals not satisfied: requires %d distinct non-author approval(s), has %d", req.RequiredApprovals, count)
+				return SubmitBlockCodeApprovalsMissing, fmt.Sprintf("required approvals not satisfied: requires %d distinct non-author approval(s), has %d", req.RequiredApprovals, count)
 			}
 		}
 		if req.RequiredHumanApprovals > 0 {
 			count := DistinctHumanApprovalCount(eligible)
 			if count < req.RequiredHumanApprovals {
 				if approversGroup != "" {
-					return fmt.Sprintf("required human approvals not satisfied: requires %d human approval(s) from %s, has %d", req.RequiredHumanApprovals, approversGroup, count)
+					return SubmitBlockCodeApprovalsMissing, fmt.Sprintf("required human approvals not satisfied: requires %d human approval(s) from %s, has %d", req.RequiredHumanApprovals, approversGroup, count)
 				}
-				return fmt.Sprintf("required human approvals not satisfied: requires %d human approval(s), has %d", req.RequiredHumanApprovals, count)
+				return SubmitBlockCodeApprovalsMissing, fmt.Sprintf("required human approvals not satisfied: requires %d human approval(s), has %d", req.RequiredHumanApprovals, count)
 			}
 		}
 	}
@@ -81,14 +207,14 @@ func EvaluateSubmitRequirementsWithGroup(req *corev1.SubmitRequirements, exclude
 		case CheckStatusPass:
 			continue
 		case "":
-			return fmt.Sprintf("required check %q has no result for current patchset", check)
+			return SubmitBlockCodeChecksMissing, fmt.Sprintf("required check %q has no result for current patchset", check)
 		case CheckStatusFail:
-			return fmt.Sprintf("required check %q is failing for current patchset", check)
+			return SubmitBlockCodeChecksMissing, fmt.Sprintf("required check %q is failing for current patchset", check)
 		default:
-			return fmt.Sprintf("required check %q is not passing for current patchset", check)
+			return SubmitBlockCodeChecksMissing, fmt.Sprintf("required check %q is not passing for current patchset", check)
 		}
 	}
-	return ""
+	return SubmitBlockCodeNone, ""
 }
 
 // FilterApproversByMembership keeps only approver subjects whose ID is present
@@ -111,11 +237,7 @@ func FilterApproversByMembership(approvers []Subject, allowedSubjectIDs map[stri
 // reason describes the last submit attempt; a new check result or approval
 // for the patchset makes it stale.
 func IsRequirementBlock(reason string) bool {
-	return strings.HasPrefix(reason, "required check ") ||
-		strings.HasPrefix(reason, "required approvals ") ||
-		strings.HasPrefix(reason, "required human approvals ") ||
-		strings.HasPrefix(reason, "path owner") ||
-		strings.HasPrefix(reason, ".gitslice")
+	return ClassifySubmitBlockedReason(reason).IsRequirementBlock()
 }
 
 // SubmitRequirementsHash hashes only the fields that gate whether a patchset is

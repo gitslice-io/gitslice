@@ -2,7 +2,6 @@ package storage
 
 import (
 	"errors"
-	"strings"
 	"time"
 
 	"gitslice.io/gitslice/internal/metrics"
@@ -64,30 +63,16 @@ func RecordSubmitResult(err error) {
 		return
 	}
 	reason := SubmitReasonError
-	if errors.Is(err, ErrConflict) {
+	if code, ok := SubmitBlockCodeOf(err); ok {
+		reason = code.Category()
+	} else if errors.Is(err, ErrConflict) {
 		reason = SubmitBlockedReasonCategory(err.Error())
 	}
 	submitTotal.Inc(metrics.Labels{"result": "rejected", "reason": reason})
 }
 
 func SubmitBlockedReasonCategory(reason string) string {
-	reason = strings.ToLower(reason)
-	switch {
-	case strings.Contains(reason, "path base conflict"):
-		return SubmitReasonStalePathBase
-	case strings.Contains(reason, "requirements changed"),
-		strings.Contains(reason, "outside latest slice definition"):
-		return SubmitReasonRequirementsChanged
-	case strings.Contains(reason, "required approvals"),
-		strings.Contains(reason, "required human approvals"),
-		strings.Contains(reason, "path owner"),
-		strings.Contains(reason, ".gitslice"):
-		return SubmitReasonApprovalsMissing
-	case strings.Contains(reason, "required check"):
-		return SubmitReasonChecksMissing
-	default:
-		return SubmitReasonConflict
-	}
+	return ClassifySubmitBlockedReason(reason).Category()
 }
 
 func RecordPublishBatch(published int, err error) {

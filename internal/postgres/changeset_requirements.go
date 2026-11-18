@@ -337,26 +337,21 @@ func mergeCheckStatuses(statuses map[string]string, extra map[string]string) {
 }
 
 // clearRequirementBlockTx clears a stored submit-blocked reason about checks
-// or approvals (storage.IsRequirementBlock) when the current patchset gets a
-// new check result or approval: the reason described the last submit
-// attempt, whose inputs have changed, and the next submit evaluates the
+// or approvals (storage.SubmitBlockCode.IsRequirementBlock) when the current
+// patchset gets a new check result or approval: the reason described the last
+// submit attempt, whose inputs have changed, and the next submit evaluates the
 // requirements again. Without this, gs cs status kept reporting a check as
 // having no result after it had passed.
 func clearRequirementBlockTx(ctx context.Context, tx *sql.Tx, changesetID, patchsetID string) error {
 	_, err := tx.ExecContext(ctx, `
 		update changesets
 		set submit_blocked_reason = '',
+		    submit_blocked_code = '',
 		    updated_at = now()
 		where id = $1
 		  and current_patchset_id = $2
-		  and (
-			submit_blocked_reason like 'required check %'
-			or submit_blocked_reason like 'required approvals %'
-			or submit_blocked_reason like 'required human approvals %'
-			or submit_blocked_reason like 'path owner%'
-			or submit_blocked_reason like '.gitslice%'
-		  )
-	`, changesetID, patchsetID)
+		  and submit_blocked_code = any($3)
+	`, changesetID, patchsetID, storage.RequirementBlockCodes())
 	return err
 }
 
@@ -367,31 +362,37 @@ func (s *ChangesetStore) RecordSubmitBlockedReason(ctx context.Context, changese
 	if err != nil {
 		return err
 	}
+	code := storage.ClassifySubmitBlockedReason(reason)
 	_, err = s.db.ExecContext(ctx, `
 		update changesets
 		set submit_blocked_reason = $3,
+		    submit_blocked_code = $4,
 		    updated_at = now()
 		where id = $1
 		  and status = 'draft'
 		  and coalesce(current_patchset_id, '') = $2
-	`, changesetID, strings.TrimSpace(expectedCurrentPatchsetID), reason)
+	`, changesetID, strings.TrimSpace(expectedCurrentPatchsetID), reason, string(code))
 	return err
 }
 
-func blockSubmitTx(ctx context.Context, tx *sql.Tx, changesetID, reason string) error {
+func blockSubmitTx(ctx context.Context, tx *sql.Tx, changesetID string, code storage.SubmitBlockCode, reason string) error {
+	if code == storage.SubmitBlockCodeNone {
+		code = storage.ClassifySubmitBlockedReason(reason)
+	}
 	_, err := tx.ExecContext(ctx, `
 		update changesets
 		set submit_blocked_reason = $2,
+		    submit_blocked_code = $3,
 		    updated_at = now()
 		where id = $1
-	`, changesetID, reason)
+	`, changesetID, reason, string(code))
 	if err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	return fmt.Errorf("%w: %s", ErrConflict, reason)
+	return storage.NewSubmitBlockedError(code, reason)
 }
 
 // ApprovalSubjects lists who approved a patchset.

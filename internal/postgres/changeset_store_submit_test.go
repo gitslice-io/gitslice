@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"testing"
 
+	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/treestore"
 	"gitslice.io/gitslice/proto/core/v1"
 )
@@ -279,19 +280,26 @@ func TestSubmitBatchedPathBaseFingerprintMismatch(t *testing.T) {
 	`, p); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id); !errors.Is(err, ErrConflict) {
-		t.Fatalf("Submit err = %v, want ErrConflict", err)
+	_, submitErr := store.Changesets().Submit(ctx, patchset.ChangesetId, patchset.Id)
+	if !errors.Is(submitErr, ErrConflict) {
+		t.Fatalf("Submit err = %v, want ErrConflict", submitErr)
 	}
-	var reason string
+	if code, ok := storage.SubmitBlockCodeOf(submitErr); !ok || code != storage.SubmitBlockCodeStalePathBase {
+		t.Fatalf("SubmitBlockCodeOf(%v) = (%q, %v), want (%q, true)", submitErr, code, ok, storage.SubmitBlockCodeStalePathBase)
+	}
+	var reason, blockCode string
 	if err := store.db.QueryRowContext(ctx, `
-		select submit_blocked_reason
+		select submit_blocked_reason, submit_blocked_code
 		from changesets
 		where id = $1
-	`, patchset.ChangesetId).Scan(&reason); err != nil {
+	`, patchset.ChangesetId).Scan(&reason, &blockCode); err != nil {
 		t.Fatal(err)
 	}
 	if reason != "path base conflict, refresh or rebase the changeset" {
 		t.Fatalf("submit_blocked_reason = %q", reason)
+	}
+	if blockCode != string(storage.SubmitBlockCodeStalePathBase) {
+		t.Fatalf("submit_blocked_code = %q, want %q", blockCode, storage.SubmitBlockCodeStalePathBase)
 	}
 }
 

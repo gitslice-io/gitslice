@@ -88,16 +88,17 @@ type backend struct {
 	sliceTags               map[string]map[string]storage.SliceTag
 	secrets                 map[string]*memorySecret
 
-	changesets        map[string]*corev1.Changeset
-	stacks            map[string]*corev1.ChangesetStack
-	previewFiles      map[string]map[string]storage.FileEntry
-	previewDirs       map[string]map[string]struct{}
-	pendingAcceptedAt map[string]time.Time
-	pendingSequence   map[string]int64
-	nextPendingSeq    int64
-	approvals         map[string]map[string]struct{}
-	checkResults      map[string]map[string]string
-	pathIntents       map[string]storage.PathIntent
+	changesets         map[string]*corev1.Changeset
+	submitBlockedCodes map[string]storage.SubmitBlockCode
+	stacks             map[string]*corev1.ChangesetStack
+	previewFiles       map[string]map[string]storage.FileEntry
+	previewDirs        map[string]map[string]struct{}
+	pendingAcceptedAt  map[string]time.Time
+	pendingSequence    map[string]int64
+	nextPendingSeq     int64
+	approvals          map[string]map[string]struct{}
+	checkResults       map[string]map[string]string
+	pathIntents        map[string]storage.PathIntent
 
 	imports         map[string]*storage.GitImportRecord
 	importsByKey    map[string]string
@@ -196,6 +197,7 @@ func New() *Stores {
 		sliceTags:               map[string]map[string]storage.SliceTag{},
 		secrets:                 map[string]*memorySecret{},
 		changesets:              map[string]*corev1.Changeset{},
+		submitBlockedCodes:      map[string]storage.SubmitBlockCode{},
 		stacks:                  map[string]*corev1.ChangesetStack{},
 		previewFiles:            map[string]map[string]storage.FileEntry{},
 		previewDirs:             map[string]map[string]struct{}{},
