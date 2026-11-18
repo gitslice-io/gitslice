@@ -10,11 +10,13 @@ import (
 const DefaultTargetRef = model.DefaultTargetRef
 
 var (
-	ErrConflict        = errors.New("conflict")
-	ErrInvalid         = model.ErrInvalid
-	ErrNotFound        = errors.New("not found")
-	ErrUnauthenticated = errors.New("unauthenticated")
-	ErrUnauthorized    = errors.New("unauthorized")
+	ErrAlreadyExists     = errors.New("already exists")
+	ErrConflict          = errors.New("conflict")
+	ErrInvalid           = model.ErrInvalid
+	ErrNotFound          = errors.New("not found")
+	ErrResourceExhausted = errors.New("resource exhausted")
+	ErrUnauthenticated   = errors.New("unauthenticated")
+	ErrUnauthorized      = errors.New("unauthorized")
 )
 
 type Subject struct {

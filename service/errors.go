@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 
 	"gitslice.io/gitslice/internal/storage"
@@ -20,13 +21,27 @@ func requireDefaultTargetRef(ref string) error {
 }
 
 func grpcError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if _, ok := status.FromError(err); ok {
+		return err
+	}
 	switch {
+	case errors.Is(err, context.Canceled):
+		return status.Error(codes.Canceled, err.Error())
+	case errors.Is(err, context.DeadlineExceeded):
+		return status.Error(codes.DeadlineExceeded, err.Error())
 	case errors.Is(err, storage.ErrNotFound):
 		return status.Error(codes.NotFound, err.Error())
+	case errors.Is(err, storage.ErrAlreadyExists):
+		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, storage.ErrConflict):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, storage.ErrInvalid):
 		return status.Error(codes.InvalidArgument, err.Error())
+	case errors.Is(err, storage.ErrResourceExhausted):
+		return status.Error(codes.ResourceExhausted, err.Error())
 	case errors.Is(err, storage.ErrUnauthenticated):
 		return status.Error(codes.Unauthenticated, err.Error())
 	case errors.Is(err, storage.ErrUnauthorized):
