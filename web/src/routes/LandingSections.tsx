@@ -246,10 +246,10 @@ export function LandingPillarsSection() {
         </h2>
 
         <div className="mt-10 overflow-hidden rounded-2xl border border-slate-200/90 bg-slate-200/80 dark:border-white/10 dark:bg-white/10">
-          <div className="grid gap-px lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-px lg:grid-cols-3">
             {pillars.map((pillar) => (
               <article
-                className="flex flex-col justify-between bg-white p-6 dark:bg-zinc-950 sm:p-8"
+                className="flex min-w-0 flex-col justify-between bg-white p-6 dark:bg-zinc-950 sm:p-8"
                 key={pillar.title}
               >
                 <div>
@@ -313,9 +313,9 @@ export function LandingArchitectureSection() {
           </h2>
         </div>
 
-        <div className="mt-10 grid gap-5 lg:grid-cols-2">
-          <div className="rounded-2xl border border-slate-200/90 bg-white/85 p-6 dark:border-white/10 dark:bg-zinc-900/50 sm:p-7">
-            <div className="flex items-center justify-between gap-3">
+        <div className="mt-10 grid grid-cols-1 gap-5 lg:grid-cols-2">
+          <div className="min-w-0 rounded-2xl border border-slate-200/90 bg-white/85 p-6 dark:border-white/10 dark:bg-zinc-900/50 sm:p-7">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-base font-semibold text-zinc-950 dark:text-white">
                 Traditional Git branch race
               </h3>
@@ -336,15 +336,15 @@ export function LandingArchitectureSection() {
                 { agent: "agent-16", state: "15 retries before landing", ok: false }
               ].map((row) => (
                 <div
-                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-200/80 bg-slate-50 px-3 py-2 dark:border-white/[0.07] dark:bg-zinc-950/70"
+                  className="flex flex-col gap-1 rounded-lg border border-slate-200/80 bg-slate-50 px-3 py-2 dark:border-white/[0.07] dark:bg-zinc-950/70 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
                   key={row.agent}
                 >
                   <span className="shrink-0 text-zinc-700 dark:text-zinc-300">{row.agent}</span>
                   <span
                     className={
                       row.ok
-                        ? "truncate text-emerald-700 dark:text-emerald-300"
-                        : "truncate text-rose-600 dark:text-rose-300"
+                        ? "text-emerald-700 dark:text-emerald-300 sm:truncate"
+                        : "text-rose-600 dark:text-rose-300 sm:truncate"
                     }
                   >
                     {row.state}
@@ -354,8 +354,8 @@ export function LandingArchitectureSection() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-sky-200/90 bg-white p-6 shadow-sm dark:border-sky-500/25 dark:bg-zinc-900/70 sm:p-7">
-            <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0 rounded-2xl border border-sky-200/90 bg-white p-6 shadow-sm dark:border-sky-500/25 dark:bg-zinc-900/70 sm:p-7">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-base font-semibold text-zinc-950 dark:text-white">
                 Gitslice path-level admission
               </h3>
@@ -376,7 +376,7 @@ export function LandingArchitectureSection() {
                 { agent: "agent-16", path: "/acme/api (same file)", state: "merged on submit → landed" }
               ].map((row) => (
                 <div
-                  className="flex items-center justify-between gap-3 rounded-lg border border-slate-200/80 bg-slate-50 px-3 py-2 dark:border-white/[0.07] dark:bg-zinc-950/70"
+                  className="flex flex-col gap-1 rounded-lg border border-slate-200/80 bg-slate-50 px-3 py-2 dark:border-white/[0.07] dark:bg-zinc-950/70 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
                   key={row.agent}
                 >
                   <div className="flex min-w-0 items-center gap-2">
@@ -402,8 +402,8 @@ export function LandingBenchmarksSection() {
       aria-labelledby="benchmarks-heading"
       className="mx-auto w-full max-w-7xl px-4 pb-20 sm:px-6 sm:pb-24 lg:px-8"
     >
-      <div className="grid items-start gap-10 border-t border-slate-200/90 pt-16 dark:border-white/10 sm:pt-20 lg:grid-cols-[0.82fr_1.18fr] lg:gap-14">
-        <div>
+      <div className="grid grid-cols-1 items-start gap-10 border-t border-slate-200/90 pt-16 dark:border-white/10 sm:pt-20 lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:gap-14">
+        <div className="min-w-0">
           <p className="font-mono text-xs font-medium uppercase tracking-[0.18em] text-sky-600 dark:text-sky-400">
             Measured, not claimed
           </p>
@@ -464,7 +464,7 @@ export function LandingBenchmarksSection() {
 
         <div
           aria-label="Parallel landing benchmark results"
-          className="overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-sm dark:border-white/10 dark:bg-zinc-900/50"
+          className="min-w-0 overflow-x-auto rounded-2xl border border-slate-200/90 bg-white shadow-sm dark:border-white/10 dark:bg-zinc-900/50"
           role="region"
           tabIndex={0}
         >
@@ -559,10 +559,10 @@ export function LandingFeaturesSection() {
           </Link>
         </div>
 
-        <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+        <div className="mt-10 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
           {features.map((feature) => (
             <article
-              className="group flex flex-col justify-between rounded-2xl border border-slate-200/90 bg-white p-6 transition hover:border-slate-300 hover:shadow-sm dark:border-white/10 dark:bg-zinc-900/45 dark:hover:border-white/20 dark:hover:bg-zinc-900/80"
+              className="group flex min-w-0 flex-col justify-between rounded-2xl border border-slate-200/90 bg-white p-6 transition hover:border-slate-300 hover:shadow-sm dark:border-white/10 dark:bg-zinc-900/45 dark:hover:border-white/20 dark:hover:bg-zinc-900/80"
               key={feature.title}
             >
               <div>
@@ -612,8 +612,8 @@ export function LandingCtaSection() {
       className="mx-auto w-full max-w-7xl px-4 pb-20 sm:px-6 sm:pb-28 lg:px-8"
     >
       <div className="overflow-hidden rounded-2xl border border-slate-200/90 bg-white dark:border-white/10 dark:bg-zinc-900/60">
-        <div className="grid divide-y divide-slate-200/90 dark:divide-white/10 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
-          <div className="p-7 sm:p-10">
+        <div className="grid grid-cols-1 divide-y divide-slate-200/90 dark:divide-white/10 lg:grid-cols-2 lg:divide-x lg:divide-y-0">
+          <div className="min-w-0 p-7 sm:p-10">
             <p className="font-mono text-xs font-medium uppercase tracking-[0.18em] text-sky-600 dark:text-sky-400">
               For teams &amp; engineers
             </p>
@@ -645,7 +645,7 @@ export function LandingCtaSection() {
             </div>
           </div>
 
-          <div className="bg-slate-50/70 p-7 dark:bg-zinc-950/60 sm:p-10">
+          <div className="min-w-0 bg-slate-50/70 p-7 dark:bg-zinc-950/60 sm:p-10">
             <p className="font-mono text-xs font-medium uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-400">
               For coding agents
             </p>
@@ -656,7 +656,7 @@ export function LandingCtaSection() {
               No browser needed. Your agent installs <code className="font-mono text-xs">gs</code>,
               registers an account under your email, and sends you a claim link for co-ownership.
             </p>
-            <div className="mt-5 flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 dark:border-white/10 dark:bg-zinc-900">
+            <div className="mt-5 flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 dark:border-white/10 dark:bg-zinc-900">
               <code
                 className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs text-zinc-800 dark:text-zinc-200"
                 id={promptId}

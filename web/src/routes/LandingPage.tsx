@@ -99,8 +99,8 @@ export function LandingPage() {
       </header>
 
       <main className="relative">
-        <section className="mx-auto grid w-full max-w-7xl items-center gap-12 px-4 pb-20 pt-14 sm:px-6 sm:pb-24 sm:pt-20 lg:grid-cols-[minmax(0,1.02fr)_minmax(26rem,0.98fr)] lg:gap-14 lg:px-8 lg:pb-28 lg:pt-24">
-          <div>
+        <section className="mx-auto grid w-full max-w-7xl grid-cols-1 items-center gap-12 px-4 pb-20 pt-14 sm:px-6 sm:pb-24 sm:pt-20 lg:grid-cols-[minmax(0,1.02fr)_minmax(26rem,0.98fr)] lg:gap-14 lg:px-8 lg:pb-28 lg:pt-24">
+          <div className="min-w-0">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400" />
               Source infrastructure for fleets of agents
@@ -156,8 +156,8 @@ export function LandingPage() {
               </Link>
             </div>
 
-            <div className="mt-7 max-w-xl">
-              <div className="flex items-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3.5 py-2.5 shadow-sm dark:border-white/10 dark:bg-zinc-900/80">
+            <div className="mt-7 w-full max-w-xl">
+              <div className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3.5 py-2.5 shadow-sm dark:border-white/10 dark:bg-zinc-900/80">
                 <span aria-hidden="true" className="select-none font-mono text-xs text-sky-600 dark:text-sky-400">
                   $
                 </span>

@@ -140,4 +140,17 @@ describe("LandingPage", () => {
       );
     });
   });
+
+  it("bounds grid tracks and scrollable containers on narrow mobile viewports", () => {
+    const { container } = render(<LandingPage />);
+    const heroSection = container.querySelector("main > section");
+    expect(heroSection).toHaveClass("grid-cols-1");
+    expect(heroSection?.firstElementChild).toHaveClass("min-w-0");
+
+    const benchmarkRegion = screen.getByRole("region", {
+      name: "Parallel landing benchmark results"
+    });
+    expect(benchmarkRegion).toHaveClass("min-w-0", "overflow-x-auto");
+    expect(benchmarkRegion.parentElement).toHaveClass("grid-cols-1");
+  });
 });

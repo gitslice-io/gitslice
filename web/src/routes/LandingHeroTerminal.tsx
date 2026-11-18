@@ -44,7 +44,7 @@ export function LandingHeroTerminal() {
   }
 
   return (
-    <figure className="relative">
+    <figure className="relative min-w-0 max-w-full">
       <div
         aria-hidden="true"
         className="pointer-events-none absolute -inset-4 -z-10 rounded-[2rem] bg-gradient-to-br from-sky-500/[0.10] via-transparent to-emerald-500/[0.08] blur-2xl dark:from-sky-400/[0.12] dark:to-emerald-400/[0.08]"
@@ -52,8 +52,8 @@ export function LandingHeroTerminal() {
 
       <div className="overflow-hidden rounded-2xl border border-zinc-800/90 bg-zinc-950 shadow-2xl shadow-zinc-950/35 ring-1 ring-white/[0.06] dark:border-white/10 dark:shadow-black/60">
         <div className="flex items-center justify-between gap-3 border-b border-white/10 bg-zinc-900/90 px-4">
-          <div className="flex items-center gap-3">
-            <div aria-hidden="true" className="flex gap-1.5 py-3.5">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <div aria-hidden="true" className="flex shrink-0 gap-1.5 py-3.5">
               <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
               <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
               <span className="h-2.5 w-2.5 rounded-full bg-zinc-700" />
@@ -98,10 +98,10 @@ export function LandingHeroTerminal() {
           </span>
         </div>
 
-        <div className="grid">
+        <div className="grid grid-cols-1">
           <div
             aria-labelledby="hero-tab-agent-cli"
-            className="col-start-1 row-start-1"
+            className="col-start-1 row-start-1 min-w-0"
             hidden={activeTab !== "agent-cli"}
             role="tabpanel"
             tabIndex={activeTab === "agent-cli" ? 0 : undefined}
@@ -145,7 +145,7 @@ export function LandingHeroTerminal() {
 
           <div
             aria-labelledby="hero-tab-lazy-mount"
-            className="col-start-1 row-start-1"
+            className="col-start-1 row-start-1 min-w-0"
             hidden={activeTab !== "lazy-mount"}
             role="tabpanel"
             tabIndex={activeTab === "lazy-mount" ? 0 : undefined}
@@ -189,7 +189,7 @@ export function LandingHeroTerminal() {
 
           <div
             aria-labelledby="hero-tab-mcp"
-            className="col-start-1 row-start-1"
+            className="col-start-1 row-start-1 min-w-0"
             hidden={activeTab !== "mcp"}
             role="tabpanel"
             tabIndex={activeTab === "mcp" ? 0 : undefined}

@@ -28,8 +28,8 @@ export function DocPage() {
   const ActiveSection = lazyDocSections[section];
 
   return (
-    <section className="mx-auto grid w-full max-w-[100rem] gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]">
-      <aside className="lg:sticky lg:top-6 lg:self-start">
+    <section className="mx-auto grid w-full max-w-[100rem] grid-cols-1 gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]">
+      <aside className="min-w-0 lg:sticky lg:top-6 lg:self-start">
         <nav aria-label="Documentation sections" className="flex flex-wrap gap-2 lg:grid">
           {docSections.map((item) => (
             <SectionLink
