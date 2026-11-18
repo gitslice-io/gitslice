@@ -1,27 +1,16 @@
-import type { ReactNode } from "react";
+import { Link } from "@tanstack/react-router";
 
-import { CommandBlock, NextDocCard, PageHeader, inlineCode } from "./DocParts";
+import {
+  BulletPoint,
+  CommandBlock,
+  DocSectionCard,
+  InlineCode,
+  NextDocCard,
+  PageHeader
+} from "./DocParts";
 
-function Section({ children, title }: { children: ReactNode; title: string }) {
-  return (
-    <section className="mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5">
-      <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">{title}</h2>
-      <div className="mt-3 space-y-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">{children}</div>
-    </section>
-  );
-}
-
-function Point({ children, label }: { children: ReactNode; label: string }) {
-  return (
-    <li>
-      <span className="font-semibold text-zinc-950 dark:text-zinc-50">{label}</span> {children}
-    </li>
-  );
-}
-
-function Code({ children }: { children: string }) {
-  return <code className={inlineCode}>{children}</code>;
-}
+const linkClass =
+  "font-medium text-zinc-950 underline decoration-slate-300 underline-offset-4 hover:decoration-zinc-950 dark:text-zinc-50 dark:decoration-zinc-600 dark:hover:decoration-zinc-50";
 
 export function LazyWorkspacesDoc() {
   return (
@@ -29,191 +18,228 @@ export function LazyWorkspacesDoc() {
       <PageHeader
         eyebrow="Gitslice docs"
         title="Lazy Workspaces"
-        description="Mount a slice instead of checking it out. Only the listing is fetched up front; a file's content arrives the first time something reads it, and your edits stay on your machine until you create a changeset. Every gs command works as it does in a checkout."
+        description="Mount a slice instead of checking every file out up front. Only the directory listing is downloaded at mount time; file contents arrive on first read, and local edits stay on your machine until you create a changeset."
       />
 
-      <Section title="When to use one">
+      <DocSectionCard title="When to use one">
         <ul className="space-y-2">
-          <Point label="Mount (gs init --lazy)">
-            when a task touches a part of a large slice: an agent fixing one service, a review, a
-            quick edit. The workspace is ready in seconds, and what it costs follows what is read,
-            not the size of the slice.
-          </Point>
-          <Point label="Check out (gs init)">
-            when you will read and build nearly everything, need the files with no FUSE (Windows, a
-            container without /dev/fuse), or want plain disk speed for every read.
-          </Point>
+          <BulletPoint label="Mount (gs init --lazy):">
+            Best when a task touches a small part of a large slice — an agent fixing one service, a
+            code review, or a quick edit. The workspace is ready in seconds, and bandwidth scales
+            with the files you actually read rather than the size of the slice.
+          </BulletPoint>
+          <BulletPoint label="Full checkout (gs init):">
+            Best when you will read and compile nearly everything, need a workspace without FUSE
+            (Windows or a container without <InlineCode>/dev/fuse</InlineCode>), or want raw local
+            disk speed on every read.
+          </BulletPoint>
         </ul>
         <p>
-          On Ryujinx_Neo (4,508 files, 58.6 MB) a mount was ready in 2.6 s where a full checkout
-          took 8 s. The time to mount grows with the number of files, not their size. Benchmarks
-          and method:{" "}
-          <a
-            className="font-medium text-zinc-950 underline decoration-slate-300 underline-offset-4 dark:text-zinc-50"
-            href="https://gitslice.io/slices/gitslice/gitslice?path=/gitslice/gitslice/design/28_benchmarks.md"
+          On a 4,508-file, 58.6 MB repository (Ryujinx_Neo), a cold lazy mount was ready in 2.6 s
+          where a full checkout took 8 s; mount time scales with file count rather than file size.
+          Read the full write-up in{" "}
+          <Link
+            className={linkClass}
+            params={{ slug: "benchmarking-gitslice-against-git" }}
+            to="/blogs/$slug"
           >
-            design/28_benchmarks.md
-          </a>
+            Benchmarking Gitslice Against Git
+          </Link>{" "}
+          and{" "}
+          <Link
+            className={linkClass}
+            params={{ slug: "what-we-learned-from-abfs" }}
+            to="/blogs/$slug"
+          >
+            What We Learned from Google&apos;s ABFS
+          </Link>
           .
         </p>
-      </Section>
+      </DocSectionCard>
 
-      <Section title="Start">
-        <p>Linux or macOS, with FUSE (see Requirements below).</p>
-        <CommandBlock>{`gs init --lazy acme/payments ~/work/payments   # mounts; fetches the listing only
+      <DocSectionCard title="Start">
+        <p>
+          Requires Linux or macOS with FUSE (see Requirements below). Inside the mount, files sit at
+          their full account-rooted path (for example, <InlineCode>acme/payments/charge.go</InlineCode>
+          ). Pass <InlineCode>--read-only</InlineCode> for inspection or review mounts where writes
+          should be refused.
+        </p>
+        <CommandBlock label="lazy workspace quickstart commands">{`gs init --lazy acme/payments ~/work/payments   # mounts; fetches the listing only
 cd ~/work/payments
-$EDITOR acme/payments/charge.go                 # fetched when opened
-gs status                                       # your edits, as in any workspace
+$EDITOR acme/payments/charge.go                 # fetched on first open
+gs status                                       # shows local edits, like any workspace
 gs create --all --message "payments: retry declined charges" --submit`}</CommandBlock>
         <p>
-          The mount survives as a workspace: <Code>gs unmount &lt;dir&gt;</Code> stops serving it
-          with its edits kept, and <Code>gs mount &lt;dir&gt;</Code> brings it back after an
-          unmount or a reboot. <Code>gs mount list</Code> shows every lazy workspace on the
-          machine, and <Code>gs mount discard &lt;dir&gt;</Code> deletes an unmounted one with its
-          edits. One
-          background process serves all of them and exits when the last is unmounted.
+          A lazy mount persists as a normal workspace: <InlineCode>gs unmount &lt;dir&gt;</InlineCode>{" "}
+          stops serving it while keeping local edits, and{" "}
+          <InlineCode>gs mount &lt;dir&gt;</InlineCode> brings it back after an unmount or reboot.{" "}
+          <InlineCode>gs mount list</InlineCode> lists every lazy workspace on this machine,{" "}
+          <InlineCode>gs workspace delete &lt;dir&gt;</InlineCode> cleanly unmounts and removes one
+          (refusing if edits are not yet in a changeset unless <InlineCode>--force</InlineCode> is
+          passed), and <InlineCode>gs mount discard &lt;dir&gt;</InlineCode> deletes an unmounted
+          workspace with its edits. One background daemon serves all your lazy mounts and exits when
+          the last one is unmounted.
         </p>
-      </Section>
+      </DocSectionCard>
 
-      <Section title="How files are fetched">
+      <DocSectionCard title="How files are fetched">
         <ul className="space-y-2">
-          <Point label="Listing and metadata:">
-            <Code>ls</Code>, <Code>stat</Code> and directory walks are answered from the listing,
-            with no network.
-          </Point>
-          <Point label="First read:">
-            a file is fetched the first time something opens it, together with the small files
-            beside it (under 64 KiB, in the same request), since reading one file of a folder
-            usually means reading more. Each first read is a round trip to the server.
-          </Point>
-          <Point label="Walks of the tree:">
-            when reads follow the tree in order, as <Code>grep -r</Code>, <Code>rg</Code>, a build
-            or an indexer do (in either direction), the mount fetches the files ahead of the reader.
-            A cold <Code>rg</Code> over Ryujinx_Neo went from 175 s to 14 s with it. Scattered reads
-            fetch nothing extra. <Code>GS_READAHEAD=off</Code> turns it off.
-          </Point>
-          <Point label="Everything, ahead of time:">
-            <Code>gs fetch</Code> (or <Code>gs fetch &lt;path&gt;...</Code>) fetches in batches, in
-            parallel. It is still the fastest way to prepare for work that reads everything, and it
-            is what makes a workspace readable offline.
-          </Point>
-          <Point label="Known patterns:">
-            <Code>{"gs init --lazy <slice> <dir> --prefetch 'acme/app/**/*.go'"}</Code> fetches
-            matching files in the background, now and after every sync.
-          </Point>
-          <Point label="The cache:">
-            fetched content is kept in a cache shared by every workspace on the machine, so a second
-            mount of the same slice reads what the first fetched. Listings are kept too: a mount,
-            checkout or <Code>gs sync</Code> at a newer commit downloads only what changed since.
-            Once the cache is larger than <Code>GS_CACHE_MAX</Code> (default 10G), the least recently
-            used content is removed, except checkpoints, sync conflicts and anything used in the last
-            six hours. <Code>gs cache status</Code> shows it; <Code>gs cache prune</Code> prunes now.
-          </Point>
+          <BulletPoint label="Listing and metadata:">
+            <InlineCode>ls</InlineCode>, <InlineCode>stat</InlineCode>, and directory walks are
+            answered from the cached listing with no network round trip.
+          </BulletPoint>
+          <BulletPoint label="First read and sibling batching:">
+            Opening an uncached file fetches it from the server together with small sibling files in
+            the same folder (under 64 KiB, in the same request), since reading one file in a
+            directory usually means reading its neighbors too.
+          </BulletPoint>
+          <BulletPoint label="Sequential readahead:">
+            When reads walk the tree in order — as <InlineCode>grep -r</InlineCode>,{" "}
+            <InlineCode>rg</InlineCode>, a compiler, or an indexer do (in either direction) — the
+            mount fetches upcoming files ahead of the reader. A cold <InlineCode>rg</InlineCode>{" "}
+            over Ryujinx_Neo dropped from 175 s to 14 s with readahead enabled; scattered reads
+            fetch nothing extra. Set <InlineCode>GS_READAHEAD=off</InlineCode> to disable it.
+          </BulletPoint>
+          <BulletPoint label="Bulk prefetch for full builds or offline work:">
+            <InlineCode>gs fetch</InlineCode> (or{" "}
+            <InlineCode>gs fetch &lt;path&gt;...</InlineCode>) downloads files in parallel batches.
+            It is the fastest way to warm a mount before reading everything and makes the workspace
+            usable offline.
+          </BulletPoint>
+          <BulletPoint label="Background patterns:">
+            <InlineCode>{"gs init --lazy <slice> <dir> --prefetch 'acme/app/**/*.go'"}</InlineCode>{" "}
+            warms matching files in the background immediately and after every{" "}
+            <InlineCode>gs sync</InlineCode>.
+          </BulletPoint>
+          <BulletPoint label="Shared machine cache:">
+            Fetched blobs live in <InlineCode>~/.cache/gitslice</InlineCode> and are shared across
+            every workspace on the machine, so a second mount of the same slice reads what the first
+            already fetched. Listings are cached too, so newer checkouts, mounts, and{" "}
+            <InlineCode>gs sync</InlineCode> download only what changed. Once the cache exceeds{" "}
+            <InlineCode>GS_CACHE_MAX</InlineCode> (default <InlineCode>10G</InlineCode>;{" "}
+            <InlineCode>off</InlineCode> disables pruning), least-recently-used blobs are evicted
+            while preserving checkpoints, sync conflicts, and anything used in the last six hours.
+            Inspect with <InlineCode>gs cache status</InlineCode> or prune immediately with{" "}
+            <InlineCode>gs cache prune</InlineCode>.
+          </BulletPoint>
         </ul>
-      </Section>
+      </DocSectionCard>
 
-      <Section title="Where your edits live">
+      <DocSectionCard title="Where your edits live">
         <p>
-          Writes go to the workspace&apos;s local layer, on your machine. Nothing is uploaded until{" "}
-          <Code>gs create</Code> or <Code>gs modify</Code>, which upload only what you changed.
-          Edit with any tool; <Code>gs status</Code> and <Code>gs diff</Code> read the local layer
-          instead of scanning the tree, so they are instant at any size.
+          Writes stay in the workspace&apos;s local overlay on disk. Nothing is uploaded until you
+          run <InlineCode>gs create</InlineCode> or <InlineCode>gs modify</InlineCode>, which send
+          only the paths you changed. Because <InlineCode>gs status</InlineCode> and{" "}
+          <InlineCode>gs diff</InlineCode> read the local overlay rather than scanning the entire
+          tree, they stay instant at any slice size.
         </p>
         <ul className="space-y-2">
-          <Point label="Undo:">
-            <Code>gs restore &lt;path&gt;...</Code> or <Code>gs restore --all</Code> drops local
-            edits, so the slice&apos;s content shows again.
-          </Point>
-          <Point label="Moving the base:">
-            <Code>gs sync</Code> and switching between changesets (<Code>gs switch</Code>,{" "}
-            <Code>gs up</Code>, <Code>gs down</Code>) move the mount without rewriting or fetching
-            files: files nobody changed take the new base, and new content is fetched when read.
-          </Point>
+          <BulletPoint label="Discard local edits:">
+            <InlineCode>gs restore &lt;path&gt;...</InlineCode> or{" "}
+            <InlineCode>gs restore --all</InlineCode> drops local writes so the slice&apos;s base
+            content shows again.
+          </BulletPoint>
+          <BulletPoint label="Move the base without re-downloading:">
+            <InlineCode>gs sync</InlineCode> and changeset switching (
+            <InlineCode>gs switch</InlineCode>, <InlineCode>gs up</InlineCode>,{" "}
+            <InlineCode>gs down</InlineCode>) update the mount&apos;s base snapshot without
+            rewriting or fetching untouched files; new content is fetched only when read.
+          </BulletPoint>
         </ul>
-      </Section>
+      </DocSectionCard>
 
-      <Section title="Checkpoints, rewind and fork">
+      <DocSectionCard title="Checkpoints, rewind and fork">
         <p>
-          A checkpoint saves the workspace&apos;s edits on this machine, to come back to. Nothing
-          is uploaded. Agents use them to try an approach and back out of it cheaply.
+          A checkpoint snapshots your local edits on this machine so you can return to them later —
+          nothing is uploaded. Humans and agents use checkpoints to try an approach and back out
+          cheaply.
         </p>
-        <CommandBlock>{`gs checkpoint -m "tests pass, before the refactor"
-gs checkpoint list           # newest first, with numbers
-gs rewind 3                  # put the edits back as they were at checkpoint 3
-gs rewind                    # back to the newest one that differs from now
-gs fork 3 ~/work/payments-b  # open checkpoint 3 as a second workspace`}</CommandBlock>
+        <CommandBlock label="checkpoint, rewind, and fork commands">{`gs checkpoint -m "tests pass, before the refactor"
+gs checkpoint list           # newest first, numbered
+gs rewind 3                  # restore local edits from checkpoint 3
+gs rewind                    # restore the newest checkpoint that differs from now
+gs fork 3 ~/work/payments-b  # mount checkpoint 3 as a second workspace`}</CommandBlock>
         <ul className="space-y-2">
-          <Point label="Automatic:">
-            gs takes a checkpoint by itself before <Code>gs sync</Code>, <Code>gs switch</Code>,{" "}
-            <Code>gs restore</Code> and <Code>gs rewind</Code> replace your files, keeping the last
-            50. Ones you take with <Code>gs checkpoint</Code> are kept until the workspace is
-            deleted.
-          </Point>
-          <Point label="Undoable:">
-            a rewind first checkpoints what it replaces, so another rewind undoes it.
-          </Point>
-          <Point label="Fork:">
-            mounts a new lazy workspace showing the checkpoint, on the base it was taken on, so two
-            approaches can be worked side by side. A checkpoint from before a sync moved the
-            workspace is opened with <Code>gs fork</Code>, not rewound to.
-          </Point>
+          <BulletPoint label="Automatic safety net:">
+            <InlineCode>gs</InlineCode> automatically takes a checkpoint before{" "}
+            <InlineCode>gs sync</InlineCode>, <InlineCode>gs switch</InlineCode>,{" "}
+            <InlineCode>gs restore</InlineCode>, and <InlineCode>gs rewind</InlineCode> modify your
+            files, keeping the last 50 automatic checkpoints. Manual checkpoints taken with{" "}
+            <InlineCode>gs checkpoint</InlineCode> are kept until the workspace is deleted.
+          </BulletPoint>
+          <BulletPoint label="Undoable rewinds:">
+            Rewinding automatically checkpoints the state it replaces, so running{" "}
+            <InlineCode>gs rewind</InlineCode> again undoes the rewind.
+          </BulletPoint>
+          <BulletPoint label="Side-by-side forks:">
+            <InlineCode>gs fork</InlineCode> mounts a new lazy workspace showing the checkpoint on
+            the exact base commit it was taken on, so two approaches can be compared side by side.
+            (Checkpoints taken before a <InlineCode>gs sync</InlineCode> moved the base are opened
+            with <InlineCode>gs fork</InlineCode> rather than rewound in place.)
+          </BulletPoint>
         </ul>
-        <p>Checkpoints work in lazy workspaces only, for now.</p>
-      </Section>
+        <p>Checkpoints are currently supported in lazy workspaces only.</p>
+      </DocSectionCard>
 
-      <Section title="Requirements">
+      <DocSectionCard title="Requirements">
         <ul className="space-y-2">
-          <Point label="Linux:">
-            FUSE 3: <Code>/dev/fuse</Code> and <Code>fusermount3</Code> (the <Code>fuse3</Code>{" "}
-            package). No root needed.
-          </Point>
-          <Point label="macOS:">
+          <BulletPoint label="Linux:">
+            FUSE 3 (<InlineCode>/dev/fuse</InlineCode> and <InlineCode>fusermount3</InlineCode>,
+            typically from the <InlineCode>fuse3</InlineCode> package). No root privileges required.
+          </BulletPoint>
+          <BulletPoint label="macOS:">
             <a
-              className="font-medium text-zinc-950 underline decoration-slate-300 underline-offset-4 dark:text-zinc-50"
+              className={linkClass}
               href="https://macfuse.github.io"
+              rel="noopener noreferrer"
+              target="_blank"
             >
               macFUSE
             </a>
-            . After installing it, allow its system extension in System Settings, Privacy &amp;
-            Security, and restart; until then a mount waits and then fails with a hint.
-          </Point>
-          <Point label="Windows:">not supported; use <Code>gs init</Code>.</Point>
+            . After installing, allow its system extension in System Settings → Privacy &amp;
+            Security and restart; until approved, mounting waits and exits with a setup hint.
+          </BulletPoint>
+          <BulletPoint label="Windows:">
+            Not supported yet; use a standard checkout with <InlineCode>gs init</InlineCode>.
+          </BulletPoint>
         </ul>
-      </Section>
+      </DocSectionCard>
 
-      <Section title="When something is wrong">
+      <DocSectionCard title="Troubleshooting">
         <ul className="space-y-2">
-          <Point label="gs doctor">
-            checks the whole setup, including whether a test mount works on this machine.
-          </Point>
-          <Point label="gs mount status [dir]">
-            shows the workspace&apos;s base, how much was fetched, and the last errors, with the
-            path and the reason.
-          </Point>
-          <Point label="Offline:">
-            reads the cache can answer, and every edit, keep working. A read that needs an
-            unreachable server fails after a few seconds of retrying, and the next ones fail at once
-            for a while, so a build does not hang on each file. Run <Code>gs fetch</Code> beforehand
-            to work offline.
-          </Point>
-          <Point label="A dead mount:">
-            if the process serving it was killed, <Code>fusermount3 -u &lt;dir&gt;</Code> (Linux) or{" "}
-            <Code>umount &lt;dir&gt;</Code> (macOS) clears it, and <Code>gs mount &lt;dir&gt;</Code>{" "}
-            brings the workspace back, edits included.
-          </Point>
+          <BulletPoint label="gs doctor:">
+            Checks CLI version, authentication, server reachability, and whether a test FUSE mount
+            succeeds on this machine.
+          </BulletPoint>
+          <BulletPoint label="gs mount status [dir]:">
+            Shows the workspace&apos;s base commit, how much content has been fetched, and recent
+            errors with paths and reasons.
+          </BulletPoint>
+          <BulletPoint label="Working offline:">
+            Cached reads and all local edits keep working without a network connection. Uncached
+            reads retry briefly and then fail fast for a cooldown window so builds do not hang on
+            every file. Run <InlineCode>gs fetch</InlineCode> before going offline.
+          </BulletPoint>
+          <BulletPoint label="Stale or dead mount:">
+            If the serving process was killed abruptly, run{" "}
+            <InlineCode>fusermount3 -u &lt;dir&gt;</InlineCode> (Linux) or{" "}
+            <InlineCode>umount &lt;dir&gt;</InlineCode> (macOS) to clear the mount point, then{" "}
+            <InlineCode>gs mount &lt;dir&gt;</InlineCode> to reattach the workspace with all local
+            edits intact.
+          </BulletPoint>
         </ul>
-      </Section>
+      </DocSectionCard>
 
       <section className="mt-8 grid gap-4 md:grid-cols-2">
         <NextDocCard
-          description="Workspaces, changesets, patchsets and submit, and how they fit together."
+          description="Understand accounts, slices, workspaces, changesets, and submit validation."
           section="concepts"
           title="Understand the model"
         />
         <NextDocCard
-          description="Every command, including gs mount, gs fetch and gs checkpoint."
+          description="Full reference for gs mount, gs fetch, gs checkpoint, gs rewind, and gs fork."
           section="cli"
-          title="CLI reference"
+          title="CLI Reference"
         />
       </section>
     </div>

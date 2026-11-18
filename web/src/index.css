@@ -81,3 +81,62 @@ select {
   --clerk-color-text: #f4f4f5;
   --clerk-color-text-secondary: #a1a1aa;
 }
+
+/* Docs command block copy button: stays in flow on touch devices (no hover),
+   and overlays top-right on hover-capable devices without hiding from keyboard
+   or assistive technologies (opacity only, never display/visibility/aria-hidden). */
+.doc-copyable {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.doc-copyable .doc-copy-wrap {
+  position: relative;
+  flex: none;
+  order: 1;
+}
+
+.doc-copyable .doc-copy-tip {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.doc-copyable .doc-copy-button[data-copied] + .doc-copy-tip,
+.doc-copyable .doc-copy-button[data-failed] + .doc-copy-tip {
+  opacity: 1;
+}
+
+@media (hover: hover) {
+  .doc-copyable {
+    display: block;
+    position: relative;
+  }
+
+  .doc-copyable .doc-copy-wrap {
+    position: absolute;
+    inset-block-start: 0.45rem;
+    inset-inline-end: 0.45rem;
+  }
+
+  .doc-copyable .doc-copy-button {
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+
+  .doc-copyable:hover .doc-copy-button,
+  .doc-copyable:focus-within .doc-copy-button,
+  .doc-copyable .doc-copy-button:focus-visible,
+  .doc-copyable .doc-copy-button[data-copied],
+  .doc-copyable .doc-copy-button[data-failed] {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-copyable .doc-copy-button,
+  .doc-copyable .doc-copy-tip {
+    transition-duration: 0.01ms;
+  }
+}

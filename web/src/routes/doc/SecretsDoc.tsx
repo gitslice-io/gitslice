@@ -1,20 +1,28 @@
-import { PageHeader, CommandBlock, NextDocCard, inlineCode } from "./DocParts";
-
-const sectionClass = "mt-8 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5";
-const headingClass = "text-base font-semibold text-zinc-950 dark:text-zinc-50";
-const textClass = "mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400";
-const strongClass = "font-semibold text-zinc-950 dark:text-zinc-50";
+import {
+  BulletPoint,
+  CommandBlock,
+  DocLink,
+  DocSectionCard,
+  DocTable,
+  InlineCode,
+  NextDocCard,
+  PageHeader
+} from "./DocParts";
 
 const accessRows: Array<[string, string]> = [
   [
     "Account owners and admins",
-    "Create, change, move and delete secrets. Read values back into a local env file with gs secret env."
+    "Create, update, move, and delete secrets. Render values into a local mode-600 env file with gs secret env."
   ],
   [
     "Slice writers and slice admins",
-    "See the names that apply in the slice (gs slice secret ls). Their changesets' checks receive the values; they cannot read them out."
+    "List secret names that apply in the slice (gs slice secret ls). Their changesets' checks receive secret values, and they can allow contributor patchsets via gs check allow, but they cannot read raw values out."
   ],
-  ["Readers and everyone else", "Nothing: not the names, not the values."]
+  [
+    "Slice contributors",
+    "Cannot list secret names or values. Their changesets' checks run without secrets until a writer or admin runs gs check allow."
+  ],
+  ["Readers and everyone else", "No access to secret names or values."]
 ];
 
 export function SecretsDoc() {
@@ -23,161 +31,162 @@ export function SecretsDoc() {
       <PageHeader
         eyebrow="Gitslice docs"
         title="Secrets"
-        description="A secret is a token, key or password that Gitslice keeps encrypted and gives to your CI checks as an environment variable, so it never has to live in the repository."
+        description="Store tokens, API keys, and passwords encrypted in Gitslice and scope them to folders — for CI checks, triggers, Git mirrors, and local env files — without ever committing credentials."
       />
 
-      <section className={sectionClass}>
-        <h2 className={headingClass}>How secrets work</h2>
-        <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-          <li>
-            <span className={strongClass}>A secret applies to folders.</span> It belongs to an account (yours, or an
-            organization&apos;s) and applies to the folders you choose and everything below them, such as{" "}
-            <code className={inlineCode}>/acme/services/billing</code>. <code className={inlineCode}>/acme</code> is
-            the whole account.
-          </li>
-          <li>
-            <span className={strongClass}>Checks read it as an environment variable</span> named after the secret, such
-            as <code className={inlineCode}>DEPLOY_TOKEN</code>. A check gets the secrets that apply at the folder of
-            the <code className={inlineCode}>.gitslice/checks.yaml</code> that defines it, whichever slice&apos;s change
-            runs it. A secret replaces a check&apos;s own <code className={inlineCode}>env</code> entry of the same
-            name. Checks run on the slice&apos;s CI daemon, so a slice without one passes secrets to nothing.
-          </li>
-          <li>
-            <span className={strongClass}>The closest folder wins.</span> A folder has at most one secret of each name.
-            Where several apply, the one on the closest folder wins: a <code className={inlineCode}>DEPLOY_TOKEN</code>{" "}
-            on <code className={inlineCode}>/acme/web</code> overrides one on <code className={inlineCode}>/acme</code>{" "}
-            for checks under <code className={inlineCode}>/acme/web</code>.
-          </li>
-          <li>
-            <span className={strongClass}>Values stay hidden.</span> They are stored encrypted, no page shows them, and a
-            check&apos;s log and summary show them as <code className={inlineCode}>***</code>. Values shorter than 4
-            characters are not masked, and a value of several lines is also masked line by line.
-          </li>
+      <DocSectionCard title="How secrets work">
+        <ul className="space-y-2.5">
+          <BulletPoint label="Folder-scoped under an account:">
+            A secret belongs to a personal or organization account and applies to the folders you
+            attach it to plus everything below them (for example,{" "}
+            <InlineCode>/acme/services/billing</InlineCode>). Attaching it to{" "}
+            <InlineCode>/acme</InlineCode> covers the entire account.
+          </BulletPoint>
+          <BulletPoint label="Injected into checks, triggers, and mirrors:">
+            <DocLink section="checks">CI checks</DocLink> read secrets as environment variables
+            matching the secret name (such as <InlineCode>DEPLOY_TOKEN</InlineCode>), based on the
+            folder of the <InlineCode>.gitslice/checks.yaml</InlineCode> that defines the check. A
+            secret overrides a check&apos;s own <InlineCode>env</InlineCode> entry of the same name.{" "}
+            <DocLink section="triggers">Triggers</DocLink> and{" "}
+            <DocLink section="mirrors">Git mirrors</DocLink> reference the same folder and slice
+            secrets by name. Checks only receive secrets when running on the slice&apos;s CI daemon.
+          </BulletPoint>
+          <BulletPoint label="Closest folder wins:">
+            A folder holds at most one secret per name. When multiple ancestor folders define the
+            same name, the closest folder takes precedence: a{" "}
+            <InlineCode>DEPLOY_TOKEN</InlineCode> on <InlineCode>/acme/web</InlineCode> overrides
+            one on <InlineCode>/acme</InlineCode> for anything under{" "}
+            <InlineCode>/acme/web</InlineCode>.
+          </BulletPoint>
+          <BulletPoint label="Encrypted and masked in logs:">
+            Values are stored encrypted, never shown in the web UI, and masked as{" "}
+            <InlineCode>***</InlineCode> in check and trigger logs (multi-line values are masked
+            line by line; values shorter than 4 characters are not masked).
+          </BulletPoint>
         </ul>
-      </section>
+      </DocSectionCard>
 
-      <section className={sectionClass}>
-        <h2 className={headingClass}>Add a secret</h2>
-        <p className={textClass}>
-          In the web app, open your account&apos;s page and choose <span className={strongClass}>Secrets</span>, or use
-          the Secrets panel in a slice&apos;s <span className={strongClass}>Settings</span>. From the CLI, pipe the value
-          in so it stays out of your shell history (in a terminal, leave out the pipe and type it; it is not echoed):
+      <DocSectionCard title="Add and manage secrets">
+        <p>
+          In the web app, open your account page and select{" "}
+          <span className="font-semibold text-zinc-950 dark:text-zinc-50">Secrets</span>, or use the
+          Secrets panel in a slice&apos;s{" "}
+          <span className="font-semibold text-zinc-950 dark:text-zinc-50">Settings</span>. From the
+          CLI, pipe the value via stdin so it stays out of your shell history (or omit the pipe in
+          an interactive terminal to type it hidden):
         </p>
-        <CommandBlock>{`# for some folders of your active account (--account to pick another)
+        <CommandBlock label="secret management commands">{`# scope to specific folders in your active account (pass --account for another)
 printf %s "$TOKEN" | gs secret create DEPLOY_TOKEN --path /acme/api --path /acme/worker
 
-# for the whole account
+# scope to the whole account
 printf %s "$NPM_TOKEN" | gs secret create NPM_TOKEN --path /acme
 
-# for the folders a slice includes
+# scope to the folders included by a slice
 printf %s "$TOKEN" | gs secret create WEB_TOKEN --slice web
 
-gs secret ls                                       # names, folders, who changed them last
-gs secret update <secret-id> --add-path /acme/web  # or --remove-path, --path ..., --slice ...
+gs secret ls                                       # names, folders, last updater
+gs secret update <secret-id> --add-path /acme/web  # or --remove-path, --path, --slice
 printf %s "$NEW" | gs secret update <secret-id> --value
 gs secret rm <secret-id>`}</CommandBlock>
-        <p className={textClass}>
-          Names are environment variable names: capital letters, digits and <code className={inlineCode}>_</code>, not
-          starting with a digit. A value can be up to 48 KiB, so a key file fits. A secret can apply to up to 50
-          folders, and an account can have up to 200 secrets.
+        <p>
+          Secret names follow environment variable rules: uppercase letters, digits, and{" "}
+          <InlineCode>_</InlineCode>, not starting with a digit. Values can be up to 48 KiB (large
+          enough for certificates or key files). Each secret can attach to up to 50 folders, and an
+          account can store up to 200 secrets.
         </p>
-      </section>
+      </DocSectionCard>
 
-      <section className={sectionClass}>
-        <h2 className={headingClass}>One slice at a time</h2>
-        <p className={textClass}>
-          <code className={inlineCode}>gs slice secret</code> works on the folders a slice includes. It changes only
-          secrets on those folders alone, so it never changes a value that other folders get:
+      <DocSectionCard title="One slice at a time">
+        <p>
+          <InlineCode>gs slice secret</InlineCode> operates strictly on a slice&apos;s included
+          folders so you never accidentally alter a secret shared with other folders:
         </p>
-        <CommandBlock>{`gs slice secret ls acme/api                      # the names that apply in the slice
+        <CommandBlock label="slice-scoped secret commands">{`gs slice secret ls acme/api                      # names that apply in the slice
 printf %s "$TOKEN" | gs slice secret set acme/api CI_TOKEN
-gs slice secret rm acme/api CI_TOKEN             # takes the slice's folders out of a secret`}</CommandBlock>
-        <p className={textClass}>
-          <code className={inlineCode}>set</code> refuses a name whose secret also applies to other folders; change
-          that one with <code className={inlineCode}>gs secret update</code>. <code className={inlineCode}>rm</code>{" "}
-          refuses a secret on a folder above the slice, such as the account root, because removing it would affect
-          other folders too.
+gs slice secret rm acme/api CI_TOKEN             # detach the slice's folders from the secret`}</CommandBlock>
+        <p>
+          <InlineCode>set</InlineCode> refuses to overwrite a secret that also applies outside the
+          slice (use <InlineCode>gs secret update</InlineCode> instead). <InlineCode>rm</InlineCode>{" "}
+          refuses to remove a secret inherited from a folder above the slice, such as the account
+          root, because doing so would affect sibling folders.
         </p>
-      </section>
+      </DocSectionCard>
 
-      <section className={sectionClass}>
-        <h2 className={headingClass}>Who can see what</h2>
-        <div className="mt-4 overflow-x-auto">
-          <table className="min-w-full divide-y divide-slate-200 dark:divide-zinc-800 text-left text-sm">
-            <thead className="bg-slate-50 dark:bg-zinc-950 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
-              <tr>
-                <th className="px-4 py-3">Who</th>
-                <th className="px-4 py-3">What they can do</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
-              {accessRows.map(([who, what]) => (
-                <tr key={who}>
-                  <td className="whitespace-nowrap px-4 py-3 font-medium text-zinc-950 dark:text-zinc-50">{who}</td>
-                  <td className="px-4 py-3 text-slate-600 dark:text-zinc-400">{what}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <p className={textClass}>
-          <span className={strongClass}>Choose folders with care.</span> A check runs whatever its changeset says, so
-          anyone who can add a check in a secret&apos;s folders can read it from that check: the writers of every slice
-          that includes one of those folders, a folder above it, or a folder inside it. Those slices&apos; CI daemons
-          receive it too. Masking with <code className={inlineCode}>***</code> catches accidental prints, such as a
-          token echoed in a debug line, but it does not stop a check that sets out to leak a value, for example by
-          encoding it. Put a secret only on folders whose writers you would trust with it.
+      <DocSectionCard title="Who can see what">
+        <DocTable
+          ariaLabel="Secret access by role"
+          head={["Who", "What they can do"]}
+          rows={accessRows}
+        />
+        <p>
+          <span className="font-semibold text-zinc-950 dark:text-zinc-50">
+            Choose folders and roles with care.
+          </span>{" "}
+          A check executes commands from its changeset, so any writer of a slice that includes a
+          secret&apos;s folder (or a folder above or inside it) can access that secret during CI,
+          and that slice&apos;s CI daemon receives it too. Log masking (<InlineCode>***</InlineCode>
+          ) catches accidental prints, not deliberate exfiltration such as base64-encoding a value.
+          Attach secrets only to folders whose writers you trust, and assign external collaborators
+          or autonomous agents the <InlineCode>contributor</InlineCode> role so their patchsets run
+          secretless until explicitly allowed with <InlineCode>gs check allow</InlineCode>.
         </p>
-      </section>
+      </DocSectionCard>
 
-      <section className={sectionClass}>
-        <h2 className={headingClass}>Fill a local env file</h2>
-        <p className={textClass}>
-          Some work needs the same values on your own machine, a deploy for example. Commit a template that names every
-          variable, with public values written out and each secret as a placeholder:
+      <DocSectionCard title="Fill a local env file">
+        <p>
+          When local tasks such as manual deploys need the same secrets, commit a template file with
+          public config written out and secret values marked as placeholders:
         </p>
-        <CommandBlock>{`# env.prod.template
+        <CommandBlock label="env.prod.template example">{`# env.prod.template
 PUBLIC_API_BASE_URL=https://api.example.com
 CLOUDFLARE_API_TOKEN=gitslice-secret:CLOUDFLARE_API_TOKEN
 R2_SECRET_ACCESS_KEY=gitslice-secret:R2_SECRET_ACCESS_KEY`}</CommandBlock>
-        <p className={textClass}>
-          Then the account&apos;s owners and admins fill it in. In a workspace, the secrets that apply at the
-          template&apos;s folder fill it; elsewhere, name the folder:
+        <p>
+          Account owners and admins fill the template locally. Inside a workspace, secrets are
+          resolved from the template&apos;s folder automatically; outside a workspace, pass{" "}
+          <InlineCode>--path</InlineCode>:
         </p>
-        <CommandBlock>{`gs secret env acme/api/env.prod.template -o .env.prod    # in a workspace
+        <CommandBlock label="fill local env file commands">{`gs secret env acme/api/env.prod.template -o .env.prod    # inside a workspace
 gs secret env env.prod.template --path /acme/api -o .env.prod`}</CommandBlock>
-        <ul className="mt-4 space-y-3 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+        <ul className="space-y-2">
           <li>
-            The file is written readable by you only (mode 600). <code className={inlineCode}>gs</code> refuses to
-            print values to a terminal and to replace an existing file without{" "}
-            <code className={inlineCode}>--force</code>.
+            The output file is written with permissions <InlineCode>0600</InlineCode> (readable only
+            by you). <InlineCode>gs</InlineCode> refuses to print secret values directly to a
+            terminal and will not overwrite an existing file without <InlineCode>--force</InlineCode>.
           </li>
           <li>
-            If a placeholder names a secret that does not apply at the folder, nothing is written. Values a shell would
-            misread are quoted, so the file can be sourced.
+            If any placeholder references a secret that does not apply at the target folder, nothing
+            is written. Values containing shell metacharacters are quoted so the output can be
+            sourced safely.
           </li>
           <li>
-            Only owners and admins of the account can read values this way, and each read is logged with
-            who asked and which names. Everyone else uses an example env file without production credentials.
+            Only account owners and admins can run <InlineCode>gs secret env</InlineCode>, and every
+            read is audit-logged with the caller and secret names. Everyone else should work from an
+            example env file without production credentials.
           </li>
           <li>
-            After rotating a key, update the secret and generate the file again. Keep the file out of the repository
-            (add it to <code className={inlineCode}>.gitignore</code>).
+            After rotating a credential, update the secret and regenerate the local file. Keep
+            generated env files out of source control via <InlineCode>.gitignore</InlineCode>.
           </li>
         </ul>
-        <p className={textClass}>
-          Gitslice deploys its own website this way: <code className={inlineCode}>env.prod.template</code> in the{" "}
-          <code className={inlineCode}>gitslice/gitslice</code> slice.
+        <p>
+          Gitslice deploys its own web app using this pattern — see{" "}
+          <InlineCode>env.prod.template</InlineCode> in the{" "}
+          <InlineCode>gitslice/gitslice</InlineCode> slice.
         </p>
-      </section>
+      </DocSectionCard>
 
       <section className="mt-8 grid gap-4 md:grid-cols-2">
         <NextDocCard
-          description="Define the checks that receive these secrets, and run a CI daemon for them."
+          description="Define the checks that consume these secrets and run a CI daemon."
           section="checks"
-          title="Set up CI checks"
+          title="CI Checks"
         />
-        <NextDocCard description="Every gs secret command at a glance." section="cli" title="CLI reference" />
+        <NextDocCard
+          description="Use folder secrets to sign webhooks, call external CI, or authenticate scripts."
+          section="triggers"
+          title="Triggers"
+        />
       </section>
     </div>
   );

@@ -22,52 +22,52 @@ export const docSections: Array<{
   {
     id: "start",
     title: "Start Here",
-    description: "Sign in, open your home slice, make a first changeset."
+    description: "Install gs, sign in, open your home slice, and land a first changeset."
   },
   {
     id: "concepts",
     title: "Concepts",
-    description: "How accounts, slices, workspaces, changesets, and commits fit."
+    description: "Accounts, slices, workspaces, changesets, roles, and native commits."
   },
   {
     id: "agents",
     title: "Agents",
-    description: "Let an agent sign itself up, and claim it, without a browser."
+    description: "Self-signup, delegated keys, safe contributor roles, MCP, and CI daemons."
   },
   {
     id: "lazy",
     title: "Lazy Workspaces",
-    description: "Mount a slice in seconds, fetch files as they are read, checkpoint and rewind."
+    description: "Mount a slice in seconds, fetch files on read, checkpoint, rewind, and fork."
   },
   {
     id: "checks",
     title: "CI Checks",
-    description: "Define build/test checks that run on every patchset and gate submit."
+    description: "Folder-scoped build and test checks in source that run per patchset and gate submit."
   },
   {
     id: "secrets",
     title: "Secrets",
-    description: "Give checks tokens and keys without committing them, and fill a local env file."
+    description: "Encrypted folder-scoped secrets for checks, triggers, mirrors, and local env files."
   },
   {
     id: "triggers",
     title: "Triggers",
-    description: "Run an HTTP call or a script when files in a folder change, and report checks that gate submit."
+    description: "Fire webhooks, sandboxed scripts, or CI checks when files in a folder change."
   },
   {
     id: "mirrors",
     title: "Git Mirrors",
-    description: "Back up a slice to GitHub or any Git host: pushed after every landing and tag."
+    description: "Automatically push a slice to GitHub or any Git host after every landing and tag."
   },
   {
     id: "git-users",
     title: "For Git Users",
-    description: "Map Git habits to Gitslice without learning internals first."
+    description: "Map Git habits to Gitslice, import repos, and use slices as Go modules."
   },
   {
     id: "cli",
     title: "CLI Reference",
-    description: "A compact command lookup for daily gs work."
+    description: "Install options, global flags, and a complete command lookup for daily gs work."
   }
 ];
 
