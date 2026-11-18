@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { API_SERVICES, createApiClient } from "./client";
 import { SERVER_STREAMING_METHODS } from "./streamingMethods";
+import type { Changeset, RunTriggerRequest, Slice, SliceSecret, TreeEntry } from "./types";
+import type { ApiClient } from "./useApi";
 
 describe("createApiClient integer request encoding", () => {
   afterEach(() => {
@@ -118,6 +120,16 @@ describe("createApiClient built from the service descriptors", () => {
     await expect(api.listDirectory({ commitId: "c", path: "/", pageSize: 10 })).resolves.toMatchObject({
       entries: [{ name: "a.go", kind: "ENTRY_KIND_FILE", size: "9007199254740993" }]
     });
+  });
+
+  it("derives exported API types from generated protobuf messages", () => {
+    expectTypeOf<Awaited<ReturnType<ApiClient["getChangeset"]>>>().toEqualTypeOf<Changeset>();
+    expectTypeOf<Awaited<ReturnType<ApiClient["getSlice"]>>>().toEqualTypeOf<Slice>();
+    expectTypeOf<NonNullable<Awaited<ReturnType<ApiClient["listSliceSecrets"]>>["secrets"]>[number]>().toEqualTypeOf<SliceSecret>();
+    expectTypeOf<TreeEntry["kind"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<TreeEntry["size"]>().toEqualTypeOf<string | undefined>();
+    expectTypeOf<TreeEntry["mode"]>().toEqualTypeOf<number | undefined>();
+    expectTypeOf<RunTriggerRequest["inputs"]>().toEqualTypeOf<Record<string, string> | undefined>();
   });
 });
 
