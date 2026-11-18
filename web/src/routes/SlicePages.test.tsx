@@ -443,7 +443,8 @@ describe("slice route pages (render smoke)", () => {
 
   it("moves a renamed slice's old address to the current one", async () => {
     routerMock.params = { account: "nic", slice: "bot-channels" };
-    routerMock.search = { path: "readme.md" };
+    // As the route's validateSearch (searchSchemas) hands it over: normalized.
+    routerMock.search = { path: "/readme.md" };
     const api = makeApi();
     api.resolveSlice = vi.fn().mockResolvedValue({
       id: "slice_nic_bot_channels",

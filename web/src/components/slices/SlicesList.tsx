@@ -56,7 +56,7 @@ export function SlicesList() {
         {canAdmin(activeMembership) ? (
           <Link
             className="shrink-0 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-zinc-300 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98]"
-            search={{ account: effectiveAccount } as never}
+            search={{ account: effectiveAccount }}
             to="/slices/new"
           >
             New slice

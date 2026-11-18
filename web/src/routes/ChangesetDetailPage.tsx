@@ -80,19 +80,12 @@ export function ChangesetDetailPage() {
   const { isLoaded, isSignedIn } = useAuth();
   const viewerSignedOut = isLoaded && !isSignedIn;
   const { accounts: viewerAccounts } = useSelection();
-  const params = useParams({ strict: false }) as { id?: string };
+  const params = useParams({ from: "/publicApp/cs/$id" });
   const changesetId = params.id ?? "";
   const navigate = useNavigate();
   const router = useRouter();
-  const search = useSearch({ strict: false }) as {
-    from?: string;
-    to?: string;
-    file?: string;
-    conversation?: unknown;
-    view?: string;
-    side?: string;
-    diff?: string;
-  };
+  // Validated by the route (searchSchemas).
+  const search = useSearch({ from: "/publicApp/cs/$id" });
   const [abandonReason, setAbandonReason] = useState("");
   // On phones the page opens with its details (breadcrumbs, ids, patchsets,
   // checks) folded so the diff comes first; the header's Details unfolds them.
@@ -164,9 +157,9 @@ export function ChangesetDetailPage() {
       return;
     }
     void navigate({
-      params: { id: shortChangesetId(id) } as never,
+      params: { id: shortChangesetId(id) },
       replace: true,
-      search: search as never,
+      search,
       to: "/cs/$id"
     });
   }, [changeset?.id, changesetId]);
@@ -268,10 +261,10 @@ export function ChangesetDetailPage() {
   const updateCompareSearch = useCallback(
     (next: { from?: string; to?: string }) => {
       void navigate({
-        params: { id: changesetId } as never,
+        params: { id: changesetId },
         replace: true,
-        search: ((prev: Record<string, unknown>) => {
-          const merged: Record<string, unknown> = { ...prev, ...next };
+        search: (prev) => {
+          const merged = { ...prev, ...next };
           // Keep the recorded base / default target out of the URL.
           for (const key of ["from", "to"] as const) {
             if (!merged[key]) {
@@ -279,7 +272,7 @@ export function ChangesetDetailPage() {
             }
           }
           return merged;
-        }) as never,
+        },
         to: "/cs/$id"
       });
     },
@@ -404,11 +397,11 @@ export function ChangesetDetailPage() {
   };
   const openConversation = useCallback(() => {
     void navigate({
-      params: { id: changesetId } as never,
-      search: ((prev: Record<string, unknown>) => ({
+      params: { id: changesetId },
+      search: (prev) => ({
         ...prev,
-        conversation: "1"
-      })) as never,
+        conversation: true
+      }),
       to: "/cs/$id"
     });
   }, [changesetId, navigate]);
@@ -441,21 +434,18 @@ export function ChangesetDetailPage() {
     return { path: fileViewPath, ...(metadataPath ? fileMetadataByPath.get(metadataPath) : {}) };
   }, [changedPaths, fileMetadataByPath, fileViewPath, viewedFile]);
   const fileViewSide: FileVersionSide =
-    search.side === "changed" || search.side === "original"
-      ? search.side
-      : fileVersionSides(fileViewTarget?.changeKind).original
-        ? "original"
-        : "changed";
+    search.side ??
+    (fileVersionSides(fileViewTarget?.changeKind).original ? "original" : "changed");
   const openFileView = useCallback(
     (file: DiffFile) => {
       setViewedFile({ changeKind: file.changeKind, oldPath: file.oldPath, path: file.path });
       void navigate({
-        params: { id: changesetId } as never,
-        search: ((prev: Record<string, unknown>) => ({
+        params: { id: changesetId },
+        search: (prev) => ({
           ...prev,
           side: fileVersionSides(file.changeKind).original ? "original" : "changed",
           view: file.path
-        })) as never,
+        }),
         to: "/cs/$id"
       });
     },
@@ -464,9 +454,9 @@ export function ChangesetDetailPage() {
   const setFileViewSide = useCallback(
     (side: FileVersionSide) => {
       void navigate({
-        params: { id: changesetId } as never,
+        params: { id: changesetId },
         replace: true,
-        search: ((prev: Record<string, unknown>) => ({ ...prev, side })) as never,
+        search: (prev) => ({ ...prev, side }),
         to: "/cs/$id"
       });
     },
@@ -479,12 +469,12 @@ export function ChangesetDetailPage() {
   const setDiffViewMode = useCallback(
     (mode: ViewMode) => {
       void navigate({
-        params: { id: changesetId } as never,
+        params: { id: changesetId },
         replace: true,
-        search: ((prev: Record<string, unknown>) => ({
+        search: (prev) => ({
           ...prev,
-          diff: mode === "split" ? "split" : undefined
-        })) as never,
+          diff: mode === "split" ? ("split" as const) : undefined
+        }),
         to: "/cs/$id"
       });
     },

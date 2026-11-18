@@ -40,7 +40,7 @@ import {
 } from "../components/source/sourceUtils";
 import { findNestedReadme, nestedReadmeQueryKey, onlyDirectory } from "./slice-detail/nestedReadme";
 import { findReadmeEntry, README_MAX_BYTES } from "./slice-detail/readme";
-import { initialTreeExpansion, pathSearchValue } from "./slice-detail/sourceTree";
+import { initialTreeExpansion } from "./slice-detail/sourceTree";
 import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
 import { VisitorBanner } from "../components/VisitorBanner";
@@ -68,6 +68,12 @@ import { UsernameGate } from "./UsernameGate";
 import { AccountNotFound, ChangesetNotFound, PageNotFound, SliceNotFound } from "./NotFoundPage";
 import { ChooseUsernamePage } from "./ChooseUsernamePage";
 import { parseSliceSearch } from "./stackPageUtils";
+import {
+  validateChangesetDetailSearch,
+  validateChangesetsSearch,
+  validateSliceCreateSearch,
+  validateSliceDetailSearch
+} from "./searchSchemas";
 
 // Each page's code is fetched when its route is opened, not with every page:
 // a visitor reading a slice does not download the docs, the blog, the diff
@@ -378,6 +384,7 @@ const organizationCreateRoute = createRoute({
 const sliceCreateRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "slices/new",
+  validateSearch: validateSliceCreateSearch,
   component: lazyPages.SliceCreatePage
 });
 
@@ -440,8 +447,9 @@ const accountSecretsRoute = createRoute({
 const sliceDetailRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "slices/$account/$slice",
+  validateSearch: validateSliceDetailSearch,
   loaderDeps: ({ search }) => ({
-    path: pathSearchValue((search as { path?: unknown }).path)
+    path: search.path ?? ""
   }),
   loader: async ({ context, deps, params }) => {
     let social: SliceSocial | undefined;
@@ -715,10 +723,11 @@ const sliceAgentConversationRoute = createRoute({
 const changesetsRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "changesets",
+  validateSearch: validateChangesetsSearch,
   loaderDeps: ({ search }) => ({
-    slice: (search as { slice?: unknown }).slice,
-    status: (search as { status?: unknown }).status,
-    q: (search as { q?: unknown }).q
+    slice: search.slice,
+    status: search.status,
+    q: search.q
   }),
   loader: async ({ context, deps }) => {
     if (import.meta.env.SSR) {
@@ -733,7 +742,7 @@ const changesetsRoute = createRoute({
               api,
               sliceRef,
               parseStatusTab(deps.status),
-              typeof deps.q === "string" ? deps.q : ""
+              deps.q ?? ""
             )
           );
         } catch {
@@ -749,9 +758,10 @@ const changesetsRoute = createRoute({
 const changesetShortRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "cs/$id",
+  validateSearch: validateChangesetDetailSearch,
   loaderDeps: ({ search }) => ({
-    from: (search as { from?: unknown }).from,
-    to: (search as { to?: unknown }).to
+    from: search.from,
+    to: search.to
   }),
   loader: async ({ context, deps, params }) => {
     let social: ChangesetSocial | undefined;
@@ -790,9 +800,9 @@ const changesetShortRoute = createRoute({
         // Mirror the component's URL-driven from/to resolution so the prefilled
         // diff matches the shared link and the page renders it without a refetch.
         const fromPatchset =
-          typeof deps.from === "string" && ids.has(deps.from) ? deps.from : "";
+          deps.from && ids.has(deps.from) ? deps.from : "";
         const toPatchset =
-          typeof deps.to === "string" && ids.has(deps.to)
+          deps.to && ids.has(deps.to)
             ? deps.to
             : changeset.currentPatchsetId ||
               patchsets[patchsets.length - 1]?.id ||

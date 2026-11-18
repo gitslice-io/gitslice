@@ -592,7 +592,7 @@ describe("changeset detail page", () => {
     );
 
     expect(routerMock.search).toEqual({
-      conversation: "1",
+      conversation: true,
       file: "/acme/payment/parser.go",
       from: "ps_child_1",
       to: "ps_child_2"

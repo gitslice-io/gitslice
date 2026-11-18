@@ -24,12 +24,12 @@ export function SliceCreatePage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const selection = useSelection();
-  const search = useSearch({ strict: false }) as { account?: unknown };
+  const search = useSearch({ from: "/app/slices/new" });
   // A slice can be created in any account where the viewer is an owner or
   // admin: their own, or an organization's. It starts in the one asked for
   // (?account=), else the active account.
   const eligible = selection.memberships.filter((m) => canAdmin(m));
-  const requested = typeof search.account === "string" ? search.account.trim() : "";
+  const requested = search.account ?? "";
   const [picked, setPicked] = useState("");
   const account =
     [picked, requested, selection.activeAccount, eligible[0]?.account ?? ""].find(

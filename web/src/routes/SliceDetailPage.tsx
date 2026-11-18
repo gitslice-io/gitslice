@@ -45,7 +45,7 @@ import { useSlicePermissions } from "../lib/permissions";
 import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 import { cn } from "../lib/cn";
-import { pathSearchValue, buildGitCloneHint } from "./slice-detail/sourceTree";
+import { buildGitCloneHint } from "./slice-detail/sourceTree";
 import { useGitCloneOrigin } from "./slice-detail/useGitCloneOrigin";
 import { SliceAccessNotice } from "../components/slices/SliceAccessNotice";
 import {
@@ -67,23 +67,6 @@ import { useFolderReadme } from "./slice-detail/nestedReadme";
 import { conversationsEnabled } from "../lib/features";
 import { SliceSourceWorkspace } from "./slice-detail/SliceSourceWorkspace";
 
-interface SliceParams {
-  account?: string;
-  slice?: string;
-}
-
-interface SliceSearch {
-  path?: unknown;
-  history?: unknown;
-  // The Triggers view of the folder, in the URL as history is.
-  triggers?: unknown;
-  // Blame is on for the file, and the change selected in it (a short commit
-  // id): in the address, so back from a changeset opened from the blame
-  // finds the page as it was left.
-  blame?: unknown;
-  blameAt?: unknown;
-}
-
 export function SliceDetailPage() {
   const api = useApi();
   const queryClient = useQueryClient();
@@ -91,8 +74,11 @@ export function SliceDetailPage() {
   const router = useRouter();
   const { isLoaded, isSignedIn } = useAuth();
   const { account, accounts } = useSelection();
-  const params = useParams({ strict: false }) as SliceParams;
-  const search = useSearch({ strict: false }) as SliceSearch;
+  // The address, validated by the route (searchSchemas): the path shown, and
+  // the history, Triggers and blame views, which live in it so back from a
+  // changeset opened from the blame finds the page as it was left.
+  const params = useParams({ from: "/publicApp/slices/$account/$slice" });
+  const search = useSearch({ from: "/publicApp/slices/$account/$slice" });
   const routeAccount = params.account ?? "";
   const routeSlice = params.slice ?? "";
   const routeSliceRef = useMemo(
@@ -102,14 +88,14 @@ export function SliceDetailPage() {
         : undefined,
     [routeAccount, routeSlice],
   );
-  const selectedPath = pathSearchValue(search.path);
+  const selectedPath = search.path ?? "";
   // The history view's open state lives in the URL (the `history` search param)
   // rather than local state so the browser/mobile back gesture closes it instead
   // of navigating away from the slice page entirely.
   const historyOpen = Boolean(search.history);
   const triggersOpen = Boolean(search.triggers);
   const blameOn = Boolean(search.blame);
-  const blameAt = typeof search.blameAt === "string" ? search.blameAt : "";
+  const blameAt = search.blameAt ?? "";
   // The file tree is open unless the folder shows a README, which has the page
   // to itself with the tree folded until asked for. What someone chooses stays
   // chosen from folder to folder.
@@ -204,9 +190,9 @@ export function SliceDetailPage() {
       return;
     }
     void navigate({
-      params: sliceRouteParams as never,
+      params: sliceRouteParams,
       replace: true,
-      search: (selectedPath ? { path: selectedPath } : {}) as never,
+      search: selectedPath ? { path: selectedPath } : {},
       to: "/slices/$account/$slice",
     });
   }, [currentSliceName, navigate, routeSlice, selectedPath, sliceRouteParams]);
@@ -304,8 +290,8 @@ export function SliceDetailPage() {
     }
 
     void navigate({
-      params: sliceRouteParams as never,
-      search: path ? ({ path } as never) : ({} as never),
+      params: sliceRouteParams,
+      search: path ? { path } : {},
       to: "/slices/$account/$slice",
     });
   }
@@ -318,14 +304,14 @@ export function SliceDetailPage() {
       return;
     }
     void navigate({
-      params: sliceRouteParams as never,
+      params: sliceRouteParams,
       replace: true,
       resetScroll: false,
       search: {
         ...(selectedPath ? { path: selectedPath } : {}),
-        ...(on ? { blame: true } : {}),
+        ...(on ? { blame: true as const } : {}),
         ...(on && at ? { blameAt: at } : {}),
-      } as never,
+      },
       to: "/slices/$account/$slice",
     });
   }
@@ -337,11 +323,11 @@ export function SliceDetailPage() {
     // Push a new history entry so "back" (including the mobile swipe) pops the
     // history view and returns to this slice page instead of leaving it.
     void navigate({
-      params: sliceRouteParams as never,
+      params: sliceRouteParams,
       search: {
         ...(selectedPath ? { path: selectedPath } : {}),
-        history: "1",
-      } as never,
+        history: true,
+      },
       to: "/slices/$account/$slice",
     });
   }
@@ -351,11 +337,11 @@ export function SliceDetailPage() {
       return;
     }
     void navigate({
-      params: sliceRouteParams as never,
+      params: sliceRouteParams,
       search: {
         ...(selectedPath ? { path: selectedPath } : {}),
-        triggers: "1",
-      } as never,
+        triggers: true,
+      },
       to: "/slices/$account/$slice",
     });
   }
@@ -382,8 +368,8 @@ export function SliceDetailPage() {
       return;
     }
     await navigate({
-      params: params as never,
-      search: { path: landed.path } as never,
+      params,
+      search: { path: landed.path },
       to: "/slices/$account/$slice",
     });
   }
@@ -398,7 +384,7 @@ export function SliceDetailPage() {
       const id = await draftChangeset.stageEditAndPersist(edit);
       if (id) {
         await navigate({
-          params: { id: shortChangesetId(id) } as never,
+          params: { id: shortChangesetId(id) },
           to: "/cs/$id",
         });
       }
@@ -549,7 +535,7 @@ export function SliceDetailPage() {
             <>
               <Link
                 className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-                search={{ slice: sliceLabel } as never}
+                search={{ slice: sliceLabel }}
                 to="/changesets"
               >
                 Changesets
@@ -557,7 +543,7 @@ export function SliceDetailPage() {
               {conversationsEnabled && isSignedIn && sliceRouteParams ? (
                 <Link
                   className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-                  params={sliceRouteParams as never}
+                  params={sliceRouteParams}
                   to="/slices/$account/$slice/agents"
                 >
                   Conversations
@@ -566,7 +552,7 @@ export function SliceDetailPage() {
               {canConfigure && sliceRouteParams ? (
                 <Link
                   className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-                  params={sliceRouteParams as never}
+                  params={sliceRouteParams}
                   to="/slices/$account/$slice/settings"
                 >
                   Settings

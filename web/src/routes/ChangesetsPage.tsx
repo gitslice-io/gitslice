@@ -27,13 +27,6 @@ import { useSelection } from "../state/selection";
 import { mergeErrorMessage } from "./changeset-detail/status";
 import { displaySubmitBlockedReason } from "./stackPageUtils";
 
-interface ChangesetsSearch {
-  slice?: unknown;
-  // The status group (open when absent) and the typed text.
-  status?: unknown;
-  q?: unknown;
-}
-
 // The key every variant of the list shares, to refresh them all at once.
 type ChangesetsQueryKey = readonly ["changesets", string, string];
 
@@ -43,13 +36,15 @@ export function ChangesetsPage() {
   const { accounts: viewerAccounts } = useSelection();
   const canManage = Boolean(isLoaded && isSignedIn);
   const navigate = useNavigate();
-  const search = useSearch({ strict: false }) as ChangesetsSearch;
+  // Validated by the route (searchSchemas): the slice, the status group (open
+  // when absent) and the typed text.
+  const search = useSearch({ from: "/publicApp/changesets" });
   const sliceRef = parseSliceSearch(search.slice);
   const account = sliceRef?.account ?? "";
   const slice = sliceRef?.slice ?? "";
   // Which changesets to list lives in the URL, so a view can be shared.
   const tab = parseStatusTab(search.status);
-  const typed = typeof search.q === "string" ? search.q : "";
+  const typed = search.q ?? "";
   const queryKey = useMemo<ChangesetsQueryKey>(
     () => ["changesets", account, slice],
     [account, slice]
@@ -79,7 +74,7 @@ export function ChangesetsPage() {
   const setView = (next: { status?: StatusTab; q?: string }, replace: boolean) =>
     void navigate({
       replace,
-      search: ((prev: Record<string, unknown>) => {
+      search: (prev) => {
         const status = next.status ?? tab;
         const q = next.q ?? typed;
         return {
@@ -88,7 +83,7 @@ export function ChangesetsPage() {
           status: status === "open" ? undefined : status,
           q: q.trim() === "" ? undefined : q
         };
-      }) as never,
+      },
       to: "/changesets"
     });
 

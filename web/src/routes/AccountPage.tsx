@@ -34,7 +34,7 @@ export function AccountPage() {
   const api = useApi();
   const { isLoaded } = useAuth();
   const { memberships, activeAccount, setActiveAccount } = useSelection();
-  const params = useParams({ strict: false }) as { account?: string };
+  const params = useParams({ from: "/publicApp/accounts/$account" });
   const account = params.account ?? "";
   // The viewer's place in this account, if they belong to it.
   const membership = membershipFor(memberships, account);
@@ -141,7 +141,7 @@ export function AccountPage() {
             {canAdmin(membership) ? (
               <Link
                 className="rounded-md bg-zinc-950 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
-                search={{ account } as never}
+                search={{ account }}
                 to="/slices/new"
               >
                 New slice
@@ -314,7 +314,7 @@ function YourAccounts({ memberships }: { memberships: readonly Membership[] }) {
                   <li key={m.account}>
                     <Link
                       className="flex items-center gap-3 px-4 py-3 transition hover:bg-slate-50 dark:hover:bg-zinc-950"
-                      params={{ account: m.account } as never}
+                      params={{ account: m.account }}
                       to="/accounts/$account"
                     >
                       <AccountAvatar account={m.account} kind={m.kind} />
