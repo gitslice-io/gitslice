@@ -443,18 +443,7 @@ func isStreamingHTTPRequest(r *http.Request) bool {
 	if strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream") {
 		return true
 	}
-	switch r.URL.Path {
-	case "/gitslice.core.v1.RepositoryService/ImportGitRepositoryStream",
-		"/gitslice.core.v1.RepositoryService/Checkout",
-		"/gitslice.core.v1.BlobService/UploadBlobStream",
-		"/gitslice.core.v1.BlobService/ReadBlobStream",
-		"/gitslice.core.v1.AgentService/Connect",
-		"/gitslice.core.v1.AgentService/StreamConversation",
-		"/gitslice.core.v1.CheckService/StreamCheckRun":
-		return true
-	default:
-		return false
-	}
+	return streamingProcedures[r.URL.Path]
 }
 
 // newObjectStore selects the object store backend from config: Cloudflare R2 when

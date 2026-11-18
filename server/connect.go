@@ -1,5 +1,7 @@
 package server
 
+//go:generate go run ./internal/connectgen/cmd -out connect_adapters_gen.go
+
 import (
 	"errors"
 	"net/http"
@@ -10,7 +12,6 @@ import (
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/metrics"
 	"gitslice.io/gitslice/internal/requestid"
-	corev1connect "gitslice.io/gitslice/proto/core/v1/corev1connect"
 	"gitslice.io/gitslice/service"
 	"google.golang.org/grpc/status"
 )
@@ -41,19 +42,7 @@ func newPrincipalConnectHandler(resolve principalResolver, handlers *service.Han
 	mux.Handle("/og/", limiters.httpIPMiddleware()(newSocialImageHandler(handlers.Slice)))
 	// Account pictures; public, like the profile they belong to.
 	mux.Handle("/avatars/", limiters.httpIPMiddleware()(newAvatarImageHandler(handlers.Auth)))
-	mount(corev1connect.NewAuthServiceHandler(connectAuthAdapter{svc: handlers.Auth}, opts...))
-	mount(corev1connect.NewRepositoryServiceHandler(connectRepositoryAdapter{svc: handlers.Repository}, opts...))
-	mount(corev1connect.NewBlobServiceHandler(connectBlobAdapter{svc: handlers.Blob}, opts...))
-	mount(corev1connect.NewSliceServiceHandler(connectSliceAdapter{svc: handlers.Slice}, opts...))
-	mount(corev1connect.NewWorkspaceServiceHandler(connectWorkspaceAdapter{svc: handlers.Workspace}, opts...))
-	mount(corev1connect.NewChangesetServiceHandler(connectChangesetAdapter{svc: handlers.Changeset}, opts...))
-	mount(corev1connect.NewChangesetStackServiceHandler(connectStackAdapter{svc: handlers.Stack}, opts...))
-	mount(corev1connect.NewAgentServiceHandler(connectAgentAdapter{svc: handlers.Agent}, opts...))
-	mount(corev1connect.NewCheckServiceHandler(connectCheckAdapter{svc: handlers.Check}, opts...))
-	mount(corev1connect.NewSecretServiceHandler(connectSecretAdapter{svc: handlers.Secret}, opts...))
-	mount(corev1connect.NewFeedbackServiceHandler(connectFeedbackAdapter{svc: handlers.Feedback}, opts...))
-	mount(corev1connect.NewTriggerServiceHandler(connectTriggerServiceAdapter{svc: handlers.Trigger}, opts...))
-	mount(corev1connect.NewTriggerRunServiceHandler(connectTriggerRunServiceAdapter{svc: handlers.TriggerRun, limiters: limiters}, opts...))
+	mountConnectServices(mount, handlers, limiters, opts...)
 	return mux
 }
 
