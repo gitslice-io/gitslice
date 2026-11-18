@@ -1,37 +1,31 @@
 import { useAuth } from "@clerk/tanstack-react-start";
-import {
-  keepPreviousData,
-  useInfiniteQuery,
-  useMutation,
-  useQueryClient
-} from "@tanstack/react-query";
-import { Link, useNavigate, useSearch } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+import { useMemo } from "react";
 
-import type { Changeset, SliceRef } from "../api/types";
-import { type ApiClient, useApi } from "../api/useApi";
-import { AuthorLabel } from "../components/AccountAvatar";
-import { ChangesetMetaLine } from "./changeset-detail/ChangesetMetaLine";
-import { parseStatusTab, statusTabs, type StatusTab } from "./changesets-list/filters";
-import { changesetsListQuery } from "../queries/changesets";
+import { useApi } from "../api/useApi";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
-import { Button } from "../components/ui/Button";
-import { Input } from "../components/ui/Input";
 import {
   SliceLoadingBlock,
   SliceNotice,
   getErrorMessage
 } from "../components/slices/SlicePageParts";
+import { Button } from "../components/ui/Button";
 import { cn } from "../lib/cn";
-import { shortChangesetId } from "../lib/objectId";
 import { sliceBreadcrumbItems } from "../lib/sliceRoutes";
+import { changesetsListQuery } from "../queries/changesets";
 import { useSelection } from "../state/selection";
-import { mergeErrorMessage } from "./changeset-detail/status";
-import { displaySubmitBlockedReason } from "./stackPageUtils";
-
-// The key every variant of the list shares, to refresh them all at once.
-type ChangesetsQueryKey = readonly ["changesets", string, string];
+import {
+  ChangesetsTable,
+  type ChangesetsQueryKey
+} from "./changesets-list/ChangesetsTable";
+import {
+  ChangesetsToolbar,
+  MissingSliceState
+} from "./changesets-list/ChangesetsToolbar";
+import { parseStatusTab, type StatusTab } from "./changesets-list/filters";
+import { parseSliceSearch } from "./stackPageUtils";
 
 export function ChangesetsPage() {
   const api = useApi();
@@ -113,7 +107,11 @@ export function ChangesetsPage() {
       <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">{description}</p>
       <div className="mt-0">
         {!sliceRef ? (
-          <MissingSliceState navigateToChangeset={navigateToChangeset(navigate)} />
+          <MissingSliceState
+            navigateToChangeset={(id) => {
+              void navigate({ params: { id }, to: "/cs/$id" });
+            }}
+          />
         ) : (
           <>
             <ChangesetsToolbar
@@ -183,384 +181,4 @@ export function ChangesetsPage() {
       </div>
     </section>
   );
-}
-
-// ChangesetsToolbar picks which changesets to list: a status group, and text
-// to find in titles and ids or `author:name`. Typing updates the address after
-// a short pause, so each keystroke is not a request.
-function ChangesetsToolbar({
-  onSearch,
-  onTab,
-  tab,
-  typed
-}: {
-  onSearch(q: string): void;
-  onTab(tab: StatusTab): void;
-  tab: StatusTab;
-  typed: string;
-}) {
-  const [text, setText] = useState(typed);
-  // The address changed by other means (back, a link): show it.
-  useEffect(() => setText(typed), [typed]);
-  useEffect(() => {
-    if (text === typed) {
-      return;
-    }
-    const timer = window.setTimeout(() => onSearch(text), 300);
-    return () => window.clearTimeout(timer);
-    // onSearch is a new function each render; only typing should restart this.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [text]);
-
-  return (
-    <div className="mb-3 flex flex-wrap items-center gap-2">
-      <div className="inline-flex h-9 w-fit overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-zinc-800 dark:bg-zinc-950" role="group" aria-label="Status">
-        {statusTabs.map((entry) => (
-          <button
-            aria-pressed={tab === entry.value}
-            className={cn(
-              "rounded px-3 text-sm font-medium transition",
-              tab === entry.value
-                ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-900 dark:text-zinc-50"
-                : "text-slate-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50"
-            )}
-            key={entry.value}
-            onClick={() => onTab(entry.value)}
-            type="button"
-          >
-            {entry.label}
-          </button>
-        ))}
-      </div>
-      <Input
-        aria-label="Search changesets"
-        className="basis-full sm:max-w-sm sm:flex-1 sm:basis-0"
-        onChange={(event) => setText(event.target.value)}
-        placeholder="Search titles and ids, or author:name"
-        type="search"
-        value={text}
-      />
-    </div>
-  );
-}
-
-function ChangesetsTable({
-  api,
-  canManage,
-  changesets,
-  queryKey
-}: {
-  api: ApiClient;
-  canManage: boolean;
-  changesets: Changeset[];
-  queryKey: ChangesetsQueryKey;
-}) {
-  return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-slate-200 dark:divide-zinc-800 text-left text-sm">
-          <thead className="bg-slate-50 dark:bg-zinc-950 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
-            <tr>
-              <th className="px-3 py-3 sm:px-4">Changeset</th>
-              <th className="hidden px-3 py-3 sm:table-cell sm:px-4">Status</th>
-              <th className="hidden px-4 py-3 md:table-cell">Author</th>
-              <th className="hidden px-4 py-3 md:table-cell">Approvals</th>
-              <th className="hidden px-4 py-3 md:table-cell">
-                Blocked reason
-              </th>
-              {canManage ? (
-                <th className="px-3 py-3 text-right sm:px-4">Actions</th>
-              ) : null}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200 dark:divide-zinc-800">
-            {changesets.map((changeset) => (
-              <ChangesetRow
-                api={api}
-                canManage={canManage}
-                changeset={changeset}
-                key={changeset.id || changeset.number}
-                queryKey={queryKey}
-              />
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
-}
-
-function ChangesetRow({
-  api,
-  canManage,
-  changeset,
-  queryKey
-}: {
-  api: ApiClient;
-  canManage: boolean;
-  changeset: Changeset;
-  queryKey: ChangesetsQueryKey;
-}) {
-  const queryClient = useQueryClient();
-  const changesetId = changeset.id ?? "";
-  const detailId = shortChangesetId(changesetId) || changesetId;
-  const label = changesetLabel(changeset);
-  const mergeable = isMergeableStatus(changeset.status);
-  const [rowError, setRowError] = useState("");
-
-  const invalidateList = async () => {
-    await queryClient.invalidateQueries({ queryKey });
-  };
-
-  const mergeMutation = useMutation({
-    mutationFn: async () => {
-      if (!changesetId) {
-        throw new Error("This changeset did not return an id.");
-      }
-
-      return api.submitChangeset({
-        changesetId,
-        expectedCurrentPatchsetId: changeset.currentPatchsetId
-      });
-    },
-    onError: (error) => setRowError(mergeErrorMessage(error)),
-    onMutate: () => setRowError(""),
-    onSuccess: async () => {
-      setRowError("");
-      await invalidateList();
-    }
-  });
-
-  const busy = mergeMutation.isPending;
-
-  return (
-    <tr className="align-top transition hover:bg-slate-50 dark:hover:bg-zinc-950">
-      <td className="max-w-[14rem] px-3 py-4 sm:min-w-72 sm:max-w-none sm:px-4">
-        <div className="flex flex-col gap-1">
-          <div className="sm:hidden">
-            <StatusBadge status={changeset.status} />
-          </div>
-          {detailId ? (
-            <Link
-              className="group min-w-0"
-              params={{ id: detailId }}
-              to="/cs/$id"
-            >
-              <span className="block max-w-xl line-clamp-2 break-words font-semibold text-zinc-950 dark:text-zinc-50 underline decoration-slate-300 underline-offset-4 group-hover:decoration-slate-700">
-                {changeset.title || "Untitled changeset"}
-              </span>
-              <span className="mt-1 block break-words text-sm text-slate-500 dark:text-zinc-400">
-                {label}
-              </span>
-            </Link>
-          ) : (
-            <>
-              <span className="line-clamp-2 max-w-xl break-words font-semibold text-zinc-950 dark:text-zinc-50">
-                {changeset.title || "Untitled changeset"}
-              </span>
-              <span className="mt-1 text-sm text-slate-500 dark:text-zinc-400">{label}</span>
-            </>
-          )}
-          {/* The Author column shows from md up; below it the name sits here. */}
-          <div className="md:hidden">
-            <ChangesetMetaLine changeset={changeset} />
-          </div>
-          {changeset.affectedPaths?.length ? (
-            <span
-              className="text-xs text-slate-500 dark:text-zinc-400"
-              title={changeset.affectedPaths.join("\n")}
-            >
-              {changeset.affectedPaths.length}{" "}
-              {changeset.affectedPaths.length === 1 ? "file" : "files"} changed
-            </span>
-          ) : null}
-          {changeset.submitBlockedReason ? (
-            <p className="mt-2 rounded-md border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 text-xs leading-5 text-amber-900 dark:text-amber-200 md:hidden">
-              {displaySubmitBlockedReason(changeset.submitBlockedReason)}
-            </p>
-          ) : null}
-          {rowError ? (
-            <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs leading-5 text-red-800 md:hidden">
-              {rowError}
-            </p>
-          ) : null}
-        </div>
-      </td>
-      <td className="hidden px-3 py-4 sm:table-cell sm:px-4">
-        <StatusBadge status={changeset.status} />
-      </td>
-      <td className="hidden px-4 py-4 text-slate-700 dark:text-zinc-300 md:table-cell">
-        {changeset.author ? <AuthorLabel name={changeset.author} /> : "not returned"}
-      </td>
-      <td className="hidden px-4 py-4 text-slate-700 dark:text-zinc-300 md:table-cell">
-        {changeset.submitRequirements?.requiredApprovals ?? "not returned"}
-      </td>
-      <td className="hidden max-w-sm px-4 py-4 text-slate-700 dark:text-zinc-300 md:table-cell">
-        {changeset.submitBlockedReason ? (
-          <span>{displaySubmitBlockedReason(changeset.submitBlockedReason)}</span>
-        ) : (
-          <span className="text-slate-400 dark:text-zinc-500">None</span>
-        )}
-        {rowError ? (
-          <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
-            {rowError}
-          </p>
-        ) : null}
-      </td>
-      {canManage ? (
-        <td className="px-3 py-4 sm:px-4">
-          <div className="flex flex-wrap justify-end gap-2">
-            <button
-              className="rounded-md bg-zinc-950 dark:bg-zinc-100 px-3 py-2 text-sm font-medium text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={busy || !changesetId || !mergeable}
-              onClick={() => mergeMutation.mutate()}
-              type="button"
-            >
-              {mergeMutation.isPending ? "Merging..." : "Merge"}
-            </button>
-          </div>
-        </td>
-      ) : null}
-    </tr>
-  );
-}
-
-function MissingSliceState({
-  navigateToChangeset
-}: {
-  navigateToChangeset(id: string): void;
-}) {
-  return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-      <SliceNotice title="Open a slice first">
-        Use a slice page&apos;s Changesets tab to open the slice-scoped list.
-      </SliceNotice>
-      <OpenChangesetForm onOpen={navigateToChangeset} />
-    </div>
-  );
-}
-
-function OpenChangesetForm({ onOpen }: { onOpen(id: string): void }) {
-  const [changeset, setChangeset] = useState("");
-  const [error, setError] = useState("");
-
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const id = changeset.trim();
-
-    if (!id) {
-      setError("Enter a changeset id.");
-      return;
-    }
-
-    setError("");
-    onOpen(id);
-  };
-
-  return (
-    <form
-      className="rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 shadow-sm shadow-slate-200/50 dark:shadow-black/50"
-      onSubmit={submit}
-    >
-      <label className="grid gap-2 text-sm font-medium text-zinc-800 dark:text-zinc-200">
-        Open changeset
-        <input
-          className="h-11 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm text-zinc-950 dark:text-zinc-50 outline-none transition placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700"
-          onChange={(event) => setChangeset(event.target.value)}
-          placeholder="3f9a2b1c4d"
-          value={changeset}
-        />
-      </label>
-
-      {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
-
-      <button
-        className="mt-5 rounded-md bg-zinc-950 dark:bg-zinc-100 px-4 py-2.5 text-sm font-medium text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:translate-y-px"
-        type="submit"
-      >
-        Open
-      </button>
-    </form>
-  );
-}
-
-function navigateToChangeset(navigate: ReturnType<typeof useNavigate>) {
-  return (id: string) => {
-    void navigate({
-      params: { id },
-      to: "/cs/$id"
-    });
-  };
-}
-
-function parseSliceSearch(value: unknown): Required<SliceRef> | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  // Canonical handle is account:slice; also accept the legacy account/slice.
-  const sep = trimmed.includes(":") ? ":" : "/";
-  const index = trimmed.indexOf(sep);
-
-  if (index <= 0) {
-    return null;
-  }
-
-  const account = trimmed.slice(0, index).trim();
-  const slice = trimmed.slice(index + 1).trim();
-
-  if (!account || !slice) {
-    return null;
-  }
-
-  return { account, slice };
-}
-
-function changesetLabel(changeset: Changeset) {
-  const shortId = shortChangesetId(changeset.id || "");
-  if (shortId) {
-    return shortId;
-  }
-  if (changeset.number !== undefined && changeset.number !== "") {
-    return `#${changeset.number}`;
-  }
-  return changeset.id || "Changeset";
-}
-
-function StatusBadge({ status }: { status?: string }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex rounded-md border px-2 py-1 text-xs font-semibold",
-        statusClass(status)
-      )}
-    >
-      {status || "unknown"}
-    </span>
-  );
-}
-
-function statusClass(status?: string) {
-  switch ((status || "").toLowerCase()) {
-    case "published":
-    case "merged":
-    case "submitted":
-      return "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-200";
-    case "pending_publish":
-      return "border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200";
-    case "abandoned":
-      return "border-red-200 bg-red-50 text-red-800";
-    case "draft":
-      return "border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 text-slate-700 dark:text-zinc-300";
-    default:
-      return "border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 text-slate-700 dark:text-zinc-300";
-  }
-}
-
-// Submit (merge) is only valid while the changeset is still open. Once it has
-// been submitted/published/abandoned it can't be merged again.
-function isMergeableStatus(status?: string) {
-  const normalized = (status || "").toLowerCase();
-  return normalized === "" || normalized === "draft" || normalized === "open";
 }

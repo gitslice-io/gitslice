@@ -1,61 +1,38 @@
+import { useQuery } from "@tanstack/react-query";
 import { useParams } from "@tanstack/react-router";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, type FormEvent } from "react";
 
-import type { AgentDaemon, Slice, SliceDefinition } from "../api/types";
 import { useApi } from "../api/useApi";
-import { sliceDaemonsQuery } from "../queries/agents";
-import { sliceRefKey, sliceRefQuery } from "../queries/slices";
-import { shortHash } from "../lib/objectId";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
-import {
-  SliceDefinitionForm,
-  toVisibilityOption,
-  validateIncludedPaths,
-  type VisibilityOption
-} from "../components/slices/SliceDefinitionForm";
+import { SliceCIDaemonPanel } from "../components/slices/SliceCIDaemonPanel";
+import { SliceDefinitionSettingsPanel } from "../components/slices/SliceDefinitionSettingsPanel";
+import { SliceDescriptionPanel } from "../components/slices/SliceDescriptionPanel";
+import { SliceGitMirrorPanel } from "../components/slices/SliceGitMirrorPanel";
+import { SliceMembersPanel } from "../components/slices/SliceMembersPanel";
+import { SliceMergeOnSubmitPanel } from "../components/slices/SliceMergeOnSubmitPanel";
 import {
   SliceLoadingBlock,
-  SliceMetadataGrid,
   SliceNotice,
   SlicePageHeader,
-  SlicePanel,
   getErrorMessage,
   sliceDisplayName
 } from "../components/slices/SlicePageParts";
-import { SliceGitMirrorPanel } from "../components/slices/SliceGitMirrorPanel";
 import { SliceSecretsPanel } from "../components/slices/SliceSecretsPanel";
-import { SliceMembersPanel } from "../components/slices/SliceMembersPanel";
-import { SliceDescriptionPanel } from "../components/slices/SliceDescriptionPanel";
-import { SliceMergeOnSubmitPanel } from "../components/slices/SliceMergeOnSubmitPanel";
-import { daemonName } from "../lib/daemons";
 import { useSlicePermissions } from "../lib/permissions";
 import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
+import { sliceRefQuery } from "../queries/slices";
 import { useSelection } from "../state/selection";
-
-interface SliceParams {
-  account?: string;
-  slice?: string;
-}
 
 export function SliceSettingsPage() {
   const api = useApi();
-  const queryClient = useQueryClient();
   const { accounts: viewerAccounts } = useSelection();
-  const params = useParams({ strict: false }) as SliceParams;
+  const params = useParams({ from: "/app/slices/$account/$slice/settings" });
   const routeAccount = params.account ?? "";
   const routeSlice = params.slice ?? "";
   const routeSliceRef =
     routeAccount && routeSlice
       ? { account: routeAccount, slice: routeSlice }
       : undefined;
-  const [visibility, setVisibility] = useState<VisibilityOption>("private");
-  const [includedPaths, setIncludedPaths] = useState<string[]>([]);
-  const [clientErrors, setClientErrors] = useState<string[]>([]);
-  const [saveMessage, setSaveMessage] = useState<string | null>(null);
-  const [ciSaveMessage, setCiSaveMessage] = useState<string | null>(null);
-  const [conflictMessage, setConflictMessage] = useState<string | null>(null);
 
   const sliceQuery = useQuery({
     ...sliceRefQuery(api, routeAccount, routeSlice),
@@ -63,117 +40,11 @@ export function SliceSettingsPage() {
   });
 
   const slice = sliceQuery.data;
-  const sliceId = slice?.id ?? "";
   const slicePermissions = useSlicePermissions(slice ?? routeSliceRef);
   const sliceRouteParams = toSliceRouteParams(slice?.ref ?? routeSliceRef);
   const sliceRouteKey = sliceRouteParams
     ? `${sliceRouteParams.account}:${sliceRouteParams.slice}`
     : `${routeAccount}:${routeSlice}`;
-
-  const daemonsQuery = useQuery({
-    ...sliceDaemonsQuery(api, { account: routeAccount, slice: routeSlice }),
-    enabled: Boolean(slice)
-  });
-
-  useEffect(() => {
-    if (!slice) {
-      return;
-    }
-
-    setVisibility(toVisibilityOption(slice.definition?.visibility));
-    setIncludedPaths(slice.definition?.includedPaths ?? []);
-    setClientErrors([]);
-  }, [slice?.definitionHash, slice?.id]);
-
-  const updateMutation = useMutation({
-    mutationFn: async (normalizedPaths: string[]) => {
-      if (!slice) {
-        throw new Error("Slice has not loaded yet.");
-      }
-      if (!slice.id) {
-        throw new Error("Slice has no internal id.");
-      }
-
-      const definition: SliceDefinition = {
-        ...(slice.definition ?? {}),
-        includedPaths: normalizedPaths,
-        sliceId: slice.definition?.sliceId || slice.id,
-        visibility
-      };
-
-      return api.updateSliceDefinition({
-        definition,
-        expectedDefinitionHash: slice.definitionHash,
-        sliceId: slice.id
-      });
-    },
-    onError: (error) => {
-      setSaveMessage(null);
-
-      if (isHashConflict(error)) {
-        setConflictMessage(
-          "The slice definition changed on the server. The latest definition has been reloaded; review it and save again."
-        );
-        void queryClient.invalidateQueries({
-          queryKey: sliceRefKey(routeAccount, routeSlice)
-        });
-      }
-    },
-    onSuccess: async () => {
-      setConflictMessage(null);
-      setSaveMessage("Definition saved.");
-      await queryClient.invalidateQueries({
-        queryKey: sliceRefKey(routeAccount, routeSlice)
-      });
-      await queryClient.invalidateQueries({ queryKey: ["slices"] });
-    }
-  });
-
-  const ciDaemonMutation = useMutation({
-    mutationFn: async (change: CIDaemonChange) => {
-      const targetSlice = slice?.ref ?? routeSliceRef;
-      if (!targetSlice?.account || !targetSlice.slice) {
-        throw new Error("Slice reference is not available.");
-      }
-
-      return api.setSliceCIDaemon({
-        ...change,
-        slice: targetSlice
-      });
-    },
-    onError: () => {
-      setCiSaveMessage(null);
-    },
-    onMutate: () => {
-      setCiSaveMessage(null);
-    },
-    onSuccess: async (updatedSlice) => {
-      setCiSaveMessage("CI daemon updated.");
-      queryClient.setQueryData(
-        sliceRefKey(routeAccount, routeSlice),
-        updatedSlice
-      );
-      await queryClient.invalidateQueries({
-        queryKey: sliceRefKey(routeAccount, routeSlice)
-      });
-      await queryClient.invalidateQueries({ queryKey: ["slices"] });
-    }
-  });
-
-  function saveDefinition(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const validation = validateIncludedPaths(includedPaths);
-    setClientErrors(validation.errors);
-    setSaveMessage(null);
-    setConflictMessage(null);
-
-    if (validation.errors.length > 0) {
-      return;
-    }
-
-    updateMutation.mutate(validation.paths);
-  }
 
   if (sliceQuery.isLoading) {
     return (
@@ -210,7 +81,7 @@ export function SliceSettingsPage() {
   }
 
   const sliceLabel = sliceDisplayName(slice);
-  const sliceCrumbs = sliceBreadcrumbItems(slice?.ref ?? routeSliceRef, viewerAccounts);
+  const sliceCrumbs = sliceBreadcrumbItems(slice.ref ?? routeSliceRef, viewerAccounts);
   // Slice admins (including external or @group slice admins) manage slice
   // members; account owners and admins manage the slice definition, CI daemon,
   // secrets, and Git mirror.
@@ -254,117 +125,23 @@ export function SliceSettingsPage() {
         </div>
       ) : null}
 
-      <form className="mt-8 space-y-6" onSubmit={saveDefinition}>
-        <SlicePanel>
-          <SliceMetadataGrid
-            rows={[
-              {
-                label: "Current hash",
-                value: (
-                  <code className="font-mono text-xs" title={slice.definitionHash}>
-                    {slice.definitionHash ? shortHash(slice.definitionHash) : "none"}
-                  </code>
-                )
-              },
-              {
-                label: "Version",
-                value: slice.definition?.version ?? "unknown"
-              },
-              {
-                label: "Slice id",
-                value: (
-                  <code className="font-mono text-xs">{slice.id || sliceId}</code>
-                )
-              },
-              {
-                label: "Loaded visibility",
-                value: slice.definition?.visibility || "unspecified"
-              }
-            ]}
-          />
-        </SlicePanel>
-
+      <SliceDefinitionSettingsPanel
+        canEdit={canManageAccountSettings}
+        isReloading={sliceQuery.isFetching}
+        onReload={() => {
+          void sliceQuery.refetch();
+        }}
+        routeAccount={routeAccount}
+        routeSlice={routeSlice}
+        slice={slice}
+      >
         <SliceCIDaemonPanel
           canEdit={canManageAccountSettings}
-          currentDaemonId={slice.ciDaemonId ?? ""}
-          currentDaemonName={slice.ciDaemonName ?? ""}
-          daemons={daemonsQuery.data ?? []}
-          error={
-            daemonsQuery.error
-              ? getErrorMessage(daemonsQuery.error)
-              : ciDaemonMutation.error
-                ? getErrorMessage(ciDaemonMutation.error)
-                : ""
-          }
-          isLoading={daemonsQuery.isPending}
-          message={ciSaveMessage}
-          onChange={(change) => ciDaemonMutation.mutate(change)}
-          pending={ciDaemonMutation.isPending}
+          routeAccount={routeAccount}
+          routeSlice={routeSlice}
           slice={slice}
         />
-
-        {canManageAccountSettings ? (
-          <>
-            <SliceDefinitionForm
-              account={slice?.ref?.account}
-              disabled={updateMutation.isPending}
-              includedPaths={includedPaths}
-              includedPathsLocked={slice?.ref?.slice === "home"}
-              onIncludedPathsChange={setIncludedPaths}
-              onVisibilityChange={setVisibility}
-              visibility={visibility}
-            />
-
-            {clientErrors.length > 0 ? (
-              <SliceNotice title="Fix included paths" tone="error">
-                <ul className="list-disc space-y-1 pl-5">
-                  {clientErrors.map((error) => (
-                    <li className="break-all" key={error}>{error}</li>
-                  ))}
-                </ul>
-              </SliceNotice>
-            ) : null}
-
-            {updateMutation.isError && !conflictMessage ? (
-              <SliceNotice title="Could not save definition" tone="error">
-                {getErrorMessage(updateMutation.error)}
-              </SliceNotice>
-            ) : null}
-
-            {conflictMessage ? (
-              <SliceNotice title="Definition hash conflict" tone="error">
-                {conflictMessage}
-              </SliceNotice>
-            ) : null}
-
-            {saveMessage ? (
-              <SliceNotice title={saveMessage} tone="success">
-                The latest slice definition is being refreshed from the server.
-              </SliceNotice>
-            ) : null}
-
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                className="rounded-md bg-zinc-950 dark:bg-zinc-100 px-4 py-2 text-sm font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 dark:disabled:bg-zinc-700 disabled:text-slate-500 dark:disabled:text-zinc-400"
-                disabled={updateMutation.isPending}
-                type="submit"
-              >
-                {updateMutation.isPending ? "Saving..." : "Save definition"}
-              </button>
-              <button
-                className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-                disabled={sliceQuery.isFetching}
-                onClick={() => {
-                  void sliceQuery.refetch();
-                }}
-                type="button"
-              >
-                Reload
-              </button>
-            </div>
-          </>
-        ) : null}
-      </form>
+      </SliceDefinitionSettingsPanel>
 
       {canManageMembers && settingsSlice ? (
         <div className="mt-8">
@@ -387,201 +164,6 @@ export function SliceSettingsPage() {
           <SliceGitMirrorPanel slice={settingsSlice} />
         </div>
       ) : null}
-
     </section>
-  );
-}
-
-// A change to the slice's pool of CI daemons: daemonId alone replaces it,
-// add appends to it and remove takes one out.
-type CIDaemonChange = { daemonId: string; add?: boolean; remove?: boolean };
-
-function SliceCIDaemonPanel({
-  canEdit,
-  currentDaemonId,
-  currentDaemonName,
-  daemons,
-  error,
-  isLoading,
-  message,
-  onChange,
-  pending,
-  slice
-}: {
-  canEdit: boolean;
-  currentDaemonId: string;
-  // The name the server shows the current daemon by, known even to people who
-  // cannot list it.
-  currentDaemonName: string;
-  daemons: AgentDaemon[];
-  error: string;
-  isLoading: boolean;
-  message: string | null;
-  onChange(change: CIDaemonChange): void;
-  pending: boolean;
-  slice: Slice;
-}) {
-  const onlineDaemons = daemons.filter((daemon) => daemon.status === "online");
-  const currentDaemon = daemons.find((daemon) => daemon.id === currentDaemonId);
-  const currentIsOnline = onlineDaemons.some(
-    (daemon) => daemon.id === currentDaemonId
-  );
-  const canUpdate = canEdit && Boolean(slice.ref?.account && slice.ref.slice);
-  const disabled = isLoading || pending || !canUpdate;
-  // The pool (design/32): each run goes to the first one online.
-  const poolIds = slice.ciDaemonIds?.length ? slice.ciDaemonIds : currentDaemonId ? [currentDaemonId] : [];
-  const pool = poolIds.map((id, index) => ({
-    id,
-    name:
-      slice.ciDaemonNames?.[index] ||
-      (id === currentDaemonId ? currentDaemonName : "") ||
-      daemonName(daemons.find((daemon) => daemon.id === id), id)
-  }));
-  const backups = onlineDaemons.filter((daemon) => daemon.id && !poolIds.includes(daemon.id));
-
-  return (
-    <SlicePanel>
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,24rem)] lg:items-start">
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">CI daemon</h2>
-          <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-            Full-tree checks for this slice run on the selected online agent daemon. Add backups to make a pool:
-            each check goes to the first daemon in the list that is online.
-          </p>
-          <p className="mt-3 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
-            {pool.length > 1 ? "Pool" : "Current"}
-          </p>
-          {pool.length > 1 ? (
-            <ol className="mt-1 grid gap-2">
-              {pool.map((member, index) => (
-                <li className="flex items-start justify-between gap-3" key={member.id}>
-                  <span className="min-w-0">
-                    <span className="block break-words text-sm font-medium text-zinc-950 dark:text-zinc-50">
-                      {index + 1}. {member.name}
-                    </span>
-                    <code className="block break-all font-mono text-xs text-slate-500 dark:text-zinc-400">{member.id}</code>
-                  </span>
-                  <button
-                    className="shrink-0 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
-                    disabled={disabled}
-                    onClick={() => onChange({ daemonId: member.id, remove: true })}
-                    type="button"
-                  >
-                    Remove
-                  </button>
-                </li>
-              ))}
-            </ol>
-          ) : currentDaemonId ? (
-            <>
-              <p className="mt-1 break-words text-sm font-medium text-zinc-950 dark:text-zinc-50">
-                {currentDaemonName || daemonName(currentDaemon, currentDaemonId)}
-              </p>
-              <code className="mt-0.5 block break-all font-mono text-xs text-slate-500 dark:text-zinc-400">
-                {currentDaemonId}
-              </code>
-            </>
-          ) : (
-            <p className="mt-1 text-sm text-zinc-950 dark:text-zinc-50">none</p>
-          )}
-        </div>
-
-        <div className="grid gap-2">
-          <label className="grid gap-1.5 text-sm font-medium text-zinc-800 dark:text-zinc-200">
-            CI daemon
-            <select
-              aria-label="CI daemon"
-              className={selectClass}
-              disabled={disabled}
-              onChange={(event) => onChange({ daemonId: event.target.value })}
-              value={currentDaemonId}
-            >
-              <option value="">None</option>
-              {currentDaemonId && !currentIsOnline ? (
-                <option value={currentDaemonId}>
-                  {daemonLabel(currentDaemon, currentDaemonId)} (current)
-                </option>
-              ) : null}
-              {onlineDaemons.map((daemon) => (
-                <option key={daemon.id ?? daemon.name} value={daemon.id ?? ""}>
-                  {daemonLabel(daemon, daemon.id ?? "")}
-                </option>
-              ))}
-            </select>
-          </label>
-          {currentDaemonId && backups.length > 0 ? (
-            <label className="grid gap-1.5 text-sm font-medium text-zinc-800 dark:text-zinc-200">
-              Add a backup
-              <select
-                aria-label="Add a backup CI daemon"
-                className={selectClass}
-                disabled={disabled}
-                onChange={(event) => {
-                  if (event.target.value) {
-                    onChange({ daemonId: event.target.value, add: true });
-                  }
-                }}
-                value=""
-              >
-                <option value="">Choose a daemon</option>
-                {backups.map((daemon) => (
-                  <option key={daemon.id} value={daemon.id}>
-                    {daemonLabel(daemon, daemon.id ?? "")}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          {isLoading ? (
-            <p className="text-xs text-slate-500 dark:text-zinc-400">Loading daemons...</p>
-          ) : onlineDaemons.length === 0 ? (
-            <p className="text-xs leading-5 text-slate-500 dark:text-zinc-400">
-              No online daemons are available. You can still clear the current
-              runner by choosing None.
-            </p>
-          ) : null}
-          {error ? (
-            <p className="rounded-md border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/30 px-3 py-2 text-sm text-rose-900 dark:text-rose-200">
-              {error}
-            </p>
-          ) : message ? (
-            <p className="rounded-md border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-200">
-              {message}
-            </p>
-          ) : null}
-        </div>
-      </div>
-    </SlicePanel>
-  );
-}
-
-const selectClass =
-  "min-w-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-950 dark:text-zinc-50 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700 disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-zinc-800 disabled:text-slate-500 dark:disabled:text-zinc-400";
-
-function daemonLabel(daemon: AgentDaemon | undefined, fallback: string) {
-  if (!daemon) {
-    return fallback;
-  }
-  const name = daemonName(daemon, fallback);
-  const runtime = [daemon.runtime, daemon.version].filter(Boolean).join(" ");
-  return runtime ? `${name} - ${runtime}` : name;
-}
-
-function isHashConflict(error: unknown) {
-  const maybeError = error as {
-    code?: string | number;
-    message?: string;
-    status?: number;
-  };
-  const text = `${maybeError.code ?? ""} ${
-    maybeError.message ?? ""
-  }`.toLowerCase();
-
-  return (
-    maybeError.status === 409 ||
-    text.includes("conflict") ||
-    text.includes("definition hash") ||
-    text.includes("expected_definition_hash") ||
-    text.includes("stale")
   );
 }

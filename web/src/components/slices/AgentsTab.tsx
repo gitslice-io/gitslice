@@ -1,16 +1,16 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import type { AgentDaemon, Conversation, SliceRef } from "../../api/types";
+import type { SliceRef } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
-import { agentDaemonsQuery, sliceConversationsQuery } from "../../queries/agents";
 import { cn } from "../../lib/cn";
-import { canHostConversations, daemonName } from "../../lib/daemons";
+import { canHostConversations } from "../../lib/daemons";
 import { useMediaQuery } from "../../lib/useMediaQuery";
-import { Popup } from "../Popup";
+import { agentDaemonsQuery, sliceConversationsQuery } from "../../queries/agents";
 import { AgentConversation } from "./AgentConversation";
+import { AgentsSidebar, sortConversationsNewestFirst } from "./AgentsSidebar";
+import { CreateConversationDialog } from "./CreateConversationDialog";
 import { SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
-import { Timestamp } from "../Timestamp";
 
 interface AgentsTabProps {
   api: ApiClient;
@@ -89,26 +89,12 @@ export function AgentsTab({
 
   // Default-select the newest conversation, but never overwrite an active
   // selection that still exists in the list. This runs when there is no
-  // conversation in the URL, in two cases:
-  //   - uncontrolled (conversationId === undefined): always, e.g. in tests;
-  //   - controlled but empty (conversationId === ""): desktop only, so the
-  //     mobile full-screen list stays put instead of trapping the user in a
-  //     transcript. A non-empty conversationId means a specific conversation is
-  //     intended, so we leave it alone.
+  // conversation in the URL (uncontrolled, or controlled empty on desktop).
   useEffect(() => {
-    if (conversationId) {
+    if (conversationId || (conversationId === "" && !isDesktop) || conversationsQuery.isPending) {
       return;
     }
-    if (conversationId === "" && !isDesktop) {
-      return;
-    }
-    if (conversationsQuery.isPending) {
-      return;
-    }
-    if (
-      selectedConversationId &&
-      conversations.some((c) => c.id === selectedConversationId)
-    ) {
+    if (selectedConversationId && conversations.some((c) => c.id === selectedConversationId)) {
       return;
     }
     const next = conversations[0]?.id ?? "";
@@ -140,10 +126,6 @@ export function AgentsTab({
         title: input.title || undefined,
       }),
     onSuccess: (conversation) => {
-      // Optimistically prepend so the user sees their conversation instantly;
-      // the next refetch will reconcile against server truth. The query cache
-      // stores the array directly (the queryFn returns Conversation[]), so we
-      // must update with an array too — not the wire-level response object.
       queryClient.setQueryData(
         sliceConversationsQuery(api, slice).queryKey,
         (current) => [
@@ -158,7 +140,7 @@ export function AgentsTab({
     },
   });
 
-  async function createConversation(event: FormEvent<HTMLFormElement>) {
+  function createConversation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedDaemonId) {
       return;
@@ -167,13 +149,8 @@ export function AgentsTab({
   }
 
   function openCreate() {
-    // Clear stale mutation errors so the form opens cleanly.
     createMutation.reset();
     setIsCreateOpen(true);
-  }
-
-  function closeCreate() {
-    setIsCreateOpen(false);
   }
 
   if (!sliceDefined) {
@@ -223,22 +200,9 @@ export function AgentsTab({
     </button>
   );
 
-  const conversationToolbar = (
-    <div className="flex items-center gap-2">{desktopSidebarToggle}</div>
-  );
-
-  const createError = createMutation.error
-    ? getErrorMessage(createMutation.error)
-    : "";
+  const createError = createMutation.error ? getErrorMessage(createMutation.error) : "";
   const isCreating = createMutation.isPending;
   const hasSelectedConversation = Boolean(selectedConversationId);
-  const sidebarVisibilityClass = hasSelectedConversation
-    ? isSidebarOpen
-      ? "hidden lg:block"
-      : "hidden"
-    : isSidebarOpen
-      ? "block"
-      : "block lg:hidden";
 
   return (
     <SlicePanel className="p-0">
@@ -250,139 +214,17 @@ export function AgentsTab({
             : "lg:grid-cols-[minmax(0,1fr)]",
         )}
       >
-        <aside
-          aria-label="Agent conversations"
-          className={cn(
-            "min-h-[60vh] overflow-y-auto p-4",
-            sidebarVisibilityClass,
-            // On desktop the list becomes a sticky column so it stays in view
-            // while the transcript scrolls the page, instead of scrolling off
-            // into an empty gutter. self-start keeps the grid item from
-            // stretching so sticky has room to resolve.
-            "lg:sticky lg:top-16 lg:max-h-[calc(100dvh-5rem)] lg:self-start lg:border-r lg:border-slate-200 dark:lg:border-zinc-800 lg:p-5",
-          )}
-          id="agent-conversation-sidebar"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-                Conversations
-              </h2>
-              <p className="mt-1 truncate text-xs leading-5 text-slate-500 dark:text-zinc-400">
-                {sliceKey}
-              </p>
-            </div>
-            <button
-              className="shrink-0 rounded-md bg-zinc-950 dark:bg-zinc-100 px-3 py-1.5 text-xs font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-zinc-600"
-              disabled={!onlineDaemons.length || isCreating}
-              onClick={openCreate}
-              type="button"
-            >
-              New conversation
-            </button>
-          </div>
-
-          <div className="mt-5">
-            <h3 className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
-              Daemons
-            </h3>
-            {onlineDaemons.length === 0 ? (
-              <div className="mt-3 rounded-md border border-dashed border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 p-4 text-sm text-slate-700 dark:text-zinc-300">
-                <p className="font-semibold text-zinc-950 dark:text-zinc-50">No online daemons</p>
-                <p className="mt-2 leading-6">
-                  Run{" "}
-                  <code className="rounded bg-white dark:bg-zinc-900 px-1.5 py-0.5 font-mono text-xs text-slate-800 dark:text-zinc-200">
-                    gs agent start
-                  </code>{" "}
-                  in an empty directory to make an agent available here.
-                </p>
-              </div>
-            ) : (
-              <div className="mt-3 grid grid-cols-1 gap-2">
-                {onlineDaemons.map((daemon) => (
-                  <DaemonRow daemon={daemon} key={daemon.id ?? daemon.name} />
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="mt-5 border-t border-slate-200 dark:border-zinc-800 pt-4">
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
-                History
-              </h3>
-              {conversations.length ? (
-                <span className="font-mono text-xs text-slate-400 dark:text-zinc-500">
-                  {conversations.length}
-                </span>
-              ) : null}
-            </div>
-            {conversations.length === 0 ? (
-              <p className="mt-3 rounded-md border border-dashed border-slate-300 dark:border-zinc-700 p-3 text-sm text-slate-600 dark:text-zinc-400">
-                No conversations yet.
-              </p>
-            ) : (
-              <ul className="mt-3 grid grid-cols-1 gap-1.5">
-                {conversations.map((conversation) => {
-                  const isSelected = conversation.id === selectedConversationId;
-                  return (
-                    <li key={conversation.id}>
-                      <button
-                        aria-current={isSelected ? "true" : undefined}
-                        className={cn(
-                          "min-w-0 w-full rounded-md px-3 py-2 text-left text-sm transition active:scale-[0.98]",
-                          isSelected
-                            ? "bg-slate-100 dark:bg-zinc-800 text-zinc-950 dark:text-zinc-50"
-                            : "text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50",
-                        )}
-                        onClick={() => {
-                          selectConversation(conversation.id ?? "");
-                        }}
-                        type="button"
-                      >
-                        <span className="block truncate font-semibold">
-                          {conversation.title ||
-                            conversation.id ||
-                            "Untitled conversation"}
-                        </span>
-                        <span className="mt-1 flex items-center gap-2">
-                          <ConversationStatusPill
-                            status={conversation.status}
-                          />
-                          {conversation.daemonOnline === false ? (
-                            <span className="shrink-0 rounded-full bg-amber-100 dark:bg-amber-950/45 px-2 py-0.5 text-[0.7rem] font-medium text-amber-700 dark:text-amber-300">
-                              Offline
-                            </span>
-                          ) : null}
-                          {conversation.updatedAt ? (
-                            <Timestamp
-                              className="truncate font-mono text-[0.7rem] text-slate-400 dark:text-zinc-500"
-                              relative
-                              value={conversation.updatedAt}
-                            />
-                          ) : null}
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-
-          {hasSelectedConversation ? null : (
-            <div className="mt-5 rounded-md border border-slate-200 dark:border-zinc-800 bg-slate-50/60 dark:bg-zinc-950/60 p-4 text-center lg:hidden">
-              <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-                No conversation selected
-              </h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-                {onlineDaemons.length
-                  ? "Start a new conversation with an online daemon, or pick one from the list."
-                  : "Run gs agent start to make an agent available, then create a conversation."}
-              </p>
-            </div>
-          )}
-        </aside>
+        <AgentsSidebar
+          conversations={conversations}
+          hasSelectedConversation={hasSelectedConversation}
+          isCreating={isCreating}
+          isSidebarOpen={isSidebarOpen}
+          onOpenCreate={openCreate}
+          onSelectConversation={selectConversation}
+          onlineDaemons={onlineDaemons}
+          selectedConversationId={selectedConversationId}
+          sliceKey={sliceKey}
+        />
 
         <div
           className={cn(
@@ -395,7 +237,7 @@ export function AgentsTab({
               api={api}
               conversation={selectedConversation}
               conversationId={selectedConversationId}
-              toolbar={conversationToolbar}
+              toolbar={<div className="flex items-center gap-2">{desktopSidebarToggle}</div>}
             />
           ) : (
             <div className="flex min-h-[60vh] flex-col bg-slate-50/60 dark:bg-zinc-950/60">
@@ -430,124 +272,19 @@ export function AgentsTab({
         </div>
       </div>
 
-      <Popup
-        description={sliceKey}
-        onClose={closeCreate}
+      <CreateConversationDialog
+        createError={createError}
+        isCreating={isCreating}
+        onClose={() => setIsCreateOpen(false)}
+        onSelectDaemon={setSelectedDaemonId}
+        onSubmit={createConversation}
+        onTitleChange={setTitle}
+        onlineDaemons={onlineDaemons}
         open={isCreateOpen}
-        title="New conversation"
-      >
-        {onlineDaemons.length ? (
-          <form className="grid gap-3" onSubmit={createConversation}>
-            <label className="grid gap-1.5 text-sm font-medium text-zinc-800 dark:text-zinc-200">
-              Agent daemon
-              <select
-                className="min-w-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-950 dark:text-zinc-50 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700"
-                onChange={(event) => setSelectedDaemonId(event.target.value)}
-                value={selectedDaemonId}
-              >
-                {onlineDaemons.map((daemon) => (
-                  <option
-                    key={daemon.id ?? daemon.name}
-                    value={daemon.id ?? ""}
-                  >
-                    {daemonName(daemon)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-1.5 text-sm font-medium text-zinc-800 dark:text-zinc-200">
-              Title
-              <input
-                className="min-w-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-zinc-950 dark:text-zinc-50 outline-none transition placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:focus:ring-zinc-700"
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder="Optional"
-                value={title}
-              />
-            </label>
-            {createError ? (
-              <p className="text-sm text-rose-700 dark:text-rose-300">{createError}</p>
-            ) : null}
-            <div className="mt-1 flex justify-end gap-2">
-              <button
-                className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-                onClick={closeCreate}
-                type="button"
-              >
-                Cancel
-              </button>
-              <button
-                className="rounded-md bg-zinc-950 dark:bg-zinc-100 px-3 py-2 text-sm font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300 dark:disabled:bg-zinc-600"
-                disabled={!selectedDaemonId || isCreating}
-                type="submit"
-              >
-                {isCreating ? "Creating..." : "Create conversation"}
-              </button>
-            </div>
-          </form>
-        ) : (
-          <p className="text-sm text-slate-600 dark:text-zinc-400">
-            No online daemons are available right now.
-          </p>
-        )}
-      </Popup>
+        selectedDaemonId={selectedDaemonId}
+        sliceKey={sliceKey}
+        title={title}
+      />
     </SlicePanel>
   );
-}
-
-// Local components kept stateless so they don't re-render when the parent's
-// selection state changes. Each row only depends on its own props.
-
-function DaemonRow({ daemon }: { daemon: AgentDaemon }) {
-  return (
-    <div className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-3">
-      <div className="flex items-start justify-between gap-2">
-        <p className="min-w-0 break-words text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-          {daemonName(daemon, "Unnamed agent")}
-        </p>
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-emerald-50 dark:bg-emerald-950/30 px-2 py-1 text-[0.7rem] font-semibold uppercase tracking-normal text-emerald-700 dark:text-emerald-300">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          online
-        </span>
-      </div>
-      <p className="mt-1 break-all font-mono text-xs text-slate-500 dark:text-zinc-400">
-        {daemon.runtime || "runtime"} {daemon.version || ""}
-      </p>
-    </div>
-  );
-}
-
-function ConversationStatusPill({ status }: { status?: string }) {
-  const value = status || "active";
-  const active = value === "active";
-  return (
-    <span
-      aria-label={value}
-      className={cn(
-        "inline-block h-2 w-2 shrink-0 rounded-full",
-        active ? "bg-emerald-500" : "bg-slate-300 dark:bg-zinc-600",
-      )}
-      role="img"
-      title={value}
-    />
-  );
-}
-
-function sortConversationsNewestFirst(conversations: Conversation[]) {
-  return [...conversations].sort((left, right) => {
-    const leftTime = conversationSortTime(left);
-    const rightTime = conversationSortTime(right);
-    if (leftTime !== rightTime) {
-      return rightTime - leftTime;
-    }
-    return (right.id ?? "").localeCompare(left.id ?? "");
-  });
-}
-
-function conversationSortTime(conversation: Conversation) {
-  const updated = Date.parse(conversation.updatedAt ?? "");
-  if (Number.isFinite(updated)) {
-    return updated;
-  }
-  const created = Date.parse(conversation.createdAt ?? "");
-  return Number.isFinite(created) ? created : 0;
 }

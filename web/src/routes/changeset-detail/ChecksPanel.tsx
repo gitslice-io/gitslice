@@ -1,25 +1,42 @@
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState
-} from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { isUnauthenticatedError } from "../../api/rpcError";
-import type { CheckRun, CheckRunLog } from "../../api/types";
-import { useApi, type ApiClient } from "../../api/useApi";
-import { checkRunsQuery, triggerRunsKey } from "../../queries/checks";
+import type { CheckRun } from "../../api/types";
+import { useApi } from "../../api/useApi";
 import { cn } from "../../lib/cn";
 import { formatRelativeTime } from "../../lib/time";
-import { useConnectStream } from "../../lib/useConnectStream";
-import { useStickToBottomScroll } from "../../lib/useStickToBottomScroll";
-import { isTerminalCheckStatus, normalizeCheckStatus } from "./checkStatus";
+import { checkRunsQuery, triggerRunsKey } from "../../queries/checks";
+import {
+  CheckRunLogTail,
+  MAX_CHECK_LOG_CHARS,
+  TriggerCheckDetails,
+  appendCheckLogChunk,
+  createEmptyCheckLogBuffer,
+  type CheckLogBuffer
+} from "./CheckRunLogTail";
+import {
+  checkStatusClass,
+  checkStatusDotClass,
+  humanizeCheckStatus,
+  isTerminalCheckStatus,
+  normalizeCheckStatus,
+  normalizeProvenance,
+  safeDetailsUrl,
+  shouldShowExitCode,
+  sortCheckRuns
+} from "./checkStatus";
 import { errorMessage } from "./status";
-import { TriggerRunLog } from "./TriggerRunsPanel";
+
+export {
+  MAX_CHECK_LOG_CHARS,
+  appendCheckLogChunk,
+  createEmptyCheckLogBuffer,
+  safeDetailsUrl,
+  type CheckLogBuffer
+};
 
 const CHECK_POLL_INTERVAL_MS = 3500;
-export const MAX_CHECK_LOG_CHARS = 512 * 1024;
 
 interface ChecksPanelProps {
   changesetId: string;
@@ -77,14 +94,9 @@ export function ChecksPanel({ changesetId, patchsetId, signedOut = false }: Chec
     }
   });
 
-  const runs = useMemo(
-    () => sortCheckRuns(runsQuery.data ?? []),
-    [runsQuery.data]
-  );
+  const runs = useMemo(() => sortCheckRuns(runsQuery.data ?? []), [runsQuery.data]);
   const selectedRun = runs.find((run) => run.id === selectedRunId);
-  const hasNonTerminalRun = runs.some(
-    (run) => !isTerminalCheckStatus(run.status)
-  );
+  const hasNonTerminalRun = runs.some((run) => !isTerminalCheckStatus(run.status));
 
   useEffect(() => {
     setSelectedRunId("");
@@ -159,9 +171,9 @@ export function ChecksPanel({ changesetId, patchsetId, signedOut = false }: Chec
           const runId = run.id ?? "";
           const selected = selectedRunId === runId;
           const canRerun = Boolean(runId && isTerminalCheckStatus(run.status));
-          const rerunning =
-            rerunMutation.isPending && rerunMutation.variables === runId;
+          const rerunning = rerunMutation.isPending && rerunMutation.variables === runId;
           const offlineDaemonMessage = queuedOfflineDaemonMessage(run);
+          const detailsHref = safeDetailsUrl(run.detailsUrl);
           return (
             <div
               className={cn(
@@ -211,10 +223,10 @@ export function ChecksPanel({ changesetId, patchsetId, signedOut = false }: Chec
                 </div>
               </button>
               <div className="flex items-center justify-start gap-2 md:justify-end">
-                {safeDetailsUrl(run.detailsUrl) ? (
+                {detailsHref ? (
                   <a
                     className="text-xs font-semibold text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
-                    href={safeDetailsUrl(run.detailsUrl)}
+                    href={detailsHref}
                     rel="noopener noreferrer"
                     target="_blank"
                   >
@@ -249,136 +261,6 @@ export function ChecksPanel({ changesetId, patchsetId, signedOut = false }: Chec
   );
 }
 
-export interface CheckLogBuffer {
-  text: string;
-  chunkCount: number;
-  lastSeq: number;
-  seenSeqs: ReadonlySet<number>;
-}
-
-export function createEmptyCheckLogBuffer(): CheckLogBuffer {
-  return {
-    text: "",
-    chunkCount: 0,
-    lastSeq: 0,
-    seenSeqs: new Set<number>()
-  };
-}
-
-export function appendCheckLogChunk(
-  current: CheckLogBuffer,
-  nextLog: CheckRunLog,
-  maxChars: number = MAX_CHECK_LOG_CHARS
-): CheckLogBuffer {
-  const nextSeq = Number(nextLog.seq ?? 0);
-  const validSeq = Number.isFinite(nextSeq) && nextSeq > 0 ? nextSeq : undefined;
-  if (validSeq !== undefined && current.seenSeqs.has(validSeq)) {
-    return current;
-  }
-  const nextSeen = new Set(current.seenSeqs);
-  if (validSeq !== undefined) {
-    nextSeen.add(validSeq);
-  }
-  const combined = current.text + (nextLog.chunk ?? "");
-  const text = combined.length > maxChars ? combined.slice(combined.length - maxChars) : combined;
-  return {
-    text,
-    chunkCount: current.chunkCount + 1,
-    lastSeq: validSeq !== undefined ? Math.max(current.lastSeq, validSeq) : current.lastSeq,
-    seenSeqs: nextSeen
-  };
-}
-
-function CheckRunLogTail({
-  api,
-  run
-}: {
-  api: ApiClient;
-  run: CheckRun;
-}) {
-  const [logBuffer, setLogBuffer] = useState<CheckLogBuffer>(createEmptyCheckLogBuffer);
-  const preRef = useRef<HTMLPreElement | null>(null);
-  const runId = run.id ?? "";
-
-  useEffect(() => {
-    setLogBuffer(createEmptyCheckLogBuffer());
-  }, [runId]);
-
-  const { streamError, streamClosed } = useConnectStream<CheckRunLog>({
-    streamKey: runId,
-    attemptDeps: [api],
-    enabled: Boolean(runId),
-    openStream: (afterSeq, signal) => api.streamCheckRun({ runId, afterSeq }, signal),
-    getSeq: (log) => log.seq,
-    onItem: (log) => {
-      setLogBuffer((current) => appendCheckLogChunk(current, log));
-    },
-    reconnectOnError: () => !isTerminalCheckStatus(run.status),
-    formatError: errorMessage
-  });
-
-  const logText = logBuffer.text;
-  const live = !isTerminalCheckStatus(run.status) && !streamClosed;
-
-  useStickToBottomScroll({
-    containerRef: preRef,
-    pinDeps: [logText],
-    thresholdPx: 48
-  });
-
-  return (
-    <div className="border-t border-slate-100 dark:border-zinc-800 bg-slate-950 px-3 py-3 md:px-5">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <span
-            className={cn(
-              "inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-semibold",
-              live
-                ? "bg-emerald-400/10 text-emerald-200"
-                : "bg-white/10 dark:bg-zinc-900/10 text-slate-200"
-            )}
-          >
-            <span
-              className={cn(
-                "h-1.5 w-1.5 rounded-full",
-                live ? "animate-pulse bg-emerald-300" : "bg-slate-400"
-              )}
-            />
-            {live ? "Live tail" : "Log replay"}
-          </span>
-          <span className="truncate font-mono text-xs text-slate-400 dark:text-zinc-500">
-            {run.checkName || run.id}
-          </span>
-        </div>
-        <span className="font-mono text-xs text-slate-500 dark:text-zinc-400">
-          {logBuffer.chunkCount ? `${logBuffer.chunkCount} chunks` : "after_seq=0"}
-        </span>
-      </div>
-
-      {streamError ? (
-        <div className="mb-2 rounded-md border border-rose-300/30 bg-rose-400/10 px-3 py-2 text-sm text-rose-100">
-          {streamError}
-        </div>
-      ) : null}
-
-      {logText ? (
-        <pre
-          className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md bg-zinc-950 p-3 font-mono text-xs leading-5 text-slate-100"
-          ref={preRef}
-        >
-          {logText}
-        </pre>
-      ) : (
-        <div className="rounded-md bg-zinc-950 p-3 font-mono text-xs leading-5 text-slate-400 dark:text-zinc-500">
-          {streamClosed
-            ? "No log output returned for this run."
-            : "Waiting for log output..."}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function CheckStatusBadge({ status }: { status?: string }) {
   const normalized = normalizeCheckStatus(status);
   return (
@@ -389,10 +271,7 @@ function CheckStatusBadge({ status }: { status?: string }) {
       )}
       title={normalized}
     >
-      <span
-        aria-hidden
-        className={cn("h-1.5 w-1.5 rounded-full", checkStatusDotClass(normalized))}
-      />
+      <span aria-hidden className={cn("h-1.5 w-1.5 rounded-full", checkStatusDotClass(normalized))} />
       {humanizeCheckStatus(normalized)}
     </span>
   );
@@ -410,30 +289,6 @@ function ProvenanceTag({ provenance }: { provenance?: string }) {
   );
 }
 
-function sortCheckRuns(runs: CheckRun[]) {
-  return [...runs].sort((left, right) => {
-    const leftName = left.checkName ?? "";
-    const rightName = right.checkName ?? "";
-    if (leftName !== rightName) {
-      return leftName.localeCompare(rightName);
-    }
-    return (left.id ?? "").localeCompare(right.id ?? "");
-  });
-}
-
-function shouldShowExitCode(run: CheckRun) {
-  const status = normalizeCheckStatus(run.status);
-  return (
-    typeof run.exitCode === "number" &&
-    (status === "passed" || status === "failed" || status === "errored")
-  );
-}
-
-
-// queuedOfflineDaemonMessage says what a queued run waits for when its daemon
-// is offline. JSON leaves daemonOnline out when it is false, and a server
-// that predates daemon status leaves daemonLastSeenAt empty too, so a run says
-// nothing unless the server reported when its daemon was last seen.
 function queuedOfflineDaemonMessage(run: CheckRun) {
   if (
     normalizeCheckStatus(run.status) !== "queued" ||
@@ -445,98 +300,4 @@ function queuedOfflineDaemonMessage(run: CheckRun) {
   }
   const daemon = run.daemonName || run.daemonId;
   return `Waiting for ${daemon}, offline, last seen ${formatRelativeTime(run.daemonLastSeenAt)}`;
-}
-
-
-// safeDetailsUrl allows only http(s) links out of a check.
-export function safeDetailsUrl(url?: string) {
-  if (!url) return "";
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:" || parsed.protocol === "http:" ? parsed.toString() : "";
-  } catch {
-    return "";
-  }
-}
-
-// TriggerCheckDetails shows what a trigger reported on a check: its
-// annotations and the log of the trigger run that reported it.
-function TriggerCheckDetails({ run }: { run: CheckRun }) {
-  const annotations = run.annotations ?? [];
-  return (
-    <div className="border-t border-slate-100 dark:border-zinc-800">
-      {annotations.length > 0 ? (
-        <ul aria-label="Annotations" className="divide-y divide-slate-100 dark:divide-zinc-800 px-3 md:px-5">
-          {annotations.map((a, i) => (
-            <li className="flex gap-2 py-2 text-sm" key={`${a.path}:${a.startLine}:${i}`}>
-              <span
-                className={cn(
-                  "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
-                  a.level === "notice" ? "bg-sky-500" : a.level === "warning" ? "bg-amber-500" : "bg-rose-500"
-                )}
-              />
-              <span className="min-w-0">
-                <code className="break-all font-mono text-xs text-slate-600 dark:text-zinc-400">
-                  {a.path}
-                  {a.startLine ? `:${a.startLine}` : ""}
-                  {a.endLine && a.endLine !== a.startLine ? `-${a.endLine}` : ""}
-                </code>
-                <span className="block text-slate-800 dark:text-zinc-200">{a.message}</span>
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      <TriggerRunLog run={{ id: run.triggerRunId, status: isTerminalCheckStatus(run.status) ? "succeeded" : "running" }} />
-    </div>
-  );
-}
-
-function normalizeProvenance(provenance?: string) {
-  const normalized = (provenance || "").toLowerCase();
-  if (normalized === "self" || normalized === "ci" || normalized === "trigger") {
-    return normalized;
-  }
-  return normalized || "unknown";
-}
-
-function humanizeCheckStatus(status: string) {
-  return status.charAt(0).toUpperCase() + status.slice(1);
-}
-
-function checkStatusClass(status: string) {
-  switch (status) {
-    case "passed":
-      return "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-200";
-    case "failed":
-    case "errored":
-      return "border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/30 text-rose-800 dark:text-rose-200";
-    case "running":
-      return "border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200";
-    case "skipped":
-      return "border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 text-slate-500 dark:text-zinc-400";
-    case "canceled":
-      return "border-slate-300 dark:border-zinc-700 bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-zinc-300";
-    case "queued":
-    default:
-      return "border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 text-slate-700 dark:text-zinc-300";
-  }
-}
-
-function checkStatusDotClass(status: string) {
-  switch (status) {
-    case "passed":
-      return "bg-emerald-500";
-    case "failed":
-    case "errored":
-      return "bg-rose-500";
-    case "running":
-      return "animate-pulse bg-amber-500";
-    case "skipped":
-    case "canceled":
-      return "bg-slate-400";
-    case "queued":
-    default:
-      return "bg-slate-300 dark:bg-zinc-600";
-  }
 }
