@@ -5,12 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
 	"gitslice.io/gitslice/internal/owners"
-	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/triggers"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -40,165 +38,7 @@ func (s *ChangesetService) recordRequirementBlock(ctx context.Context, cs *corev
 }
 
 func (s *ChangesetService) submitHeadCommitID(ctx context.Context, cs *corev1.Changeset) (string, error) {
-	if s.Repository == nil {
-		return "", nil
-	}
-	refName := strings.TrimSpace(cs.GetTargetRef())
-	if refName == "" {
-		refName = storage.DefaultTargetRef
-	}
-	head, err := s.Repository.GetRef(ctx, refName)
-	if errors.Is(err, storage.ErrNotFound) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(head.GetCommitId()), nil
-}
-
-// collectPatchsetPaths returns every path touched by patchset, including
-// edit.Path, non-copy edit.OldPath, and directory children under moved or
-// deleted folders at baseCommitID / headCommitID plus mapped move/copy targets.
-func collectPatchsetPaths(ctx context.Context, repo storage.RepositoryStore, baseCommitID, headCommitID string, patchset *corev1.Patchset) ([]string, error) {
-	if patchset == nil {
-		return nil, nil
-	}
-	seen := map[string]struct{}{}
-	add := func(p string) {
-		p = strings.TrimSpace(p)
-		if p == "" {
-			return
-		}
-		if canonical, err := paths.Canonical(p); err == nil {
-			p = canonical
-		}
-		seen[p] = struct{}{}
-	}
-	for _, p := range patchset.GetChangedPaths() {
-		add(p)
-	}
-	commits := uniqueNonEmptyStrings(baseCommitID, headCommitID)
-	for _, edit := range patchset.GetFileEdits() {
-		if edit == nil {
-			continue
-		}
-		op := strings.ToLower(strings.TrimSpace(edit.GetOp()))
-		dst := strings.TrimSpace(edit.GetPath())
-		src := strings.TrimSpace(edit.GetOldPath())
-		add(dst)
-		if op != "copy" {
-			add(src)
-		}
-		if repo == nil {
-			continue
-		}
-		switch op {
-		case "delete":
-			if dst != "" {
-				for _, cid := range commits {
-					children, err := directoryChildrenAtCommit(ctx, repo, cid, dst)
-					if err != nil {
-						return nil, err
-					}
-					for _, child := range children {
-						add(child)
-					}
-				}
-			}
-		case "rename", "move":
-			if src != "" {
-				for _, cid := range commits {
-					children, err := directoryChildrenAtCommit(ctx, repo, cid, src)
-					if err != nil {
-						return nil, err
-					}
-					for _, child := range children {
-						add(child)
-						if dst != "" {
-							add(remapPrefix(src, dst, child))
-						}
-					}
-				}
-			}
-		case "copy":
-			if src != "" && dst != "" {
-				for _, cid := range commits {
-					children, err := directoryChildrenAtCommit(ctx, repo, cid, src)
-					if err != nil {
-						return nil, err
-					}
-					for _, child := range children {
-						add(remapPrefix(src, dst, child))
-					}
-				}
-			}
-		}
-	}
-	out := make([]string, 0, len(seen))
-	for p := range seen {
-		out = append(out, p)
-	}
-	sort.Strings(out)
-	return out, nil
-}
-
-func directoryChildrenAtCommit(ctx context.Context, repo storage.RepositoryStore, commitID, dirPath string) ([]string, error) {
-	if repo == nil || strings.TrimSpace(commitID) == "" || strings.TrimSpace(dirPath) == "" {
-		return nil, nil
-	}
-	if canonical, err := paths.Canonical(dirPath); err == nil {
-		dirPath = canonical
-	}
-	entry, err := repo.GetEntry(ctx, commitID, dirPath)
-	if errors.Is(err, storage.ErrNotFound) || (err == nil && entry.Kind == "file") {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	children, err := repo.ListFiles(ctx, commitID, dirPath)
-	if errors.Is(err, storage.ErrNotFound) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	out := make([]string, 0, len(children))
-	for _, child := range children {
-		if child.Path != "" {
-			out = append(out, child.Path)
-		}
-	}
-	return out, nil
-}
-
-func remapPrefix(oldPrefix, newPrefix, p string) string {
-	if p == oldPrefix {
-		return newPrefix
-	}
-	rel := strings.TrimPrefix(p, oldPrefix)
-	if !strings.HasPrefix(rel, "/") {
-		return newPrefix
-	}
-	return strings.TrimSuffix(newPrefix, "/") + rel
-}
-
-func uniqueNonEmptyStrings(values ...string) []string {
-	out := make([]string, 0, len(values))
-	seen := make(map[string]struct{}, len(values))
-	for _, v := range values {
-		v = strings.TrimSpace(v)
-		if v == "" {
-			continue
-		}
-		if _, ok := seen[v]; ok {
-			continue
-		}
-		seen[v] = struct{}{}
-		out = append(out, v)
-	}
-	return out
+	return targetRefHeadCommitID(ctx, s.Repository, cs)
 }
 
 type ownerRuleSpec struct {
@@ -324,19 +164,7 @@ func (s *ChangesetService) requireGitsliceApproval(ctx context.Context, cs *core
 }
 
 func (s *ChangesetService) patchsetTouchedGitslicePathForSubmit(ctx context.Context, patchset *corev1.Patchset, headCommitID string) (string, error) {
-	if touched := patchsetTouchedGitslicePath(ctx, s.Repository, patchset); touched != "" {
-		return touched, nil
-	}
-	allPaths, err := collectPatchsetPaths(ctx, s.Repository, patchset.GetBaseCommitId(), headCommitID, patchset)
-	if err != nil {
-		return "", err
-	}
-	for _, p := range allPaths {
-		if touchesGitslice(p) {
-			return p, nil
-		}
-	}
-	return "", nil
+	return patchsetTouchedGitslicePathAt(ctx, s.Repository, headCommitID, patchset)
 }
 
 func (s *ChangesetService) accountAdminSubjects(ctx context.Context, account string) (map[string]bool, error) {
@@ -437,36 +265,10 @@ func (s *ChangesetService) requirePathOwnersApproval(ctx context.Context, cs *co
 	return fmt.Errorf("%w: %s", storage.ErrConflict, reason)
 }
 
-func (s *ChangesetService) requirePathOwnersForDirectOperation(ctx context.Context, baseCommitID, subjectID string, edit *corev1.FileEdit, childPaths []string) error {
-	if edit == nil {
+func (s *ChangesetService) requirePathOwnersForDirectOperation(ctx context.Context, baseCommitID, subjectID string, allPaths []string) error {
+	if len(allPaths) == 0 {
 		return nil
 	}
-	op := strings.ToLower(strings.TrimSpace(edit.GetOp()))
-	seen := map[string]struct{}{}
-	add := func(p string) {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			seen[p] = struct{}{}
-		}
-	}
-	add(edit.GetPath())
-	if op != "copy" {
-		add(edit.GetOldPath())
-	}
-	for _, child := range childPaths {
-		if op != "copy" {
-			add(child)
-		}
-		if edit.GetOldPath() != "" && edit.GetPath() != "" {
-			add(remapPrefix(edit.GetOldPath(), edit.GetPath(), child))
-		}
-	}
-	allPaths := make([]string, 0, len(seen))
-	for p := range seen {
-		allPaths = append(allPaths, p)
-	}
-	sort.Strings(allPaths)
-
 	reason, err := s.checkPathOwnersAtCommit(ctx, baseCommitID, allPaths, []string{subjectID}, nil)
 	if err != nil {
 		return grpcError(err)
@@ -485,29 +287,8 @@ func (s *ChangesetService) checkPathOwnersAtCommit(ctx context.Context, headComm
 	if err != nil {
 		return "", grpcError(err)
 	}
-	files := TreeFiles{Repository: s.Repository, Objects: s.ObjectStore}
-	type cachedConfig struct {
-		data []byte
-		ok   bool
-		err  error
-	}
-	cfgCache := map[string]cachedConfig{}
-	readCfg := func(cfgPath string) ([]byte, bool, error) {
-		if cached, found := cfgCache[cfgPath]; found {
-			return cached.data, cached.ok, cached.err
-		}
-		data, err := files.ReadFile(ctx, rootTree, cfgPath)
-		if errors.Is(err, triggers.ErrNotFound) {
-			cfgCache[cfgPath] = cachedConfig{ok: false}
-			return nil, false, nil
-		}
-		if err != nil {
-			cfgCache[cfgPath] = cachedConfig{err: err}
-			return nil, false, err
-		}
-		cfgCache[cfgPath] = cachedConfig{data: data, ok: true}
-		return data, true, nil
-	}
+	reader := newGitsliceTreeReader(s.Repository, s.ObjectStore, maxTriggerFileBytes, "", triggers.ErrNotFound)
+	resolver := owners.NewResolver(reader.ReadConfig)
 
 	type ruleKey struct {
 		configPath string
@@ -519,7 +300,7 @@ func (s *ChangesetService) checkPathOwnersAtCommit(ctx context.Context, headComm
 		if touchesGitslice(p) {
 			continue
 		}
-		m, ok, err := owners.LookupMatch(p, readCfg)
+		m, ok, err := owners.LookupMatchWithResolver(ctx, resolver, rootTree, "", p)
 		if err != nil {
 			return "", fmt.Errorf("%w: %v", storage.ErrInvalid, err)
 		}

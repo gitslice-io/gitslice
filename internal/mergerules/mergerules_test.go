@@ -59,7 +59,7 @@ func TestLookupNearestFileWins(t *testing.T) {
 	if s, ok, _ := Lookup("/acme/app/x/y.lock", read); !ok || s != Ours {
 		t.Fatalf("Lookup(app/x/y.lock) = %q %v", s, ok)
 	}
-	if got := ConfigPaths("/acme/app/go.sum"); !reflect.DeepEqual(got, []string{"/acme/app/.gitslice/merge.yaml", "/acme/.gitslice/merge.yaml", "/.gitslice/merge.yaml"}) {
+	if got := ConfigPaths("/acme/app/go.sum"); !reflect.DeepEqual(got, []string{"/acme/app/.gitslice/merge.yaml", "/acme/.gitslice/merge.yaml"}) {
 		t.Fatalf("ConfigPaths = %v", got)
 	}
 }

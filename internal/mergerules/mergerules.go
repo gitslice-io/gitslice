@@ -17,11 +17,12 @@ package mergerules
 
 import (
 	"bytes"
+	"context"
 	"fmt"
-	"path"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"gitslice.io/gitslice/internal/gitslicecfg"
 	"gopkg.in/yaml.v3"
 )
 
@@ -115,39 +116,36 @@ func (f *File) Match(p string) (Strategy, bool) {
 	return "", false
 }
 
-// ConfigPaths are the rules files that could apply to p, nearest first.
+// ConfigPaths are the rules files that could apply to p, nearest first,
+// bounded at /<account>/.gitslice/merge.yaml.
 func ConfigPaths(p string) []string {
-	var out []string
-	dir := path.Dir(path.Clean("/" + strings.TrimPrefix(p, "/")))
-	for {
-		out = append(out, path.Join(dir, ConfigName))
-		if dir == "/" {
-			return out
-		}
-		dir = path.Dir(dir)
+	return gitslicecfg.ConfigPaths("", p, ConfigName)
+}
+
+// NewResolver creates a memoized Resolver[*File] for .gitslice/merge.yaml.
+func NewResolver(read gitslicecfg.ReadConfigFunc) *gitslicecfg.Resolver[*File] {
+	return gitslicecfg.NewResolver(ConfigName, read, Parse)
+}
+
+// LookupWithResolver finds the nearest merge rules file in treeID via resolver
+// and returns the strategy matching p (if any).
+func LookupWithResolver(ctx context.Context, resolver *gitslicecfg.Resolver[*File], treeID, account, p string) (Strategy, bool, error) {
+	_, f, exists, err := resolver.Nearest(ctx, treeID, account, p)
+	if err != nil || !exists {
+		return "", false, err
 	}
+	s, matched := f.Match(p)
+	return s, matched, nil
 }
 
 // Lookup finds the strategy for p. read returns a rules file's content at
 // the new base (ok false when there is none). The nearest file that exists
 // decides; a path it has no rule for has none.
 func Lookup(p string, read func(configPath string) (data []byte, ok bool, err error)) (Strategy, bool, error) {
-	for _, cfg := range ConfigPaths(p) {
-		data, ok, err := read(cfg)
-		if err != nil {
-			return "", false, err
-		}
-		if !ok {
-			continue
-		}
-		f, err := Parse(strings.TrimSuffix(cfg, "/"+ConfigName), data)
-		if err != nil {
-			return "", false, err
-		}
-		s, matched := f.Match(p)
-		return s, matched, nil
-	}
-	return "", false, nil
+	resolver := NewResolver(func(_ context.Context, _, cfg string) ([]byte, bool, error) {
+		return read(cfg)
+	})
+	return LookupWithResolver(context.Background(), resolver, "", "", p)
 }
 
 // MergeUnion merges three versions of a line set: the new base's lines in

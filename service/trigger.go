@@ -5,12 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
 	"gitslice.io/gitslice/internal/authz"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/gitslicecfg"
 	gspaths "gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/triggers"
@@ -33,22 +32,12 @@ func (t TreeFiles) ReadFile(ctx context.Context, rootTreeID, p string) ([]byte, 
 	if t.Repository == nil || t.Objects == nil {
 		return nil, fmt.Errorf("tree reader is not configured")
 	}
-	entry, err := t.Repository.GetFileAtTree(ctx, rootTreeID, p)
-	if errors.Is(err, storage.ErrNotFound) {
-		return nil, triggers.ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	if entry.Size > maxTriggerFileBytes {
+	reader := newGitsliceTreeReader(t.Repository, t.Objects, maxTriggerFileBytes, "", triggers.ErrNotFound)
+	data, err := reader.ReadFile(ctx, rootTreeID, p)
+	if errors.Is(err, gitslicecfg.ErrFileTooLarge) {
 		return nil, fmt.Errorf("%s is larger than %d MiB", p, maxTriggerFileBytes>>20)
 	}
-	rc, err := t.Objects.Get(ctx, filesystem.BlobKey(entry.ContentHash), 0, 0)
-	if err != nil {
-		return nil, err
-	}
-	defer rc.Close()
-	return io.ReadAll(io.LimitReader(rc, maxTriggerFileBytes))
+	return data, err
 }
 
 // TriggerService shows triggers and their runs, and runs them by hand.

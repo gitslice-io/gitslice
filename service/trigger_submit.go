@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"gitslice.io/gitslice/internal/gitslicecfg"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/triggers"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -57,53 +58,7 @@ func (s *ChangesetService) submitExtras(ctx context.Context, cs *corev1.Changese
 
 // touchesGitslice reports whether a path is inside a .gitslice folder.
 func touchesGitslice(p string) bool {
-	return triggers.TouchesGitsliceConfig(p)
-}
-
-func patchsetTouchedGitslicePath(ctx context.Context, repo storage.RepositoryStore, patchset *corev1.Patchset) string {
-	if patchset == nil {
-		return ""
-	}
-	for _, p := range patchset.GetChangedPaths() {
-		if triggers.TouchesGitsliceConfig(p) {
-			return p
-		}
-	}
-	for _, edit := range patchset.GetFileEdits() {
-		if edit.GetPath() != "" && triggers.TouchesGitsliceConfig(edit.GetPath()) {
-			return edit.GetPath()
-		}
-		if edit.GetOldPath() != "" && triggers.TouchesGitsliceConfig(edit.GetOldPath()) {
-			return edit.GetOldPath()
-		}
-	}
-	if repo != nil && strings.TrimSpace(patchset.GetBaseCommitId()) != "" {
-		for _, edit := range patchset.GetFileEdits() {
-			checkDirs := []string{strings.TrimSpace(edit.GetOldPath())}
-			if strings.EqualFold(strings.TrimSpace(edit.GetOp()), "delete") {
-				checkDirs = append(checkDirs, strings.TrimSpace(edit.GetPath()))
-			}
-			for _, dir := range checkDirs {
-				if dir == "" {
-					continue
-				}
-				entry, err := repo.GetEntry(ctx, patchset.GetBaseCommitId(), dir)
-				if err != nil || entry.Kind == "file" {
-					continue
-				}
-				children, err := repo.ListFiles(ctx, patchset.GetBaseCommitId(), dir)
-				if err != nil {
-					continue
-				}
-				for _, child := range children {
-					if triggers.TouchesGitsliceConfig(child.Path) {
-						return child.Path
-					}
-				}
-			}
-		}
-	}
-	return ""
+	return gitslicecfg.TouchesGitslice(p)
 }
 
 // skippedTriggerChecks returns the slice's required checks that only a

@@ -8,9 +8,9 @@ import (
 
 	"gitslice.io/gitslice/internal/analytics"
 	"gitslice.io/gitslice/internal/authz"
+	"gitslice.io/gitslice/internal/gitslicecfg"
 	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
-	"gitslice.io/gitslice/internal/triggers"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -111,7 +111,7 @@ func (s *ChangesetService) pathOperationTarget(ctx context.Context, subjectID st
 	if isIncludedPath(included, destination) {
 		return nil, "", "", status.Errorf(codes.FailedPrecondition, "%s is one of the slice's included paths; choose a path inside it", destination)
 	}
-	if triggers.TouchesGitsliceConfig(source) || triggers.TouchesGitsliceConfig(destination) {
+	if gitslicecfg.TouchesGitslice(source) || gitslicecfg.TouchesGitslice(destination) {
 		return nil, "", "", status.Error(codes.FailedPrecondition, ".gitslice configuration paths cannot be copied or moved directly; use a changeset")
 	}
 	return slice, source, destination, nil
@@ -126,7 +126,7 @@ func (s *ChangesetService) landPathOperation(ctx context.Context, subjectID stri
 	if len(readable) > 0 && (def.GetRequiredApprovals() > 0 || def.GetRequiredHumanApprovals() > 0 || len(def.GetRequiredChecks()) > 0) {
 		return nil, status.Errorf(codes.FailedPrecondition, "slice %s/%s requires review or checks; use a changeset to copy paths from outside the slice", slice.GetRef().GetAccount(), slice.GetRef().GetSlice())
 	}
-	if triggers.TouchesGitsliceConfig(edit.GetOldPath()) || triggers.TouchesGitsliceConfig(edit.GetPath()) {
+	if gitslicecfg.TouchesGitslice(edit.GetOldPath()) || gitslicecfg.TouchesGitslice(edit.GetPath()) {
 		return nil, status.Error(codes.FailedPrecondition, ".gitslice configuration paths cannot be copied or moved directly; use a changeset")
 	}
 	submitter, ok := s.Changesets.(changesetSubmitBypassingRequirements)
@@ -138,45 +138,39 @@ func (s *ChangesetService) landPathOperation(ctx context.Context, subjectID stri
 		return nil, grpcError(err)
 	}
 	baseCommitID := ref.GetCommitId()
-	sourceEntry, err := s.Repository.GetEntry(ctx, baseCommitID, edit.OldPath)
-	if err != nil {
+	if _, err := s.Repository.GetEntry(ctx, baseCommitID, edit.OldPath); err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
 			return nil, status.Errorf(codes.NotFound, "%s does not exist", edit.OldPath)
 		}
 		return nil, grpcError(err)
 	}
-	var childPaths []string
-	if sourceEntry.Kind != "file" {
-		children, err := s.Repository.ListFiles(ctx, baseCommitID, edit.OldPath)
-		if err != nil {
-			return nil, grpcError(err)
-		}
-		for _, child := range children {
-			if triggers.TouchesGitsliceConfig(child.Path) {
-				return nil, status.Error(codes.FailedPrecondition, ".gitslice configuration paths cannot be copied or moved directly; use a changeset")
-			}
-			childPaths = append(childPaths, child.Path)
-		}
+	edits := []*corev1.FileEdit{edit}
+	touchedPaths, err := collectPatchsetPaths(ctx, s.Repository, baseCommitID, "", &corev1.Patchset{
+		BaseCommitId: baseCommitID,
+		FileEdits:    edits,
+	})
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if gitslicecfg.FirstGitslicePath(touchedPaths) != "" {
+		return nil, status.Error(codes.FailedPrecondition, ".gitslice configuration paths cannot be copied or moved directly; use a changeset")
 	}
 	if _, err := s.Repository.GetEntry(ctx, baseCommitID, edit.Path); err == nil {
 		return nil, status.Errorf(codes.AlreadyExists, "%s already exists", edit.Path)
 	} else if !errors.Is(err, storage.ErrNotFound) {
 		return nil, grpcError(err)
 	}
-	edits := []*corev1.FileEdit{edit}
 	validation, err := s.validator.validateFileEditsReading(ctx, slice, baseCommitID, "", edits, true, readable)
 	if err != nil {
 		return nil, err
 	}
-	for _, p := range validation.AffectedPaths {
-		if triggers.TouchesGitsliceConfig(p) {
-			return nil, status.Error(codes.FailedPrecondition, ".gitslice configuration paths cannot be copied or moved directly; use a changeset")
-		}
+	if gitslicecfg.FirstGitslicePath(validation.AffectedPaths) != "" {
+		return nil, status.Error(codes.FailedPrecondition, ".gitslice configuration paths cannot be copied or moved directly; use a changeset")
 	}
 	if err := s.ensurePathOperationWithinProtectedSlices(ctx, slice, edit, readable, validation.Coverage); err != nil {
 		return nil, err
 	}
-	if err := s.requirePathOwnersForDirectOperation(ctx, baseCommitID, subjectID, edit, childPaths); err != nil {
+	if err := s.requirePathOwnersForDirectOperation(ctx, baseCommitID, subjectID, touchedPaths); err != nil {
 		return nil, err
 	}
 	cs, err := s.Changesets.Create(ctx, subjectID, &corev1.CreateChangesetRequest{

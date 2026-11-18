@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"path"
 	"sort"
@@ -15,7 +14,7 @@ import (
 	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/checks"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/gitslicecfg"
 	"gitslice.io/gitslice/internal/secretmask"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -39,37 +38,12 @@ func (r checkTreeReader) ReadFile(ctx context.Context, rootTreeID, logicalPath s
 	if r.repository == nil || r.objects == nil {
 		return nil, fmt.Errorf("check tree reader is not configured")
 	}
-	entry, err := r.repository.GetFileAtTree(ctx, rootTreeID, r.storagePath(logicalPath))
-	if errors.Is(err, storage.ErrNotFound) {
-		return nil, checks.ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	if entry.Size > maxCheckTreeReadFileBytes {
+	reader := newGitsliceTreeReader(r.repository, r.objects, maxCheckTreeReadFileBytes, r.account, checks.ErrNotFound)
+	data, err := reader.ReadFile(ctx, rootTreeID, logicalPath)
+	if errors.Is(err, gitslicecfg.ErrFileTooLarge) {
 		return nil, status.Errorf(codes.ResourceExhausted, "check file %s exceeds %d byte limit", logicalPath, maxCheckTreeReadFileBytes)
 	}
-	rc, err := r.objects.Get(ctx, filesystem.BlobKey(entry.ContentHash), 0, 0)
-	if err != nil {
-		return nil, err
-	}
-	defer rc.Close()
-	data, err := io.ReadAll(io.LimitReader(rc, maxCheckTreeReadFileBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > maxCheckTreeReadFileBytes {
-		return nil, status.Errorf(codes.ResourceExhausted, "check file %s exceeds %d byte limit", logicalPath, maxCheckTreeReadFileBytes)
-	}
-	return data, nil
-}
-
-func (r checkTreeReader) storagePath(logicalPath string) string {
-	cleaned := path.Clean("/" + strings.TrimSpace(logicalPath))
-	if cleaned == "/" {
-		return "/" + r.account
-	}
-	return "/" + path.Join(r.account, strings.TrimPrefix(cleaned, "/"))
+	return data, err
 }
 
 type checkDispatcher struct {
@@ -1120,7 +1094,19 @@ func (d *checkDispatcher) patchsetApprovedForGitsliceSecrets(ctx context.Context
 		return false
 	}
 	account := slice.GetRef().GetAccount()
-	touchedGitslice := patchsetTouchedGitslicePath(ctx, d.Repository, patchset) != ""
+	var repo storage.RepositoryStore
+	if d != nil {
+		repo = d.Repository
+	}
+	headCommitID, err := targetRefHeadCommitID(ctx, repo, cs)
+	if err != nil {
+		return false
+	}
+	touched, err := patchsetTouchedGitslicePathAt(ctx, repo, headCommitID, patchset)
+	if err != nil {
+		return false
+	}
+	touchedGitslice := touched != ""
 	patchsetAuthor := strings.TrimSpace(patchset.GetAuthor())
 	if patchsetAuthor == "" && cs != nil {
 		patchsetAuthor = strings.TrimSpace(cs.GetAuthor())
@@ -1182,7 +1168,7 @@ func isRequiredSliceCheck(slice *corev1.Slice, checkName string) bool {
 // "<name>" at the root) as a path in the account.
 func checkSecretFolder(account, checkName string) string {
 	dir := path.Dir("/" + strings.Trim(strings.TrimSpace(checkName), "/"))
-	return checkTreeReader{account: account}.storagePath(dir)
+	return gitslicecfg.AccountStoragePath(account, dir)
 }
 
 func checkRunSpecFromPlan(runID string, spec checks.CheckSpec, secrets map[string]string) *corev1.CheckRunSpec {

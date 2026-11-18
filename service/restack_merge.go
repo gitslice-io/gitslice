@@ -64,33 +64,20 @@ func (s *ChangesetStackService) rebaseEdits(ctx context.Context, cs *corev1.Chan
 		return out
 	}
 
-	// Merge rules (.gitslice/merge.yaml) are read from the new base.
-	ruleFiles := map[string]struct {
-		data []byte
-		ok   bool
-	}{}
+	// Merge rules (.gitslice/merge.yaml) are read from the new base and memoized per config path.
+	ruleResolver := mergerules.NewResolver(func(ctx context.Context, _, cfg string) ([]byte, bool, error) {
+		base, err := s.validator.pathBase(ctx, newBaseCommitID, newBaseTreeID, cfg)
+		if err != nil {
+			return nil, false, err
+		}
+		if !base.GetExists() || base.GetEntryKind() != "file" {
+			return nil, false, nil
+		}
+		return s.restackContent(ctx, base.GetContentHash())
+	})
+	account := cs.GetAuthoringSlice().GetAccount()
 	rules := func(p string) (mergerules.Strategy, bool, error) {
-		return mergerules.Lookup(p, func(cfg string) ([]byte, bool, error) {
-			if f, seen := ruleFiles[cfg]; seen {
-				return f.data, f.ok, nil
-			}
-			base, err := s.validator.pathBase(ctx, newBaseCommitID, newBaseTreeID, cfg)
-			if err != nil {
-				return nil, false, err
-			}
-			var data []byte
-			ok := base.GetExists() && base.GetEntryKind() == "file"
-			if ok {
-				if data, ok, err = s.restackContent(ctx, base.GetContentHash()); err != nil {
-					return nil, false, err
-				}
-			}
-			ruleFiles[cfg] = struct {
-				data []byte
-				ok   bool
-			}{data, ok}
-			return data, ok, nil
-		})
+		return mergerules.LookupWithResolver(ctx, ruleResolver, newBaseTreeID, account, p)
 	}
 
 	edits := make([]*corev1.FileEdit, 0, len(patchset.GetFileEdits()))

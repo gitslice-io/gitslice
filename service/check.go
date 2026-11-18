@@ -176,7 +176,15 @@ func (s *CheckService) AllowPatchsetSecrets(ctx context.Context, req *corev1.All
 	if repo == nil && s.dispatcher != nil {
 		repo = s.dispatcher.Repository
 	}
-	if touched := patchsetTouchedGitslicePath(ctx, repo, patchset); touched != "" {
+	headCommitID, err := targetRefHeadCommitID(ctx, repo, cs)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	touched, err := patchsetTouchedGitslicePathAt(ctx, repo, headCommitID, patchset)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if touched != "" {
 		if err := authorizeAccount(ctx, s.Auth, subjectID, slice.GetRef().GetAccount(), authz.ActionAdmin); err != nil {
 			return nil, err
 		}

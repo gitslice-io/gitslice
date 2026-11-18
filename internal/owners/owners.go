@@ -17,11 +17,13 @@ package owners
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"path"
 	"strings"
 
 	"github.com/bmatcuk/doublestar/v4"
+	"gitslice.io/gitslice/internal/gitslicecfg"
 	"gopkg.in/yaml.v3"
 )
 
@@ -171,20 +173,30 @@ func (f *File) MatchIndex(p string) (Rule, int, bool) {
 // ConfigPaths returns the owners config files that could apply to filePath,
 // nearest first, walking up to /<account>/.gitslice/owners.yaml.
 func ConfigPaths(filePath string) []string {
-	cleaned, ok := normalizeFilePath(filePath)
-	if !ok {
-		return nil
+	return gitslicecfg.ConfigPaths("", filePath, ConfigName)
+}
+
+// NewResolver creates a memoized Resolver[*File] for .gitslice/owners.yaml.
+func NewResolver(read gitslicecfg.ReadConfigFunc) *gitslicecfg.Resolver[*File] {
+	return gitslicecfg.NewResolver(ConfigName, read, Parse)
+}
+
+// LookupMatchWithResolver finds the nearest owners file in treeID via resolver
+// and returns the matching rule within it (if any).
+func LookupMatchWithResolver(ctx context.Context, resolver *gitslicecfg.Resolver[*File], treeID, account, p string) (MatchResult, bool, error) {
+	cfgPath, f, exists, err := resolver.Nearest(ctx, treeID, account, p)
+	if err != nil || !exists {
+		return MatchResult{}, false, err
 	}
-	dir := path.Dir(cleaned)
-	if dir == "/" {
-		return nil
+	rule, idx, matched := f.MatchIndex(p)
+	if !matched {
+		return MatchResult{}, false, nil
 	}
-	var out []string
-	for dir != "/" && dir != "." {
-		out = append(out, path.Join(dir, ConfigName))
-		dir = path.Dir(dir)
-	}
-	return out
+	return MatchResult{
+		ConfigPath: cfgPath,
+		RuleIndex:  idx,
+		Rule:       rule,
+	}, true, nil
 }
 
 // Lookup finds the owner rule for p. read returns an owners file's content at
@@ -201,29 +213,10 @@ func Lookup(p string, read func(configPath string) (data []byte, ok bool, err er
 // LookupMatch is like Lookup, returning the config path and rule index of the
 // matching rule.
 func LookupMatch(p string, read func(configPath string) (data []byte, ok bool, err error)) (MatchResult, bool, error) {
-	for _, cfg := range ConfigPaths(p) {
-		data, ok, err := read(cfg)
-		if err != nil {
-			return MatchResult{}, false, err
-		}
-		if !ok {
-			continue
-		}
-		f, err := Parse(strings.TrimSuffix(cfg, "/"+ConfigName), data)
-		if err != nil {
-			return MatchResult{}, false, err
-		}
-		rule, idx, matched := f.MatchIndex(p)
-		if !matched {
-			return MatchResult{}, false, nil
-		}
-		return MatchResult{
-			ConfigPath: cfg,
-			RuleIndex:  idx,
-			Rule:       rule,
-		}, true, nil
-	}
-	return MatchResult{}, false, nil
+	resolver := NewResolver(func(_ context.Context, _, cfg string) ([]byte, bool, error) {
+		return read(cfg)
+	})
+	return LookupMatchWithResolver(context.Background(), resolver, "", "", p)
 }
 
 // ParseGroupRef parses an owner entry of the form "@account/name". It returns
