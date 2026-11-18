@@ -27,7 +27,3 @@ type pendingPublishRow struct {
 type GitImportRecord = storage.GitImportRecord
 
 type GitImportedCommitRecord = storage.GitImportedCommitRecord
-
-type scanner interface {
-	Scan(dest ...any) error
-}

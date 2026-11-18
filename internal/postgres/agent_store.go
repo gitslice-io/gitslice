@@ -506,11 +506,7 @@ func (s *AgentStore) LatestEventSeq(ctx context.Context, conversationID string) 
 	return seq.Int64, nil
 }
 
-type rowScanner interface {
-	Scan(dest ...any) error
-}
-
-func scanDaemon(row rowScanner) (*corev1.AgentDaemon, error) {
+func scanDaemon(row scanner) (*corev1.AgentDaemon, error) {
 	var (
 		d                     corev1.AgentDaemon
 		lastSeenAt, createdAt time.Time
@@ -528,7 +524,7 @@ func scanDaemon(row rowScanner) (*corev1.AgentDaemon, error) {
 	return &d, nil
 }
 
-func scanConversation(row rowScanner) (*corev1.Conversation, error) {
+func scanConversation(row scanner) (*corev1.Conversation, error) {
 	var (
 		c                    corev1.Conversation
 		account, sliceName   string

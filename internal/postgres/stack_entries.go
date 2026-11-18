@@ -156,7 +156,7 @@ func (s *ChangesetStore) baseTreeForPatchsetTx(ctx context.Context, tx *sql.Tx, 
 	return s.baseTreeForPatchset(ctx, tx, patchset)
 }
 
-func (s *ChangesetStore) baseTreeForPatchset(ctx context.Context, queryer publishQueryer, patchset *corev1.Patchset) (string, error) {
+func (s *ChangesetStore) baseTreeForPatchset(ctx context.Context, queryer dbtx, patchset *corev1.Patchset) (string, error) {
 	if patchset.BaseTreeId != "" {
 		return patchset.BaseTreeId, nil
 	}
@@ -234,19 +234,8 @@ func markStaleStackChildrenTx(ctx context.Context, tx *sql.Tx, stackID, parentCh
 }
 
 func (s *ChangesetStore) listStackEntries(ctx context.Context, stackID string) ([]*corev1.ChangesetStackEntry, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		select changeset_id, parent_changeset_id, parent_patchset_id, sibling_order, display_order, depth, state
-		from changeset_stack_entries
-		where stack_id = $1
-		order by display_order, changeset_id
-	`, stackID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var entries []*corev1.ChangesetStackEntry
 	var ids []string
-	for rows.Next() {
+	entries, err := querySlice(ctx, s.db, func(rows *sql.Rows) (*corev1.ChangesetStackEntry, error) {
 		entry := &corev1.ChangesetStackEntry{StackId: stackID}
 		var parentChangesetID, parentPatchsetID sql.NullString
 		if err := rows.Scan(&entry.ChangesetId, &parentChangesetID, &parentPatchsetID, &entry.SiblingOrder, &entry.DisplayOrder, &entry.Depth, &entry.State); err != nil {
@@ -259,9 +248,14 @@ func (s *ChangesetStore) listStackEntries(ctx context.Context, stackID string) (
 			entry.ParentPatchsetId = parentPatchsetID.String
 		}
 		ids = append(ids, entry.ChangesetId)
-		entries = append(entries, entry)
-	}
-	if err := rows.Err(); err != nil {
+		return entry, nil
+	}, `
+		select changeset_id, parent_changeset_id, parent_patchset_id, sibling_order, display_order, depth, state
+		from changeset_stack_entries
+		where stack_id = $1
+		order by display_order, changeset_id
+	`, stackID)
+	if err != nil {
 		return nil, err
 	}
 	changesets, err := s.getManyByIDs(ctx, ids)
@@ -313,8 +307,13 @@ func lockStackEntryForMutationTx(ctx context.Context, tx *sql.Tx, stackID, chang
 	return entry, status, err
 }
 
-func stackEntriesForMutationTx(ctx context.Context, tx *sql.Tx, stackID string) (map[string]stackEntryMutationRow, error) {
-	rows, err := tx.QueryContext(ctx, `
+func stackEntriesForMutationTx(ctx context.Context, q dbtx, stackID string) (map[string]stackEntryMutationRow, error) {
+	list, err := querySlice(ctx, q, func(rows *sql.Rows) (stackEntryMutationRow, error) {
+		var entry stackEntryMutationRow
+		err := rows.Scan(&entry.StackID, &entry.ChangesetID, &entry.ParentChangesetID, &entry.ParentPatchsetID,
+			&entry.SiblingOrder, &entry.DisplayOrder, &entry.Depth, &entry.State)
+		return entry, err
+	}, `
 		select stack_id, changeset_id, parent_changeset_id, parent_patchset_id,
 		       sibling_order, display_order, depth, state
 		from changeset_stack_entries
@@ -324,17 +323,11 @@ func stackEntriesForMutationTx(ctx context.Context, tx *sql.Tx, stackID string) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	entries := map[string]stackEntryMutationRow{}
-	for rows.Next() {
-		var entry stackEntryMutationRow
-		if err := rows.Scan(&entry.StackID, &entry.ChangesetID, &entry.ParentChangesetID, &entry.ParentPatchsetID,
-			&entry.SiblingOrder, &entry.DisplayOrder, &entry.Depth, &entry.State); err != nil {
-			return nil, err
-		}
+	entries := make(map[string]stackEntryMutationRow, len(list))
+	for _, entry := range list {
 		entries[entry.ChangesetID] = entry
 	}
-	return entries, rows.Err()
+	return entries, nil
 }
 
 func stackEntryHasAncestor(entries map[string]stackEntryMutationRow, changesetID, ancestorID string) bool {
@@ -460,23 +453,7 @@ func markSubtreeNeedsRestackTx(ctx context.Context, tx *sql.Tx, stackID, rootCha
 	if err != nil {
 		return err
 	}
-	descendants := map[string]struct{}{rootChangesetID: {}}
-	changed := true
-	for changed {
-		changed = false
-		for _, entry := range entries {
-			if _, ok := descendants[entry.ChangesetID]; ok {
-				continue
-			}
-			if entry.ParentChangesetID.Valid {
-				if _, ok := descendants[entry.ParentChangesetID.String]; ok {
-					descendants[entry.ChangesetID] = struct{}{}
-					changed = true
-				}
-			}
-		}
-	}
-	for changesetID := range descendants {
+	for _, changesetID := range stackSubtreeChangesetIDs(entries, rootChangesetID) {
 		if _, err := tx.ExecContext(ctx, `
 			update changeset_stack_entries
 			set state = 'needs_restack',

@@ -367,12 +367,12 @@ func (s *AuthStore) listGroupMembersByID(ctx context.Context, groupID string) ([
 	return out, rows.Err()
 }
 
-func groupMemberSubjectIDsTx(ctx context.Context, q publishQueryer, groupRef string) (map[string]bool, error) {
+func groupMemberSubjectIDsTx(ctx context.Context, q dbtx, groupRef string) (map[string]bool, error) {
 	accountSlug, name, ok := storage.ParseGroupRef(groupRef)
 	if !ok {
 		return nil, nil
 	}
-	rows, err := q.QueryContext(ctx, `
+	ids, err := querySlice(ctx, q, scanString, `
 		select agm.subject_id
 		from account_group_members agm
 		join account_groups g on g.id = agm.group_id
@@ -382,14 +382,9 @@ func groupMemberSubjectIDsTx(ctx context.Context, q publishQueryer, groupRef str
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	out := map[string]bool{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
+	out := make(map[string]bool, len(ids))
+	for _, id := range ids {
 		out[id] = true
 	}
-	return out, rows.Err()
+	return out, nil
 }

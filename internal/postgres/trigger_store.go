@@ -26,7 +26,7 @@ const triggerRunColumns = `trigger_runs.id, accounts.slug, trigger_runs.trigger_
 
 const triggerRunFrom = ` from trigger_runs join accounts on accounts.id = trigger_runs.account_id `
 
-func scanTriggerRun(row rowScanner) (*storage.TriggerRun, error) {
+func scanTriggerRun(row scanner) (*storage.TriggerRun, error) {
 	var run storage.TriggerRun
 	var state []byte
 	var lease, started, finished, deadline sql.NullTime
@@ -49,21 +49,14 @@ func scanTriggerRun(row rowScanner) (*storage.TriggerRun, error) {
 	return &run, nil
 }
 
-func (s *TriggerStore) queryRuns(ctx context.Context, q secretQueryer, query string, args ...any) ([]storage.TriggerRun, error) {
-	rows, err := q.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []storage.TriggerRun
-	for rows.Next() {
+func (s *TriggerStore) queryRuns(ctx context.Context, q dbtx, query string, args ...any) ([]storage.TriggerRun, error) {
+	return querySlice(ctx, q, func(rows *sql.Rows) (storage.TriggerRun, error) {
 		run, err := scanTriggerRun(rows)
 		if err != nil {
-			return nil, err
+			return storage.TriggerRun{}, err
 		}
-		out = append(out, *run)
-	}
-	return out, rows.Err()
+		return *run, nil
+	}, query, args...)
 }
 
 func (s *TriggerStore) CreateTriggerRuns(ctx context.Context, runs []storage.TriggerRun) ([]storage.TriggerRun, error) {

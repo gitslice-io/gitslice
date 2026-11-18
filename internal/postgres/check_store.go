@@ -38,92 +38,82 @@ func (s *CheckStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInpu
 		return nil, fmt.Errorf("%w: check_name is required", storage.ErrInvalid)
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	var advisoryLock int
-	if err := tx.QueryRowContext(ctx, `
-		select 1
-		from (select pg_advisory_xact_lock(hashtextextended($1 || '/' || $2, 0))) locked
-	`, patchsetID, checkName).Scan(&advisoryLock); err != nil {
-		return nil, err
-	}
-
-	if err := requirePatchsetForChangeset(ctx, tx, changesetID, patchsetID); err != nil {
-		return nil, err
-	}
-
-	rows, err := tx.QueryContext(ctx, `
-		select attempt
-		from check_runs
-		where patchset_id = $1 and check_name = $2 and superseded_by_run_id is null
-		for update
-	`, patchsetID, checkName)
-	if err != nil {
-		return nil, err
-	}
-	attempt := int32(1)
-	for rows.Next() {
-		var previousAttempt int32
-		if err := rows.Scan(&previousAttempt); err != nil {
-			rows.Close()
-			return nil, err
+	runID, err := inTx(ctx, s.db, func(tx *sql.Tx) (string, error) {
+		var advisoryLock int
+		if err := tx.QueryRowContext(ctx, `
+			select 1
+			from (select pg_advisory_xact_lock(hashtextextended($1 || '/' || $2, 0))) locked
+		`, patchsetID, checkName).Scan(&advisoryLock); err != nil {
+			return "", err
 		}
-		if previousAttempt >= attempt {
-			attempt = previousAttempt + 1
+		if err := requirePatchsetForChangeset(ctx, tx, changesetID, patchsetID); err != nil {
+			return "", err
 		}
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
+		attempts, err := querySlice(ctx, tx, func(rows *sql.Rows) (int32, error) {
+			var prev int32
+			err := rows.Scan(&prev)
+			return prev, err
+		}, `
+			select attempt
+			from check_runs
+			where patchset_id = $1 and check_name = $2 and superseded_by_run_id is null
+			for update
+		`, patchsetID, checkName)
+		if err != nil {
+			return "", err
+		}
+		attempt := int32(1)
+		for _, prev := range attempts {
+			if prev >= attempt {
+				attempt = prev + 1
+			}
+		}
 
-	runID, err := objectid.RandomID("run")
-	if err != nil {
-		return nil, err
-	}
-	var (
-		startedExpr  = "null"
-		finishedExpr = "null"
-		durationExpr = "null"
-	)
-	if status == "running" || isTerminalCheckRunStatus(status) {
-		startedExpr = "now()"
-	}
-	if isTerminalCheckRunStatus(status) {
-		finishedExpr = "now()"
-		durationExpr = "0"
-	}
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
-		insert into check_runs(id, changeset_id, patchset_id, check_name, daemon_id, provenance, attempt, status, started_at, finished_at, duration_ms, trigger_run_id)
-		values ($1, $2, $3, $4, nullif($5, ''), $6, $7, $8, %s, %s, %s, nullif($9, ''))
-	`, startedExpr, finishedExpr, durationExpr), runID, changesetID, patchsetID, checkName, daemonID, provenance, attempt, status, strings.TrimSpace(in.TriggerRunID)); err != nil {
-		return nil, err
-	}
-	if attempt > 1 {
-		if _, err := tx.ExecContext(ctx, `
-			update check_runs
-			set superseded_by_run_id = $1, updated_at = now()
-			where patchset_id = $2 and check_name = $3 and superseded_by_run_id is null and id <> $1
-		`, runID, patchsetID, checkName); err != nil {
-			return nil, err
+		runID, err := objectid.RandomID("run")
+		if err != nil {
+			return "", err
 		}
-	}
-	if err := tx.Commit(); err != nil {
+		var (
+			startedExpr  = "null"
+			finishedExpr = "null"
+			durationExpr = "null"
+		)
+		if status == "running" || isTerminalCheckRunStatus(status) {
+			startedExpr = "now()"
+		}
+		if isTerminalCheckRunStatus(status) {
+			finishedExpr = "now()"
+			durationExpr = "0"
+		}
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
+			insert into check_runs(id, changeset_id, patchset_id, check_name, daemon_id, provenance, attempt, status, started_at, finished_at, duration_ms, trigger_run_id)
+			values ($1, $2, $3, $4, nullif($5, ''), $6, $7, $8, %s, %s, %s, nullif($9, ''))
+		`, startedExpr, finishedExpr, durationExpr), runID, changesetID, patchsetID, checkName, daemonID, provenance, attempt, status, strings.TrimSpace(in.TriggerRunID)); err != nil {
+			return "", err
+		}
+		if attempt > 1 {
+			if _, err := tx.ExecContext(ctx, `
+				update check_runs
+				set superseded_by_run_id = $1, updated_at = now()
+				where patchset_id = $2 and check_name = $3 and superseded_by_run_id is null and id <> $1
+			`, runID, patchsetID, checkName); err != nil {
+				return "", err
+			}
+		}
+		return runID, nil
+	})
+	if err != nil {
 		return nil, err
 	}
 	return s.GetCheckRun(ctx, runID)
 }
 
+const checkRunSelectColumns = `id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = check_runs.daemon_id), ''), provenance,
+		       attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at, coalesce(trigger_run_id, ''), details_url, annotations`
+
 func (s *CheckStore) GetCheckRun(ctx context.Context, runID string) (*corev1.CheckRun, error) {
 	row := s.db.QueryRowContext(ctx, `
-		select id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = check_runs.daemon_id), ''), provenance,
-		       attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at, coalesce(trigger_run_id, ''), details_url, annotations
+		select `+checkRunSelectColumns+`
 		from check_runs
 		where id = $1
 	`, strings.TrimSpace(runID))
@@ -136,28 +126,16 @@ func (s *CheckStore) ListCheckRuns(ctx context.Context, changesetID, patchsetID 
 	if changesetID == "" && patchsetID == "" {
 		return nil, fmt.Errorf("%w: changeset_id or patchset_id is required", storage.ErrInvalid)
 	}
-	rows, err := s.db.QueryContext(ctx, `
-		select id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = check_runs.daemon_id), ''), provenance,
-		       attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at, coalesce(trigger_run_id, ''), details_url, annotations
+	return querySlice(ctx, s.db, func(rows *sql.Rows) (*corev1.CheckRun, error) {
+		return scanCheckRun(rows)
+	}, `
+		select `+checkRunSelectColumns+`
 		from check_runs
 		where superseded_by_run_id is null
 		  and ($1 = '' or changeset_id = $1)
 		  and ($2 = '' or patchset_id = $2)
 		order by patchset_id asc, check_name asc, attempt asc
 	`, changesetID, patchsetID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*corev1.CheckRun
-	for rows.Next() {
-		run, err := scanCheckRun(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, run)
-	}
-	return out, rows.Err()
 }
 
 func (s *CheckStore) ListRunsByDaemonStatus(ctx context.Context, daemonID, status string) ([]*corev1.CheckRun, error) {
@@ -169,28 +147,16 @@ func (s *CheckStore) ListRunsByDaemonStatus(ctx context.Context, daemonID, statu
 	if daemonID == "" {
 		return nil, fmt.Errorf("%w: daemon_id is required", storage.ErrInvalid)
 	}
-	rows, err := s.db.QueryContext(ctx, `
-		select id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = check_runs.daemon_id), ''), provenance,
-		       attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at, coalesce(trigger_run_id, ''), details_url, annotations
+	return querySlice(ctx, s.db, func(rows *sql.Rows) (*corev1.CheckRun, error) {
+		return scanCheckRun(rows)
+	}, `
+		select `+checkRunSelectColumns+`
 		from check_runs
 		where superseded_by_run_id is null
 		  and daemon_id = $1
 		  and status = $2
 		order by created_at asc, id asc
 	`, daemonID, normalizedStatus)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*corev1.CheckRun
-	for rows.Next() {
-		run, err := scanCheckRun(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, run)
-	}
-	return out, rows.Err()
 }
 
 func (s *CheckStore) CancelOpenCheckRunsBeforePatchset(ctx context.Context, changesetID, currentPatchsetID string) ([]*corev1.CheckRun, error) {
@@ -202,51 +168,27 @@ func (s *CheckStore) CancelOpenCheckRunsBeforePatchset(ctx context.Context, chan
 	if currentPatchsetID == "" {
 		return nil, fmt.Errorf("%w: current_patchset_id is required", storage.ErrInvalid)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	if err := requirePatchsetForChangeset(ctx, tx, changesetID, currentPatchsetID); err != nil {
-		return nil, err
-	}
-
-	rows, err := tx.QueryContext(ctx, `
-		update check_runs
-		set status = 'canceled',
-		    exit_code = -1,
-		    summary = 'superseded by newer patchset',
-		    started_at = coalesce(started_at, now()),
-		    finished_at = now(),
-		    duration_ms = greatest(0, floor(extract(epoch from (now() - coalesce(started_at, now()))) * 1000)::bigint),
-		    updated_at = now()
-		where changeset_id = $1
-		  and patchset_id <> $2
-		  and superseded_by_run_id is null
-		  and status in ('queued', 'running')
-		returning id, changeset_id, patchset_id, check_name, coalesce(daemon_id, ''), coalesce((select coalesce(nullif(d.label, ''), d.name) from agent_daemons d where d.id = check_runs.daemon_id), ''), provenance,
-		          attempt, status, exit_code, summary, started_at, finished_at, duration_ms, created_at, coalesce(trigger_run_id, ''), details_url, annotations
-	`, changesetID, currentPatchsetID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*corev1.CheckRun
-	for rows.Next() {
-		run, err := scanCheckRun(rows)
-		if err != nil {
+	return inTx(ctx, s.db, func(tx *sql.Tx) ([]*corev1.CheckRun, error) {
+		if err := requirePatchsetForChangeset(ctx, tx, changesetID, currentPatchsetID); err != nil {
 			return nil, err
 		}
-		out = append(out, run)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return out, nil
+		return querySlice(ctx, tx, func(rows *sql.Rows) (*corev1.CheckRun, error) {
+			return scanCheckRun(rows)
+		}, `
+			update check_runs
+			set status = 'canceled',
+			    exit_code = -1,
+			    summary = 'superseded by newer patchset',
+			    started_at = coalesce(started_at, now()),
+			    finished_at = now(),
+			    duration_ms = greatest(0, floor(extract(epoch from (now() - coalesce(started_at, now()))) * 1000)::bigint),
+			    updated_at = now()
+			where changeset_id = $1
+			  and patchset_id <> $2
+			  and superseded_by_run_id is null
+			  and status in ('queued', 'running')
+			returning `+checkRunSelectColumns, changesetID, currentPatchsetID)
+	})
 }
 
 func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status string, exitCode int32, summary string) (*corev1.CheckRun, error) {
@@ -258,69 +200,62 @@ func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status str
 	if runID == "" {
 		return nil, fmt.Errorf("%w: run_id is required", storage.ErrInvalid)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	var run struct {
-		ChangesetID string
-		PatchsetID  string
-		CheckName   string
-	}
-	err = tx.QueryRowContext(ctx, `
-		update check_runs
-		set status = $2,
-		    exit_code = case when $3 then $4 else exit_code end,
-		    summary = case when $3 then $5 else summary end,
-		    started_at = case when $2 = 'running' or $3 then coalesce(started_at, now()) else started_at end,
-		    finished_at = case when $3 then now() else finished_at end,
-		    duration_ms = case
-		        when $3 then greatest(0, floor(extract(epoch from (now() - coalesce(started_at, now()))) * 1000)::bigint)
-		        else duration_ms
-		    end,
-		    updated_at = now()
-		where id = $1
-		  and status not in ('passed', 'failed', 'errored', 'skipped', 'canceled')
-		  and (superseded_by_run_id is null or $2 = 'canceled')
-		returning changeset_id, patchset_id, check_name
-	`, runID, status, isTerminalCheckRunStatus(status), exitCode, strings.TrimSpace(summary)).Scan(&run.ChangesetID, &run.PatchsetID, &run.CheckName)
-	if errors.Is(err, sql.ErrNoRows) {
-		var exists bool
-		if existsErr := tx.QueryRowContext(ctx, `select exists(select 1 from check_runs where id = $1)`, runID).Scan(&exists); existsErr != nil {
-			return nil, existsErr
+	if err := execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		var run struct {
+			ChangesetID string
+			PatchsetID  string
+			CheckName   string
 		}
-		if exists {
-			return nil, storage.ErrConflict
-		}
-		return nil, storage.ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	if resultStatus, ok := terminalCheckResultStatus(status); ok {
-		reportedBy, err := checkRunReporterSubject(ctx, tx, runID)
-		if err != nil {
-			return nil, err
-		}
-		_, err = tx.ExecContext(ctx, `
-			insert into check_results(changeset_id, patchset_id, check_name, status, reported_by, created_at, updated_at)
-			values ($1, $2, $3, $4, $5, now(), now())
-			on conflict (changeset_id, patchset_id, check_name) do update
-			set status = excluded.status,
-			    reported_by = excluded.reported_by,
+		err := tx.QueryRowContext(ctx, `
+			update check_runs
+			set status = $2,
+			    exit_code = case when $3 then $4 else exit_code end,
+			    summary = case when $3 then $5 else summary end,
+			    started_at = case when $2 = 'running' or $3 then coalesce(started_at, now()) else started_at end,
+			    finished_at = case when $3 then now() else finished_at end,
+			    duration_ms = case
+			        when $3 then greatest(0, floor(extract(epoch from (now() - coalesce(started_at, now()))) * 1000)::bigint)
+			        else duration_ms
+			    end,
 			    updated_at = now()
-		`, run.ChangesetID, run.PatchsetID, run.CheckName, resultStatus, reportedBy)
+			where id = $1
+			  and status not in ('passed', 'failed', 'errored', 'skipped', 'canceled')
+			  and (superseded_by_run_id is null or $2 = 'canceled')
+			returning changeset_id, patchset_id, check_name
+		`, runID, status, isTerminalCheckRunStatus(status), exitCode, strings.TrimSpace(summary)).Scan(&run.ChangesetID, &run.PatchsetID, &run.CheckName)
+		if errors.Is(err, sql.ErrNoRows) {
+			var exists bool
+			if existsErr := tx.QueryRowContext(ctx, `select exists(select 1 from check_runs where id = $1)`, runID).Scan(&exists); existsErr != nil {
+				return existsErr
+			}
+			if exists {
+				return storage.ErrConflict
+			}
+			return storage.ErrNotFound
+		}
 		if err != nil {
-			return nil, err
+			return err
 		}
-		if err := clearRequirementBlockTx(ctx, tx, run.ChangesetID, run.PatchsetID); err != nil {
-			return nil, err
+		if resultStatus, ok := terminalCheckResultStatus(status); ok {
+			reportedBy, err := checkRunReporterSubject(ctx, tx, runID)
+			if err != nil {
+				return err
+			}
+			_, err = tx.ExecContext(ctx, `
+				insert into check_results(changeset_id, patchset_id, check_name, status, reported_by, created_at, updated_at)
+				values ($1, $2, $3, $4, $5, now(), now())
+				on conflict (changeset_id, patchset_id, check_name) do update
+				set status = excluded.status,
+				    reported_by = excluded.reported_by,
+				    updated_at = now()
+			`, run.ChangesetID, run.PatchsetID, run.CheckName, resultStatus, reportedBy)
+			if err != nil {
+				return err
+			}
+			return clearRequirementBlockTx(ctx, tx, run.ChangesetID, run.PatchsetID)
 		}
-	}
-	if err := tx.Commit(); err != nil {
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	return s.GetCheckRun(ctx, runID)
@@ -366,30 +301,19 @@ func (s *CheckStore) AppendCheckRunLog(ctx context.Context, runID string, seq in
 }
 
 func (s *CheckStore) ListCheckRunLogs(ctx context.Context, runID string, afterSeq int64) ([]*corev1.CheckRunLog, error) {
-	rows, err := s.db.QueryContext(ctx, `
+	return querySlice(ctx, s.db, func(rows *sql.Rows) (*corev1.CheckRunLog, error) {
+		return scanCheckRunLog(rows)
+	}, `
 		select run_id, seq, stream, chunk, created_at
 		from check_run_logs
 		where run_id = $1 and seq > $2
 		order by seq asc
 	`, strings.TrimSpace(runID), afterSeq)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*corev1.CheckRunLog
-	for rows.Next() {
-		log, err := scanCheckRunLog(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, log)
-	}
-	return out, rows.Err()
 }
 
-func requirePatchsetForChangeset(ctx context.Context, tx *sql.Tx, changesetID, patchsetID string) error {
+func requirePatchsetForChangeset(ctx context.Context, q dbtx, changesetID, patchsetID string) error {
 	var ok bool
-	if err := tx.QueryRowContext(ctx, `
+	if err := q.QueryRowContext(ctx, `
 		select exists(
 			select 1 from patchsets where id = $1 and changeset_id = $2
 		)
@@ -402,9 +326,9 @@ func requirePatchsetForChangeset(ctx context.Context, tx *sql.Tx, changesetID, p
 	return nil
 }
 
-func checkRunReporterSubject(ctx context.Context, tx *sql.Tx, runID string) (string, error) {
+func checkRunReporterSubject(ctx context.Context, q dbtx, runID string) (string, error) {
 	var subjectID sql.NullString
-	err := tx.QueryRowContext(ctx, `
+	err := q.QueryRowContext(ctx, `
 		select coalesce(daemon_subject.subject_id, daemon_id_subject.id, changesets.author_subject_id)
 		from check_runs
 		left join agent_daemons daemon_subject on daemon_subject.id = check_runs.daemon_id
@@ -424,7 +348,7 @@ func checkRunReporterSubject(ctx context.Context, tx *sql.Tx, runID string) (str
 	return subjectID.String, nil
 }
 
-func scanCheckRun(row rowScanner) (*corev1.CheckRun, error) {
+func scanCheckRun(row scanner) (*corev1.CheckRun, error) {
 	var (
 		run                   corev1.CheckRun
 		exitCode              sql.NullInt64
@@ -579,7 +503,7 @@ func (s *CheckStore) GetPatchsetSecretAllowance(ctx context.Context, changesetID
 	return out, nil
 }
 
-func scanCheckRunLog(row rowScanner) (*corev1.CheckRunLog, error) {
+func scanCheckRunLog(row scanner) (*corev1.CheckRunLog, error) {
 	var (
 		log       corev1.CheckRunLog
 		createdAt time.Time

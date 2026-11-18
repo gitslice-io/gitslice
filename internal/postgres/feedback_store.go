@@ -20,7 +20,7 @@ type FeedbackStore struct {
 
 const feedbackColumns = `id, subject_id, account, body, category, context, status, resolution, resolved_by, resolved_at, created_at`
 
-func scanFeedback(row rowScanner) (*storage.Feedback, error) {
+func scanFeedback(row scanner) (*storage.Feedback, error) {
 	var f storage.Feedback
 	var contextJSON []byte
 	var resolvedAt sql.NullTime

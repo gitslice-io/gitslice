@@ -67,158 +67,121 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 	}
 	patchset.ResultTreeId = resultTreeID
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	var currentPatchsetID sql.NullString
-	var stackID sql.NullString
-	var currentNumber int64
-	var status string
-	var sliceID string
-	err = tx.QueryRowContext(ctx, `
+	return inTx(ctx, s.db, func(tx *sql.Tx) (*corev1.Patchset, error) {
+		var currentPatchsetID sql.NullString
+		var stackID sql.NullString
+		var currentNumber int64
+		var status string
+		var sliceID string
+		err := tx.QueryRowContext(ctx, `
 			select current_patchset_id, coalesce(current_patchset_number, 0), status,
 			       authoring_slice_id, stack_id
 			from changesets
 			where id = $1
 			for update
 		`, changesetID).Scan(&currentPatchsetID, &currentNumber, &status, &sliceID, &stackID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	if status != "draft" {
-		return nil, ErrConflict
-	}
-	if expectedCurrentPatchsetID != "" && (!currentPatchsetID.Valid || currentPatchsetID.String != expectedCurrentPatchsetID) {
-		return nil, ErrConflict
-	}
-	if len(patchset.FileEdits) > 0 {
-		blobs, err := getBlobsTx(ctx, tx, blobIDsForEdits(patchset.FileEdits))
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrNotFound
+		}
 		if err != nil {
 			return nil, err
 		}
-		for _, blobID := range blobIDsForEdits(patchset.FileEdits) {
-			if _, ok := blobs[blobID]; !ok {
-				return nil, ErrNotFound
+		if status != "draft" {
+			return nil, ErrConflict
+		}
+		if expectedCurrentPatchsetID != "" && (!currentPatchsetID.Valid || currentPatchsetID.String != expectedCurrentPatchsetID) {
+			return nil, ErrConflict
+		}
+		if len(patchset.FileEdits) > 0 {
+			blobs, err := getBlobsTx(ctx, tx, blobIDsForEdits(patchset.FileEdits))
+			if err != nil {
+				return nil, err
+			}
+			for _, blobID := range blobIDsForEdits(patchset.FileEdits) {
+				if _, ok := blobs[blobID]; !ok {
+					return nil, ErrNotFound
+				}
 			}
 		}
-	}
-	patchsetID, err := objectid.RandomID("ps")
-	if err != nil {
-		return nil, err
-	}
-	patchset.Id = patchsetID
-	patchset.ChangesetId = changesetID
-	patchset.Number = currentNumber + 1
-	createdAt := time.Now().UTC()
-	patchset.CreatedAt = formatTime(createdAt)
-	if patchset.SubmitRequirements == nil || patchset.SubmitRequirements.SourceSliceDefinitionHash == "" {
-		req, err := submitRequirementsForSliceTx(ctx, tx, sliceID)
+		patchsetID, err := objectid.RandomID("ps")
 		if err != nil {
 			return nil, err
 		}
-		patchset.SubmitRequirements = req
-	}
-	if currentPatchsetID.Valid && len(patchset.Conflicts) == 0 {
-		current, err := getPatchsetTx(ctx, tx, currentPatchsetID.String)
+		patchset.Id = patchsetID
+		patchset.ChangesetId = changesetID
+		patchset.Number = currentNumber + 1
+		createdAt := time.Now().UTC()
+		patchset.CreatedAt = formatTime(createdAt)
+		if patchset.SubmitRequirements == nil || patchset.SubmitRequirements.SourceSliceDefinitionHash == "" {
+			req, err := submitRequirementsForSliceTx(ctx, tx, sliceID)
+			if err != nil {
+				return nil, err
+			}
+			patchset.SubmitRequirements = req
+		}
+		if currentPatchsetID.Valid && len(patchset.Conflicts) == 0 {
+			current, err := getPatchsetTx(ctx, tx, currentPatchsetID.String)
+			if err != nil {
+				return nil, err
+			}
+			if current.ResultTreeId == patchset.ResultTreeId && current.BaseTreeId == patchset.BaseTreeId {
+				return current, nil
+			}
+		}
+		psAttr := resolveAttributionQuery(ctx, tx, patchset.Author)
+		if psAttr.ConversationID == "" && patchset.AuthoringConversationId != "" {
+			psAttr.ConversationID = patchset.AuthoringConversationId
+		}
+		if patchset.Attribution != nil {
+			explicit := storage.ActorAttributionFromProto(patchset.Attribution)
+			if explicit.ActingSubjectID != "" {
+				psAttr = explicit
+			}
+		}
+		patchset.Attribution = psAttr.ToProto()
+		_, err = tx.ExecContext(ctx, `
+			insert into patchsets(
+				id, changeset_id, number, base_commit_id, author_subject_id, file_edits,
+				changed_paths, coverage, path_bases, read_set, write_set, conflicts, kind, submit_requirements,
+				base_kind, base_patchset_id, base_tree_id, result_tree_id, stack_parent_patchset_id, created_at,
+				authoring_conversation_id, authoring_conversation_seq,
+				acting_subject_id, controller_subject_id, key_id, daemon_id, conversation_id
+			)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+		`, patchset.Id, changesetID, patchset.Number, patchset.BaseCommitId, patchset.Author,
+			jsonVal(patchset.FileEdits), jsonVal(patchset.ChangedPaths), jsonVal(patchset.Coverage), jsonVal(patchset.PathBases),
+			jsonVal(patchset.ReadSet), jsonVal(patchset.WriteSet), jsonVal(patchset.Conflicts), patchset.Kind, jsonVal(patchset.SubmitRequirements),
+			patchset.BaseKind, nullString(patchset.BasePatchsetId), nullString(patchset.BaseTreeId), nullString(patchset.ResultTreeId), nullString(patchset.StackParentPatchsetId), createdAt,
+			nullString(patchset.AuthoringConversationId), patchset.AuthoringConversationSeq,
+			psAttr.ActingSubjectID, psAttr.ControllerSubjectID, psAttr.KeyID, psAttr.DaemonID, psAttr.ConversationID)
 		if err != nil {
 			return nil, err
 		}
-		if current.ResultTreeId == patchset.ResultTreeId && current.BaseTreeId == patchset.BaseTreeId {
-			return current, nil
-		}
-	}
-	fileEditsJSON, err := encodeJSON(patchset.FileEdits)
-	if err != nil {
-		return nil, err
-	}
-	changedJSON, err := encodeJSON(patchset.ChangedPaths)
-	if err != nil {
-		return nil, err
-	}
-	coverageJSON, err := encodeJSON(patchset.Coverage)
-	if err != nil {
-		return nil, err
-	}
-	pathBasesJSON, err := encodeJSON(patchset.PathBases)
-	if err != nil {
-		return nil, err
-	}
-	readSetJSON, err := encodeJSON(patchset.ReadSet)
-	if err != nil {
-		return nil, err
-	}
-	writeSetJSON, err := encodeJSON(patchset.WriteSet)
-	if err != nil {
-		return nil, err
-	}
-	conflictsJSON, err := encodeJSON(patchset.Conflicts)
-	if err != nil {
-		return nil, err
-	}
-	submitRequirementsJSON, err := encodeJSON(patchset.SubmitRequirements)
-	if err != nil {
-		return nil, err
-	}
-	psAttr := resolveAttributionQuery(ctx, tx, patchset.Author)
-	if psAttr.ConversationID == "" && patchset.AuthoringConversationId != "" {
-		psAttr.ConversationID = patchset.AuthoringConversationId
-	}
-	if patchset.Attribution != nil {
-		explicit := storage.ActorAttributionFromProto(patchset.Attribution)
-		if explicit.ActingSubjectID != "" {
-			psAttr = explicit
-		}
-	}
-	patchset.Attribution = psAttr.ToProto()
-	_, err = tx.ExecContext(ctx, `
-		insert into patchsets(
-			id, changeset_id, number, base_commit_id, author_subject_id, file_edits,
-			changed_paths, coverage, path_bases, read_set, write_set, conflicts, kind, submit_requirements,
-			base_kind, base_patchset_id, base_tree_id, result_tree_id, stack_parent_patchset_id, created_at,
-			authoring_conversation_id, authoring_conversation_seq,
-			acting_subject_id, controller_subject_id, key_id, daemon_id, conversation_id
-		)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
-	`, patchset.Id, changesetID, patchset.Number, patchset.BaseCommitId, patchset.Author,
-		fileEditsJSON, changedJSON, coverageJSON, pathBasesJSON, readSetJSON, writeSetJSON, conflictsJSON, patchset.Kind, submitRequirementsJSON,
-		patchset.BaseKind, nullString(patchset.BasePatchsetId), nullString(patchset.BaseTreeId), nullString(patchset.ResultTreeId), nullString(patchset.StackParentPatchsetId), createdAt,
-		nullString(patchset.AuthoringConversationId), patchset.AuthoringConversationSeq,
-		psAttr.ActingSubjectID, psAttr.ControllerSubjectID, psAttr.KeyID, psAttr.DaemonID, psAttr.ConversationID)
-	if err != nil {
-		return nil, err
-	}
-	_, err = tx.ExecContext(ctx, `
-		update changesets
-		set current_patchset_id = $1,
-		    current_patchset_number = $2,
-		    affected_paths = $3,
-		    submit_blocked_reason = '',
-		    submit_blocked_code = '',
-		    daemon_id = case when acting_subject_id = $5 and daemon_id = '' then $6 else daemon_id end,
-		    conversation_id = case when acting_subject_id = $5 and conversation_id = '' then $7 else conversation_id end,
-		    updated_at = now()
-		where id = $4
-	`, patchset.Id, patchset.Number, changedJSON, changesetID, psAttr.ActingSubjectID, psAttr.DaemonID, psAttr.ConversationID)
-	if err != nil {
-		return nil, err
-	}
-	if stackID.Valid {
-		if err := updateStackEntryAfterPatchsetTx(ctx, tx, stackID.String, changesetID, patchset); err != nil {
+		_, err = tx.ExecContext(ctx, `
+			update changesets
+			set current_patchset_id = $1,
+			    current_patchset_number = $2,
+			    affected_paths = $3,
+			    submit_blocked_reason = '',
+			    submit_blocked_code = '',
+			    daemon_id = case when acting_subject_id = $5 and daemon_id = '' then $6 else daemon_id end,
+			    conversation_id = case when acting_subject_id = $5 and conversation_id = '' then $7 else conversation_id end,
+			    updated_at = now()
+			where id = $4
+		`, patchset.Id, patchset.Number, jsonVal(patchset.ChangedPaths), changesetID, psAttr.ActingSubjectID, psAttr.DaemonID, psAttr.ConversationID)
+		if err != nil {
 			return nil, err
 		}
-		if err := markStaleStackChildrenTx(ctx, tx, stackID.String, changesetID, patchset.Id); err != nil {
-			return nil, err
+		if stackID.Valid {
+			if err := updateStackEntryAfterPatchsetTx(ctx, tx, stackID.String, changesetID, patchset); err != nil {
+				return nil, err
+			}
+			if err := markStaleStackChildrenTx(ctx, tx, stackID.String, changesetID, patchset.Id); err != nil {
+				return nil, err
+			}
 		}
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
-	}
-	return patchset, nil
+		return patchset, nil
+	})
 }
 
 const patchsetSelectColumns = `id, changeset_id, number, base_commit_id, author_subject_id, created_at,
@@ -228,25 +191,11 @@ const patchsetSelectColumns = `id, changeset_id, number, base_commit_id, author_
 		       acting_subject_id, controller_subject_id, key_id, daemon_id, conversation_id`
 
 func (s *ChangesetStore) listPatchsets(ctx context.Context, changesetID string) ([]*corev1.Patchset, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		select `+patchsetSelectColumns+`
-		from patchsets
-		where changeset_id = $1
-		order by number
-	`, changesetID)
+	byCS, err := s.listPatchsetsForChangesets(ctx, []string{changesetID})
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []*corev1.Patchset
-	for rows.Next() {
-		patchset, err := scanPatchset(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, patchset)
-	}
-	return out, rows.Err()
+	return byCS[changesetID], nil
 }
 
 func (s *ChangesetStore) listPatchsetsForChangesets(ctx context.Context, changesetIDs []string) (map[string][]*corev1.Patchset, error) {
@@ -254,7 +203,9 @@ func (s *ChangesetStore) listPatchsetsForChangesets(ctx context.Context, changes
 	if len(changesetIDs) == 0 {
 		return out, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	list, err := querySlice(ctx, s.db, func(rows *sql.Rows) (*corev1.Patchset, error) {
+		return scanPatchset(rows)
+	}, `
 		select `+patchsetSelectColumns+`
 		from patchsets
 		where changeset_id = any($1)
@@ -263,52 +214,31 @@ func (s *ChangesetStore) listPatchsetsForChangesets(ctx context.Context, changes
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	for rows.Next() {
-		patchset, err := scanPatchset(rows)
-		if err != nil {
-			return nil, err
-		}
+	for _, patchset := range list {
 		out[patchset.ChangesetId] = append(out[patchset.ChangesetId], patchset)
 	}
-	return out, rows.Err()
+	return out, nil
 }
 
 func (s *ChangesetStore) PatchsetsByConversation(ctx context.Context, conversationID string) ([]*corev1.Patchset, error) {
 	if conversationID == "" {
 		return nil, nil
 	}
-	rows, err := s.db.QueryContext(ctx, `
+	return querySlice(ctx, s.db, func(rows *sql.Rows) (*corev1.Patchset, error) {
+		return scanPatchset(rows)
+	}, `
 		select `+patchsetSelectColumns+`
 		from patchsets
 		where authoring_conversation_id = $1
 		order by authoring_conversation_seq
 	`, conversationID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []*corev1.Patchset
-	for rows.Next() {
-		patchset, err := scanPatchset(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, patchset)
-	}
-	return out, rows.Err()
-}
-
-type publishQueryer interface {
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-	QueryRowContext(context.Context, string, ...any) *sql.Row
 }
 
 func getPatchsetTx(ctx context.Context, tx *sql.Tx, patchsetID string) (*corev1.Patchset, error) {
 	return getPatchset(ctx, tx, patchsetID)
 }
 
-func getPatchset(ctx context.Context, queryer publishQueryer, patchsetID string) (*corev1.Patchset, error) {
+func getPatchset(ctx context.Context, queryer dbtx, patchsetID string) (*corev1.Patchset, error) {
 	row := queryer.QueryRowContext(ctx, `
 		select `+patchsetSelectColumns+`
 		from patchsets
@@ -319,13 +249,14 @@ func getPatchset(ctx context.Context, queryer publishQueryer, patchsetID string)
 
 func scanPatchset(row scanner) (*corev1.Patchset, error) {
 	var patchset corev1.Patchset
-	var changedJSON, fileEditsJSON, coverageJSON, pathBasesJSON, readSetJSON, writeSetJSON, conflictsJSON, submitRequirementsJSON []byte
 	var basePatchsetID, baseTreeID, resultTreeID, stackParentPatchsetID, authoringConversationID sql.NullString
 	var createdAt time.Time
 	var attr storage.ActorAttribution
 	err := row.Scan(&patchset.Id, &patchset.ChangesetId, &patchset.Number, &patchset.BaseCommitId,
-		&patchset.Author, &createdAt, &changedJSON, &fileEditsJSON, &coverageJSON,
-		&pathBasesJSON, &readSetJSON, &writeSetJSON, &conflictsJSON, &patchset.Kind, &submitRequirementsJSON,
+		&patchset.Author, &createdAt,
+		jsonCol(&patchset.ChangedPaths), jsonCol(&patchset.FileEdits), jsonCol(&patchset.Coverage),
+		jsonCol(&patchset.PathBases), jsonCol(&patchset.ReadSet), jsonCol(&patchset.WriteSet),
+		jsonCol(&patchset.Conflicts), &patchset.Kind, jsonCol(&patchset.SubmitRequirements),
 		&patchset.BaseKind, &basePatchsetID, &baseTreeID, &resultTreeID, &stackParentPatchsetID,
 		&authoringConversationID, &patchset.AuthoringConversationSeq,
 		&attr.ActingSubjectID, &attr.ControllerSubjectID, &attr.KeyID, &attr.DaemonID, &attr.ConversationID)
@@ -336,23 +267,6 @@ func scanPatchset(row scanner) (*corev1.Patchset, error) {
 		return nil, err
 	}
 	patchset.CreatedAt = formatTime(createdAt)
-	for _, item := range []struct {
-		raw []byte
-		dst any
-	}{
-		{changedJSON, &patchset.ChangedPaths},
-		{fileEditsJSON, &patchset.FileEdits},
-		{coverageJSON, &patchset.Coverage},
-		{pathBasesJSON, &patchset.PathBases},
-		{readSetJSON, &patchset.ReadSet},
-		{writeSetJSON, &patchset.WriteSet},
-		{conflictsJSON, &patchset.Conflicts},
-		{submitRequirementsJSON, &patchset.SubmitRequirements},
-	} {
-		if err := decodeJSON(item.raw, item.dst); err != nil {
-			return nil, err
-		}
-	}
 	if patchset.SubmitRequirements == nil {
 		patchset.SubmitRequirements = &corev1.SubmitRequirements{}
 	}
@@ -385,7 +299,7 @@ func treeEditsFromPatchsetTx(ctx context.Context, tx *sql.Tx, edits []*corev1.Fi
 	return treeEditsFromPatchset(ctx, tx, edits)
 }
 
-func treeEditsFromPatchset(ctx context.Context, queryer publishQueryer, edits []*corev1.FileEdit) ([]treestore.FileEdit, error) {
+func treeEditsFromPatchset(ctx context.Context, queryer dbtx, edits []*corev1.FileEdit) ([]treestore.FileEdit, error) {
 	blobs, err := getBlobs(ctx, queryer, blobIDsForEdits(edits))
 	if err != nil {
 		return nil, err
@@ -439,7 +353,7 @@ func getBlobsTx(ctx context.Context, tx *sql.Tx, blobIDs []string) (map[string]*
 	return getBlobs(ctx, tx, blobIDs)
 }
 
-func getBlobs(ctx context.Context, queryer publishQueryer, blobIDs []string) (map[string]*corev1.BlobRecord, error) {
+func getBlobs(ctx context.Context, queryer dbtx, blobIDs []string) (map[string]*corev1.BlobRecord, error) {
 	blobs := make(map[string]*corev1.BlobRecord, len(blobIDs))
 	if len(blobIDs) == 0 {
 		return blobs, nil

@@ -49,25 +49,17 @@ func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *core
 	if err != nil {
 		return nil, err
 	}
-	empty, err := encodeJSON([]string{})
-	if err != nil {
-		return nil, err
-	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	if err := lockSliceForChangesetNumber(ctx, tx, slice.Id); err != nil {
-		return nil, err
-	}
-	number, err := nextChangesetNumberTx(ctx, tx, slice.Id)
-	if err != nil {
-		return nil, err
-	}
-	now := time.Now().UTC()
-	attr := resolveAttributionQuery(ctx, tx, subjectID)
-	_, err = tx.ExecContext(ctx, `
+	if err := execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		if err := lockSliceForChangesetNumber(ctx, tx, slice.Id); err != nil {
+			return err
+		}
+		number, err := nextChangesetNumberTx(ctx, tx, slice.Id)
+		if err != nil {
+			return err
+		}
+		now := time.Now().UTC()
+		attr := resolveAttributionQuery(ctx, tx, subjectID)
+		_, err = tx.ExecContext(ctx, `
 			insert into changesets(
 				id, number, authoring_account, authoring_slice, authoring_slice_id, author_subject_id,
 				target_ref, base_commit_id, title, description, status, affected_paths,
@@ -76,17 +68,16 @@ func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *core
 			)
 			values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'draft', $11, 0, $12, $12, $13, $14, $15, $16, $17)
 		`, id, number, req.AuthoringSlice.Account, req.AuthoringSlice.Slice, slice.Id, subjectID,
-		targetRef, baseCommitID, title, description, empty, now,
-		attr.ActingSubjectID, attr.ControllerSubjectID, attr.KeyID, attr.DaemonID, attr.ConversationID)
-	if err != nil {
-		return nil, err
-	}
-	if req.StackId != "" {
-		if err := attachStackEntryTx(ctx, tx, id, req.StackId, req.ParentChangesetId, req.ParentPatchsetId); err != nil {
-			return nil, err
+			targetRef, baseCommitID, title, description, jsonVal([]string{}), now,
+			attr.ActingSubjectID, attr.ControllerSubjectID, attr.KeyID, attr.DaemonID, attr.ConversationID)
+		if err != nil {
+			return err
 		}
-	}
-	if err := tx.Commit(); err != nil {
+		if req.StackId != "" {
+			return attachStackEntryTx(ctx, tx, id, req.StackId, req.ParentChangesetId, req.ParentPatchsetId)
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	return s.Get(ctx, id)
@@ -97,40 +88,14 @@ func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.C
 	if err != nil {
 		return nil, err
 	}
-	cs, _, err := scanChangesetRow(s.db.QueryRowContext(ctx, `
-			select `+changesetRowColumns+`, null::jsonb
-			from changesets c
-			left join pending_publish p on p.changeset_id = c.id and p.status <> 'failed'
-			where c.id = $1
-		`, changesetID))
-	if errors.Is(err, sql.ErrNoRows) {
+	items, err := s.getManyByIDs(ctx, []string{changesetID})
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
 		return nil, ErrNotFound
 	}
-	if err != nil {
-		return nil, err
-	}
-	patchsets, err := s.listPatchsets(ctx, changesetID)
-	if err != nil {
-		return nil, err
-	}
-	collaborators, err := s.listCollaborators(ctx, changesetID)
-	if err != nil {
-		return nil, err
-	}
-	approvals, err := s.listApprovals(ctx, changesetID)
-	if err != nil {
-		return nil, err
-	}
-	cs.Patchsets = patchsets
-	cs.Collaborators = collaborators
-	cs.Approvals = approvals
-	storage.PopulateChangesetHandles(cs)
-	if current := currentPatchset(cs); current != nil {
-		cs.SubmitRequirements = current.SubmitRequirements
-	} else {
-		cs.SubmitRequirements = &corev1.SubmitRequirements{}
-	}
-	return cs, nil
+	return items[0], nil
 }
 
 // changesetRowColumns are a changeset's own fields, read with the
@@ -146,15 +111,15 @@ const changesetRowColumns = `c.id, c.authoring_account, c.authoring_slice, c.aut
 			       c.acting_subject_id, c.controller_subject_id, c.key_id, c.daemon_id, c.conversation_id,
 			       c.submitted_by_subject_id, c.submitted_controller_subject_id, c.submitted_key_id, c.submitted_daemon_id, c.submitted_conversation_id`
 
-func scanChangesetRow(row rowScanner) (*corev1.Changeset, []byte, error) {
+func scanChangesetRow(row scanner) (*corev1.Changeset, []byte, error) {
 	var cs corev1.Changeset
 	var account, slice, currentPatchsetID, commitID, pendingPublishID sql.NullString
 	var stackID, parentChangesetID, parentPatchsetID sql.NullString
 	var stackOrder, stackDepth, siblingOrder sql.NullInt64
-	var affectedJSON, submitRequirementsJSON []byte
+	var submitRequirementsJSON []byte
 	var createdAttr, submittedAttr storage.ActorAttribution
 	if err := row.Scan(&cs.Id, &account, &slice, &cs.Author, &cs.OriginalAuthor, &cs.TargetRef,
-		&cs.BaseCommitId, &cs.Title, &cs.Description, &cs.Status, &affectedJSON,
+		&cs.BaseCommitId, &cs.Title, &cs.Description, &cs.Status, jsonCol(&cs.AffectedPaths),
 		&cs.CurrentPatchsetNumber, &currentPatchsetID, &commitID, &pendingPublishID, &cs.Number, &cs.SubmitBlockedReason,
 		&stackID, &stackOrder, &parentChangesetID, &parentPatchsetID, &cs.BaseKind, &stackDepth, &siblingOrder,
 		&createdAttr.ActingSubjectID, &createdAttr.ControllerSubjectID, &createdAttr.KeyID, &createdAttr.DaemonID, &createdAttr.ConversationID,
@@ -181,9 +146,6 @@ func scanChangesetRow(row rowScanner) (*corev1.Changeset, []byte, error) {
 	cs.ParentPatchsetId = parentPatchsetID.String
 	cs.StackDepth = stackDepth.Int64
 	cs.SiblingOrder = siblingOrder.Int64
-	if err := decodeJSON(affectedJSON, &cs.AffectedPaths); err != nil {
-		return nil, nil, err
-	}
 	return &cs, submitRequirementsJSON, nil
 }
 
@@ -442,20 +404,7 @@ func hexPrefixUpperBound(prefix string) (string, bool) {
 }
 
 func (s *ChangesetStore) selectChangesetIDs(ctx context.Context, query string, args ...any) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var matches []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		matches = append(matches, id)
-	}
-	return matches, rows.Err()
+	return querySlice(ctx, s.db, scanString, query, args...)
 }
 
 func lockSliceForChangesetNumber(ctx context.Context, tx *sql.Tx, sliceID string) error {
@@ -492,103 +441,91 @@ func (s *ChangesetStore) UpdateInfo(ctx context.Context, changesetID string, tit
 	if err != nil {
 		return nil, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	var currentTitle, currentDescription, status string
-	err = tx.QueryRowContext(ctx, `
-		select title, description, status from changesets where id = $1 for update
-	`, changesetID).Scan(&currentTitle, &currentDescription, &status)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	if status != "draft" {
-		return nil, fmt.Errorf("%w: a changeset's title and description can be changed while it is open; this one is %s", ErrConflict, status)
-	}
-	if title != nil {
-		currentTitle = *title
-	}
-	if description != nil {
-		currentDescription = *description
-	}
-	currentTitle, currentDescription = storage.NormalizeChangesetText(currentTitle, currentDescription)
-	if currentTitle == "" {
-		return nil, fmt.Errorf("%w: a changeset needs a title", ErrInvalid)
-	}
-	if _, err := tx.ExecContext(ctx, `
-		update changesets set title = $2, description = $3, updated_at = now() where id = $1
-	`, changesetID, currentTitle, currentDescription); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
+	if err := execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		var currentTitle, currentDescription, status string
+		err := tx.QueryRowContext(ctx, `
+			select title, description, status from changesets where id = $1 for update
+		`, changesetID).Scan(&currentTitle, &currentDescription, &status)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if status != "draft" {
+			return fmt.Errorf("%w: a changeset's title and description can be changed while it is open; this one is %s", ErrConflict, status)
+		}
+		if title != nil {
+			currentTitle = *title
+		}
+		if description != nil {
+			currentDescription = *description
+		}
+		currentTitle, currentDescription = storage.NormalizeChangesetText(currentTitle, currentDescription)
+		if currentTitle == "" {
+			return fmt.Errorf("%w: a changeset needs a title", ErrInvalid)
+		}
+		_, err = tx.ExecContext(ctx, `
+			update changesets set title = $2, description = $3, updated_at = now() where id = $1
+		`, changesetID, currentTitle, currentDescription)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	return s.Get(ctx, changesetID)
 }
 
 func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	var status, stackID, sliceID, authorSubjectID, title, description string
-	err = tx.QueryRowContext(ctx, `
-		select status, coalesce(stack_id, ''), authoring_slice_id, author_subject_id, title, description
-		from changesets
-		where id = $1
-		for update
-	`, changesetID).Scan(&status, &stackID, &sliceID, &authorSubjectID, &title, &description)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if status != "draft" {
-		return ErrConflict
-	}
-	var activeChildren int
-	err = tx.QueryRowContext(ctx, `
-		select count(*)
-		from changeset_stack_entries e
-		join changesets child on child.id = e.changeset_id
-		where e.parent_changeset_id = $1
-		  and child.status not in ('submitted', 'abandoned')
-	`, changesetID).Scan(&activeChildren)
-	if err != nil {
-		return err
-	}
-	if activeChildren > 0 {
-		return ErrConflict
-	}
-	res, err := tx.ExecContext(ctx, `
-		update changesets
-		set status = 'abandoned', updated_at = now()
-		where id = $1 and status = 'draft'
-	`, changesetID)
-	if err != nil {
-		return err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return ErrConflict
-	}
-	if err := clearAbandonedPathIntentsTx(ctx, tx, changesetID, sliceID, authorSubjectID, title, description); err != nil {
-		return err
-	}
-	if err := refreshClosedStackStatusTx(ctx, tx, stackID); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		var status, stackID, sliceID, authorSubjectID, title, description string
+		err := tx.QueryRowContext(ctx, `
+			select status, coalesce(stack_id, ''), authoring_slice_id, author_subject_id, title, description
+			from changesets
+			where id = $1
+			for update
+		`, changesetID).Scan(&status, &stackID, &sliceID, &authorSubjectID, &title, &description)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if status != "draft" {
+			return ErrConflict
+		}
+		var activeChildren int
+		if err := tx.QueryRowContext(ctx, `
+			select count(*)
+			from changeset_stack_entries e
+			join changesets child on child.id = e.changeset_id
+			where e.parent_changeset_id = $1
+			  and child.status not in ('submitted', 'abandoned')
+		`, changesetID).Scan(&activeChildren); err != nil {
+			return err
+		}
+		if activeChildren > 0 {
+			return ErrConflict
+		}
+		res, err := tx.ExecContext(ctx, `
+			update changesets
+			set status = 'abandoned', updated_at = now()
+			where id = $1 and status = 'draft'
+		`, changesetID)
+		if err != nil {
+			return err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if affected == 0 {
+			return ErrConflict
+		}
+		if err := clearAbandonedPathIntentsTx(ctx, tx, changesetID, sliceID, authorSubjectID, title, description); err != nil {
+			return err
+		}
+		return refreshClosedStackStatusTx(ctx, tx, stackID)
+	})
 }
 
 func currentPatchset(cs *corev1.Changeset) *corev1.Patchset {

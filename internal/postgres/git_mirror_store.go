@@ -24,7 +24,7 @@ const gitMirrorFrom = ` from slice_git_mirrors m
 	join slices on slices.id = m.slice_id and slices.deleted_at is null
 	join accounts on accounts.id = slices.account_id`
 
-func scanGitMirror(row rowScanner) (*storage.GitMirror, error) {
+func scanGitMirror(row scanner) (*storage.GitMirror, error) {
 	var m storage.GitMirror
 	var lease, attempted, pushed sql.NullTime
 	if err := row.Scan(&m.SliceID, &m.Account, &m.Slice, &m.URL, &m.Branch, &m.Username, &m.TokenSecret, &m.CreatedBy,

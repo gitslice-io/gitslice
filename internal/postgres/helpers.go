@@ -7,36 +7,17 @@ import (
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/treestore"
 	"gitslice.io/gitslice/internal/usernames"
 )
 
 func FileEntryFingerprint(entry FileEntry) string {
-	payload, _ := json.Marshal(struct {
-		Kind        string `json:"kind"`
-		Mode        uint32 `json:"mode"`
-		BlobID      string `json:"blob_id"`
-		ContentHash string `json:"content_hash"`
-	}{
-		Kind:        "file",
-		Mode:        entry.Mode,
-		BlobID:      entry.BlobID,
-		ContentHash: entry.ContentHash,
-	})
-	sum := sha256.Sum256(payload)
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return storage.FileEntryFingerprint(entry)
 }
 
 func DirectoryEntryFingerprint(treeID string) string {
-	payload, _ := json.Marshal(struct {
-		Kind   string `json:"kind"`
-		TreeID string `json:"tree_id"`
-	}{
-		Kind:   "directory",
-		TreeID: treeID,
-	})
-	sum := sha256.Sum256(payload)
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return storage.DirectoryEntryFingerprint(treeID)
 }
 
 func fileEntryFromTree(entry treestore.FileEntry) FileEntry {
@@ -73,7 +54,7 @@ func treeEntryFromTree(entry treestore.TreeEntry) TreeEntry {
 }
 
 func MissingEntryFingerprint() string {
-	return "missing"
+	return storage.MissingEntryFingerprint()
 }
 
 func normalizeSignupUsername(username string) (string, error) {
