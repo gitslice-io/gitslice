@@ -39,6 +39,121 @@ type errorBody struct {
 	Retriable bool   `json:"retriable"`
 }
 
+type domainErrorOverride struct {
+	Code    string
+	Message string
+	Hint    string
+	HintFn  func(message string) string
+}
+
+type domainErrorOverrides map[codes.Code]domainErrorOverride
+
+type domainHintedError struct {
+	cause     error
+	overrides domainErrorOverrides
+}
+
+func (e *domainHintedError) Error() string {
+	return e.cause.Error()
+}
+
+func (e *domainHintedError) Unwrap() error {
+	return e.cause
+}
+
+func withDomainErrorHints(err error, overrides domainErrorOverrides) error {
+	if err == nil {
+		return nil
+	}
+	var cmdErr commandError
+	if errors.As(err, &cmdErr) {
+		return err
+	}
+	return &domainHintedError{cause: err, overrides: overrides}
+}
+
+func extractDomainErrorOverrides(err error) (error, domainErrorOverrides) {
+	var hinted *domainHintedError
+	if errors.As(err, &hinted) && hinted != nil {
+		return hinted.cause, hinted.overrides
+	}
+	return err, nil
+}
+
+func isTransportOrAuthGRPCStatus(code codes.Code) bool {
+	switch code {
+	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled, codes.Unauthenticated:
+		return true
+	default:
+		return false
+	}
+}
+
+func applyDomainErrorOverride(cmdErr commandError, code codes.Code, stMsg string, overrides domainErrorOverrides) commandError {
+	if len(overrides) == 0 || isTransportOrAuthGRPCStatus(code) {
+		return cmdErr
+	}
+	ov, ok := overrides[code]
+	if !ok {
+		return cmdErr
+	}
+	if ov.Code != "" {
+		cmdErr.Code = ov.Code
+	}
+	if ov.Message != "" {
+		cmdErr.Message = ov.Message
+	}
+	if ov.HintFn != nil {
+		if hint := ov.HintFn(stMsg); hint != "" {
+			cmdErr.Hint = hint
+		}
+	} else if ov.Hint != "" {
+		cmdErr.Hint = ov.Hint
+	}
+	return cmdErr
+}
+
+func grpcStatusCommandError(err error, st *grpcstatus.Status) (commandError, bool) {
+	if st == nil || st.Code() == codes.OK || st.Code() == codes.Unknown {
+		return commandError{}, false
+	}
+	msg := st.Message()
+	switch st.Code() {
+	case codes.NotFound:
+		return commandError{Code: "not_found", Message: firstNonEmpty(msg, "not found"), Cause: err}, true
+	case codes.AlreadyExists:
+		return commandError{Code: "already_exists", Message: firstNonEmpty(msg, "already exists"), Cause: err}, true
+	case codes.InvalidArgument:
+		return commandError{Code: "invalid_argument", Message: firstNonEmpty(msg, "invalid argument"), Cause: err}, true
+	case codes.FailedPrecondition:
+		return commandError{Code: "failed_precondition", Message: firstNonEmpty(msg, "failed precondition"), Cause: err}, true
+	case codes.Aborted:
+		return commandError{Code: "aborted", Message: firstNonEmpty(msg, "operation aborted"), Retriable: true, Cause: err}, true
+	case codes.ResourceExhausted:
+		return commandError{Code: "resource_exhausted", Message: firstNonEmpty(msg, "resource exhausted"), Cause: err}, true
+	case codes.Unimplemented:
+		return commandError{Code: "unsupported", Message: firstNonEmpty(msg, "this server does not support this operation"), Hint: "Upgrade the server.", Cause: err}, true
+	case codes.DeadlineExceeded:
+		return commandError{Code: "deadline_exceeded", Message: firstNonEmpty(msg, "request timed out"), Retriable: true, Cause: err}, true
+	case codes.Canceled:
+		return commandError{Code: "canceled", Message: firstNonEmpty(msg, "request canceled"), Cause: err}, true
+	case codes.Unavailable:
+		if explained := explainUnavailable(err); explained != nil {
+			var cmdErr commandError
+			if errors.As(explained, &cmdErr) {
+				return cmdErr, true
+			}
+		}
+		return commandError{Code: "server_unavailable", Message: firstNonEmpty(msg, "server unavailable"), Retriable: true, Cause: err}, true
+	case codes.Unauthenticated:
+		return commandError{Code: "unauthenticated", Message: firstNonEmpty(msg, "unauthenticated"), Cause: err}, true
+	case codes.PermissionDenied:
+		return commandError{Code: "permission_denied", Message: firstNonEmpty(msg, "permission denied"), Cause: err}, true
+	default:
+		return commandError{}, false
+	}
+}
+
 func exitCodeForError(err error) int {
 	if err == nil {
 		return 0
@@ -69,23 +184,47 @@ func (r Runner) enhanceCommandError(err error) error {
 	if errors.As(err, &cmdErr) {
 		return err
 	}
-	switch grpcstatus.Code(err) {
+	baseErr, overrides := extractDomainErrorOverrides(err)
+	st, ok := grpcstatus.FromError(baseErr)
+	if !ok || st.Code() == codes.OK {
+		return baseErr
+	}
+	var mapped commandError
+	switch st.Code() {
 	case codes.Unauthenticated:
-		return r.unauthenticatedError(err)
+		mapped = r.unauthenticatedCommandError(baseErr)
 	case codes.PermissionDenied:
-		return r.permissionDeniedError(err)
+		mapped = r.permissionDeniedCommandError(baseErr)
 	case codes.Unavailable:
-		if explained := explainUnavailable(err); explained != nil {
+		if explained := explainUnavailable(baseErr); explained != nil {
+			if errors.As(explained, &mapped) {
+				return mapped
+			}
 			return explained
 		}
+		var matched bool
+		mapped, matched = grpcStatusCommandError(baseErr, st)
+		if !matched {
+			return baseErr
+		}
+	default:
+		var matched bool
+		mapped, matched = grpcStatusCommandError(baseErr, st)
+		if !matched {
+			return baseErr
+		}
 	}
-	return err
+	return applyDomainErrorOverride(mapped, st.Code(), st.Message(), overrides)
 }
 
 // unauthenticatedError says which of the two ways a request goes
 // unauthenticated this was: no saved token (private slices need a signed-in
 // member), or a token the server did not accept.
 func (r Runner) unauthenticatedError(err error) error {
+	return r.unauthenticatedCommandError(err)
+}
+
+func (r Runner) unauthenticatedCommandError(err error) commandError {
 	cfg, _ := r.readPartialUserConfig()
 	if strings.TrimSpace(cfg.Token) == "" {
 		return commandError{
@@ -114,6 +253,10 @@ func (r Runner) authRecoveryHint() string {
 // permissionDeniedError explains a request the server refused for the
 // signed-in subject, and how to get access.
 func (r Runner) permissionDeniedError(err error) error {
+	return r.permissionDeniedCommandError(err)
+}
+
+func (r Runner) permissionDeniedCommandError(err error) commandError {
 	cfg, _ := r.readPartialUserConfig()
 	message := "permission denied"
 	if subject := strings.TrimSpace(cfg.SubjectID); subject != "" {
@@ -146,21 +289,63 @@ func isUserErrorCode(err error, code string) bool {
 }
 
 func classifyError(err error) errorResponse {
-	body := errorBody{
-		Code:      "command_failed",
-		Message:   err.Error(),
-		Retriable: false,
+	return errorResponse{Error: classifyErrorBody(err, false)}
+}
+
+func classifyErrorBody(err error, mcpMode bool) errorBody {
+	defaultCode := "command_failed"
+	if mcpMode {
+		defaultCode = "error"
+	}
+	if err == nil {
+		return errorBody{Code: defaultCode}
 	}
 	var cmdErr commandError
 	if errors.As(err, &cmdErr) {
-		body.Code = cmdErr.Code
-		body.Message = cmdErr.Message
-		body.Hint = cmdErr.Hint
-		body.Retriable = cmdErr.Retriable
-		return errorResponse{Error: body}
+		return errorBody{
+			Code:      cmdErr.Code,
+			Message:   cmdErr.Message,
+			Hint:      cmdErr.Hint,
+			Retriable: cmdErr.Retriable,
+		}
+	}
+	baseErr, overrides := extractDomainErrorOverrides(err)
+	if explained := explainUnavailable(baseErr); explained != nil && errors.As(explained, &cmdErr) {
+		return errorBody{
+			Code:      cmdErr.Code,
+			Message:   cmdErr.Message,
+			Hint:      cmdErr.Hint,
+			Retriable: cmdErr.Retriable,
+		}
+	}
+	if st, ok := grpcstatus.FromError(baseErr); ok && st.Code() != codes.OK && st.Code() != codes.Unknown {
+		if mapped, matched := grpcStatusCommandError(baseErr, st); matched {
+			mapped = applyDomainErrorOverride(mapped, st.Code(), st.Message(), overrides)
+			code := mapped.Code
+			if mcpMode && len(overrides) == 0 {
+				code = strings.ToLower(st.Code().String())
+			}
+			return errorBody{
+				Code:      code,
+				Message:   mapped.Message,
+				Hint:      mapped.Hint,
+				Retriable: mapped.Retriable,
+			}
+		}
+		if mcpMode {
+			return errorBody{
+				Code:    strings.ToLower(st.Code().String()),
+				Message: st.Message(),
+			}
+		}
 	}
 
-	msg := err.Error()
+	msg := baseErr.Error()
+	body := errorBody{
+		Code:      defaultCode,
+		Message:   msg,
+		Retriable: false,
+	}
 	switch {
 	case strings.Contains(msg, "not logged in"):
 		body.Code = "not_logged_in"
@@ -176,5 +361,19 @@ func classifyError(err error) errorResponse {
 		body.Code = "server_unavailable"
 		body.Retriable = true
 	}
-	return errorResponse{Error: body}
+	return body
+}
+
+// mcpToolError is an error as a tool result: a stable code, the message, and
+// what to do when the CLI knows.
+func mcpToolError(err error) map[string]any {
+	body := classifyErrorBody(err, true)
+	out := map[string]any{"code": body.Code, "message": body.Message}
+	if body.Hint != "" {
+		out["hint"] = body.Hint
+	}
+	if body.Retriable {
+		out["retriable"] = true
+	}
+	return out
 }

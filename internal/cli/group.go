@@ -10,7 +10,6 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	grpcstatus "google.golang.org/grpc/status"
 )
 
 type groupMemberOutput struct {
@@ -394,19 +393,18 @@ func groupFromProto(g *corev1.AccountGroup) groupOutput {
 	}
 }
 
+var groupErrorHints = domainErrorOverrides{
+	codes.PermissionDenied: {
+		Hint: "Account groups are managed by account owners and admins.",
+	},
+	codes.NotFound: {
+		Hint: "Check the @account/name group handle and username.",
+	},
+	codes.AlreadyExists: {
+		Hint: "Pick another group name.",
+	},
+}
+
 func groupError(err error) error {
-	message := grpcstatus.Convert(err).Message()
-	switch grpcstatus.Code(err) {
-	case codes.PermissionDenied:
-		return userError("permission_denied", message, "Account groups are managed by account owners and admins.")
-	case codes.NotFound:
-		return userError("not_found", message, "Check the @account/name group handle and username.")
-	case codes.AlreadyExists:
-		return userError("already_exists", message, "Pick another group name.")
-	case codes.InvalidArgument:
-		return userError("invalid_argument", message, "")
-	case codes.FailedPrecondition:
-		return userError("failed_precondition", message, "")
-	}
-	return err
+	return withDomainErrorHints(err, groupErrorHints)
 }

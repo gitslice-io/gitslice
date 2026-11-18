@@ -12,7 +12,6 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	grpcstatus "google.golang.org/grpc/status"
 )
 
 // triggerCommand shows triggers and their runs, and runs them by hand
@@ -419,19 +418,13 @@ func fullChangesetID(ctx context.Context, conn *grpc.ClientConn, handle string) 
 	return cs.Id, nil
 }
 
+var triggerErrorHints = domainErrorOverrides{
+	codes.Unimplemented: {
+		Message: "this server does not run triggers",
+		Hint:    "Upgrade the server.",
+	},
+}
+
 func triggerError(err error) error {
-	message := grpcstatus.Convert(err).Message()
-	switch grpcstatus.Code(err) {
-	case codes.InvalidArgument:
-		return userError("invalid_argument", message, "")
-	case codes.FailedPrecondition:
-		return userError("failed_precondition", message, "")
-	case codes.PermissionDenied:
-		return userError("permission_denied", message, "")
-	case codes.NotFound:
-		return userError("not_found", message, "")
-	case codes.Unavailable, codes.Unimplemented:
-		return userError("unsupported", "this server does not run triggers", "Upgrade the server.")
-	}
-	return err
+	return withDomainErrorHints(err, triggerErrorHints)
 }

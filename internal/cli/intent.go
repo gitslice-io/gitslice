@@ -14,7 +14,6 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	grpcstatus "google.golang.org/grpc/status"
 )
 
 type pathIntentOutput struct {
@@ -554,24 +553,27 @@ func pathIntentFromProto(item *corev1.PathIntent) pathIntentOutput {
 	}
 }
 
+var intentErrorHints = domainErrorOverrides{
+	codes.InvalidArgument: {
+		Code: "invalid_intent",
+		Hint: "Check pattern syntax, slice bounds, and --for duration (max 7d).",
+	},
+	codes.PermissionDenied: {
+		Hint: "Creating intents requires contributor access; clearing requires owning the intent or slice admin.",
+	},
+	codes.NotFound: {
+		Hint: "Check the slice reference or intent ID.",
+	},
+	codes.FailedPrecondition: {
+		Code: "conflict",
+		Hint: "Ensure the target slice and linked changeset are open and writable.",
+	},
+	codes.Aborted: {
+		Code: "conflict",
+		Hint: "Ensure the target slice and linked changeset are open and writable.",
+	},
+}
+
 func intentRPCError(err error) error {
-	st, ok := grpcstatus.FromError(err)
-	if !ok {
-		return err
-	}
-	msg := st.Message()
-	switch st.Code() {
-	case codes.InvalidArgument:
-		return userError("invalid_intent", msg, "Check pattern syntax, slice bounds, and --for duration (max 7d).")
-	case codes.PermissionDenied:
-		return userError("permission_denied", msg, "Creating intents requires contributor access; clearing requires owning the intent or slice admin.")
-	case codes.NotFound:
-		return userError("not_found", msg, "Check the slice reference or intent ID.")
-	case codes.FailedPrecondition, codes.Aborted:
-		return userError("conflict", msg, "Ensure the target slice and linked changeset are open and writable.")
-	case codes.Unauthenticated:
-		return userError("unauthenticated", msg, "Run gs auth login or set GS_TOKEN.")
-	default:
-		return err
-	}
+	return withDomainErrorHints(err, intentErrorHints)
 }

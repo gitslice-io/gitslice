@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"path"
 	"regexp"
@@ -881,21 +880,4 @@ func isBinary(data []byte) bool {
 
 func badArgs(err error) error {
 	return userError("invalid_arguments", "arguments: "+err.Error(), "")
-}
-
-// mcpToolError is an error as a tool result: a stable code, the message, and
-// what to do when the CLI knows.
-func mcpToolError(err error) map[string]any {
-	var cmdErr commandError
-	if errors.As(err, &cmdErr) {
-		out := map[string]any{"code": cmdErr.Code, "message": cmdErr.Message}
-		if cmdErr.Hint != "" {
-			out["hint"] = cmdErr.Hint
-		}
-		return out
-	}
-	if st, ok := grpcstatus.FromError(err); ok && st.Code() != codes.Unknown {
-		return map[string]any{"code": strings.ToLower(st.Code().String()), "message": st.Message()}
-	}
-	return map[string]any{"code": "error", "message": err.Error()}
 }

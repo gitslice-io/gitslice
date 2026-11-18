@@ -9,7 +9,6 @@ import (
 	"gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	grpcstatus "google.golang.org/grpc/status"
 )
 
 type tagOutput struct {
@@ -139,17 +138,16 @@ func tagToOutput(tag *corev1.Tag) tagOutput {
 	}
 }
 
+var tagErrorHints = domainErrorOverrides{
+	codes.AlreadyExists: {
+		Code: "tag_exists",
+		Hint: "Tags are immutable; pick a new name.",
+	},
+	codes.PermissionDenied: {
+		Hint: "Creating tags needs write access to the slice.",
+	},
+}
+
 func tagError(err error) error {
-	message := grpcstatus.Convert(err).Message()
-	switch grpcstatus.Code(err) {
-	case codes.AlreadyExists:
-		return userError("tag_exists", message, "Tags are immutable; pick a new name.")
-	case codes.InvalidArgument:
-		return userError("invalid_argument", message, "")
-	case codes.PermissionDenied:
-		return userError("permission_denied", message, "Creating tags needs write access to the slice.")
-	case codes.NotFound:
-		return userError("not_found", message, "")
-	}
-	return err
+	return withDomainErrorHints(err, tagErrorHints)
 }

@@ -14,7 +14,6 @@ import (
 	"golang.org/x/term"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	grpcstatus "google.golang.org/grpc/status"
 )
 
 type secretOutput struct {
@@ -419,19 +418,19 @@ func secretPathFlag(raw string) (string, error) {
 	return p, nil
 }
 
+var secretErrorHints = domainErrorOverrides{
+	codes.FailedPrecondition: {
+		Hint: "gs secret ls lists the account's secrets and the folders each applies to.",
+	},
+	codes.PermissionDenied: {
+		Hint: "Secrets are managed by the account's owners and admins.",
+	},
+	codes.Unimplemented: {
+		Message: "this server does not support account secrets",
+		Hint:    "Upgrade the server, or use gs slice secret.",
+	},
+}
+
 func secretError(err error) error {
-	message := grpcstatus.Convert(err).Message()
-	switch grpcstatus.Code(err) {
-	case codes.InvalidArgument:
-		return userError("invalid_argument", message, "")
-	case codes.FailedPrecondition:
-		return userError("failed_precondition", message, "gs secret ls lists the account's secrets and the folders each applies to.")
-	case codes.PermissionDenied:
-		return userError("permission_denied", message, "Secrets are managed by the account's owners and admins.")
-	case codes.NotFound:
-		return userError("not_found", message, "")
-	case codes.Unimplemented:
-		return userError("unsupported", "this server does not support account secrets", "Upgrade the server, or use gs slice secret.")
-	}
-	return err
+	return withDomainErrorHints(err, secretErrorHints)
 }
