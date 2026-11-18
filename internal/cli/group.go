@@ -8,7 +8,6 @@ import (
 	"github.com/spf13/cobra"
 	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 )
 
@@ -109,24 +108,25 @@ func (r Runner) groupCommand(opts *commandOptions) *cobra.Command {
 }
 
 func (r Runner) runGroupCreate(ctx context.Context, opts commandOptions, rawGroup, description string) error {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
+	var out groupOutput
+	if err := r.withSession(ctx, func(s *Session) error {
+		account, name, err := s.resolveCLIGroupTarget(rawGroup)
+		if err != nil {
+			return err
+		}
+		resp, err := s.Auth().CreateGroup(s.Ctx(), &corev1.CreateGroupRequest{
+			Account:     account,
+			Name:        name,
+			Description: description,
+		})
+		if err != nil {
+			return groupError(err)
+		}
+		out = groupFromProto(resp)
+		return nil
+	}); err != nil {
 		return err
 	}
-	defer conn.Close()
-	account, name, err := r.resolveCLIGroupTarget(callCtx, cfg, conn, rawGroup)
-	if err != nil {
-		return err
-	}
-	resp, err := corev1.NewAuthServiceClient(conn).CreateGroup(callCtx, &corev1.CreateGroupRequest{
-		Account:     account,
-		Name:        name,
-		Description: description,
-	})
-	if err != nil {
-		return groupError(err)
-	}
-	out := groupFromProto(resp)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
@@ -137,23 +137,20 @@ func (r Runner) runGroupCreate(ctx context.Context, opts commandOptions, rawGrou
 }
 
 func (r Runner) runGroupList(ctx context.Context, opts commandOptions, rawAccount string) error {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	account := strings.TrimPrefix(strings.TrimSpace(rawAccount), "@")
-	if account == "" {
-		account, err = r.defaultSliceAccount(callCtx, cfg, conn)
-		if err != nil {
-			return err
+	var resp *corev1.ListGroupsResponse
+	if err := r.withSession(ctx, func(s *Session) error {
+		account := strings.TrimPrefix(strings.TrimSpace(rawAccount), "@")
+		var err error
+		if account == "" {
+			account, err = s.DefaultAccount()
+			if err != nil {
+				return err
+			}
 		}
-	}
-	resp, err := corev1.NewAuthServiceClient(conn).ListGroups(callCtx, &corev1.ListGroupsRequest{
-		Account: account,
-	})
-	if err != nil {
+		resp, err = s.Auth().ListGroups(s.Ctx(), &corev1.ListGroupsRequest{Account: account})
 		return groupError(err)
+	}); err != nil {
+		return err
 	}
 	groups := make([]groupOutput, 0, len(resp.GetGroups()))
 	for _, g := range resp.GetGroups() {
@@ -187,23 +184,24 @@ func (r Runner) runGroupList(ctx context.Context, opts commandOptions, rawAccoun
 }
 
 func (r Runner) runGroupShow(ctx context.Context, opts commandOptions, rawGroup string) error {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
+	var out groupOutput
+	if err := r.withSession(ctx, func(s *Session) error {
+		account, name, err := s.resolveCLIGroupTarget(rawGroup)
+		if err != nil {
+			return err
+		}
+		resp, err := s.Auth().GetGroup(s.Ctx(), &corev1.GetGroupRequest{
+			Account: account,
+			Name:    name,
+		})
+		if err != nil {
+			return groupError(err)
+		}
+		out = groupFromProto(resp)
+		return nil
+	}); err != nil {
 		return err
 	}
-	defer conn.Close()
-	account, name, err := r.resolveCLIGroupTarget(callCtx, cfg, conn, rawGroup)
-	if err != nil {
-		return err
-	}
-	resp, err := corev1.NewAuthServiceClient(conn).GetGroup(callCtx, &corev1.GetGroupRequest{
-		Account: account,
-		Name:    name,
-	})
-	if err != nil {
-		return groupError(err)
-	}
-	out := groupFromProto(resp)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
@@ -241,20 +239,20 @@ func (r Runner) runGroupShow(ctx context.Context, opts commandOptions, rawGroup 
 }
 
 func (r Runner) runGroupDelete(ctx context.Context, opts commandOptions, rawGroup string) error {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	account, name, err := r.resolveCLIGroupTarget(callCtx, cfg, conn, rawGroup)
-	if err != nil {
-		return err
-	}
-	if _, err := corev1.NewAuthServiceClient(conn).DeleteGroup(callCtx, &corev1.DeleteGroupRequest{
-		Account: account,
-		Name:    name,
-	}); err != nil {
+	var account, name string
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		account, name, err = s.resolveCLIGroupTarget(rawGroup)
+		if err != nil {
+			return err
+		}
+		_, err = s.Auth().DeleteGroup(s.Ctx(), &corev1.DeleteGroupRequest{
+			Account: account,
+			Name:    name,
+		})
 		return groupError(err)
+	}); err != nil {
+		return err
 	}
 	handle := model.FormatGroupHandle(account, name)
 	if opts.jsonOutput() {
@@ -276,24 +274,25 @@ func (r Runner) runGroupAddMember(ctx context.Context, opts commandOptions, rawG
 	if username == "" {
 		return userError("invalid_username", "username is required", "Pass the username of an existing user or agent.")
 	}
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
+	var out groupOutput
+	if err := r.withSession(ctx, func(s *Session) error {
+		account, name, err := s.resolveCLIGroupTarget(rawGroup)
+		if err != nil {
+			return err
+		}
+		resp, err := s.Auth().AddGroupMember(s.Ctx(), &corev1.AddGroupMemberRequest{
+			Account:  account,
+			Name:     name,
+			Username: username,
+		})
+		if err != nil {
+			return groupError(err)
+		}
+		out = groupFromProto(resp)
+		return nil
+	}); err != nil {
 		return err
 	}
-	defer conn.Close()
-	account, name, err := r.resolveCLIGroupTarget(callCtx, cfg, conn, rawGroup)
-	if err != nil {
-		return err
-	}
-	resp, err := corev1.NewAuthServiceClient(conn).AddGroupMember(callCtx, &corev1.AddGroupMemberRequest{
-		Account:  account,
-		Name:     name,
-		Username: username,
-	})
-	if err != nil {
-		return groupError(err)
-	}
-	out := groupFromProto(resp)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
@@ -308,24 +307,25 @@ func (r Runner) runGroupRemoveMember(ctx context.Context, opts commandOptions, r
 	if username == "" {
 		return userError("invalid_username", "username is required", "Pass the username of the group member to remove.")
 	}
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
+	var out groupOutput
+	if err := r.withSession(ctx, func(s *Session) error {
+		account, name, err := s.resolveCLIGroupTarget(rawGroup)
+		if err != nil {
+			return err
+		}
+		resp, err := s.Auth().RemoveGroupMember(s.Ctx(), &corev1.RemoveGroupMemberRequest{
+			Account:  account,
+			Name:     name,
+			Username: username,
+		})
+		if err != nil {
+			return groupError(err)
+		}
+		out = groupFromProto(resp)
+		return nil
+	}); err != nil {
 		return err
 	}
-	defer conn.Close()
-	account, name, err := r.resolveCLIGroupTarget(callCtx, cfg, conn, rawGroup)
-	if err != nil {
-		return err
-	}
-	resp, err := corev1.NewAuthServiceClient(conn).RemoveGroupMember(callCtx, &corev1.RemoveGroupMemberRequest{
-		Account:  account,
-		Name:     name,
-		Username: username,
-	})
-	if err != nil {
-		return groupError(err)
-	}
-	out := groupFromProto(resp)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
@@ -335,7 +335,7 @@ func (r Runner) runGroupRemoveMember(ctx context.Context, opts commandOptions, r
 	return nil
 }
 
-func (r Runner) resolveCLIGroupTarget(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, raw string) (string, string, error) {
+func (s *Session) resolveCLIGroupTarget(raw string) (string, string, error) {
 	trimmed := strings.TrimSpace(raw)
 	if trimmed == "" {
 		return "", "", userError("invalid_group", "group reference is required", "Use @account/name, for example @acme/api.")
@@ -355,7 +355,7 @@ func (r Runner) resolveCLIGroupTarget(ctx context.Context, cfg UserConfig, conn 
 	if err != nil {
 		return "", "", userError("invalid_group", err.Error(), "Use @account/name, for example @acme/api.")
 	}
-	account, err := r.defaultSliceAccount(ctx, cfg, conn)
+	account, err := s.DefaultAccount()
 	if err != nil {
 		return "", "", err
 	}

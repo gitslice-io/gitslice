@@ -219,14 +219,13 @@ func authKeysError(err error) error {
 }
 
 func (r Runner) runAuthKeysList(ctx context.Context, opts commandOptions, agent string) error {
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	resp, err := corev1.NewAuthServiceClient(conn).ListApiKeys(callCtx, &corev1.ListApiKeysRequest{Agent: agent})
-	if err != nil {
+	var resp *corev1.ListApiKeysResponse
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		resp, err = s.Auth().ListApiKeys(s.Ctx(), &corev1.ListApiKeysRequest{Agent: agent})
 		return authKeysError(err)
+	}); err != nil {
+		return err
 	}
 	keys := make([]apiKeyOutput, 0, len(resp.Keys))
 	for _, key := range resp.Keys {
@@ -295,21 +294,20 @@ func (r Runner) runAuthKeysCreate(ctx context.Context, opts commandOptions, crea
 	if err != nil {
 		return userError("invalid_role", err.Error(), "Use reader, contributor, or writer.")
 	}
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	resp, err := corev1.NewAuthServiceClient(conn).CreateApiKey(callCtx, &corev1.CreateApiKeyRequest{
-		Agent:            createOpts.Agent,
-		Name:             createOpts.Name,
-		Slices:           createOpts.Slices,
-		MaxRole:          maxRole,
-		ExpiresInSeconds: expiresInSeconds,
-		Purpose:          createOpts.Purpose,
-	})
-	if err != nil {
+	var resp *corev1.CreateApiKeyResponse
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		resp, err = s.Auth().CreateApiKey(s.Ctx(), &corev1.CreateApiKeyRequest{
+			Agent:            createOpts.Agent,
+			Name:             createOpts.Name,
+			Slices:           createOpts.Slices,
+			MaxRole:          maxRole,
+			ExpiresInSeconds: expiresInSeconds,
+			Purpose:          createOpts.Purpose,
+		})
 		return authKeysError(err)
+	}); err != nil {
+		return err
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
@@ -336,14 +334,13 @@ func (r Runner) runAuthKeysCreate(ctx context.Context, opts commandOptions, crea
 }
 
 func (r Runner) runAuthKeysRevoke(ctx context.Context, opts commandOptions, agent, keyID string) error {
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	resp, err := corev1.NewAuthServiceClient(conn).RevokeApiKey(callCtx, &corev1.RevokeApiKeyRequest{Agent: agent, KeyId: strings.TrimSpace(keyID)})
-	if err != nil {
+	var resp *corev1.RevokeApiKeyResponse
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		resp, err = s.Auth().RevokeApiKey(s.Ctx(), &corev1.RevokeApiKeyRequest{Agent: agent, KeyId: strings.TrimSpace(keyID)})
 		return authKeysError(err)
+	}); err != nil {
+		return err
 	}
 	key := apiKeyToOutput(resp.Key)
 	if opts.jsonOutput() {
@@ -370,18 +367,20 @@ func (r Runner) runAuthUseKey(ctx context.Context, opts commandOptions, serverAd
 		serverAddr = defaultServerAddr()
 	}
 	cfg := UserConfig{ServerAddr: serverAddr, Token: key}
-	conn, err := dial(ctx, serverAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	// Check the key before it replaces the working credential.
-	status, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(authContext(ctx, cfg), &corev1.GetAuthStatusRequest{})
-	if err != nil {
-		if grpcstatus.Code(err) == codes.Unauthenticated {
-			return userError("invalid_api_key", "the server does not accept that key",
-				"It may be mistyped, revoked, or from another server (check --server). Ask the agent's owner for a new one: gs auth keys create --agent <username>.")
+	var status *corev1.GetAuthStatusResponse
+	if err := r.withConfigSession(ctx, cfg, func(s *Session) error {
+		// Check the key before it replaces the working credential.
+		var err error
+		status, err = s.Auth().GetAuthStatus(s.Ctx(), &corev1.GetAuthStatusRequest{})
+		if err != nil {
+			if grpcstatus.Code(err) == codes.Unauthenticated {
+				return userError("invalid_api_key", "the server does not accept that key",
+					"It may be mistyped, revoked, or from another server (check --server). Ask the agent's owner for a new one: gs auth keys create --agent <username>.")
+			}
+			return err
 		}
+		return nil
+	}); err != nil {
 		return err
 	}
 	cfg.SubjectID = status.GetSubjectId()

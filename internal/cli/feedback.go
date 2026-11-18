@@ -151,16 +151,15 @@ func (r Runner) runFeedbackSend(ctx context.Context, opts commandOptions, args [
 		}
 		feedbackContext[strings.TrimSpace(key)] = value
 	}
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	sent, err := corev1.NewFeedbackServiceClient(conn).SubmitFeedback(callCtx, &corev1.SubmitFeedbackRequest{
-		Body: body, Category: send.category, Context: feedbackContext,
-	})
-	if err != nil {
+	var sent *corev1.Feedback
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		sent, err = s.Feedback().SubmitFeedback(s.Ctx(), &corev1.SubmitFeedbackRequest{
+			Body: body, Category: send.category, Context: feedbackContext,
+		})
 		return feedbackError(err)
+	}); err != nil {
+		return err
 	}
 	out := feedbackToOutput(sent)
 	if opts.jsonOutput() {
@@ -175,17 +174,19 @@ func (r Runner) runFeedbackSend(ctx context.Context, opts commandOptions, args [
 }
 
 func (r Runner) runFeedbackList(ctx context.Context, opts commandOptions, req *corev1.ListFeedbackRequest) error {
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	res, err := corev1.NewFeedbackServiceClient(conn).ListFeedback(callCtx, req)
-	if err != nil {
-		if grpcstatus.Code(err) == codes.PermissionDenied && !req.GetMine() {
-			return userError("feedback_team_only", grpcstatus.Convert(err).Message(), "Run gs feedback list --mine for your own feedback and the team's answers.")
+	var res *corev1.ListFeedbackResponse
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		res, err = s.Feedback().ListFeedback(s.Ctx(), req)
+		if err != nil {
+			if grpcstatus.Code(err) == codes.PermissionDenied && !req.GetMine() {
+				return userError("feedback_team_only", grpcstatus.Convert(err).Message(), "Run gs feedback list --mine for your own feedback and the team's answers.")
+			}
+			return feedbackError(err)
 		}
-		return feedbackError(err)
+		return nil
+	}); err != nil {
+		return err
 	}
 	out := feedbackListOutput{Feedback: []feedbackOutput{}, NextCursor: res.GetNextCursor()}
 	for _, f := range res.GetFeedback() {
@@ -253,17 +254,19 @@ func (r Runner) runFeedbackResolve(ctx context.Context, opts commandOptions, req
 	if !req.GetReopen() && strings.TrimSpace(req.GetResolution()) == "" {
 		return userError("note_required", "resolving feedback needs --note", "Say what changed and where (for example \"progress lines ship in v0.4.4\"), or why nothing will.")
 	}
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	res, err := corev1.NewFeedbackServiceClient(conn).ResolveFeedback(callCtx, req)
-	if err != nil {
-		if grpcstatus.Code(err) == codes.PermissionDenied {
-			return userError("feedback_team_only", grpcstatus.Convert(err).Message(), "")
+	var res *corev1.Feedback
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		res, err = s.Feedback().ResolveFeedback(s.Ctx(), req)
+		if err != nil {
+			if grpcstatus.Code(err) == codes.PermissionDenied {
+				return userError("feedback_team_only", grpcstatus.Convert(err).Message(), "")
+			}
+			return feedbackError(err)
 		}
-		return feedbackError(err)
+		return nil
+	}); err != nil {
+		return err
 	}
 	out := feedbackToOutput(res)
 	if opts.jsonOutput() {

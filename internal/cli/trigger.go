@@ -10,7 +10,6 @@ import (
 	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/internal/paths"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 )
 
@@ -184,14 +183,13 @@ func (r Runner) runTriggerList(ctx context.Context, opts commandOptions, rawFold
 	if err != nil {
 		return err
 	}
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	resp, err := corev1.NewTriggerServiceClient(conn).ListTriggers(callCtx, &corev1.ListTriggersRequest{Path: folder, Ref: ref})
-	if err != nil {
+	var resp *corev1.ListTriggersResponse
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		resp, err = s.Trigger().ListTriggers(s.Ctx(), &corev1.ListTriggersRequest{Path: folder, Ref: ref})
 		return triggerError(err)
+	}); err != nil {
+		return err
 	}
 	out := make([]triggerOutput, 0, len(resp.Triggers))
 	for _, t := range resp.Triggers {
@@ -233,26 +231,26 @@ func (r Runner) runTriggerList(ctx context.Context, opts commandOptions, rawFold
 }
 
 func (r Runner) runTriggerRuns(ctx context.Context, opts commandOptions, account, trigger, changeset string, limit int) error {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	req := &corev1.ListTriggerRunsRequest{TriggerId: strings.TrimSpace(trigger), Limit: int32(limit)}
-	if changeset != "" {
-		id, err := fullChangesetID(callCtx, conn, changeset)
-		if err != nil {
-			return err
+	var resp *corev1.ListTriggerRunsResponse
+	if err := r.withSession(ctx, func(s *Session) error {
+		req := &corev1.ListTriggerRunsRequest{TriggerId: strings.TrimSpace(trigger), Limit: int32(limit)}
+		if changeset != "" {
+			id, err := s.fullTriggerChangesetID(changeset)
+			if err != nil {
+				return err
+			}
+			req.ChangesetId = id
+		} else {
+			var err error
+			if req.Account, err = s.ResolveAccount(account); err != nil {
+				return err
+			}
 		}
-		req.ChangesetId = id
-	} else {
-		if req.Account, err = r.secretAccount(callCtx, cfg, conn, account); err != nil {
-			return err
-		}
-	}
-	resp, err := corev1.NewTriggerServiceClient(conn).ListTriggerRuns(callCtx, req)
-	if err != nil {
+		var err error
+		resp, err = s.Trigger().ListTriggerRuns(s.Ctx(), req)
 		return triggerError(err)
+	}); err != nil {
+		return err
 	}
 	out := make([]triggerRunOutput, 0, len(resp.Runs))
 	for _, run := range resp.Runs {
@@ -279,14 +277,13 @@ func (r Runner) runTriggerRuns(ctx context.Context, opts commandOptions, account
 }
 
 func (r Runner) runTriggerShow(ctx context.Context, opts commandOptions, runID string) error {
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	run, err := corev1.NewTriggerServiceClient(conn).GetTriggerRun(callCtx, &corev1.GetTriggerRunRequest{RunId: strings.TrimSpace(runID)})
-	if err != nil {
+	var run *corev1.TriggerRun
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		run, err = s.Trigger().GetTriggerRun(s.Ctx(), &corev1.GetTriggerRunRequest{RunId: strings.TrimSpace(runID)})
 		return triggerError(err)
+	}); err != nil {
+		return err
 	}
 	out := triggerRunToOutput(run)
 	if opts.jsonOutput() {
@@ -310,24 +307,22 @@ func (r Runner) runTriggerShow(ctx context.Context, opts commandOptions, runID s
 }
 
 func (r Runner) runTriggerLogs(ctx context.Context, opts commandOptions, runID string) error {
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	client := corev1.NewTriggerServiceClient(conn)
-	var after int64
 	var all []*corev1.TriggerRunLog
-	for {
-		resp, err := client.ListTriggerRunLogs(callCtx, &corev1.ListTriggerRunLogsRequest{RunId: strings.TrimSpace(runID), AfterSeq: after})
-		if err != nil {
-			return triggerError(err)
+	if err := r.withSession(ctx, func(s *Session) error {
+		var after int64
+		for {
+			resp, err := s.Trigger().ListTriggerRunLogs(s.Ctx(), &corev1.ListTriggerRunLogsRequest{RunId: strings.TrimSpace(runID), AfterSeq: after})
+			if err != nil {
+				return triggerError(err)
+			}
+			if len(resp.Logs) == 0 {
+				return nil
+			}
+			all = append(all, resp.Logs...)
+			after = resp.Logs[len(resp.Logs)-1].Seq
 		}
-		if len(resp.Logs) == 0 {
-			break
-		}
-		all = append(all, resp.Logs...)
-		after = resp.Logs[len(resp.Logs)-1].Seq
+	}); err != nil {
+		return err
 	}
 	if opts.jsonOutput() {
 		lines := make([]map[string]any, 0, len(all))
@@ -347,14 +342,6 @@ func (r Runner) runTriggerLogs(ctx context.Context, opts commandOptions, runID s
 }
 
 func (r Runner) runTriggerRun(ctx context.Context, opts commandOptions, account, triggerID, ref, changeset string, rawInputs []string) error {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	if account, err = r.secretAccount(callCtx, cfg, conn, account); err != nil {
-		return err
-	}
 	inputs := map[string]string{}
 	for _, raw := range rawInputs {
 		key, value, ok := strings.Cut(raw, "=")
@@ -363,35 +350,39 @@ func (r Runner) runTriggerRun(ctx context.Context, opts commandOptions, account,
 		}
 		inputs[strings.TrimSpace(key)] = value
 	}
-	req := &corev1.RunTriggerRequest{Account: account, TriggerId: strings.TrimSpace(triggerID), Ref: ref, Inputs: inputs}
-	if changeset != "" {
-		if req.ChangesetId, err = fullChangesetID(callCtx, conn, changeset); err != nil {
+	var run *corev1.TriggerRun
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		if account, err = s.ResolveAccount(account); err != nil {
 			return err
 		}
-	}
-	run, err := corev1.NewTriggerServiceClient(conn).RunTrigger(callCtx, req)
-	if err != nil {
+		req := &corev1.RunTriggerRequest{Account: account, TriggerId: strings.TrimSpace(triggerID), Ref: ref, Inputs: inputs}
+		if changeset != "" {
+			if req.ChangesetId, err = s.fullTriggerChangesetID(changeset); err != nil {
+				return err
+			}
+		}
+		run, err = s.Trigger().RunTrigger(s.Ctx(), req)
 		return triggerError(err)
+	}); err != nil {
+		return err
 	}
 	return r.printTriggerRun(opts, "queued", run)
 }
 
 func (r Runner) runTriggerRunAction(ctx context.Context, opts commandOptions, runID, action string) error {
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	client := corev1.NewTriggerServiceClient(conn)
 	var run *corev1.TriggerRun
-	switch action {
-	case "rerun":
-		run, err = client.RerunTriggerRun(callCtx, &corev1.RerunTriggerRunRequest{RunId: strings.TrimSpace(runID)})
-	default:
-		run, err = client.CancelTriggerRun(callCtx, &corev1.CancelTriggerRunRequest{RunId: strings.TrimSpace(runID)})
-	}
-	if err != nil {
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		switch action {
+		case "rerun":
+			run, err = s.Trigger().RerunTriggerRun(s.Ctx(), &corev1.RerunTriggerRunRequest{RunId: strings.TrimSpace(runID)})
+		default:
+			run, err = s.Trigger().CancelTriggerRun(s.Ctx(), &corev1.CancelTriggerRunRequest{RunId: strings.TrimSpace(runID)})
+		}
 		return triggerError(err)
+	}); err != nil {
+		return err
 	}
 	verb := "queued"
 	if action == "cancel" {
@@ -410,9 +401,9 @@ func (r Runner) printTriggerRun(opts commandOptions, verb string, run *corev1.Tr
 	return nil
 }
 
-// fullChangesetID turns a changeset handle into its id.
-func fullChangesetID(ctx context.Context, conn *grpc.ClientConn, handle string) (string, error) {
-	cs, err := corev1.NewChangesetServiceClient(conn).GetChangeset(ctx, &corev1.GetChangesetRequest{ChangesetId: strings.TrimSpace(handle)})
+// fullTriggerChangesetID turns a changeset handle into its id.
+func (s *Session) fullTriggerChangesetID(handle string) (string, error) {
+	cs, err := s.GetChangeset(strings.TrimSpace(handle))
 	if err != nil {
 		return "", triggerError(err)
 	}

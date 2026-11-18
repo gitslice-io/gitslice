@@ -12,25 +12,19 @@ import (
 )
 
 func (r Runner) runAgentStatus(ctx context.Context, opts commandOptions, forSlice string) error {
-	cfg, err := r.readUserConfig()
-	if err != nil {
-		return err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	callCtx := authContext(ctx, cfg)
-	request := &corev1.ListDaemonsRequest{}
-	if strings.TrimSpace(forSlice) != "" {
-		if request.ForSlice, err = r.resolveSliceRefInput(callCtx, cfg, conn, forSlice); err != nil {
-			return err
+	var res *corev1.ListDaemonsResponse
+	if err := r.withSession(ctx, func(s *Session) error {
+		request := &corev1.ListDaemonsRequest{}
+		if strings.TrimSpace(forSlice) != "" {
+			var err error
+			if request.ForSlice, err = s.ResolveSliceRef(forSlice, false); err != nil {
+				return err
+			}
 		}
-	}
-	res, err := corev1.NewAgentServiceClient(conn).ListDaemons(callCtx, request)
-	if err != nil {
+		var err error
+		res, err = s.Agent().ListDaemons(s.Ctx(), request)
+		return err
+	}); err != nil {
 		return err
 	}
 	out := agentStatusOutput{Daemons: make([]agentDaemonOutput, 0, len(res.GetDaemons()))}
@@ -66,30 +60,25 @@ func (r Runner) runAgentStatus(ctx context.Context, opts commandOptions, forSlic
 // runAgentRename sets, or with an empty name clears, the name a daemon is
 // shown by.
 func (r Runner) runAgentRename(ctx context.Context, opts commandOptions, selector, newName string) error {
-	cfg, err := r.readUserConfig()
-	if err != nil {
-		return err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	client := corev1.NewAgentServiceClient(conn)
-	callCtx := authContext(ctx, cfg)
-	res, err := client.ListDaemons(callCtx, &corev1.ListDaemonsRequest{})
-	if err != nil {
-		return err
-	}
-	daemon, err := pickDaemon(res.GetDaemons(), selector)
-	if err != nil {
-		return err
-	}
-	renamed, err := client.RenameDaemon(callCtx, &corev1.RenameDaemonRequest{DaemonId: daemon.GetId(), DisplayName: newName})
-	if err != nil {
-		if grpcstatus.Code(err) == codes.AlreadyExists {
-			return userError("name_taken", grpcstatus.Convert(err).Message(), "Pick another name; gs agent status lists the account's daemons.")
+	var renamed *corev1.AgentDaemon
+	if err := r.withSession(ctx, func(s *Session) error {
+		res, err := s.Agent().ListDaemons(s.Ctx(), &corev1.ListDaemonsRequest{})
+		if err != nil {
+			return err
 		}
+		daemon, err := pickDaemon(res.GetDaemons(), selector)
+		if err != nil {
+			return err
+		}
+		renamed, err = s.Agent().RenameDaemon(s.Ctx(), &corev1.RenameDaemonRequest{DaemonId: daemon.GetId(), DisplayName: newName})
+		if err != nil {
+			if grpcstatus.Code(err) == codes.AlreadyExists {
+				return userError("name_taken", grpcstatus.Convert(err).Message(), "Pick another name; gs agent status lists the account's daemons.")
+			}
+			return err
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 	out := agentDaemonToOutput(renamed)
@@ -109,31 +98,28 @@ func (r Runner) runAgentRename(ctx context.Context, opts commandOptions, selecto
 
 // runAgentExpose exposes a daemon to a slice, or with expose false withdraws it.
 func (r Runner) runAgentExpose(ctx context.Context, opts commandOptions, selector, sliceArg string, expose bool) error {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	client := corev1.NewAgentServiceClient(conn)
-	res, err := client.ListDaemons(callCtx, &corev1.ListDaemonsRequest{})
-	if err != nil {
-		return err
-	}
-	daemon, err := pickDaemon(res.GetDaemons(), selector)
-	if err != nil {
-		return err
-	}
-	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceArg)
-	if err != nil {
-		return err
-	}
 	var updated *corev1.AgentDaemon
-	if expose {
-		updated, err = client.ExposeDaemon(callCtx, &corev1.ExposeDaemonRequest{DaemonId: daemon.GetId(), Slice: ref})
-	} else {
-		updated, err = client.UnexposeDaemon(callCtx, &corev1.UnexposeDaemonRequest{DaemonId: daemon.GetId(), Slice: ref})
-	}
-	if err != nil {
+	var ref *corev1.SliceRef
+	if err := r.withSession(ctx, func(s *Session) error {
+		res, err := s.Agent().ListDaemons(s.Ctx(), &corev1.ListDaemonsRequest{})
+		if err != nil {
+			return err
+		}
+		daemon, err := pickDaemon(res.GetDaemons(), selector)
+		if err != nil {
+			return err
+		}
+		ref, err = s.ResolveSliceRef(sliceArg, false)
+		if err != nil {
+			return err
+		}
+		if expose {
+			updated, err = s.Agent().ExposeDaemon(s.Ctx(), &corev1.ExposeDaemonRequest{DaemonId: daemon.GetId(), Slice: ref})
+		} else {
+			updated, err = s.Agent().UnexposeDaemon(s.Ctx(), &corev1.UnexposeDaemonRequest{DaemonId: daemon.GetId(), Slice: ref})
+		}
+		return err
+	}); err != nil {
 		return err
 	}
 	if opts.jsonOutput() {

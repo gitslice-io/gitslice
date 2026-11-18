@@ -12,7 +12,6 @@ import (
 	"gitslice.io/gitslice/internal/paths"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"golang.org/x/term"
-	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 )
 
@@ -129,25 +128,17 @@ func (r Runner) secretCommand(opts *commandOptions) *cobra.Command {
 	return secretCmd
 }
 
-func (r Runner) secretAccount(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, account string) (string, error) {
-	if strings.TrimSpace(account) != "" {
-		return normalizeCLISlug(account, "account")
-	}
-	return r.defaultSliceAccount(ctx, cfg, conn)
-}
-
 func (r Runner) runSecretList(ctx context.Context, opts commandOptions, account string) error {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	if account, err = r.secretAccount(callCtx, cfg, conn, account); err != nil {
-		return err
-	}
-	resp, err := corev1.NewSecretServiceClient(conn).ListSecrets(callCtx, &corev1.ListSecretsRequest{Account: account})
-	if err != nil {
+	var resp *corev1.ListSecretsResponse
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		if account, err = s.ResolveAccount(account); err != nil {
+			return err
+		}
+		resp, err = s.Secret().ListSecrets(s.Ctx(), &corev1.ListSecretsRequest{Account: account})
 		return secretError(err)
+	}); err != nil {
+		return err
 	}
 	out := make([]secretOutput, 0, len(resp.Secrets))
 	for _, secret := range resp.Secrets {
@@ -178,32 +169,34 @@ func (r Runner) runSecretCreate(ctx context.Context, opts commandOptions, accoun
 	if !model.ValidSliceSecretName(name) {
 		return userError("invalid_secret_name", "secret name must match ^[A-Z_][A-Z0-9_]*$", "Use an environment-variable style name such as CI_TOKEN.")
 	}
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
+	var out secretOutput
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		if account, err = s.ResolveAccount(account); err != nil {
+			return err
+		}
+		scope, err := flags.scope(account)
+		if err != nil {
+			return err
+		}
+		value, err := r.readSecretValue(name)
+		if err != nil {
+			return err
+		}
+		secret, err := s.Secret().CreateSecret(s.Ctx(), &corev1.CreateSecretRequest{
+			Account: account,
+			Name:    name,
+			Value:   value,
+			Scope:   scope,
+		})
+		if err != nil {
+			return secretError(err)
+		}
+		out = secretToOutput(secret)
+		return nil
+	}); err != nil {
 		return err
 	}
-	defer conn.Close()
-	if account, err = r.secretAccount(callCtx, cfg, conn, account); err != nil {
-		return err
-	}
-	scope, err := flags.scope(account)
-	if err != nil {
-		return err
-	}
-	value, err := r.readSecretValue(name)
-	if err != nil {
-		return err
-	}
-	secret, err := corev1.NewSecretServiceClient(conn).CreateSecret(callCtx, &corev1.CreateSecretRequest{
-		Account: account,
-		Name:    name,
-		Value:   value,
-		Scope:   scope,
-	})
-	if err != nil {
-		return secretError(err)
-	}
-	out := secretToOutput(secret)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
@@ -214,68 +207,68 @@ func (r Runner) runSecretCreate(ctx context.Context, opts commandOptions, accoun
 }
 
 func (r Runner) runSecretUpdate(ctx context.Context, opts commandOptions, id string, replaceValue bool, flags secretScopeFlags, add, remove []string) error {
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	client := corev1.NewSecretServiceClient(conn)
-	current, err := client.GetSecret(callCtx, &corev1.GetSecretRequest{Id: strings.TrimSpace(id)})
-	if err != nil {
-		return secretError(err)
-	}
-	req := &corev1.UpdateSecretRequest{Id: current.Id}
-	switch {
-	case flags.set():
-		if req.Scope, err = flags.scope(current.Account); err != nil {
-			return err
+	var out secretOutput
+	if err := r.withSession(ctx, func(s *Session) error {
+		current, err := s.Secret().GetSecret(s.Ctx(), &corev1.GetSecretRequest{Id: strings.TrimSpace(id)})
+		if err != nil {
+			return secretError(err)
 		}
-	case len(add) > 0 || len(remove) > 0:
-		kept := map[string]bool{}
-		var order []string
-		for _, p := range current.GetScope().GetPaths() {
-			kept[p] = true
-			order = append(order, p)
-		}
-		for _, raw := range add {
-			p, err := secretPathFlag(raw)
-			if err != nil {
+		req := &corev1.UpdateSecretRequest{Id: current.Id}
+		switch {
+		case flags.set():
+			if req.Scope, err = flags.scope(current.Account); err != nil {
 				return err
 			}
-			if !kept[p] {
+		case len(add) > 0 || len(remove) > 0:
+			kept := map[string]bool{}
+			var order []string
+			for _, p := range current.GetScope().GetPaths() {
 				kept[p] = true
 				order = append(order, p)
 			}
+			for _, raw := range add {
+				p, err := secretPathFlag(raw)
+				if err != nil {
+					return err
+				}
+				if !kept[p] {
+					kept[p] = true
+					order = append(order, p)
+				}
+			}
+			for _, raw := range remove {
+				p, err := secretPathFlag(raw)
+				if err != nil {
+					return err
+				}
+				delete(kept, p)
+			}
+			req.Scope = &corev1.SecretScope{}
+			for _, p := range order {
+				if kept[p] {
+					req.Scope.Paths = append(req.Scope.Paths, p)
+				}
+			}
+			if len(req.Scope.Paths) == 0 {
+				return userError("invalid_argument", "that would leave "+current.Name+" with no folders", "Delete it with gs secret rm "+current.Id+" instead.")
+			}
 		}
-		for _, raw := range remove {
-			p, err := secretPathFlag(raw)
+		if replaceValue {
+			value, err := r.readSecretValue(current.Name)
 			if err != nil {
 				return err
 			}
-			delete(kept, p)
+			req.Value = &value
 		}
-		req.Scope = &corev1.SecretScope{}
-		for _, p := range order {
-			if kept[p] {
-				req.Scope.Paths = append(req.Scope.Paths, p)
-			}
-		}
-		if len(req.Scope.Paths) == 0 {
-			return userError("invalid_argument", "that would leave "+current.Name+" with no folders", "Delete it with gs secret rm "+current.Id+" instead.")
-		}
-	}
-	if replaceValue {
-		value, err := r.readSecretValue(current.Name)
+		secret, err := s.Secret().UpdateSecret(s.Ctx(), req)
 		if err != nil {
-			return err
+			return secretError(err)
 		}
-		req.Value = &value
+		out = secretToOutput(secret)
+		return nil
+	}); err != nil {
+		return err
 	}
-	secret, err := client.UpdateSecret(callCtx, req)
-	if err != nil {
-		return secretError(err)
-	}
-	out := secretToOutput(secret)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
@@ -286,14 +279,12 @@ func (r Runner) runSecretUpdate(ctx context.Context, opts commandOptions, id str
 }
 
 func (r Runner) runSecretDelete(ctx context.Context, opts commandOptions, id string) error {
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
 	id = strings.TrimSpace(id)
-	if _, err := corev1.NewSecretServiceClient(conn).DeleteSecret(callCtx, &corev1.DeleteSecretRequest{Id: id}); err != nil {
+	if err := r.withSession(ctx, func(s *Session) error {
+		_, err := s.Secret().DeleteSecret(s.Ctx(), &corev1.DeleteSecretRequest{Id: id})
 		return secretError(err)
+	}); err != nil {
+		return err
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"deleted": id})

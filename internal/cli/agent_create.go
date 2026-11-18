@@ -55,27 +55,24 @@ func (r Runner) runAgentCreate(ctx context.Context, opts commandOptions, name st
 		}
 	}
 
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	var sliceRef *corev1.SliceRef
-	if sliceInput != "" {
-		sliceRef, err = r.resolveSliceRefInput(callCtx, cfg, conn, sliceInput)
-		if err != nil {
-			return err
+	var resp *corev1.CreateDelegatedAgentResponse
+	if err := r.withSession(ctx, func(s *Session) error {
+		var sliceRef *corev1.SliceRef
+		var err error
+		if sliceInput != "" {
+			sliceRef, err = s.ResolveSliceRef(sliceInput, false)
+			if err != nil {
+				return err
+			}
 		}
-	}
-
-	resp, err := corev1.NewAuthServiceClient(conn).CreateDelegatedAgent(callCtx, &corev1.CreateDelegatedAgentRequest{
-		Username:    username,
-		DisplayName: strings.TrimSpace(in.DisplayName),
-		Slice:       sliceRef,
-		Role:        normalizedRole,
-	})
-	if err != nil {
+		resp, err = s.Auth().CreateDelegatedAgent(s.Ctx(), &corev1.CreateDelegatedAgentRequest{
+			Username:    username,
+			DisplayName: strings.TrimSpace(in.DisplayName),
+			Slice:       sliceRef,
+			Role:        normalizedRole,
+		})
+		return err
+	}); err != nil {
 		return err
 	}
 

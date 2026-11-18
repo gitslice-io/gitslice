@@ -65,81 +65,73 @@ func (r Runner) runBlame(ctx context.Context, opts commandOptions, rawPath, slic
 	if err != nil {
 		return err
 	}
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	var sliceRef *corev1.SliceRef
-	if strings.TrimSpace(sliceValue) != "" {
-		if sliceRef, err = r.resolveSliceRefInput(callCtx, cfg, conn, sliceValue); err != nil {
+	return r.withSession(ctx, func(s *Session) error {
+		sliceRef, err := s.ResolveOptionalSliceRef(sliceValue)
+		if err != nil {
 			return err
 		}
-	} else if ws, err := r.readWorkspaceConfig(); err == nil {
-		sliceRef = &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}
-	}
-	repo := corev1.NewRepositoryServiceClient(conn)
-	res, err := repo.BlameFile(callCtx, &corev1.BlameFileRequest{Path: p, Slice: sliceRef})
-	if err != nil {
-		return err
-	}
-	out := blameOutput{CommitID: res.GetCommitId(), Path: res.GetPath(), LineCount: res.GetLineCount(), Truncated: res.GetTruncated(), Ranges: []blameRangeOutput{}, Commits: []blameCommitOutput{}}
-	commits := map[string]blameCommitOutput{}
-	for _, c := range res.GetCommits() {
-		summary, _, _ := strings.Cut(c.GetMessage(), "\n")
-		commit := blameCommitOutput{ID: c.GetId(), Author: c.GetAuthor(), CreatedAt: c.GetCreatedAt(), Summary: summary, ChangesetID: c.GetChangesetId()}
-		if handle := model.ShortChangesetID(c.GetChangesetId()); handle != "" {
-			commit.ChangesetURL = webResourceURL("/cs/" + handle)
+		res, err := s.Repository().BlameFile(s.Ctx(), &corev1.BlameFileRequest{Path: p, Slice: sliceRef})
+		if err != nil {
+			return err
 		}
-		commits[commit.ID] = commit
-		out.Commits = append(out.Commits, commit)
-	}
-	for _, rg := range res.GetRanges() {
-		out.Ranges = append(out.Ranges, blameRangeOutput{StartLine: rg.GetStartLine(), LineCount: rg.GetLineCount(), CommitID: rg.GetCommitId()})
-	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if opts.Quiet {
-		return nil
-	}
+		out := blameOutput{CommitID: res.GetCommitId(), Path: res.GetPath(), LineCount: res.GetLineCount(), Truncated: res.GetTruncated(), Ranges: []blameRangeOutput{}, Commits: []blameCommitOutput{}}
+		commits := map[string]blameCommitOutput{}
+		for _, c := range res.GetCommits() {
+			summary, _, _ := strings.Cut(c.GetMessage(), "\n")
+			commit := blameCommitOutput{ID: c.GetId(), Author: c.GetAuthor(), CreatedAt: c.GetCreatedAt(), Summary: summary, ChangesetID: c.GetChangesetId()}
+			if handle := model.ShortChangesetID(c.GetChangesetId()); handle != "" {
+				commit.ChangesetURL = webResourceURL("/cs/" + handle)
+			}
+			commits[commit.ID] = commit
+			out.Commits = append(out.Commits, commit)
+		}
+		for _, rg := range res.GetRanges() {
+			out.Ranges = append(out.Ranges, blameRangeOutput{StartLine: rg.GetStartLine(), LineCount: rg.GetLineCount(), CommitID: rg.GetCommitId()})
+		}
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, out)
+		}
+		if opts.Quiet {
+			return nil
+		}
 
-	// The text view prints the lines themselves, read at the same commit.
-	file, err := repo.ReadFile(callCtx, &corev1.ReadFileRequest{CommitId: out.CommitID, Path: out.Path, Slice: sliceRef})
-	if err != nil {
-		return err
-	}
-	text := strings.SplitAfter(string(file.GetData()), "\n")
-	width := len(strconv.Itoa(int(out.LineCount)))
-	authorWidth := 0
-	for _, c := range commits {
-		authorWidth = max(authorWidth, len(c.Author))
-	}
-	for _, rg := range out.Ranges {
-		c := commits[rg.CommitID]
-		handle := model.ShortChangesetID(c.ChangesetID)
-		if handle == "" {
-			handle = "-"
+		// The text view prints the lines themselves, read at the same commit.
+		file, err := s.Repository().ReadFile(s.Ctx(), &corev1.ReadFileRequest{CommitId: out.CommitID, Path: out.Path, Slice: sliceRef})
+		if err != nil {
+			return err
 		}
-		date := c.CreatedAt
-		if len(date) >= 10 {
-			date = date[:10]
+		text := strings.SplitAfter(string(file.GetData()), "\n")
+		width := len(strconv.Itoa(int(out.LineCount)))
+		authorWidth := 0
+		for _, c := range commits {
+			authorWidth = max(authorWidth, len(c.Author))
 		}
-		for line := rg.StartLine; line < rg.StartLine+rg.LineCount; line++ {
-			if (first > 0 && int(line) < first) || (last > 0 && int(line) > last) {
-				continue
+		for _, rg := range out.Ranges {
+			c := commits[rg.CommitID]
+			handle := model.ShortChangesetID(c.ChangesetID)
+			if handle == "" {
+				handle = "-"
 			}
-			content := ""
-			if int(line)-1 < len(text) {
-				content = strings.TrimRight(text[line-1], "\n")
+			date := c.CreatedAt
+			if len(date) >= 10 {
+				date = date[:10]
 			}
-			fmt.Fprintf(r.Stdout, "%s %-10s (%-*s %s %*d) %s\n", shortID(rg.CommitID), handle, authorWidth, c.Author, date, width, line, content)
+			for line := rg.StartLine; line < rg.StartLine+rg.LineCount; line++ {
+				if (first > 0 && int(line) < first) || (last > 0 && int(line) > last) {
+					continue
+				}
+				content := ""
+				if int(line)-1 < len(text) {
+					content = strings.TrimRight(text[line-1], "\n")
+				}
+				fmt.Fprintf(r.Stdout, "%s %-10s (%-*s %s %*d) %s\n", shortID(rg.CommitID), handle, authorWidth, c.Author, date, width, line, content)
+			}
 		}
-	}
-	if out.Truncated && len(out.Ranges) > 0 {
-		fmt.Fprintf(r.stderr(), "note: history was read back to a limit; lines credited to the oldest commit shown may be older\n")
-	}
-	return nil
+		if out.Truncated && len(out.Ranges) > 0 {
+			fmt.Fprintf(r.stderr(), "note: history was read back to a limit; lines credited to the oldest commit shown may be older\n")
+		}
+		return nil
+	})
 }
 
 func parseBlameLines(value string) (int, int, error) {

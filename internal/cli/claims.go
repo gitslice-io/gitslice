@@ -19,14 +19,13 @@ type pendingClaimOutput struct {
 }
 
 func (r Runner) runClaimsList(ctx context.Context, opts commandOptions) error {
-	_, conn, authCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	resp, err := corev1.NewAuthServiceClient(conn).ListPendingClaims(authCtx, &corev1.ListPendingClaimsRequest{})
-	if err != nil {
+	var resp *corev1.ListPendingClaimsResponse
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		resp, err = s.Auth().ListPendingClaims(s.Ctx(), &corev1.ListPendingClaimsRequest{})
 		return claimsError(err)
+	}); err != nil {
+		return err
 	}
 	out := make([]pendingClaimOutput, 0, len(resp.Claims))
 	for _, claim := range resp.Claims {
@@ -67,14 +66,13 @@ func noClaimsMessage(verifiedEmails []string) string {
 }
 
 func (r Runner) runClaimsAccept(ctx context.Context, opts commandOptions, agentSubjectID string) error {
-	_, conn, authCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	resp, err := corev1.NewAuthServiceClient(conn).AcceptClaim(authCtx, &corev1.AcceptClaimRequest{AgentSubjectId: strings.TrimSpace(agentSubjectID)})
-	if err != nil {
+	var resp *corev1.AcceptClaimResponse
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		resp, err = s.Auth().AcceptClaim(s.Ctx(), &corev1.AcceptClaimRequest{AgentSubjectId: strings.TrimSpace(agentSubjectID)})
 		return claimsError(err)
+	}); err != nil {
+		return err
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{

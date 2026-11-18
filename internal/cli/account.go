@@ -176,20 +176,21 @@ func (r Runner) runAccountInvite(ctx context.Context, opts commandOptions, org, 
 	if model.AccountRoleRank(normalizedRole) >= len(model.AccountRoles) {
 		return userError("invalid_role", fmt.Sprintf("role must be one of %s", strings.Join(model.AccountRoles, ", ")), "Pass --role owner, admin, writer, member, contributor or reader.")
 	}
-	_, conn, authCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
+	var out invitationOutput
+	if err := r.withSession(ctx, func(s *Session) error {
+		resp, err := s.Auth().InviteAccountMember(s.Ctx(), &corev1.InviteAccountMemberRequest{
+			Account:  strings.TrimSpace(org),
+			Username: strings.TrimPrefix(strings.TrimSpace(username), "@"),
+			Role:     normalizedRole,
+		})
+		if err != nil {
+			return accountError(err)
+		}
+		out = invitationFromProto(resp.Invitation)
+		return nil
+	}); err != nil {
 		return err
 	}
-	defer conn.Close()
-	resp, err := corev1.NewAuthServiceClient(conn).InviteAccountMember(authCtx, &corev1.InviteAccountMemberRequest{
-		Account:  strings.TrimSpace(org),
-		Username: strings.TrimPrefix(strings.TrimSpace(username), "@"),
-		Role:     normalizedRole,
-	})
-	if err != nil {
-		return accountError(err)
-	}
-	out := invitationFromProto(resp.Invitation)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
@@ -200,25 +201,24 @@ func (r Runner) runAccountInvite(ctx context.Context, opts commandOptions, org, 
 }
 
 func (r Runner) runAccountInvitations(ctx context.Context, opts commandOptions, org string) error {
-	_, conn, authCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	client := corev1.NewAuthServiceClient(conn)
 	var invitations []*corev1.AccountInvitation
-	if strings.TrimSpace(org) == "" {
-		resp, err := client.ListMyInvitations(authCtx, &corev1.ListMyInvitationsRequest{})
+	if err := r.withSession(ctx, func(s *Session) error {
+		if strings.TrimSpace(org) == "" {
+			resp, err := s.Auth().ListMyInvitations(s.Ctx(), &corev1.ListMyInvitationsRequest{})
+			if err != nil {
+				return accountError(err)
+			}
+			invitations = resp.Invitations
+			return nil
+		}
+		resp, err := s.Auth().ListAccountInvitations(s.Ctx(), &corev1.ListAccountInvitationsRequest{Account: strings.TrimSpace(org)})
 		if err != nil {
 			return accountError(err)
 		}
 		invitations = resp.Invitations
-	} else {
-		resp, err := client.ListAccountInvitations(authCtx, &corev1.ListAccountInvitationsRequest{Account: strings.TrimSpace(org)})
-		if err != nil {
-			return accountError(err)
-		}
-		invitations = resp.Invitations
+		return nil
+	}); err != nil {
+		return err
 	}
 	out := make([]invitationOutput, 0, len(invitations))
 	for _, invitation := range invitations {
@@ -245,14 +245,13 @@ func (r Runner) runAccountInvitations(ctx context.Context, opts commandOptions, 
 }
 
 func (r Runner) runAccountRespond(ctx context.Context, opts commandOptions, org string, accept bool) error {
-	_, conn, authCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	resp, err := corev1.NewAuthServiceClient(conn).RespondToInvitation(authCtx, &corev1.RespondToInvitationRequest{Account: strings.TrimSpace(org), Accept: accept})
-	if err != nil {
+	var resp *corev1.RespondToInvitationResponse
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		resp, err = s.Auth().RespondToInvitation(s.Ctx(), &corev1.RespondToInvitationRequest{Account: strings.TrimSpace(org), Accept: accept})
 		return accountError(err)
+	}); err != nil {
+		return err
 	}
 	if opts.jsonOutput() {
 		out := map[string]any{"account": strings.TrimSpace(org), "accepted": accept}
@@ -272,16 +271,14 @@ func (r Runner) runAccountRespond(ctx context.Context, opts commandOptions, org 
 }
 
 func (r Runner) runAccountCancelInvite(ctx context.Context, opts commandOptions, org, username string) error {
-	_, conn, authCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	if _, err := corev1.NewAuthServiceClient(conn).CancelAccountInvitation(authCtx, &corev1.CancelAccountInvitationRequest{
-		Account:  strings.TrimSpace(org),
-		Username: strings.TrimPrefix(strings.TrimSpace(username), "@"),
-	}); err != nil {
+	if err := r.withSession(ctx, func(s *Session) error {
+		_, err := s.Auth().CancelAccountInvitation(s.Ctx(), &corev1.CancelAccountInvitationRequest{
+			Account:  strings.TrimSpace(org),
+			Username: strings.TrimPrefix(strings.TrimSpace(username), "@"),
+		})
 		return accountError(err)
+	}); err != nil {
+		return err
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"account": strings.TrimSpace(org), "username": strings.TrimSpace(username), "cancelled": true})
@@ -297,19 +294,21 @@ func (r Runner) runAccountUse(ctx context.Context, opts commandOptions, account 
 	if clear == (account != "") {
 		return userError("invalid_arguments", "pass an account or --clear", "Run gs account use <account>, or gs account use --clear.")
 	}
-	cfg, conn, authCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
+	var cfg UserConfig
+	if err := r.withSession(ctx, func(s *Session) error {
+		cfg = s.Config()
+		if !clear {
+			status, err := s.Auth().GetAuthStatus(s.Ctx(), &corev1.GetAuthStatusRequest{})
+			if err != nil {
+				return err
+			}
+			if !containsFold(status.Accounts, account) {
+				return userError("not_found", fmt.Sprintf("you do not belong to %s", account), "Run gs auth status to see your accounts.")
+			}
+		}
+		return nil
+	}); err != nil {
 		return err
-	}
-	defer conn.Close()
-	if !clear {
-		status, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(authCtx, &corev1.GetAuthStatusRequest{})
-		if err != nil {
-			return err
-		}
-		if !containsFold(status.Accounts, account) {
-			return userError("not_found", fmt.Sprintf("you do not belong to %s", account), "Run gs auth status to see your accounts.")
-		}
 	}
 	cfg.ActiveAccount = account
 	if err := r.writeUserConfig(cfg); err != nil {
@@ -329,21 +328,23 @@ func (r Runner) runAccountUse(ctx context.Context, opts commandOptions, account 
 }
 
 func (r Runner) runAccountCurrent(ctx context.Context, opts commandOptions) error {
-	cfg, conn, authCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	active, err := r.activeAccount(authCtx, cfg, conn)
-	if err != nil {
-		return err
-	}
+	var active string
 	source := "active"
-	if active == "" {
-		if active, err = r.personalAccountSlug(authCtx, conn); err != nil {
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		active, err = s.ActiveAccount()
+		if err != nil {
 			return err
 		}
-		source = "personal"
+		if active == "" {
+			if active, err = s.PersonalAccountSlug(); err != nil {
+				return err
+			}
+			source = "personal"
+		}
+		return nil
+	}); err != nil {
+		return err
 	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"account": active, "source": source})
@@ -388,73 +389,77 @@ func (r Runner) writeProfile(opts commandOptions, p profileOutput) error {
 }
 
 func (r Runner) runAccountProfile(ctx context.Context, opts commandOptions, account string) error {
-	_, conn, authCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
+	var out profileOutput
+	if err := r.withSession(ctx, func(s *Session) error {
+		resp, err := s.Auth().GetAccountProfile(s.Ctx(), &corev1.GetAccountProfileRequest{Account: strings.TrimSpace(account)})
+		if err != nil {
+			return accountError(err)
+		}
+		out = profileFromProto(resp)
+		return nil
+	}); err != nil {
 		return err
 	}
-	defer conn.Close()
-	resp, err := corev1.NewAuthServiceClient(conn).GetAccountProfile(authCtx, &corev1.GetAccountProfileRequest{Account: strings.TrimSpace(account)})
-	if err != nil {
-		return accountError(err)
-	}
-	return r.writeProfile(opts, profileFromProto(resp))
+	return r.writeProfile(opts, out)
 }
 
 func (r Runner) runAccountSetProfile(ctx context.Context, opts commandOptions, account string, name, description, website *string) error {
 	if name == nil && description == nil && website == nil {
 		return userError("nothing_to_change", "nothing to change", "Pass --name, --description or --website.")
 	}
-	_, conn, authCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
+	var out profileOutput
+	if err := r.withSession(ctx, func(s *Session) error {
+		current, err := s.Auth().GetAccountProfile(s.Ctx(), &corev1.GetAccountProfileRequest{Account: strings.TrimSpace(account)})
+		if err != nil {
+			return accountError(err)
+		}
+		req := &corev1.UpdateAccountProfileRequest{
+			Account:     strings.TrimSpace(account),
+			DisplayName: current.GetDisplayName(),
+			Description: current.GetDescription(),
+			Website:     current.GetWebsite(),
+		}
+		if name != nil {
+			req.DisplayName = *name
+		}
+		if description != nil {
+			req.Description = *description
+		}
+		if website != nil {
+			req.Website = *website
+		}
+		updated, err := s.Auth().UpdateAccountProfile(s.Ctx(), req)
+		if err != nil {
+			return accountError(err)
+		}
+		out = profileFromProto(updated)
+		return nil
+	}); err != nil {
 		return err
 	}
-	defer conn.Close()
-	client := corev1.NewAuthServiceClient(conn)
-	current, err := client.GetAccountProfile(authCtx, &corev1.GetAccountProfileRequest{Account: strings.TrimSpace(account)})
-	if err != nil {
-		return accountError(err)
-	}
-	req := &corev1.UpdateAccountProfileRequest{
-		Account:     strings.TrimSpace(account),
-		DisplayName: current.GetDisplayName(),
-		Description: current.GetDescription(),
-		Website:     current.GetWebsite(),
-	}
-	if name != nil {
-		req.DisplayName = *name
-	}
-	if description != nil {
-		req.Description = *description
-	}
-	if website != nil {
-		req.Website = *website
-	}
-	updated, err := client.UpdateAccountProfile(authCtx, req)
-	if err != nil {
-		return accountError(err)
-	}
-	return r.writeProfile(opts, profileFromProto(updated))
+	return r.writeProfile(opts, out)
 }
 
 func (r Runner) runAccountCreateOrg(ctx context.Context, opts commandOptions, slug string, owners []string) error {
-	_, conn, authCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
+	var out accountMembersOutput
+	if err := r.withSession(ctx, func(s *Session) error {
+		resp, err := s.Auth().CreateOrganization(s.Ctx(), &corev1.CreateOrganizationRequest{
+			Slug:           strings.TrimSpace(slug),
+			OwnerUsernames: owners,
+		})
+		if err != nil {
+			return accountError(err)
+		}
+		out = accountMembersOutput{Account: resp.Account, Kind: "organization", Members: accountMembersFromProto(resp.Members)}
+		return nil
+	}); err != nil {
 		return err
 	}
-	defer conn.Close()
-	resp, err := corev1.NewAuthServiceClient(conn).CreateOrganization(authCtx, &corev1.CreateOrganizationRequest{
-		Slug:           strings.TrimSpace(slug),
-		OwnerUsernames: owners,
-	})
-	if err != nil {
-		return accountError(err)
-	}
-	out := accountMembersOutput{Account: resp.Account, Kind: "organization", Members: accountMembersFromProto(resp.Members)}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if !opts.Quiet {
-		fmt.Fprintf(r.Stdout, "created organization %s\n", resp.Account)
+		fmt.Fprintf(r.Stdout, "created organization %s\n", out.Account)
 		r.printAccountMembers(out.Members)
 	}
 	return nil

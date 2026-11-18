@@ -82,6 +82,39 @@ func (s *Session) Ctx() context.Context {
 	return s.callCtx
 }
 
+func (s *Session) AuthCtx(ctx context.Context) context.Context {
+	return authContext(ctx, s.cfg)
+}
+
+func (s *Session) DefaultAccount() (string, error) {
+	return s.r.defaultSliceAccount(s.callCtx, s.cfg, s.conn)
+}
+
+func (s *Session) ResolveAccount(raw string) (string, error) {
+	if strings.TrimSpace(raw) != "" {
+		return normalizeCLISlug(raw, "account")
+	}
+	return s.DefaultAccount()
+}
+
+func (s *Session) ActiveAccount() (string, error) {
+	return s.r.activeAccount(s.callCtx, s.cfg, s.conn)
+}
+
+func (s *Session) PersonalAccountSlug() (string, error) {
+	return s.r.personalAccountSlug(s.callCtx, s.conn)
+}
+
+func (s *Session) ResolveOptionalSliceRef(value string) (*corev1.SliceRef, error) {
+	if strings.TrimSpace(value) != "" {
+		return s.ResolveSliceRef(value, false)
+	}
+	if ws, err := s.r.readWorkspaceConfig(); err == nil && strings.TrimSpace(ws.Account) != "" && strings.TrimSpace(ws.Slice) != "" {
+		return &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice}, nil
+	}
+	return nil, nil
+}
+
 func (s *Session) Auth() corev1.AuthServiceClient {
 	if s.authClient == nil {
 		s.authClient = corev1.NewAuthServiceClient(s.conn)
@@ -287,14 +320,22 @@ func (r Runner) resolveChangesetTargetWithConfig(preloadedCfg UserConfig, hasPre
 	}, nil
 }
 
-func (r Runner) withSession(ctx context.Context, fn func(s *Session) error) error {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
+func (r Runner) withConfigSession(ctx context.Context, cfg UserConfig, fn func(s *Session) error) error {
+	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
-	s := newSession(r, cfg, conn, callCtx)
+	s := newSession(r, cfg, conn, authContext(ctx, cfg))
 	defer s.Close()
 	return fn(s)
+}
+
+func (r Runner) withSession(ctx context.Context, fn func(s *Session) error) error {
+	cfg, err := r.readUserConfig()
+	if err != nil {
+		return err
+	}
+	return r.withConfigSession(ctx, cfg, fn)
 }
 
 func (r Runner) withSliceSession(ctx context.Context, rawSlice string, fallbackToWorkspace bool, fn func(s *Session, ref *corev1.SliceRef) error) error {
@@ -330,11 +371,7 @@ func (r Runner) withChangesetSession(ctx context.Context, requestedID string, fn
 	if err != nil {
 		return err
 	}
-	conn, err := dial(ctx, target.Config.ServerAddr)
-	if err != nil {
-		return err
-	}
-	s := newSession(r, target.Config, conn, authContext(ctx, target.Config))
-	defer s.Close()
-	return fn(s, target)
+	return r.withConfigSession(ctx, target.Config, func(s *Session) error {
+		return fn(s, target)
+	})
 }

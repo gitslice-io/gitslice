@@ -141,3 +141,35 @@ func TestSessionResolveChangesetTarget(t *testing.T) {
 		t.Fatalf("unexpected explicit other target: %#v", other)
 	}
 }
+
+func TestSessionOptionalSliceAccountAndAuthCtxHelpers(t *testing.T) {
+	home := t.TempDir()
+	outsideDir := t.TempDir()
+	sOutside := newSession(Runner{Home: home, Dir: outsideDir}, UserConfig{Token: "tok_sub"}, nil, context.Background())
+
+	optOutside, err := sOutside.ResolveOptionalSliceRef("")
+	if err != nil || optOutside != nil {
+		t.Fatalf("ResolveOptionalSliceRef outside workspace = (%#v, %v), want (nil, nil)", optOutside, err)
+	}
+
+	acct, err := sOutside.ResolveAccount("Acme_Org")
+	if err != nil || acct != "acme-org" {
+		t.Fatalf("ResolveAccount explicit = (%q, %v), want acme-org", acct, err)
+	}
+
+	wsDir := t.TempDir()
+	if err := writeJSONFile(filepath.Join(wsDir, ".gs", "slice.json"), WorkspaceConfig{Account: "acme", Slice: "core"}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sWS := newSession(Runner{Home: home, Dir: wsDir}, UserConfig{Token: "tok_sub"}, nil, context.Background())
+	optWS, err := sWS.ResolveOptionalSliceRef("")
+	if err != nil || optWS.GetAccount() != "acme" || optWS.GetSlice() != "core" {
+		t.Fatalf("ResolveOptionalSliceRef in workspace = (%#v, %v), want acme:core", optWS, err)
+	}
+
+	creds := bearerTokenCreds{}
+	meta, err := creds.GetRequestMetadata(sWS.AuthCtx(context.Background()))
+	if err != nil || meta["authorization"] != "Bearer tok_sub" {
+		t.Fatalf("AuthCtx bearer metadata = %v (err=%v)", meta, err)
+	}
+}

@@ -63,20 +63,19 @@ func (r Runner) runAuthStatus(ctx context.Context, opts commandOptions) error {
 }
 
 func (r Runner) sharedSlicesForStatus(ctx context.Context) ([]authSharedSliceOutput, error) {
-	_, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer conn.Close()
-	shared, err := listSharedSlices(callCtx, corev1.NewSliceServiceClient(conn))
-	if err != nil {
-		return nil, err
-	}
-	out := make([]authSharedSliceOutput, 0, len(shared))
-	for _, s := range shared {
-		out = append(out, authSharedSliceOutput{Slice: s.Ref, Role: s.Role})
-	}
-	return out, nil
+	var out []authSharedSliceOutput
+	err := r.withSession(ctx, func(s *Session) error {
+		shared, err := listSharedSlices(s.Ctx(), s.Slice())
+		if err != nil {
+			return err
+		}
+		out = make([]authSharedSliceOutput, 0, len(shared))
+		for _, sl := range shared {
+			out = append(out, authSharedSliceOutput{Slice: sl.Ref, Role: sl.Role})
+		}
+		return nil
+	})
+	return out, err
 }
 
 func (r Runner) runAuthToken(ctx context.Context, opts commandOptions) error {
@@ -143,23 +142,24 @@ func (r Runner) runAuthLogout(opts commandOptions) error {
 }
 
 func (r Runner) validatedAuthToken(ctx context.Context) (UserConfig, string, error) {
-	cfg, err := r.readUserConfig()
-	if err != nil {
-		return UserConfig{}, "", err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return UserConfig{}, "", err
-	}
-	defer conn.Close()
-	res, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(authContext(ctx, cfg), &corev1.GetAuthStatusRequest{})
-	if err != nil {
-		if grpcstatus.Code(err) == codes.Unauthenticated {
-			return UserConfig{}, "", userError("invalid_token", "saved auth token is invalid", r.authRecoveryHint())
+	var cfg UserConfig
+	var subjectID string
+	err := r.withSession(ctx, func(s *Session) error {
+		cfg = s.Config()
+		res, err := s.Auth().GetAuthStatus(s.Ctx(), &corev1.GetAuthStatusRequest{})
+		if err != nil {
+			if grpcstatus.Code(err) == codes.Unauthenticated {
+				return userError("invalid_token", "saved auth token is invalid", r.authRecoveryHint())
+			}
+			return err
 		}
+		subjectID = res.SubjectId
+		return nil
+	})
+	if err != nil {
 		return UserConfig{}, "", err
 	}
-	return cfg, res.SubjectId, nil
+	return cfg, subjectID, nil
 }
 
 func (r Runner) probeAuthStatus(ctx context.Context) (authStatusOutput, error) {
@@ -178,37 +178,47 @@ func (r Runner) probeAuthStatus(ctx context.Context) (authStatusOutput, error) {
 	if cfg.ServerAddr == "" || cfg.Token == "" {
 		return authStatusOutput{ServerAddr: cfg.ServerAddr, Reason: "invalid_config"}, nil
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return authStatusOutput{ServerAddr: cfg.ServerAddr, Reason: "server_unavailable"}, err
-	}
-	defer conn.Close()
-	res, err := corev1.NewAuthServiceClient(conn).GetAuthStatus(authContext(ctx, cfg), &corev1.GetAuthStatusRequest{})
-	if err != nil {
-		if grpcstatus.Code(err) == codes.Unauthenticated {
-			return authStatusOutput{
-				ServerAddr: cfg.ServerAddr,
-				Reason:     "invalid_token",
-			}, nil
+	var out authStatusOutput
+	dialFailed := true
+	err = r.withConfigSession(ctx, cfg, func(s *Session) error {
+		dialFailed = false
+		res, rpcErr := s.Auth().GetAuthStatus(s.Ctx(), &corev1.GetAuthStatusRequest{})
+		if rpcErr != nil {
+			if grpcstatus.Code(rpcErr) == codes.Unauthenticated {
+				out = authStatusOutput{
+					ServerAddr: cfg.ServerAddr,
+					Reason:     "invalid_token",
+				}
+				return nil
+			}
+			out = authStatusOutput{ServerAddr: cfg.ServerAddr, Reason: "auth_check_failed"}
+			return rpcErr
 		}
-		return authStatusOutput{ServerAddr: cfg.ServerAddr, Reason: "auth_check_failed"}, err
+		active := ""
+		if containsFold(res.Accounts, cfg.ActiveAccount) {
+			active = cfg.ActiveAccount
+		}
+		memberships := make([]authMembershipOutput, 0, len(res.GetMemberships()))
+		for _, m := range res.GetMemberships() {
+			memberships = append(memberships, authMembershipOutput{Account: m.GetAccount(), Kind: m.GetKind(), Role: m.GetRole()})
+		}
+		out = authStatusOutput{
+			SignedIn:      true,
+			ServerAddr:    cfg.ServerAddr,
+			SubjectID:     res.SubjectId,
+			Accounts:      res.Accounts,
+			Memberships:   memberships,
+			ActiveAccount: active,
+		}
+		return nil
+	})
+	if err != nil {
+		if dialFailed {
+			return authStatusOutput{ServerAddr: cfg.ServerAddr, Reason: "server_unavailable"}, err
+		}
+		return out, err
 	}
-	active := ""
-	if containsFold(res.Accounts, cfg.ActiveAccount) {
-		active = cfg.ActiveAccount
-	}
-	memberships := make([]authMembershipOutput, 0, len(res.GetMemberships()))
-	for _, m := range res.GetMemberships() {
-		memberships = append(memberships, authMembershipOutput{Account: m.GetAccount(), Kind: m.GetKind(), Role: m.GetRole()})
-	}
-	return authStatusOutput{
-		SignedIn:      true,
-		ServerAddr:    cfg.ServerAddr,
-		SubjectID:     res.SubjectId,
-		Accounts:      res.Accounts,
-		Memberships:   memberships,
-		ActiveAccount: active,
-	}, nil
+	return out, nil
 }
 
 func (r Runner) writeAuthStatus(opts commandOptions, status authStatusOutput) error {

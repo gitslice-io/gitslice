@@ -33,15 +33,19 @@ func (r Runner) mcpCommand(opts *commandOptions) *cobra.Command {
 }
 
 func (r Runner) newMCPBackend(cfg UserConfig, conn *grpc.ClientConn, cache *clientcache.ObjectCache, defaultSlice string) *mcpserver.Backend {
-	repoClient := corev1.NewRepositoryServiceClient(conn)
-	blobClient := corev1.NewBlobServiceClient(conn)
+	return r.newSessionMCPBackend(newSession(r, cfg, conn, nil), cache, defaultSlice)
+}
+
+func (r Runner) newSessionMCPBackend(s *Session, cache *clientcache.ObjectCache, defaultSlice string) *mcpserver.Backend {
+	repoClient := s.Repository()
+	blobClient := s.Blob()
 	return mcpserver.NewBackend(mcpserver.BackendDeps{
-		Conn:         conn,
-		AuthCtx:      func(ctx context.Context) context.Context { return authContext(ctx, cfg) },
+		Conn:         s.Conn(),
+		AuthCtx:      s.AuthCtx,
 		Cache:        cache,
 		DefaultSlice: defaultSlice,
 		ResolveSliceRef: func(ctx context.Context, value string) (*corev1.SliceRef, error) {
-			return r.resolveSliceRefInput(ctx, cfg, conn, value)
+			return r.resolveSliceRefInput(ctx, s.Config(), s.Conn(), value)
 		},
 		FetchSingle: func(ctx context.Context, slice *corev1.SliceRef, commitID, path string) ([]byte, bool, error) {
 			return fetchSingleRemoteTarget(ctx, repoClient, blobClient, slice, cache, commitID, remoteReadTarget{Path: path})
@@ -66,29 +70,25 @@ func (r Runner) newMCPBackend(cfg UserConfig, conn *grpc.ClientConn, cache *clie
 	})
 }
 
-func (r Runner) runMCP(ctx context.Context, opts commandOptions, defaultSlice string) error {
-	cfg, conn, _, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	cache, err := r.objectCache()
-	if err != nil {
-		return err
-	}
-	if strings.TrimSpace(defaultSlice) == "" {
-		if ws, err := r.readWorkspaceConfig(); err == nil && ws.Account != "" {
-			defaultSlice = ws.Account + "/" + ws.Slice
+func (r Runner) runMCP(ctx context.Context, _ commandOptions, defaultSlice string) error {
+	return r.withSession(ctx, func(s *Session) error {
+		cache, err := r.objectCache()
+		if err != nil {
+			return err
 		}
-	}
-	backend := r.newMCPBackend(cfg, conn, cache, defaultSlice)
-	server := &mcpserver.Server{
-		Tools:       backend.Tools(),
-		Version:     cliVersionInfo().Version,
-		Trace:       traceEvent,
-		FormatError: mcpToolError,
-		Out:         r.stdout(),
-	}
-	return server.Serve(ctx, r.Stdin)
+		if strings.TrimSpace(defaultSlice) == "" {
+			if ws, err := r.readWorkspaceConfig(); err == nil && ws.Account != "" {
+				defaultSlice = ws.Account + "/" + ws.Slice
+			}
+		}
+		backend := r.newSessionMCPBackend(s, cache, defaultSlice)
+		server := &mcpserver.Server{
+			Tools:       backend.Tools(),
+			Version:     cliVersionInfo().Version,
+			Trace:       traceEvent,
+			FormatError: mcpToolError,
+			Out:         r.stdout(),
+		}
+		return server.Serve(ctx, r.Stdin)
+	})
 }
