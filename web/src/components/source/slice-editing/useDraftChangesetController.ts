@@ -1,27 +1,126 @@
-import {
-  useCallback,
-  useEffect,
-  useRef,
-  useState
-} from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useReducer, useRef } from "react";
 
-import type { Changeset, FileEdit, SliceRef } from "../../../api/types";
+import type { Changeset, SliceRef } from "../../../api/types";
 import { type ApiClient } from "../../../api/useApi";
 import { shortChangesetId } from "../../../lib/objectId";
-
-import type { PendingEdit } from "./pendingEdits";
-import { upsertPendingEdit, removePendingEdit } from "./pendingEdits";
+import { changesetKey, changesetQuery } from "../../../queries/changesets";
+import { changesetsListKeyPrefix } from "../../../routes/changesets-list/filters";
 import {
-  compareEditOrder,
   currentChangesetPatchset,
-  draftStatusLabel,
   errorMessageFromUnknown,
   fileEditToPendingEdit,
   preparePendingFileEdits
 } from "./draftChangesetHelpers";
+import {
+  removePendingEdit,
+  upsertPendingEdit,
+  type PendingEdit
+} from "./pendingEdits";
 
-type DraftSaveStatus = "idle" | "adopting" | "saving" | "saved" | "failed";
-type DraftActionStatus = "idle" | "submitting" | "discarding";
+export type DraftSaveStatus = "idle" | "adopting" | "saving" | "saved" | "failed";
+export type DraftActionStatus = "idle" | "submitting" | "discarding";
+
+export interface DraftControllerState {
+  changesetId: string;
+  changesetLabel: string;
+  currentPatchsetId: string;
+  edits: PendingEdit[];
+  saveStatus: DraftSaveStatus;
+  actionStatus: DraftActionStatus;
+  errorMessage: string;
+}
+
+export type DraftControllerAction =
+  | { type: "reset"; saveStatus: DraftSaveStatus }
+  | {
+      type: "adopted";
+      changesetId: string;
+      currentPatchsetId: string;
+      edits: PendingEdit[];
+    }
+  | { type: "editsUpdated"; edits: PendingEdit[] }
+  | { type: "saveStarted" }
+  | { type: "changesetCreated"; changesetId: string; currentPatchsetId: string }
+  | { type: "patchsetSaved"; currentPatchsetId: string }
+  | { type: "saveIdle" }
+  | { type: "saveFailed"; errorMessage: string }
+  | { type: "actionStatus"; actionStatus: DraftActionStatus };
+
+export const INITIAL_DRAFT_STATE: DraftControllerState = {
+  changesetId: "",
+  changesetLabel: "",
+  currentPatchsetId: "",
+  edits: [],
+  saveStatus: "idle",
+  actionStatus: "idle",
+  errorMessage: ""
+};
+
+export function draftControllerReducer(
+  state: DraftControllerState,
+  action: DraftControllerAction
+): DraftControllerState {
+  switch (action.type) {
+    case "reset":
+      return {
+        ...INITIAL_DRAFT_STATE,
+        saveStatus: action.saveStatus
+      };
+    case "adopted":
+      return {
+        ...state,
+        changesetId: action.changesetId,
+        changesetLabel: shortChangesetId(action.changesetId),
+        currentPatchsetId: action.currentPatchsetId,
+        edits: action.edits,
+        saveStatus: "saved",
+        errorMessage: ""
+      };
+    case "editsUpdated":
+      return {
+        ...state,
+        edits: action.edits
+      };
+    case "saveStarted":
+      return {
+        ...state,
+        saveStatus: "saving",
+        errorMessage: ""
+      };
+    case "changesetCreated":
+      return {
+        ...state,
+        changesetId: action.changesetId,
+        changesetLabel: shortChangesetId(action.changesetId),
+        currentPatchsetId: action.currentPatchsetId
+      };
+    case "patchsetSaved":
+      return {
+        ...state,
+        currentPatchsetId: action.currentPatchsetId,
+        saveStatus: "saved",
+        errorMessage: ""
+      };
+    case "saveIdle":
+      return {
+        ...state,
+        saveStatus: "idle",
+        errorMessage: ""
+      };
+    case "saveFailed":
+      return {
+        ...state,
+        saveStatus: "failed",
+        errorMessage: action.errorMessage
+      };
+    case "actionStatus":
+      return {
+        ...state,
+        actionStatus: action.actionStatus
+      };
+  }
+}
 
 interface DraftChangesetControllerOptions {
   api: ApiClient;
@@ -47,6 +146,12 @@ export interface DraftChangesetController {
   submitDraft(): Promise<string>;
 }
 
+interface QueueSession {
+  generation: number;
+  state: DraftControllerState;
+  tail: Promise<void>;
+}
+
 export function useDraftChangesetController({
   api,
   commitId,
@@ -54,94 +159,95 @@ export function useDraftChangesetController({
   sliceRef,
   authorUsername
 }: DraftChangesetControllerOptions): DraftChangesetController {
+  const queryClient = useQueryClient();
   const defaultTitle = `Web edits to ${sliceLabel}`;
-  const [changesetId, setChangesetId] = useState("");
-  const [changesetLabel, setChangesetLabel] = useState("");
-  const [currentPatchsetId, setCurrentPatchsetId] = useState("");
-  const [edits, setEdits] = useState<PendingEdit[]>([]);
-  const [saveStatus, setSaveStatus] = useState<DraftSaveStatus>("idle");
-  const [actionStatus, setActionStatus] =
-    useState<DraftActionStatus>("idle");
-  const [errorMessage, setErrorMessage] = useState("");
+  const [state, rawDispatch] = useReducer(
+    draftControllerReducer,
+    INITIAL_DRAFT_STATE
+  );
 
-  const changesetIdRef = useRef("");
-  const currentPatchsetIdRef = useRef("");
-  const editsRef = useRef<PendingEdit[]>([]);
-  const errorMessageRef = useRef("");
-  const flushTailRef = useRef<Promise<void>>(Promise.resolve());
-  const generationRef = useRef(0);
+  // Single authoritative session box keeping queued async commands in lockstep
+  // with the reducer state, eliminating separate state/ref mirrors.
+  const sessionRef = useRef<QueueSession>({
+    generation: 0,
+    state: INITIAL_DRAFT_STATE,
+    tail: Promise.resolve()
+  });
 
-  const setControllerError = useCallback((message: string) => {
-    errorMessageRef.current = message;
-    setErrorMessage(message);
+  const dispatch = useCallback((action: DraftControllerAction) => {
+    sessionRef.current.state = draftControllerReducer(
+      sessionRef.current.state,
+      action
+    );
+    rawDispatch(action);
   }, []);
 
-  const clearControllerError = useCallback(() => {
-    errorMessageRef.current = "";
-    setErrorMessage("");
-  }, []);
+  const sliceAccount = sliceRef?.account ?? "";
+  const sliceName = sliceRef?.slice ?? "";
 
-  const setDraftIdentity = useCallback(
-    (changeset: Changeset | undefined) => {
-      const nextChangesetId = changeset?.id ?? "";
-      const nextLabel = shortChangesetId(nextChangesetId);
-      const nextPatchsetId = changeset?.currentPatchsetId ?? "";
-
-      changesetIdRef.current = nextChangesetId;
-      currentPatchsetIdRef.current = nextPatchsetId;
-      setChangesetId(nextChangesetId);
-      setChangesetLabel(nextLabel);
-      setCurrentPatchsetId(nextPatchsetId);
+  const syncChangesetCache = useCallback(
+    (changesetId: string, fullChangeset?: Changeset) => {
+      if (changesetId) {
+        if (fullChangeset) {
+          queryClient.setQueryData(changesetKey(changesetId), fullChangeset);
+        } else {
+          void queryClient.invalidateQueries({
+            queryKey: changesetKey(changesetId)
+          });
+        }
+      }
+      if (sliceAccount && sliceName) {
+        void queryClient.invalidateQueries({
+          queryKey: changesetsListKeyPrefix({ account: sliceAccount, slice: sliceName })
+        });
+      }
     },
-    []
+    [queryClient, sliceAccount, sliceName]
   );
 
   useEffect(() => {
-    const generation = generationRef.current + 1;
-    generationRef.current = generation;
-    changesetIdRef.current = "";
-    currentPatchsetIdRef.current = "";
-    editsRef.current = [];
-    setChangesetId("");
-    setChangesetLabel("");
-    setCurrentPatchsetId("");
-    setEdits([]);
-    clearControllerError();
+    const generation = sessionRef.current.generation + 1;
+    sessionRef.current.generation = generation;
 
-    if (!commitId || !sliceRef?.account || !sliceRef?.slice || !authorUsername) {
-      setSaveStatus("idle");
+    const canAdopt = Boolean(
+      commitId && sliceAccount && sliceName && authorUsername
+    );
+    dispatch({ type: "reset", saveStatus: canAdopt ? "adopting" : "idle" });
+
+    if (!canAdopt) {
       return;
     }
 
+    const targetSlice: SliceRef = { account: sliceAccount, slice: sliceName };
     let cancelled = false;
-    setSaveStatus("adopting");
 
     async function adoptDraft() {
       try {
         const listed = await api.listChangesets({
-          authoringSlice: sliceRef,
+          authoringSlice: targetSlice,
           status: "draft",
           limit: 50,
           summary: true
         });
         const draft = (listed.changesets ?? []).find(
-          (changeset) => changeset.author === authorUsername
+          (cs) => cs.author === authorUsername
         );
 
-        if (cancelled || generationRef.current !== generation) {
+        if (cancelled || sessionRef.current.generation !== generation) {
           return;
         }
 
         if (!draft?.id) {
-          setSaveStatus("idle");
+          dispatch({ type: "saveIdle" });
           return;
         }
 
-        const fullDraft = await api.getChangeset({
-          changesetId: draft.id
+        const fullDraft = await queryClient.fetchQuery({
+          ...changesetQuery(api, draft.id),
+          staleTime: 0
         });
 
-        if (cancelled || generationRef.current !== generation) {
+        if (cancelled || sessionRef.current.generation !== generation) {
           return;
         }
 
@@ -150,19 +256,21 @@ export function useDraftChangesetController({
           .map(fileEditToPendingEdit)
           .filter((edit): edit is PendingEdit => Boolean(edit));
 
-        setDraftIdentity(fullDraft);
-        currentPatchsetIdRef.current =
-          currentPatchset?.id ?? fullDraft.currentPatchsetId ?? "";
-        setCurrentPatchsetId(currentPatchsetIdRef.current);
-        editsRef.current = hydratedEdits;
-        setEdits(hydratedEdits);
-        setSaveStatus("saved");
+        dispatch({
+          type: "adopted",
+          changesetId: fullDraft.id ?? draft.id,
+          currentPatchsetId:
+            currentPatchset?.id ?? fullDraft.currentPatchsetId ?? "",
+          edits: hydratedEdits
+        });
       } catch (error) {
-        if (cancelled || generationRef.current !== generation) {
+        if (cancelled || sessionRef.current.generation !== generation) {
           return;
         }
-        setSaveStatus("failed");
-        setControllerError(errorMessageFromUnknown(error));
+        dispatch({
+          type: "saveFailed",
+          errorMessage: errorMessageFromUnknown(error)
+        });
       }
     }
 
@@ -171,66 +279,54 @@ export function useDraftChangesetController({
     return () => {
       cancelled = true;
     };
-  }, [api, clearControllerError, commitId, setControllerError, setDraftIdentity, sliceRef, authorUsername]);
-
-  const clearDraftState = useCallback(() => {
-    changesetIdRef.current = "";
-    currentPatchsetIdRef.current = "";
-    editsRef.current = [];
-    setChangesetId("");
-    setChangesetLabel("");
-    setCurrentPatchsetId("");
-    setEdits([]);
-    clearControllerError();
-    setSaveStatus("idle");
-  }, [clearControllerError]);
+  }, [api, authorUsername, commitId, dispatch, queryClient, sliceAccount, sliceName]);
 
   const persistEdits = useCallback(
     async (nextEdits: PendingEdit[], generation: number) => {
       if (!commitId) {
         throw new Error("Latest global state did not return a commit id.");
       }
-      if (!sliceRef?.account || !sliceRef?.slice) {
+      if (!sliceAccount || !sliceName) {
         throw new Error("Authoring slice is missing account or slice.");
       }
 
-      clearControllerError();
-      setSaveStatus("saving");
+      const targetSlice: SliceRef = { account: sliceAccount, slice: sliceName };
+      dispatch({ type: "saveStarted" });
 
-      let draftId = changesetIdRef.current;
-      let draftPatchsetId = currentPatchsetIdRef.current;
+      let draftId = sessionRef.current.state.changesetId;
+      let draftPatchsetId = sessionRef.current.state.currentPatchsetId;
 
       if (!draftId) {
         if (!nextEdits.length) {
-          setSaveStatus("idle");
+          dispatch({ type: "saveIdle" });
           return;
         }
 
-        const changeset = await api.createChangeset({
-          authoringSlice: sliceRef,
+        const created = await api.createChangeset({
+          authoringSlice: targetSlice,
           baseCommitId: commitId,
           title: defaultTitle,
           description: ""
         });
 
-        if (!changeset.id) {
+        if (!created.id) {
           throw new Error("CreateChangeset did not return a changeset id.");
         }
-
-        if (generationRef.current !== generation) {
+        if (sessionRef.current.generation !== generation) {
           return;
         }
 
-        draftId = changeset.id;
-        draftPatchsetId = changeset.currentPatchsetId ?? "";
-        changesetIdRef.current = draftId;
-        currentPatchsetIdRef.current = draftPatchsetId;
-        setChangesetId(draftId);
-        setChangesetLabel(shortChangesetId(draftId));
-        setCurrentPatchsetId(draftPatchsetId);
+        draftId = created.id;
+        draftPatchsetId = created.currentPatchsetId ?? "";
+        dispatch({
+          type: "changesetCreated",
+          changesetId: draftId,
+          currentPatchsetId: draftPatchsetId
+        });
+        syncChangesetCache(draftId, created);
       }
 
-      const fileEdits = await preparePendingFileEdits(api, nextEdits, sliceRef);
+      const fileEdits = await preparePendingFileEdits(api, nextEdits, targetSlice);
       const patchset = await api.updateChangeset({
         changesetId: draftId,
         expectedCurrentPatchsetId: draftPatchsetId,
@@ -238,140 +334,139 @@ export function useDraftChangesetController({
         fileEdits
       });
 
-      if (generationRef.current !== generation) {
+      if (sessionRef.current.generation !== generation) {
         return;
       }
-
       if (!patchset.id) {
         throw new Error("UpdateChangeset did not return a patchset id.");
       }
 
-      currentPatchsetIdRef.current = patchset.id ?? "";
-      setCurrentPatchsetId(patchset.id ?? "");
-      setSaveStatus("saved");
+      dispatch({ type: "patchsetSaved", currentPatchsetId: patchset.id });
+      syncChangesetCache(draftId);
     },
-    [api, clearControllerError, commitId, defaultTitle, sliceRef]
+    [api, commitId, defaultTitle, dispatch, sliceAccount, sliceName, syncChangesetCache]
   );
 
-  const queueFlush = useCallback(
+  const enqueueFlush = useCallback(
     (nextEdits: PendingEdit[]) => {
-      const generation = generationRef.current;
-      const run = flushTailRef.current.then(
+      const generation = sessionRef.current.generation;
+      const run = sessionRef.current.tail.then(
         () => persistEdits(nextEdits, generation),
         () => persistEdits(nextEdits, generation)
       );
 
-      flushTailRef.current = run.catch(() => undefined);
+      sessionRef.current.tail = run.catch(() => undefined);
       void run.catch((error) => {
-        if (generationRef.current !== generation) {
+        if (sessionRef.current.generation !== generation) {
           return;
         }
-        setSaveStatus("failed");
-        setControllerError(errorMessageFromUnknown(error));
+        dispatch({
+          type: "saveFailed",
+          errorMessage: errorMessageFromUnknown(error)
+        });
       });
     },
-    [persistEdits, setControllerError]
+    [dispatch, persistEdits]
   );
 
   const applyEdits = useCallback(
     (nextEdits: PendingEdit[]) => {
-      editsRef.current = nextEdits;
-      setEdits(nextEdits);
-      queueFlush(nextEdits);
+      dispatch({ type: "editsUpdated", edits: nextEdits });
+      enqueueFlush(nextEdits);
     },
-    [queueFlush]
+    [dispatch, enqueueFlush]
   );
 
   const stageEdit = useCallback(
     (edit: PendingEdit) => {
-      applyEdits(upsertPendingEdit(editsRef.current, edit));
+      applyEdits(upsertPendingEdit(sessionRef.current.state.edits, edit));
     },
     [applyEdits]
   );
 
   const removeEdit = useCallback(
     (key: string) => {
-      applyEdits(removePendingEdit(editsRef.current, key));
+      applyEdits(removePendingEdit(sessionRef.current.state.edits, key));
     },
     [applyEdits]
   );
 
   const retrySave = useCallback(() => {
-    queueFlush(editsRef.current);
-  }, [queueFlush]);
+    enqueueFlush(sessionRef.current.state.edits);
+  }, [enqueueFlush]);
 
-  // Stage an edit and resolve once it has been persisted, returning the draft
-  // changeset id so callers can navigate to the changeset the edit landed in.
-  // The staged flush is chained onto flushTailRef, so awaiting the current tail
-  // waits for this edit's createChangeset/updateChangeset round trip to finish.
   const stageEditAndPersist = useCallback(
     async (edit: PendingEdit): Promise<string> => {
       stageEdit(edit);
-      await flushTailRef.current;
-      if (errorMessageRef.current) {
-        throw new Error(errorMessageRef.current);
+      await sessionRef.current.tail;
+      const latest = sessionRef.current.state;
+      if (latest.errorMessage) {
+        throw new Error(latest.errorMessage);
       }
-      return changesetIdRef.current;
+      return latest.changesetId;
     },
     [stageEdit]
   );
 
   const submitDraft = useCallback(async () => {
-    setActionStatus("submitting");
+    dispatch({ type: "actionStatus", actionStatus: "submitting" });
     try {
-      await flushTailRef.current;
-      if (errorMessageRef.current) {
+      await sessionRef.current.tail;
+      const latest = sessionRef.current.state;
+      if (latest.errorMessage) {
         throw new Error("Save failed. Retry the draft before submitting.");
       }
-
-      const id = changesetIdRef.current;
-      const expectedCurrentPatchsetId = currentPatchsetIdRef.current;
-      if (!id) {
+      if (!latest.changesetId) {
         throw new Error("There is no draft changeset to submit.");
       }
-      if (!expectedCurrentPatchsetId) {
+      if (!latest.currentPatchsetId) {
         throw new Error("The draft changeset has no patchset to submit.");
       }
 
+      const id = latest.changesetId;
       await api.submitChangeset({
         changesetId: id,
-        expectedCurrentPatchsetId
+        expectedCurrentPatchsetId: latest.currentPatchsetId
       });
 
-      clearDraftState();
+      dispatch({ type: "reset", saveStatus: "idle" });
+      syncChangesetCache(id);
       return id;
     } finally {
-      setActionStatus("idle");
+      dispatch({ type: "actionStatus", actionStatus: "idle" });
     }
-  }, [api, clearDraftState]);
+  }, [api, dispatch, syncChangesetCache]);
 
   const discardDraft = useCallback(async () => {
-    setActionStatus("discarding");
+    dispatch({ type: "actionStatus", actionStatus: "discarding" });
     try {
-      await flushTailRef.current;
-      const id = changesetIdRef.current;
+      await sessionRef.current.tail;
+      const id = sessionRef.current.state.changesetId;
       if (id) {
         await api.abandonChangeset({
           changesetId: id,
           reason: "discarded from web"
         });
       }
-      clearDraftState();
+      dispatch({ type: "reset", saveStatus: "idle" });
+      if (id) {
+        syncChangesetCache(id);
+      }
     } finally {
-      setActionStatus("idle");
+      dispatch({ type: "actionStatus", actionStatus: "idle" });
     }
-  }, [api, clearDraftState]);
+  }, [api, dispatch, syncChangesetCache]);
 
   return {
-    actionStatus,
-    changesetId,
-    changesetLabel,
-    currentPatchsetId,
-    edits,
-    errorMessage,
+    actionStatus: state.actionStatus,
+    changesetId: state.changesetId,
+    changesetLabel: state.changesetLabel,
+    currentPatchsetId: state.currentPatchsetId,
+    edits: state.edits,
+    errorMessage: state.errorMessage,
     removeEdit,
     retrySave,
-    saveStatus,
+    saveStatus: state.saveStatus,
     stageEdit,
     stageEditAndPersist,
     discardDraft,

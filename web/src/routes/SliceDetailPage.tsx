@@ -1,361 +1,130 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useState } from "react";
 import { useAuth } from "@clerk/tanstack-react-start";
 import {
-  Link,
   useNavigate,
   useParams,
-  useRouter,
-  useSearch,
+  useSearch
 } from "@tanstack/react-router";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { AnalyticsEvents, AnalyticsProps } from "../analytics/events";
-import { capture } from "../analytics/posthog";
-import type { SliceRef, TreeEntry } from "../api/types";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
-import {
-  MobileDetailsProvider,
-  MobileDetailsToggle,
-} from "../components/MobileDetails";
+import { MobileDetailsProvider } from "../components/MobileDetails";
 import { PageHeader } from "../components/PageHeader";
+import { SliceAccessNotice } from "../components/slices/SliceAccessNotice";
 import { SliceDescription } from "../components/slices/SliceDescriptionPanel";
 import {
   SliceLoadingBlock,
   SliceNotice,
-  SlicePageHeader,
-  SlicePanel,
-  sliceDisplayName,
+  SlicePageHeader
 } from "../components/slices/SlicePageParts";
 import {
-  decodeBase64File,
-  entryKindLabel,
-  isSliceProjectionDirectoryPath,
-  normalizeRepositoryPath,
-  syntheticDirectoryEntry,
-} from "../components/source/sourceUtils";
-import {
   useDraftChangesetController,
-  type PendingEdit,
+  type PendingEdit
 } from "../components/source/SliceEditing";
-import { shortChangesetId, shortHash } from "../lib/objectId";
-import { useSlicePermissions } from "../lib/permissions";
-import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
-import { useSelection } from "../state/selection";
 import { cn } from "../lib/cn";
-import { buildGitCloneHint } from "./slice-detail/sourceTree";
-import { useGitCloneOrigin } from "./slice-detail/useGitCloneOrigin";
-import { SliceAccessNotice } from "../components/slices/SliceAccessNotice";
-import {
-  globalRefQuery,
-  sliceDirectoryQuery,
-  sliceFileQuery,
-  slicePathQuery,
-  sliceRefQuery,
-} from "../queries/slices";
-import { CheckoutMenu } from "./slice-detail/CheckoutMenu";
+import { shortChangesetId } from "../lib/objectId";
+import { useSlicePermissions } from "../lib/permissions";
+import { sliceBreadcrumbItems } from "../lib/sliceRoutes";
+import { useSelection } from "../state/selection";
+import { CopyMoveProvider } from "./slice-detail/CopyMove";
+import { canModifyPath } from "./slice-detail/DirectoryHeader";
 import { FileFinder } from "./slice-detail/FileFinder";
 import { HistoryDrawer } from "./slice-detail/HistoryDrawer";
-import { TriggersDrawer } from "./slice-detail/TriggersDrawer";
-import { SliceFolderNavigator } from "./slice-detail/SliceFolderNavigator";
 import {
-  CopyMoveProvider,
-  type LandedPathOperation,
-} from "./slice-detail/CopyMove";
-import { canModifyPath } from "./slice-detail/DirectoryHeader";
-import { useFolderReadme } from "./slice-detail/nestedReadme";
-import { conversationsEnabled } from "../lib/features";
+  ChangesetErrorToast,
+  CreatingChangesetOverlay,
+  MobileFileBar,
+  SliceHeaderActions
+} from "./slice-detail/SliceDetailChrome";
+import { SliceFolderNavigator } from "./slice-detail/SliceFolderNavigator";
 import { SliceSourceWorkspace } from "./slice-detail/SliceSourceWorkspace";
+import { buildGitCloneHint } from "./slice-detail/sourceTree";
+import { TriggersDrawer } from "./slice-detail/TriggersDrawer";
+import { useGitCloneOrigin } from "./slice-detail/useGitCloneOrigin";
+import { useSlicePathExplorer } from "./slice-detail/useSlicePathExplorer";
 
 export function SliceDetailPage() {
   const api = useApi();
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
-  const router = useRouter();
   const { isLoaded, isSignedIn } = useAuth();
   const { account, accounts } = useSelection();
-  // The address, validated by the route (searchSchemas): the path shown, and
-  // the history, Triggers and blame views, which live in it so back from a
-  // changeset opened from the blame finds the page as it was left.
   const params = useParams({ from: "/publicApp/slices/$account/$slice" });
   const search = useSearch({ from: "/publicApp/slices/$account/$slice" });
   const routeAccount = params.account ?? "";
   const routeSlice = params.slice ?? "";
-  const routeSliceRef = useMemo(
-    () =>
-      routeAccount && routeSlice
-        ? { account: routeAccount, slice: routeSlice }
-        : undefined,
-    [routeAccount, routeSlice],
-  );
   const selectedPath = search.path ?? "";
-  // The history view's open state lives in the URL (the `history` search param)
-  // rather than local state so the browser/mobile back gesture closes it instead
-  // of navigating away from the slice page entirely.
   const historyOpen = Boolean(search.history);
   const triggersOpen = Boolean(search.triggers);
   const blameOn = Boolean(search.blame);
   const blameAt = search.blameAt ?? "";
-  // The file tree is open unless the folder shows a README, which has the page
-  // to itself with the tree folded until asked for. What someone chooses stays
-  // chosen from folder to folder.
-  const [treeChoice, setTreeChoice] = useState<boolean | null>(null);
-  // On phones a file or folder opens with its details (breadcrumbs, path,
-  // counts) folded; the bar at the top unfolds them.
-  const [detailsOpen, setDetailsOpen] = useState(false);
-  // The "go to file" dialog, opened with the t key or the header's button.
-  const [finderOpen, setFinderOpen] = useState(false);
-  useEffect(() => {
-    setDetailsOpen(false);
-  }, [selectedPath]);
+
   const [isCreatingChangeset, setIsCreatingChangeset] = useState(false);
   const [changesetError, setChangesetError] = useState("");
   const gitCloneOrigin = useGitCloneOrigin();
 
-  const sliceQuery = useQuery({
-    ...sliceRefQuery(api, routeAccount, routeSlice),
-    enabled: Boolean(isLoaded && routeSliceRef),
+  const explorer = useSlicePathExplorer({
+    api,
+    isLoaded,
+    routeAccount,
+    routeSlice,
+    selectedPath,
+    historyOpen,
+    triggersOpen
   });
 
-  const latestQuery = useQuery({
-    // getRef(refs/global/main) is independent of the slice, so it does not need
-    // to wait for resolveSlice to succeed. Firing it in parallel removes one hop
-    // from the file-view request waterfall (resolveSlice/getRef both feed the
-    // commit + slice that resolvePath/readFile need). It stays gated on the
-    // slice not having errored so we skip the fetch for missing/forbidden slices.
-    ...globalRefQuery(api),
-    enabled: Boolean(isLoaded && routeSliceRef && !sliceQuery.isError),
-  });
+  const {
+    sliceQuery,
+    latestQuery,
+    pathQuery,
+    directoryQuery,
+    fileQuery,
+    slice,
+    sliceRef,
+    routeSliceRef,
+    sliceId,
+    sliceRouteParams,
+    sliceRouteKey,
+    sliceLabel,
+    commitId,
+    includedPaths,
+    createDirectory,
+    entry,
+    isDirectory,
+    isFile,
+    currentEntries,
+    fileContent,
+    fileData,
+    folderReadme,
+    readmeLoading,
+    showTree,
+    setTreeChoice,
+    phoneTreeBar,
+    treePanelVisibility,
+    workspaceVisibility,
+    detailsOpen,
+    setDetailsOpen,
+    finderOpen,
+    setFinderOpen,
+    selectPath,
+    setBlame,
+    openHistory,
+    closeHistory,
+    openTriggers,
+    closeTriggers,
+    openLandedPath
+  } = explorer;
 
-  const slice = sliceQuery.data;
-  const sliceRef = slice?.ref ?? routeSliceRef;
-  // Capabilities combine the viewer's role in the slice's account with any
-  // direct or @account/group share on the slice itself (design/36):
-  // contributors/writers/admins propose changesets, writers/admins submit
-  // direct path ops, and slice/account admins open slice settings.
   const slicePermissions = useSlicePermissions(slice ?? routeSliceRef);
   const canEdit = Boolean(account && slicePermissions.canPropose);
   const canConfigure = slicePermissions.canAdmin;
-  const sliceId = slice?.id ?? "";
-  const sliceRouteParams = toSliceRouteParams(sliceRef);
-  const sliceRouteKey = sliceRouteParams
-    ? `${sliceRouteParams.account}:${sliceRouteParams.slice}`
-    : `${routeAccount}:${routeSlice}`;
-  const sliceLabel = sliceDisplayName(slice);
-  const commitId = latestQuery.data?.commitId ?? "";
-  const canFindFiles = Boolean(commitId && slice);
-  useEffect(() => {
-    if (!canFindFiles) {
-      return;
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "t" || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
-        return;
-      }
-      const target = event.target as HTMLElement | null;
-      if (target && (target.isContentEditable || /^(?:input|textarea|select)$/i.test(target.tagName))) {
-        return;
-      }
-      event.preventDefault();
-      setFinderOpen(true);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canFindFiles]);
+
   const draftChangeset = useDraftChangesetController({
     api,
     commitId,
     sliceLabel,
     sliceRef,
-    authorUsername: canEdit ? account : "",
+    authorUsername: canEdit ? account : ""
   });
-  const pendingEdits = draftChangeset.edits;
-  const isProjectedDirectoryPath = isSliceProjectionDirectoryPath(
-    selectedPath,
-    slice?.definition?.includedPaths ?? [],
-  );
-
-  // A renamed slice still opens under its old name; move to the current one.
-  const currentSliceName = slice?.ref?.slice ?? "";
-  useEffect(() => {
-    if (!currentSliceName || !routeSlice || currentSliceName === routeSlice || !sliceRouteParams) {
-      return;
-    }
-    void navigate({
-      params: sliceRouteParams,
-      replace: true,
-      search: selectedPath ? { path: selectedPath } : {},
-      to: "/slices/$account/$slice",
-    });
-  }, [currentSliceName, navigate, routeSlice, selectedPath, sliceRouteParams]);
-
-  useEffect(() => {
-    if (!sliceId) {
-      return;
-    }
-
-    capture(AnalyticsEvents.sliceViewed, {
-      [AnalyticsProps.sliceId]: sliceId,
-    });
-  }, [sliceId]);
-
-  const pathQuery = useQuery({
-    enabled: Boolean(
-      commitId &&
-      selectedPath &&
-      !isProjectedDirectoryPath &&
-      sliceRef?.account &&
-      sliceRef?.slice,
-    ),
-    ...slicePathQuery(api, sliceRef, commitId, selectedPath),
-  });
-
-  const entry = isProjectedDirectoryPath
-    ? syntheticDirectoryEntry(selectedPath)
-    : pathQuery.data?.entry;
-  const isDirectory = entry?.kind === "ENTRY_KIND_DIRECTORY";
-  const isFile = entry?.kind === "ENTRY_KIND_FILE";
-
-  const directoryQuery = useQuery({
-    enabled: Boolean(
-      commitId && sliceRef?.account && sliceRef?.slice && isDirectory,
-    ),
-    ...sliceDirectoryQuery(api, sliceRef, commitId, selectedPath, {
-      allowMissingDirectory: isProjectedDirectoryPath,
-    }),
-  });
-
-  // The README a folder shows. Found here, not where it is drawn, because the
-  // page folds its file tree for it.
-  const folderEntries =
-    isDirectory && !directoryQuery.isPending && !directoryQuery.error ? (directoryQuery.data ?? []) : [];
-  const { loading: readmeLoading, readme: folderReadme } = useFolderReadme(commitId, sliceRef, folderEntries);
-  // Whether the page shows a README decides the tree's default, and is known
-  // only once the path's kind, its listing and any README search are in. Until
-  // then the tree stays as it was on the page before (moving between folders
-  // inside the app), or folded on a first visit, so it never opens and then
-  // folds; a folder without a README opens it once that is known.
-  const folderKnown =
-    entry !== undefined && (!isDirectory || (!directoryQuery.isPending && !readmeLoading));
-  const readmeShown = isDirectory && Boolean(folderReadme);
-  const lastReadmeShown = useRef<boolean | null>(null);
-  if (folderKnown) {
-    lastReadmeShown.current = readmeShown;
-  }
-  const foldTree = folderKnown ? readmeShown : (lastReadmeShown.current ?? true);
-  // The phone's Files bar waits for the README to be known (or the page
-  // before to have had one), so it does not appear on a folder without one.
-  const readmeExpected = folderKnown ? readmeShown : (lastReadmeShown.current ?? false);
-  const showTree = treeChoice ?? !foldTree;
-
-  const fileQuery = useQuery({
-    // Fire readFile in parallel with resolvePath rather than waiting for it to
-    // report the entry is a file. Gating on isFile serialized the two slowest
-    // RPCs into a waterfall (resolvePath ~800ms -> readFile ~600ms). We only
-    // suppress it once resolvePath has proven the path is a directory
-    // (isDirectory); while the kind is still unknown it runs optimistically.
-    // readFile on a directory returns an inert error we never render, since the
-    // file view is shown only when isFile.
-    enabled: Boolean(
-      commitId &&
-      selectedPath &&
-      !isDirectory &&
-      !isProjectedDirectoryPath &&
-      sliceRef?.account &&
-      sliceRef?.slice,
-    ),
-    ...sliceFileQuery(api, sliceRef, commitId, selectedPath),
-  });
-
-  function selectPath(path: string) {
-    if (!sliceRouteParams) {
-      return;
-    }
-
-    void navigate({
-      params: sliceRouteParams,
-      search: path ? { path } : {},
-      to: "/slices/$account/$slice",
-    });
-  }
-
-  // Blame on or off, and its selected change, replace the address in place: a
-  // toggle is not a page to go back to, but the state in the address is what
-  // comes back after following a link out of the blame.
-  function setBlame(on: boolean, at: string) {
-    if (!sliceRouteParams) {
-      return;
-    }
-    void navigate({
-      params: sliceRouteParams,
-      replace: true,
-      resetScroll: false,
-      search: {
-        ...(selectedPath ? { path: selectedPath } : {}),
-        ...(on ? { blame: true as const } : {}),
-        ...(on && at ? { blameAt: at } : {}),
-      },
-      to: "/slices/$account/$slice",
-    });
-  }
-
-  function openHistory() {
-    if (!sliceRouteParams) {
-      return;
-    }
-    // Push a new history entry so "back" (including the mobile swipe) pops the
-    // history view and returns to this slice page instead of leaving it.
-    void navigate({
-      params: sliceRouteParams,
-      search: {
-        ...(selectedPath ? { path: selectedPath } : {}),
-        history: true,
-      },
-      to: "/slices/$account/$slice",
-    });
-  }
-
-  function openTriggers() {
-    if (!sliceRouteParams) {
-      return;
-    }
-    void navigate({
-      params: sliceRouteParams,
-      search: {
-        ...(selectedPath ? { path: selectedPath } : {}),
-        triggers: true,
-      },
-      to: "/slices/$account/$slice",
-    });
-  }
-
-  function closeTriggers() {
-    if (triggersOpen) {
-      router.history.back();
-    }
-  }
-
-  function closeHistory() {
-    if (historyOpen) {
-      // Mirror the back gesture: pop the entry openHistory pushed.
-      router.history.back();
-    }
-  }
-
-  // A copy or move lands at once: fetch the new head commit, then open the
-  // destination, which may be in another slice.
-  async function openLandedPath(landed: LandedPathOperation) {
-    await queryClient.invalidateQueries({ queryKey: ["globalRef"] });
-    const params = toSliceRouteParams(landed.slice);
-    if (!params) {
-      return;
-    }
-    await navigate({
-      params,
-      search: { path: landed.path },
-      to: "/slices/$account/$slice",
-    });
-  }
 
   async function stagePendingEdit(edit: PendingEdit) {
     if (!canEdit || !sliceRouteParams) {
@@ -368,12 +137,12 @@ export function SliceDetailPage() {
       if (id) {
         await navigate({
           params: { id: shortChangesetId(id) },
-          to: "/cs/$id",
+          to: "/cs/$id"
         });
       }
     } catch (error) {
       setChangesetError(
-        error instanceof Error ? error.message : String(error),
+        error instanceof Error ? error.message : String(error)
       );
     } finally {
       setIsCreatingChangeset(false);
@@ -416,37 +185,11 @@ export function SliceDetailPage() {
     );
   }
 
-  const includedPaths = slice.definition?.includedPaths ?? [];
   const gitCloneHint = buildGitCloneHint(
     slice.ref?.account,
     slice.ref?.slice,
     gitCloneOrigin
   );
-  const currentEntries = directoryQuery.data ?? [];
-  const projectedRoots = includedPaths
-    .map((includedPath) => includedPath.replace(/^\/+|\/+$/g, ""))
-    .filter(Boolean);
-  const createDirectory =
-    selectedPath || (projectedRoots.length === 1 ? projectedRoots[0] : "");
-  // On a phone the tree is behind a Files bar on a page whose README has the
-  // page to itself, at the root or in a folder; on other pages the phone has
-  // the "← Files" button at the top (a folder's own listing is on the page).
-  // At the root with no README the open tree is the page.
-  const phoneTreeBar = readmeExpected || (!selectedPath && treeChoice !== null);
-  const treePanelVisibility = phoneTreeBar
-    ? showTree
-      ? "block"
-      : "hidden"
-    : selectedPath
-      ? showTree
-        ? "hidden lg:block"
-        : "hidden"
-      : showTree
-        ? "block"
-        : "hidden";
-  // With a README the phone's order is the Files bar, the tree it opens (right
-  // under it, not at the end of a long README), then the README.
-  const workspaceVisibility = phoneTreeBar ? "block max-lg:order-3" : selectedPath ? "block" : "block max-lg:order-first";
   const sliceCrumbs = sliceBreadcrumbItems(sliceRef, accounts);
 
   const workspace = (
@@ -458,8 +201,8 @@ export function SliceDetailPage() {
       directoryEntries={currentEntries}
       directoryError={directoryQuery.error}
       entry={entry}
-      fileContent={decodeBase64File(fileQuery.data?.data)}
-      fileData={fileQuery.data?.data ?? ""}
+      fileContent={fileContent}
+      fileData={fileData}
       fileError={fileQuery.error}
       includedPaths={includedPaths}
       isDirectoryLoading={directoryQuery.isPending}
@@ -470,7 +213,7 @@ export function SliceDetailPage() {
       onSelectPath={selectPath}
       onStageEdit={canEdit ? stagePendingEdit : undefined}
       pathError={pathQuery.error}
-      pendingEdits={pendingEdits}
+      pendingEdits={draftChangeset.edits}
       readme={folderReadme}
       readmeLoading={readmeLoading}
       rootOnPhone={!selectedPath}
@@ -500,11 +243,9 @@ export function SliceDetailPage() {
           </div>
         ) : null}
         <PageHeader
-          // Under the phone bar the header scrolls away instead of sticking,
-          // and stays folded until the details are opened.
           className={cn(
             selectedPath && "max-lg:static",
-            selectedPath && !detailsOpen && "max-lg:hidden",
+            selectedPath && !detailsOpen && "max-lg:hidden"
           )}
           breadcrumb={
             <Breadcrumb
@@ -515,54 +256,16 @@ export function SliceDetailPage() {
             />
           }
           primaryAction={
-            <>
-              <Link
-                className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-                search={{ slice: sliceLabel }}
-                to="/changesets"
-              >
-                Changesets
-              </Link>
-              {conversationsEnabled && isSignedIn && sliceRouteParams ? (
-                <Link
-                  className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-                  params={sliceRouteParams}
-                  to="/slices/$account/$slice/agents"
-                >
-                  Conversations
-                </Link>
-              ) : null}
-              {canConfigure && sliceRouteParams ? (
-                <Link
-                  className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-                  params={sliceRouteParams}
-                  to="/slices/$account/$slice/settings"
-                >
-                  Settings
-                </Link>
-              ) : null}
-              {isSignedIn && sliceRouteParams ? (
-                <button
-                  className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-                  onClick={openTriggers}
-                  title="What a change in this folder sets off"
-                  type="button"
-                >
-                  Triggers
-                </button>
-              ) : null}
-              {commitId ? (
-                <button
-                  className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-                  onClick={() => setFinderOpen(true)}
-                  title="Go to a file by name (t)"
-                  type="button"
-                >
-                  Find file
-                </button>
-              ) : null}
-              <CheckoutMenu gitUrl={gitCloneHint.url} sliceRef={sliceLabel} />
-            </>
+            <SliceHeaderActions
+              canConfigure={canConfigure}
+              commitId={commitId}
+              gitUrl={gitCloneHint.url}
+              isSignedIn={isSignedIn}
+              onOpenFinder={() => setFinderOpen(true)}
+              onOpenTriggers={openTriggers}
+              sliceLabel={sliceLabel}
+              sliceRouteParams={sliceRouteParams}
+            />
           }
         />
 
@@ -570,7 +273,7 @@ export function SliceDetailPage() {
           <SliceDescription
             className={cn(
               "mt-2 max-w-3xl whitespace-pre-line text-sm leading-6 text-slate-600 dark:text-zinc-400",
-              selectedPath && "max-lg:hidden",
+              selectedPath && "max-lg:hidden"
             )}
             text={slice.description}
           />
@@ -582,7 +285,7 @@ export function SliceDetailPage() {
               "mt-4 grid gap-4 lg:min-h-0 lg:flex-1",
               showTree
                 ? "lg:grid-cols-[19rem_minmax(0,1fr)]"
-                : "lg:grid-cols-[2.75rem_minmax(0,1fr)]",
+                : "lg:grid-cols-[2.75rem_minmax(0,1fr)]"
             )}
           >
             <button
@@ -591,7 +294,7 @@ export function SliceDetailPage() {
               aria-label="Show files"
               className={cn(
                 "hidden h-full min-h-0 flex-col items-center gap-2 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5 py-3 text-xs font-semibold text-slate-600 dark:text-zinc-400 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]",
-                showTree ? "" : "lg:flex",
+                showTree ? "" : "lg:flex"
               )}
               onClick={() => setTreeChoice(true)}
               title="Show files"
@@ -603,7 +306,6 @@ export function SliceDetailPage() {
               <span className="[writing-mode:vertical-rl]">Files</span>
             </button>
             {phoneTreeBar ? (
-              // Folded: one row under the README that opens the whole tree.
               <button
                 aria-controls="slice-file-tree-panel"
                 aria-expanded={showTree}
@@ -621,7 +323,7 @@ export function SliceDetailPage() {
               className={cn(
                 "min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto",
                 phoneTreeBar && "max-lg:order-2",
-                treePanelVisibility,
+                treePanelVisibility
               )}
               id="slice-file-tree-panel"
             >
@@ -642,7 +344,7 @@ export function SliceDetailPage() {
             <div
               className={cn(
                 "min-w-0 lg:h-full lg:min-h-0 lg:overflow-y-auto",
-                workspaceVisibility,
+                workspaceVisibility
               )}
             >
               <CopyMoveProvider
@@ -686,74 +388,16 @@ export function SliceDetailPage() {
         </>
         {isCreatingChangeset ? <CreatingChangesetOverlay /> : null}
         {changesetError ? (
-          <div
-            className="fixed inset-x-0 bottom-4 z-50 mx-auto w-[min(28rem,calc(100%-2rem))] rounded-md border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 px-4 py-3 text-sm text-rose-900 dark:text-rose-200 shadow-lg"
-            role="alert"
-          >
-            <div className="flex items-start justify-between gap-3">
-              <span className="min-w-0 break-words">{changesetError}</span>
-              <button
-                className="shrink-0 font-semibold underline decoration-rose-300 underline-offset-4 hover:decoration-rose-700"
-                onClick={() => setChangesetError("")}
-                type="button"
-              >
-                Dismiss
-              </button>
-            </div>
-          </div>
+          <ChangesetErrorToast
+            message={changesetError}
+            onDismiss={() => setChangesetError("")}
+          />
         ) : null}
       </section>
     </MobileDetailsProvider>
   );
 }
 
-// The top of a file or folder on a phone: back to the file list, the name,
-// and the toggle that unfolds the page's details.
-function MobileFileBar({ name, onBack }: { name: string; onBack(): void }) {
-  return (
-    <div className="sticky top-0 z-30 mb-3 flex items-center gap-2 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/95 dark:bg-zinc-950/95 py-2 backdrop-blur lg:hidden">
-      <button
-        aria-label="Back to files"
-        className="shrink-0 rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1 text-sm font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-        onClick={onBack}
-        type="button"
-      >
-        ← Files
-      </button>
-      <span
-        className="min-w-0 flex-1 truncate font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50"
-        title={name}
-      >
-        {name}
-      </span>
-      <MobileDetailsToggle />
-    </div>
-  );
-}
-
-function CreatingChangesetOverlay() {
-  return (
-    <div
-      aria-busy="true"
-      aria-live="polite"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 dark:bg-black/50 backdrop-blur-sm"
-      role="status"
-    >
-      <div className="flex items-center gap-3 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-5 py-4 shadow-xl">
-        <span
-          aria-hidden="true"
-          className="h-5 w-5 animate-spin rounded-full border-2 border-slate-300 dark:border-zinc-700 border-t-zinc-900 dark:border-t-zinc-100"
-        />
-        <span className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-          Creating changeset…
-        </span>
-      </div>
-    </div>
-  );
-}
-
-// triggersFolder is the folder whose triggers the Triggers view shows: the
-// selected folder, a selected file's folder, or the slice's first folder.
 export function triggersFolder(selectedPath: string, isFile: boolean, includedPaths: string[]) {
   let folder = selectedPath || includedPaths[0] || "";
   if (selectedPath && isFile) {
