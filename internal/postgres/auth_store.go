@@ -243,26 +243,23 @@ func (s *AuthStore) SetVerifiedEmails(ctx context.Context, subjectID, source str
 	}
 	normalized := storage.NormalizeEmails(emails)
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `
-		delete from subject_emails
-		where subject_id = $1 and source = $2 and not (email = any($3))
-	`, subjectID, source, normalized); err != nil {
-		return err
-	}
-	for _, email := range normalized {
+	return execInTx(ctx, s.db, func(tx *sql.Tx) error {
 		if _, err := tx.ExecContext(ctx, `
-			insert into subject_emails(subject_id, email, source, verified_at)
-			values ($1, $2, $3, now())
-			on conflict (subject_id, email) do update
-			set source = excluded.source, verified_at = excluded.verified_at
-		`, subjectID, email, source); err != nil {
+			delete from subject_emails
+			where subject_id = $1 and source = $2 and not (email = any($3))
+		`, subjectID, source, normalized); err != nil {
 			return err
 		}
-	}
-	return tx.Commit()
+		for _, email := range normalized {
+			if _, err := tx.ExecContext(ctx, `
+				insert into subject_emails(subject_id, email, source, verified_at)
+				values ($1, $2, $3, now())
+				on conflict (subject_id, email) do update
+				set source = excluded.source, verified_at = excluded.verified_at
+			`, subjectID, email, source); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

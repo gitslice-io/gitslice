@@ -118,39 +118,35 @@ func scanAPIKey(row scanner) (storage.APIKey, error) {
 }
 
 func (s *AuthStore) ListAPIKeys(ctx context.Context, actorID, agentAccount string) (string, string, []storage.APIKey, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return "", "", nil, err
+	type listResult struct {
+		subjectID string
+		account   string
+		keys      []storage.APIKey
 	}
-	defer tx.Rollback()
-	subjectID, account, err := s.agentKeyTargetTx(ctx, tx, actorID, agentAccount)
-	if err != nil {
-		return "", "", nil, err
-	}
-	principal, hasPrincipal := authctx.PrincipalFrom(ctx)
-	if hasPrincipal && principal.KeyID != "" && subjectID != principal.SubjectID {
-		return "", "", nil, fmt.Errorf("%w: an API key cannot list keys for another subject", ErrUnauthorized)
-	}
-	rows, err := tx.QueryContext(ctx, `select `+apiKeyColumns+` from api_keys where subject_id = $1 order by created_at desc, id`, subjectID)
-	if err != nil {
-		return "", "", nil, err
-	}
-	defer rows.Close()
-	var keys []storage.APIKey
-	for rows.Next() {
-		key, err := scanAPIKey(rows)
+	res, err := inTx(ctx, s.db, func(tx *sql.Tx) (listResult, error) {
+		subjectID, account, err := s.agentKeyTargetTx(ctx, tx, actorID, agentAccount)
 		if err != nil {
-			return "", "", nil, err
+			return listResult{}, err
 		}
-		keys = append(keys, key)
-	}
-	if err := rows.Err(); err != nil {
+		principal, hasPrincipal := authctx.PrincipalFrom(ctx)
+		if hasPrincipal && principal.KeyID != "" && subjectID != principal.SubjectID {
+			return listResult{}, fmt.Errorf("%w: an API key cannot list keys for another subject", ErrUnauthorized)
+		}
+		keys, err := querySlice(ctx, tx, func(rows *sql.Rows) (storage.APIKey, error) {
+			return scanAPIKey(rows)
+		}, `select `+apiKeyColumns+` from api_keys where subject_id = $1 order by created_at desc, id`, subjectID)
+		if err != nil {
+			return listResult{}, err
+		}
+		if hasPrincipal && principal.KeyID != "" {
+			keys = storage.FilterAPIKeysForCallerKey(keys, principal.KeyID)
+		}
+		return listResult{subjectID: subjectID, account: account, keys: keys}, nil
+	})
+	if err != nil {
 		return "", "", nil, err
 	}
-	if hasPrincipal && principal.KeyID != "" {
-		keys = storage.FilterAPIKeysForCallerKey(keys, principal.KeyID)
-	}
-	return subjectID, account, keys, nil
+	return res.subjectID, res.account, res.keys, nil
 }
 
 func (s *AuthStore) CreateAPIKey(ctx context.Context, in storage.CreateAPIKeyInput) (storage.APIKey, string, string, string, error) {
@@ -168,78 +164,81 @@ func (s *AuthStore) CreateAPIKey(ctx context.Context, in storage.CreateAPIKeyInp
 	if err != nil {
 		return storage.APIKey{}, "", "", "", err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return storage.APIKey{}, "", "", "", err
+	type createResult struct {
+		key       storage.APIKey
+		subjectID string
+		account   string
 	}
-	defer tx.Rollback()
-	subjectID, account, err := s.agentKeyTargetTx(ctx, tx, normalized.ActorID, normalized.AgentAccount)
-	if err != nil {
-		return storage.APIKey{}, "", "", "", err
-	}
-	if principal, ok := authctx.PrincipalFrom(ctx); ok && principal.KeyID != "" && subjectID != principal.SubjectID {
-		return storage.APIKey{}, "", "", "", fmt.Errorf("%w: an API key cannot create keys for another subject", ErrUnauthorized)
-	}
-	if normalized.ParentKeyID != "" {
-		parent, err := s.loadActiveParentAPIKeyTx(ctx, tx, normalized.ParentKeyID)
+	res, err := inTx(ctx, s.db, func(tx *sql.Tx) (createResult, error) {
+		subjectID, account, err := s.agentKeyTargetTx(ctx, tx, normalized.ActorID, normalized.AgentAccount)
 		if err != nil {
-			return storage.APIKey{}, "", "", "", err
+			return createResult{}, err
 		}
-		if parent.SubjectID != subjectID {
-			return storage.APIKey{}, "", "", "", fmt.Errorf("%w: an API key cannot create keys for another subject", ErrUnauthorized)
+		if principal, ok := authctx.PrincipalFrom(ctx); ok && principal.KeyID != "" && subjectID != principal.SubjectID {
+			return createResult{}, fmt.Errorf("%w: an API key cannot create keys for another subject", ErrUnauthorized)
 		}
-		normalized, err = storage.AttenuateAPIKeyInput(parent, normalized, now)
+		if normalized.ParentKeyID != "" {
+			parent, err := s.loadActiveParentAPIKeyTx(ctx, tx, normalized.ParentKeyID)
+			if err != nil {
+				return createResult{}, err
+			}
+			if parent.SubjectID != subjectID {
+				return createResult{}, fmt.Errorf("%w: an API key cannot create keys for another subject", ErrUnauthorized)
+			}
+			normalized, err = storage.AttenuateAPIKeyInput(parent, normalized, now)
+			if err != nil {
+				return createResult{}, err
+			}
+		}
+		var active int
+		if err := tx.QueryRowContext(ctx, `
+			select count(*) from api_keys
+			where subject_id = $1 and revoked_at is null and (expires_at is null or expires_at > now())
+		`, subjectID).Scan(&active); err != nil {
+			return createResult{}, err
+		}
+		if active >= storage.MaxActiveAPIKeys {
+			label := account
+			if label == "" {
+				label = subjectID
+			}
+			return createResult{}, fmt.Errorf("%w: %s already has %d active API keys; revoke one first", ErrConflict, label, active)
+		}
+		var expiresAt sql.NullTime
+		if !normalized.ExpiresAt.IsZero() {
+			expiresAt = sql.NullTime{Time: normalized.ExpiresAt, Valid: true}
+		}
+		var sliceIDsArg []string
+		if normalized.HasSliceScope {
+			sliceIDsArg = slices.Clone(normalized.SliceIDs)
+			if sliceIDsArg == nil {
+				sliceIDsArg = []string{}
+			}
+		}
+		key, err := scanAPIKey(tx.QueryRowContext(ctx, `
+			insert into api_keys(
+				id, subject_id, name, token_hash, created_at, expires_at,
+				slice_ids, max_role, parent_key_id, purpose, daemon_id, conversation_id
+			)
+			values (
+				$1, $2, $3, $4, now(), $5,
+				case when $6::boolean then coalesce($7::text[], '{}'::text[]) else null end,
+				nullif($8, ''), nullif($9, ''), $10, $11, $12
+			)
+			returning `+apiKeyColumns,
+			keyID, subjectID, normalized.Name, hashed, expiresAt,
+			normalized.HasSliceScope, sliceIDsArg, normalized.MaxRole, normalized.ParentKeyID,
+			normalized.Purpose, normalized.DaemonID, normalized.ConversationID,
+		))
 		if err != nil {
-			return storage.APIKey{}, "", "", "", err
+			return createResult{}, err
 		}
-	}
-	var active int
-	if err := tx.QueryRowContext(ctx, `
-		select count(*) from api_keys
-		where subject_id = $1 and revoked_at is null and (expires_at is null or expires_at > now())
-	`, subjectID).Scan(&active); err != nil {
-		return storage.APIKey{}, "", "", "", err
-	}
-	if active >= storage.MaxActiveAPIKeys {
-		label := account
-		if label == "" {
-			label = subjectID
-		}
-		return storage.APIKey{}, "", "", "", fmt.Errorf("%w: %s already has %d active API keys; revoke one first", ErrConflict, label, active)
-	}
-	var expiresAt sql.NullTime
-	if !normalized.ExpiresAt.IsZero() {
-		expiresAt = sql.NullTime{Time: normalized.ExpiresAt, Valid: true}
-	}
-	var sliceIDsArg []string
-	if normalized.HasSliceScope {
-		sliceIDsArg = slices.Clone(normalized.SliceIDs)
-		if sliceIDsArg == nil {
-			sliceIDsArg = []string{}
-		}
-	}
-	key, err := scanAPIKey(tx.QueryRowContext(ctx, `
-		insert into api_keys(
-			id, subject_id, name, token_hash, created_at, expires_at,
-			slice_ids, max_role, parent_key_id, purpose, daemon_id, conversation_id
-		)
-		values (
-			$1, $2, $3, $4, now(), $5,
-			case when $6::boolean then coalesce($7::text[], '{}'::text[]) else null end,
-			nullif($8, ''), nullif($9, ''), $10, $11, $12
-		)
-		returning `+apiKeyColumns,
-		keyID, subjectID, normalized.Name, hashed, expiresAt,
-		normalized.HasSliceScope, sliceIDsArg, normalized.MaxRole, normalized.ParentKeyID,
-		normalized.Purpose, normalized.DaemonID, normalized.ConversationID,
-	))
+		return createResult{key: key, subjectID: subjectID, account: account}, nil
+	})
 	if err != nil {
 		return storage.APIKey{}, "", "", "", err
 	}
-	if err := tx.Commit(); err != nil {
-		return storage.APIKey{}, "", "", "", err
-	}
-	return key, secret, subjectID, account, nil
+	return res.key, secret, res.subjectID, res.account, nil
 }
 
 // loadActiveParentAPIKeyTx locks the parent key row and verifies every ancestor
@@ -288,61 +287,55 @@ func (s *AuthStore) RevokeAPIKey(ctx context.Context, actorID, agentAccount, key
 	if keyID == "" {
 		return storage.APIKey{}, fmt.Errorf("%w: key id is required", ErrInvalid)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return storage.APIKey{}, err
-	}
-	defer tx.Rollback()
-	subjectID, _, err := s.agentKeyTargetTx(ctx, tx, actorID, agentAccount)
-	if err != nil {
-		return storage.APIKey{}, err
-	}
-	if principal, ok := authctx.PrincipalFrom(ctx); ok && principal.KeyID != "" {
-		if subjectID != principal.SubjectID {
-			return storage.APIKey{}, fmt.Errorf("%w: an API key cannot revoke keys for another subject", ErrUnauthorized)
-		}
-		if err := s.authorizeKeyRevokeByCallerKeyTx(ctx, tx, subjectID, principal.KeyID, keyID); err != nil {
+	return inTx(ctx, s.db, func(tx *sql.Tx) (storage.APIKey, error) {
+		subjectID, _, err := s.agentKeyTargetTx(ctx, tx, actorID, agentAccount)
+		if err != nil {
 			return storage.APIKey{}, err
 		}
-	}
-	key, err := scanAPIKey(tx.QueryRowContext(ctx, `
-		with recursive descendants as (
-			select id, array[id] as visited
-			from api_keys
-			where id = $1 and subject_id = $2
-			union all
-			select k.id, d.visited || k.id
-			from api_keys k
-			join descendants d on k.parent_key_id = d.id
-			where not (k.id = any(d.visited))
-		),
-		updated as (
-			update api_keys
-			set revoked_at = coalesce(revoked_at, now())
-			from descendants
-			where api_keys.id = descendants.id
-			returning api_keys.id, api_keys.subject_id, api_keys.name, api_keys.created_at,
-			          api_keys.last_used_at, api_keys.expires_at, api_keys.revoked_at,
-			          api_keys.slice_ids, api_keys.max_role, api_keys.parent_key_id,
-			          api_keys.purpose, api_keys.daemon_id, api_keys.conversation_id
-		)
-		select id, subject_id, name, created_at, last_used_at, expires_at, revoked_at,
-		       slice_ids is not null, coalesce(to_json(slice_ids)::text, '[]'),
-		       coalesce(max_role, ''), coalesce(parent_key_id, ''),
-		       purpose, daemon_id, conversation_id
-		from updated
-		where id = $1
-	`, keyID, subjectID))
-	if errors.Is(err, sql.ErrNoRows) {
-		return storage.APIKey{}, fmt.Errorf("%w: no such API key for this agent", ErrNotFound)
-	}
-	if err != nil {
-		return storage.APIKey{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return storage.APIKey{}, err
-	}
-	return key, nil
+		if principal, ok := authctx.PrincipalFrom(ctx); ok && principal.KeyID != "" {
+			if subjectID != principal.SubjectID {
+				return storage.APIKey{}, fmt.Errorf("%w: an API key cannot revoke keys for another subject", ErrUnauthorized)
+			}
+			if err := s.authorizeKeyRevokeByCallerKeyTx(ctx, tx, subjectID, principal.KeyID, keyID); err != nil {
+				return storage.APIKey{}, err
+			}
+		}
+		key, err := scanAPIKey(tx.QueryRowContext(ctx, `
+			with recursive descendants as (
+				select id, array[id] as visited
+				from api_keys
+				where id = $1 and subject_id = $2
+				union all
+				select k.id, d.visited || k.id
+				from api_keys k
+				join descendants d on k.parent_key_id = d.id
+				where not (k.id = any(d.visited))
+			),
+			updated as (
+				update api_keys
+				set revoked_at = coalesce(revoked_at, now())
+				from descendants
+				where api_keys.id = descendants.id
+				returning api_keys.id, api_keys.subject_id, api_keys.name, api_keys.created_at,
+				          api_keys.last_used_at, api_keys.expires_at, api_keys.revoked_at,
+				          api_keys.slice_ids, api_keys.max_role, api_keys.parent_key_id,
+				          api_keys.purpose, api_keys.daemon_id, api_keys.conversation_id
+			)
+			select id, subject_id, name, created_at, last_used_at, expires_at, revoked_at,
+			       slice_ids is not null, coalesce(to_json(slice_ids)::text, '[]'),
+			       coalesce(max_role, ''), coalesce(parent_key_id, ''),
+			       purpose, daemon_id, conversation_id
+			from updated
+			where id = $1
+		`, keyID, subjectID))
+		if errors.Is(err, sql.ErrNoRows) {
+			return storage.APIKey{}, fmt.Errorf("%w: no such API key for this agent", ErrNotFound)
+		}
+		if err != nil {
+			return storage.APIKey{}, err
+		}
+		return key, nil
+	})
 }
 
 func (s *AuthStore) authorizeKeyRevokeByCallerKeyTx(ctx context.Context, tx *sql.Tx, subjectID, callerKeyID, targetKeyID string) error {

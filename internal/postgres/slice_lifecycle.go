@@ -31,70 +31,66 @@ func (s *SliceStore) withFormerNames(ctx context.Context, slice *corev1.Slice) (
 // earlier name can be taken back. The slice id, definition and changesets are
 // untouched, apart from the name the changeset tables repeat.
 func (s *SliceStore) Rename(ctx context.Context, sliceID, newName string) (*corev1.Slice, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	var accountID, account, oldName string
-	err = tx.QueryRowContext(ctx, `
-		select slices.account_id, accounts.slug, slices.slug
-		from slices
-		join accounts on accounts.id = slices.account_id
-		where slices.id = $1 and slices.deleted_at is null
-		for update of slices
-	`, sliceID).Scan(&accountID, &account, &oldName)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	ref, err := normalizeSliceRef(&corev1.SliceRef{Account: account, Slice: newName})
-	if err != nil {
-		return nil, err
-	}
-	newName = ref.Slice
-	if newName == oldName {
-		return nil, fmt.Errorf("%w: slice %s/%s already has that name", ErrInvalid, account, oldName)
-	}
-
-	var takenBy string
-	err = tx.QueryRowContext(ctx, `select id from slices where account_id = $1 and slug = $2`, accountID, newName).Scan(&takenBy)
-	if err == nil {
-		return nil, fmt.Errorf("%w: slice %s/%s already exists", ErrConflict, account, newName)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
-	var aliasOf string
-	err = tx.QueryRowContext(ctx, `select slice_id from slice_aliases where account_id = $1 and slug = $2`, accountID, newName).Scan(&aliasOf)
-	switch {
-	case err == nil && aliasOf != sliceID:
-		return nil, fmt.Errorf("%w: slice name %s/%s is reserved: another slice was renamed from it", ErrConflict, account, newName)
-	case err == nil:
-		// Taking back one of its own earlier names.
-		if _, err := tx.ExecContext(ctx, `delete from slice_aliases where account_id = $1 and slug = $2`, accountID, newName); err != nil {
-			return nil, err
+	if err := execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		var accountID, account, oldName string
+		err := tx.QueryRowContext(ctx, `
+			select slices.account_id, accounts.slug, slices.slug
+			from slices
+			join accounts on accounts.id = slices.account_id
+			where slices.id = $1 and slices.deleted_at is null
+			for update of slices
+		`, sliceID).Scan(&accountID, &account, &oldName)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
 		}
-	case !errors.Is(err, sql.ErrNoRows):
-		return nil, err
-	}
-
-	if _, err := tx.ExecContext(ctx, `update slices set slug = $2, updated_at = now() where id = $1`, sliceID, newName); err != nil {
-		return nil, err
-	}
-	if _, err := tx.ExecContext(ctx, `insert into slice_aliases(account_id, slug, slice_id) values ($1, $2, $3)`, accountID, oldName, sliceID); err != nil {
-		return nil, err
-	}
-	// These tables repeat the slice's name next to its id.
-	for _, table := range []string{"changesets", "changeset_stacks", "git_imports"} {
-		if _, err := tx.ExecContext(ctx, `update `+table+` set authoring_slice = $2 where authoring_slice_id = $1`, sliceID, newName); err != nil {
-			return nil, err
+		if err != nil {
+			return err
 		}
-	}
-	if err := tx.Commit(); err != nil {
+		ref, err := normalizeSliceRef(&corev1.SliceRef{Account: account, Slice: newName})
+		if err != nil {
+			return err
+		}
+		newName = ref.Slice
+		if newName == oldName {
+			return fmt.Errorf("%w: slice %s/%s already has that name", ErrInvalid, account, oldName)
+		}
+
+		var takenBy string
+		err = tx.QueryRowContext(ctx, `select id from slices where account_id = $1 and slug = $2`, accountID, newName).Scan(&takenBy)
+		if err == nil {
+			return fmt.Errorf("%w: slice %s/%s already exists", ErrConflict, account, newName)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		var aliasOf string
+		err = tx.QueryRowContext(ctx, `select slice_id from slice_aliases where account_id = $1 and slug = $2`, accountID, newName).Scan(&aliasOf)
+		switch {
+		case err == nil && aliasOf != sliceID:
+			return fmt.Errorf("%w: slice name %s/%s is reserved: another slice was renamed from it", ErrConflict, account, newName)
+		case err == nil:
+			// Taking back one of its own earlier names.
+			if _, err := tx.ExecContext(ctx, `delete from slice_aliases where account_id = $1 and slug = $2`, accountID, newName); err != nil {
+				return err
+			}
+		case !errors.Is(err, sql.ErrNoRows):
+			return err
+		}
+
+		if _, err := tx.ExecContext(ctx, `update slices set slug = $2, updated_at = now() where id = $1`, sliceID, newName); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `insert into slice_aliases(account_id, slug, slice_id) values ($1, $2, $3)`, accountID, oldName, sliceID); err != nil {
+			return err
+		}
+		// These tables repeat the slice's name next to its id.
+		for _, table := range []string{"changesets", "changeset_stacks", "git_imports"} {
+			if _, err := tx.ExecContext(ctx, `update `+table+` set authoring_slice = $2 where authoring_slice_id = $1`, sliceID, newName); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	return s.Get(ctx, sliceID)
@@ -164,39 +160,35 @@ func (s *SliceStore) ChangesetCounts(ctx context.Context, sliceID string) (total
 // longer resolves or lists and covers no paths. Secrets apply to folders, not
 // slices, so they stay. It fails if any changeset is still open.
 func (s *SliceStore) Retire(ctx context.Context, sliceID string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	var live bool
-	if err := tx.QueryRowContext(ctx, `select deleted_at is null from slices where id = $1 for update`, sliceID).Scan(&live); errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
-	} else if err != nil {
-		return err
-	}
-	if !live {
-		return ErrNotFound
-	}
-	var open int
-	if err := tx.QueryRowContext(ctx, `
-		select count(*) from changesets where authoring_slice_id = $1 and status not in ('submitted', 'abandoned')
-	`, sliceID).Scan(&open); err != nil {
-		return err
-	}
-	if open > 0 {
-		return fmt.Errorf("%w: slice has %d open changeset(s)", ErrConflict, open)
-	}
-	for _, stmt := range []string{
-		`delete from slice_included_paths where slice_id = $1`,
-		`update slices set deleted_at = now(), updated_at = now() where id = $1`,
-	} {
-		if _, err := tx.ExecContext(ctx, stmt, sliceID); err != nil {
+	return execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		var live bool
+		if err := tx.QueryRowContext(ctx, `select deleted_at is null from slices where id = $1 for update`, sliceID).Scan(&live); errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		} else if err != nil {
 			return err
 		}
-	}
-	return tx.Commit()
+		if !live {
+			return ErrNotFound
+		}
+		var open int
+		if err := tx.QueryRowContext(ctx, `
+			select count(*) from changesets where authoring_slice_id = $1 and status not in ('submitted', 'abandoned')
+		`, sliceID).Scan(&open); err != nil {
+			return err
+		}
+		if open > 0 {
+			return fmt.Errorf("%w: slice has %d open changeset(s)", ErrConflict, open)
+		}
+		for _, stmt := range []string{
+			`delete from slice_included_paths where slice_id = $1`,
+			`update slices set deleted_at = now(), updated_at = now() where id = $1`,
+		} {
+			if _, err := tx.ExecContext(ctx, stmt, sliceID); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // ResolveRetired finds a retired slice by the name it had.

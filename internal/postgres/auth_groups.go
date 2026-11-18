@@ -51,34 +51,30 @@ func (s *AuthStore) CreateGroup(ctx context.Context, accountSlug, name, descript
 	}
 	createdBySubjectID = strings.TrimSpace(createdBySubjectID)
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	var accountID string
-	if err := tx.QueryRowContext(ctx, `select id from accounts where slug = $1`, accountSlug).Scan(&accountID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotFound
+	if err := execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		var accountID string
+		if err := tx.QueryRowContext(ctx, `select id from accounts where slug = $1`, accountSlug).Scan(&accountID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			return err
 		}
-		return nil, err
-	}
-	groupID, err := objectid.RandomID("grp")
-	if err != nil {
-		return nil, err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		insert into account_groups(id, account_id, name, description, created_by_subject_id, created_at, updated_at)
-		values ($1, $2, $3, $4, nullif($5, ''), now(), now())
-	`, groupID, accountID, name, description, createdBySubjectID); err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
-			return nil, fmt.Errorf("%w: group %s already exists", ErrConflict, storage.FormatGroupHandle(accountSlug, name))
+		groupID, err := objectid.RandomID("grp")
+		if err != nil {
+			return err
 		}
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
+		if _, err := tx.ExecContext(ctx, `
+			insert into account_groups(id, account_id, name, description, created_by_subject_id, created_at, updated_at)
+			values ($1, $2, $3, $4, nullif($5, ''), now(), now())
+		`, groupID, accountID, name, description, createdBySubjectID); err != nil {
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				return fmt.Errorf("%w: group %s already exists", ErrConflict, storage.FormatGroupHandle(accountSlug, name))
+			}
+			return err
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	return s.GetGroup(ctx, accountSlug, name)
@@ -225,45 +221,39 @@ func (s *AuthStore) AddGroupMember(ctx context.Context, accountSlug, name, subje
 		return nil, fmt.Errorf("%w: subject is required", ErrInvalid)
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	var groupID string
-	err = tx.QueryRowContext(ctx, `
-		select g.id
-		from account_groups g
-		join accounts a on a.id = g.account_id
-		where a.slug = $1 and g.name = $2
-	`, accountSlug, name).Scan(&groupID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	var subjectExists bool
-	if err := tx.QueryRowContext(ctx, `select exists(select 1 from subjects where id = $1)`, subjectID).Scan(&subjectExists); err != nil {
-		return nil, err
-	}
-	if !subjectExists {
-		return nil, ErrNotFound
-	}
-	if _, err := tx.ExecContext(ctx, `
-		insert into account_group_members(group_id, subject_id, added_by_subject_id, created_at)
-		values ($1, $2, nullif($3, ''), now())
-		on conflict (group_id, subject_id) do nothing
-	`, groupID, subjectID, addedBySubjectID); err != nil {
-		return nil, err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		update account_groups set updated_at = $2 where id = $1
-	`, groupID, time.Now().UTC()); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
+	if err := execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		var groupID string
+		err := tx.QueryRowContext(ctx, `
+			select g.id
+			from account_groups g
+			join accounts a on a.id = g.account_id
+			where a.slug = $1 and g.name = $2
+		`, accountSlug, name).Scan(&groupID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		var subjectExists bool
+		if err := tx.QueryRowContext(ctx, `select exists(select 1 from subjects where id = $1)`, subjectID).Scan(&subjectExists); err != nil {
+			return err
+		}
+		if !subjectExists {
+			return ErrNotFound
+		}
+		if _, err := tx.ExecContext(ctx, `
+			insert into account_group_members(group_id, subject_id, added_by_subject_id, created_at)
+			values ($1, $2, nullif($3, ''), now())
+			on conflict (group_id, subject_id) do nothing
+		`, groupID, subjectID, addedBySubjectID); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `
+			update account_groups set updated_at = $2 where id = $1
+		`, groupID, time.Now().UTC())
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	return s.GetGroup(ctx, accountSlug, name)
@@ -283,40 +273,34 @@ func (s *AuthStore) RemoveGroupMember(ctx context.Context, accountSlug, name, su
 		return nil, fmt.Errorf("%w: subject is required", ErrInvalid)
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	var groupID string
-	err = tx.QueryRowContext(ctx, `
-		select g.id
-		from account_groups g
-		join accounts a on a.id = g.account_id
-		where a.slug = $1 and g.name = $2
-	`, accountSlug, name).Scan(&groupID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	res, err := tx.ExecContext(ctx, `
-		delete from account_group_members where group_id = $1 and subject_id = $2
-	`, groupID, subjectID)
-	if err != nil {
-		return nil, err
-	}
-	if n, err := res.RowsAffected(); err == nil && n == 0 {
-		return nil, ErrNotFound
-	}
-	if _, err := tx.ExecContext(ctx, `
-		update account_groups set updated_at = $2 where id = $1
-	`, groupID, time.Now().UTC()); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
+	if err := execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		var groupID string
+		err := tx.QueryRowContext(ctx, `
+			select g.id
+			from account_groups g
+			join accounts a on a.id = g.account_id
+			where a.slug = $1 and g.name = $2
+		`, accountSlug, name).Scan(&groupID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `
+			delete from account_group_members where group_id = $1 and subject_id = $2
+		`, groupID, subjectID)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err == nil && n == 0 {
+			return ErrNotFound
+		}
+		_, err = tx.ExecContext(ctx, `
+			update account_groups set updated_at = $2 where id = $1
+		`, groupID, time.Now().UTC())
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	return s.GetGroup(ctx, accountSlug, name)

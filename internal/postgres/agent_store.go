@@ -330,70 +330,71 @@ func (s *AgentStore) SetConversationStatus(ctx context.Context, conversationID, 
 }
 
 func (s *AgentStore) AppendEvent(ctx context.Context, conversationID, role, eventType, text, dataJSON, itemID string, clientSeq int64) (*corev1.ConversationEvent, bool, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, false, err
+	type appendResult struct {
+		ev      *corev1.ConversationEvent
+		created bool
 	}
-	defer func() { _ = tx.Rollback() }()
-
-	// Dedup resends: if the daemon's per-conversation client_seq was already
-	// stored, return the existing event without advancing the server seq.
-	if clientSeq > 0 {
-		existing, err := scanEventRow(tx.QueryRowContext(ctx, `
-			select id, conversation_id, seq, role, type, text, data_json, created_at, item_id, client_seq
-			from agent_conversation_events
-			where conversation_id = $1 and client_seq = $2
-		`, conversationID, clientSeq))
-		if err == nil {
-			if err := tx.Commit(); err != nil {
-				return nil, false, err
+	res, err := inTx(ctx, s.db, func(tx *sql.Tx) (appendResult, error) {
+		// Dedup resends: if the daemon's per-conversation client_seq was already
+		// stored, return the existing event without advancing the server seq.
+		if clientSeq > 0 {
+			existing, err := scanEventRow(tx.QueryRowContext(ctx, `
+				select id, conversation_id, seq, role, type, text, data_json, created_at, item_id, client_seq
+				from agent_conversation_events
+				where conversation_id = $1 and client_seq = $2
+			`, conversationID, clientSeq))
+			if err == nil {
+				return appendResult{ev: existing, created: false}, nil
 			}
-			return existing, false, nil
+			if !errors.Is(err, sql.ErrNoRows) {
+				return appendResult{}, err
+			}
 		}
-		if !errors.Is(err, sql.ErrNoRows) {
-			return nil, false, err
+
+		var seq int64
+		err := tx.QueryRowContext(ctx, `
+			update agent_conversations set next_seq = next_seq + 1, updated_at = now()
+			where id = $1 returning next_seq - 1
+		`, conversationID).Scan(&seq)
+		if errors.Is(err, sql.ErrNoRows) {
+			return appendResult{}, storage.ErrNotFound
 		}
-	}
+		if err != nil {
+			return appendResult{}, err
+		}
 
-	var seq int64
-	err = tx.QueryRowContext(ctx, `
-		update agent_conversations set next_seq = next_seq + 1, updated_at = now()
-		where id = $1 returning next_seq - 1
-	`, conversationID).Scan(&seq)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, false, storage.ErrNotFound
-	}
+		id, err := objectid.RandomID("ev")
+		if err != nil {
+			return appendResult{}, err
+		}
+		var createdAt time.Time
+		err = tx.QueryRowContext(ctx, `
+			insert into agent_conversation_events(id, conversation_id, seq, role, type, text, data_json, item_id, client_seq)
+			values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning created_at
+		`, id, conversationID, seq, role, eventType, text, dataJSON, itemID, clientSeq).Scan(&createdAt)
+		if err != nil {
+			return appendResult{}, err
+		}
+		return appendResult{
+			ev: &corev1.ConversationEvent{
+				Id:             id,
+				ConversationId: conversationID,
+				Seq:            seq,
+				Role:           role,
+				Type:           eventType,
+				Text:           text,
+				DataJson:       dataJSON,
+				CreatedAt:      createdAt.UTC().Format(time.RFC3339Nano),
+				ItemId:         itemID,
+				ClientSeq:      clientSeq,
+			},
+			created: true,
+		}, nil
+	})
 	if err != nil {
 		return nil, false, err
 	}
-
-	id, err := objectid.RandomID("ev")
-	if err != nil {
-		return nil, false, err
-	}
-	var createdAt time.Time
-	err = tx.QueryRowContext(ctx, `
-		insert into agent_conversation_events(id, conversation_id, seq, role, type, text, data_json, item_id, client_seq)
-		values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning created_at
-	`, id, conversationID, seq, role, eventType, text, dataJSON, itemID, clientSeq).Scan(&createdAt)
-	if err != nil {
-		return nil, false, err
-	}
-	if err := tx.Commit(); err != nil {
-		return nil, false, err
-	}
-	return &corev1.ConversationEvent{
-		Id:             id,
-		ConversationId: conversationID,
-		Seq:            seq,
-		Role:           role,
-		Type:           eventType,
-		Text:           text,
-		DataJson:       dataJSON,
-		CreatedAt:      createdAt.UTC().Format(time.RFC3339Nano),
-		ItemId:         itemID,
-		ClientSeq:      clientSeq,
-	}, true, nil
+	return res.ev, res.created, nil
 }
 
 // scanEventRow scans a single agent_conversation_events row (with client_seq) in

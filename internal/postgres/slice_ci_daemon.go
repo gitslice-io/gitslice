@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -22,38 +23,35 @@ func (s *SliceStore) SetCIDaemons(ctx context.Context, sliceID string, daemonIDs
 	if len(daemonIDs) > 0 {
 		first = daemonIDs[0]
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	res, err := tx.ExecContext(ctx, `
-		update slices
-		set ci_daemon_id = nullif($2, ''),
-		    updated_at = now()
-		where id = $1
-	`, sliceID, first)
-	if err != nil {
-		return nil, err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return nil, err
-	}
-	if affected == 0 {
-		return nil, ErrNotFound
-	}
-	if _, err := tx.ExecContext(ctx, `delete from slice_ci_daemons where slice_id = $1`, sliceID); err != nil {
-		return nil, err
-	}
-	for i, daemonID := range daemonIDs {
-		if _, err := tx.ExecContext(ctx, `
-			insert into slice_ci_daemons(slice_id, daemon_id, position) values ($1, $2, $3)
-		`, sliceID, daemonID, i); err != nil {
-			return nil, err
+	if err := execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `
+			update slices
+			set ci_daemon_id = nullif($2, ''),
+			    updated_at = now()
+			where id = $1
+		`, sliceID, first)
+		if err != nil {
+			return err
 		}
-	}
-	if err := tx.Commit(); err != nil {
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if affected == 0 {
+			return ErrNotFound
+		}
+		if _, err := tx.ExecContext(ctx, `delete from slice_ci_daemons where slice_id = $1`, sliceID); err != nil {
+			return err
+		}
+		for i, daemonID := range daemonIDs {
+			if _, err := tx.ExecContext(ctx, `
+				insert into slice_ci_daemons(slice_id, daemon_id, position) values ($1, $2, $3)
+			`, sliceID, daemonID, i); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 	return s.Get(ctx, sliceID)

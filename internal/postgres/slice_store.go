@@ -46,68 +46,65 @@ func (s *SliceStore) CreateDefinition(ctx context.Context, subjectID string, ref
 		return nil, err
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
+	id, err := inTx(ctx, s.db, func(tx *sql.Tx) (string, error) {
+		var accountID string
+		err := tx.QueryRowContext(ctx, `select id from accounts where slug = $1`, ref.Account).Scan(&accountID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		if err != nil {
+			return "", err
+		}
+		var existingID string
+		err = tx.QueryRowContext(ctx, `
+			select slices.id
+			from slices
+			where slices.account_id = $1 and slices.slug = $2
+		`, accountID, ref.Slice).Scan(&existingID)
+		if err == nil {
+			return "", fmt.Errorf("%w: slice %s/%s already exists", ErrConflict, ref.Account, ref.Slice)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
+		var aliasOf string
+		err = tx.QueryRowContext(ctx, `select slice_id from slice_aliases where account_id = $1 and slug = $2`, accountID, ref.Slice).Scan(&aliasOf)
+		if err == nil {
+			return "", fmt.Errorf("%w: slice name %s/%s is reserved: a slice was renamed from it", ErrConflict, ref.Account, ref.Slice)
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
 
-	var accountID string
-	err = tx.QueryRowContext(ctx, `select id from accounts where slug = $1`, ref.Account).Scan(&accountID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
+		id, err := objectid.RandomID("slice")
+		if err != nil {
+			return "", err
+		}
+		includedJSON, err := encodeJSON(validated.IncludedPaths)
+		if err != nil {
+			return "", err
+		}
+		requiredChecksJSON, err := encodeJSON(validated.RequiredChecks)
+		if err != nil {
+			return "", err
+		}
+		definitionHash := definitionHashWithApprovers(id, 1, validated.IncludedPaths, validated.Visibility, validated.RequiredApprovals, validated.RequiredHumanApprovals, validated.RequiredChecks, validated.Approvers)
+		_, err = tx.ExecContext(ctx, `
+			insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, required_approvals, required_human_approvals, required_checks, approvers_group, created_at, updated_at)
+			values ($1, $2, $3, 1, $4, $5, $6, $7, $8, $9, $10, now(), now())
+		`, id, accountID, ref.Slice, definitionHash, validated.Visibility, includedJSON, validated.RequiredApprovals, validated.RequiredHumanApprovals, requiredChecksJSON, validated.Approvers)
+		if err != nil {
+			return "", err
+		}
+		if err := appendSliceDefinitionVersionTx(ctx, tx, id, 1, definitionHash, validated.Visibility, validated.IncludedPaths, validated.RequiredApprovals, validated.RequiredHumanApprovals, validated.RequiredChecks, validated.Approvers, subjectID); err != nil {
+			return "", err
+		}
+		if err := syncSliceIncludedPathsTx(ctx, tx, id, validated.IncludedPaths); err != nil {
+			return "", err
+		}
+		return id, nil
+	})
 	if err != nil {
-		return nil, err
-	}
-	var existingID string
-	err = tx.QueryRowContext(ctx, `
-		select slices.id
-		from slices
-		where slices.account_id = $1 and slices.slug = $2
-	`, accountID, ref.Slice).Scan(&existingID)
-	if err == nil {
-		return nil, fmt.Errorf("%w: slice %s/%s already exists", ErrConflict, ref.Account, ref.Slice)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
-	var aliasOf string
-	err = tx.QueryRowContext(ctx, `select slice_id from slice_aliases where account_id = $1 and slug = $2`, accountID, ref.Slice).Scan(&aliasOf)
-	if err == nil {
-		return nil, fmt.Errorf("%w: slice name %s/%s is reserved: a slice was renamed from it", ErrConflict, ref.Account, ref.Slice)
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
-
-	id, err := objectid.RandomID("slice")
-	if err != nil {
-		return nil, err
-	}
-	includedJSON, err := encodeJSON(validated.IncludedPaths)
-	if err != nil {
-		return nil, err
-	}
-	requiredChecksJSON, err := encodeJSON(validated.RequiredChecks)
-	if err != nil {
-		return nil, err
-	}
-	definitionHash := definitionHashWithApprovers(id, 1, validated.IncludedPaths, validated.Visibility, validated.RequiredApprovals, validated.RequiredHumanApprovals, validated.RequiredChecks, validated.Approvers)
-	_, err = tx.ExecContext(ctx, `
-		insert into slices(id, account_id, slug, version, definition_hash, visibility, included_paths, required_approvals, required_human_approvals, required_checks, approvers_group, created_at, updated_at)
-		values ($1, $2, $3, 1, $4, $5, $6, $7, $8, $9, $10, now(), now())
-	`, id, accountID, ref.Slice, definitionHash, validated.Visibility, includedJSON, validated.RequiredApprovals, validated.RequiredHumanApprovals, requiredChecksJSON, validated.Approvers)
-	if err != nil {
-		return nil, err
-	}
-	if err := appendSliceDefinitionVersionTx(ctx, tx, id, 1, definitionHash, validated.Visibility, validated.IncludedPaths, validated.RequiredApprovals, validated.RequiredHumanApprovals, validated.RequiredChecks, validated.Approvers, subjectID); err != nil {
-		return nil, err
-	}
-	if err := syncSliceIncludedPathsTx(ctx, tx, id, validated.IncludedPaths); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return s.Get(ctx, id)
@@ -302,42 +299,35 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, subjectID, sliceID, e
 		return nil, err
 	}
 	nextHash := definitionHashWithApprovers(sliceID, nextVersion, validated.IncludedPaths, validated.Visibility, validated.RequiredApprovals, validated.RequiredHumanApprovals, validated.RequiredChecks, validated.Approvers)
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	res, err := tx.ExecContext(ctx, `
-		update slices
-		set version = $1,
-		    definition_hash = $2,
-		    visibility = $3,
-		    included_paths = $4,
-		    required_approvals = $5,
-		    required_human_approvals = $6,
-		    required_checks = $7,
-		    approvers_group = $8,
-		    updated_at = now()
-		where id = $9 and definition_hash = $10
-	`, nextVersion, nextHash, validated.Visibility, included, validated.RequiredApprovals, validated.RequiredHumanApprovals, requiredChecksJSON, validated.Approvers, sliceID, expectedHash)
-	if err != nil {
-		return nil, err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return nil, err
-	}
-	if affected == 0 {
-		return nil, ErrConflict
-	}
-	if err := appendSliceDefinitionVersionTx(ctx, tx, sliceID, nextVersion, nextHash, validated.Visibility, validated.IncludedPaths, validated.RequiredApprovals, validated.RequiredHumanApprovals, validated.RequiredChecks, validated.Approvers, subjectID); err != nil {
-		return nil, err
-	}
-	if err := syncSliceIncludedPathsTx(ctx, tx, sliceID, validated.IncludedPaths); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
+	if err := execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		res, err := tx.ExecContext(ctx, `
+			update slices
+			set version = $1,
+			    definition_hash = $2,
+			    visibility = $3,
+			    included_paths = $4,
+			    required_approvals = $5,
+			    required_human_approvals = $6,
+			    required_checks = $7,
+			    approvers_group = $8,
+			    updated_at = now()
+			where id = $9 and definition_hash = $10
+		`, nextVersion, nextHash, validated.Visibility, included, validated.RequiredApprovals, validated.RequiredHumanApprovals, requiredChecksJSON, validated.Approvers, sliceID, expectedHash)
+		if err != nil {
+			return err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if affected == 0 {
+			return ErrConflict
+		}
+		if err := appendSliceDefinitionVersionTx(ctx, tx, sliceID, nextVersion, nextHash, validated.Visibility, validated.IncludedPaths, validated.RequiredApprovals, validated.RequiredHumanApprovals, validated.RequiredChecks, validated.Approvers, subjectID); err != nil {
+			return err
+		}
+		return syncSliceIncludedPathsTx(ctx, tx, sliceID, validated.IncludedPaths)
+	}); err != nil {
 		return nil, err
 	}
 	slice, err := s.Get(ctx, sliceID)
@@ -352,54 +342,50 @@ func (s *SliceStore) Delete(ctx context.Context, sliceID string) error {
 	if sliceID == "" {
 		return fmt.Errorf("%w: slice_id is required", ErrInvalid)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	var exists bool
-	if err := tx.QueryRowContext(ctx, `select exists(select 1 from slices where id = $1)`, sliceID).Scan(&exists); err != nil {
-		return err
-	}
-	if !exists {
-		return ErrNotFound
-	}
-	var changesets int
-	if err := tx.QueryRowContext(ctx, `
-		select count(*)
-		from changesets
-		where authoring_slice_id = $1
-	`, sliceID).Scan(&changesets); err != nil {
-		return err
-	}
-	if changesets > 0 {
-		return fmt.Errorf("%w: slice has changesets", ErrConflict)
-	}
-	if _, err := tx.ExecContext(ctx, `delete from slice_aliases where slice_id = $1`, sliceID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `delete from slice_included_paths where slice_id = $1`, sliceID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `delete from secret_slices where slice_id = $1`, sliceID); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `delete from slice_tags where slice_id = $1`, sliceID); err != nil {
-		return err
-	}
-	res, err := tx.ExecContext(ctx, `delete from slices where id = $1`, sliceID)
-	if err != nil {
-		return err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if affected == 0 {
-		return ErrNotFound
-	}
-	return tx.Commit()
+	return execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		var exists bool
+		if err := tx.QueryRowContext(ctx, `select exists(select 1 from slices where id = $1)`, sliceID).Scan(&exists); err != nil {
+			return err
+		}
+		if !exists {
+			return ErrNotFound
+		}
+		var changesets int
+		if err := tx.QueryRowContext(ctx, `
+			select count(*)
+			from changesets
+			where authoring_slice_id = $1
+		`, sliceID).Scan(&changesets); err != nil {
+			return err
+		}
+		if changesets > 0 {
+			return fmt.Errorf("%w: slice has changesets", ErrConflict)
+		}
+		if _, err := tx.ExecContext(ctx, `delete from slice_aliases where slice_id = $1`, sliceID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `delete from slice_included_paths where slice_id = $1`, sliceID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `delete from secret_slices where slice_id = $1`, sliceID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `delete from slice_tags where slice_id = $1`, sliceID); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `delete from slices where id = $1`, sliceID)
+		if err != nil {
+			return err
+		}
+		affected, err := res.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if affected == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }
 
 func (s *SliceStore) CoveringIDsByPath(ctx context.Context, changedPaths []string) (map[string][]string, error) {

@@ -25,28 +25,22 @@ func (s *AuthStore) EnsureExternalSubject(ctx context.Context, provider, externa
 		displayName = subjectID
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return "", err
-	}
-	defer tx.Rollback()
-
 	// Record the provider identity and self-controller once; the conditional
 	// update keeps this a no-op write on the per-request hot path after the
 	// first sign-in.
-	if _, err := tx.ExecContext(ctx, `
-		insert into subjects(id, kind, external_provider, external_subject, display_name, controller_subject_id, created_at)
-		values ($1, 'user', nullif($3, ''), nullif($4, ''), $2, $1, now())
-		on conflict (id) do update
-		set external_provider = excluded.external_provider,
-		    external_subject = excluded.external_subject,
-		    controller_subject_id = coalesce(subjects.controller_subject_id, excluded.controller_subject_id)
-		where (subjects.external_subject is null and excluded.external_subject is not null)
-		   or (subjects.kind = 'user' and subjects.controller_subject_id is null)
-	`, subjectID, displayName, strings.TrimSpace(provider), strings.TrimSpace(externalID)); err != nil {
-		return "", err
-	}
-	if err := tx.Commit(); err != nil {
+	if err := execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(ctx, `
+			insert into subjects(id, kind, external_provider, external_subject, display_name, controller_subject_id, created_at)
+			values ($1, 'user', nullif($3, ''), nullif($4, ''), $2, $1, now())
+			on conflict (id) do update
+			set external_provider = excluded.external_provider,
+			    external_subject = excluded.external_subject,
+			    controller_subject_id = coalesce(subjects.controller_subject_id, excluded.controller_subject_id)
+			where (subjects.external_subject is null and excluded.external_subject is not null)
+			   or (subjects.kind = 'user' and subjects.controller_subject_id is null)
+		`, subjectID, displayName, strings.TrimSpace(provider), strings.TrimSpace(externalID))
+		return err
+	}); err != nil {
 		return "", err
 	}
 	return subjectID, nil
@@ -155,50 +149,43 @@ func (s *AuthStore) ChooseUsername(ctx context.Context, subjectID, username stri
 		return "", fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return "", err
-	}
-	defer tx.Rollback()
+	return inTx(ctx, s.db, func(tx *sql.Tx) (string, error) {
+		var foundSubjectID string
+		err = tx.QueryRowContext(ctx, `
+			select id
+			from subjects
+			where id = $1
+			for update
+		`, subjectID).Scan(&foundSubjectID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		if err != nil {
+			return "", err
+		}
 
-	var foundSubjectID string
-	err = tx.QueryRowContext(ctx, `
-		select id
-		from subjects
-		where id = $1
-		for update
-	`, subjectID).Scan(&foundSubjectID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrNotFound
-	}
-	if err != nil {
-		return "", err
-	}
+		var existingSlug string
+		err = tx.QueryRowContext(ctx, `
+			select a.slug
+			from account_memberships m
+			join accounts a on a.id = m.account_id
+			where m.subject_id = $1 and a.kind = 'personal'
+			  and `+notOthersAgentAccountSQL+`
+			order by a.slug
+			limit 1
+		`, subjectID).Scan(&existingSlug)
+		if err == nil {
+			return existingSlug, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return "", err
+		}
 
-	var existingSlug string
-	err = tx.QueryRowContext(ctx, `
-		select a.slug
-		from account_memberships m
-		join accounts a on a.id = m.account_id
-		where m.subject_id = $1 and a.kind = 'personal'
-		  and `+notOthersAgentAccountSQL+`
-		order by a.slug
-		limit 1
-	`, subjectID).Scan(&existingSlug)
-	if err == nil {
-		return existingSlug, nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return "", err
-	}
-
-	if _, err := s.provisionAccountForSubject(ctx, tx, subjectID, username, username); err != nil {
-		return "", err
-	}
-	if err := tx.Commit(); err != nil {
-		return "", err
-	}
-	return username, nil
+		if _, err := s.provisionAccountForSubject(ctx, tx, subjectID, username, username); err != nil {
+			return "", err
+		}
+		return username, nil
+	})
 }
 
 func (s *AuthStore) UsernamesForSubjects(ctx context.Context, subjectIDs []string) (map[string]string, error) {

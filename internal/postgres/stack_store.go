@@ -204,318 +204,300 @@ func (s *ChangesetStore) SetStackStatus(ctx context.Context, stackID, stackStatu
 }
 
 func (s *ChangesetStore) MoveStackEntry(ctx context.Context, req *corev1.MoveStackEntryRequest) (*corev1.ChangesetStack, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	entry, status, err := lockStackEntryForMutationTx(ctx, tx, req.StackId, req.ChangesetId)
-	if err != nil {
-		return nil, err
-	}
-	if status == "submitted" || status == "pending_publish" {
-		return nil, ErrConflict
-	}
-	if err := reorderStackSiblingsTx(ctx, tx, req.StackId, entry.ParentChangesetID.String, entry.ChangesetID, req.SiblingOrder); err != nil {
-		return nil, err
-	}
-	if err := recomputeStackDisplayTx(ctx, tx, req.StackId); err != nil {
-		return nil, err
-	}
-	if _, err := tx.ExecContext(ctx, `update changeset_stacks set updated_at = now() where id = $1`, req.StackId); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
+	if err := execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		entry, status, err := lockStackEntryForMutationTx(ctx, tx, req.StackId, req.ChangesetId)
+		if err != nil {
+			return err
+		}
+		if status == "submitted" || status == "pending_publish" {
+			return ErrConflict
+		}
+		if err := reorderStackSiblingsTx(ctx, tx, req.StackId, entry.ParentChangesetID.String, entry.ChangesetID, req.SiblingOrder); err != nil {
+			return err
+		}
+		if err := recomputeStackDisplayTx(ctx, tx, req.StackId); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `update changeset_stacks set updated_at = now() where id = $1`, req.StackId)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	return s.GetStack(ctx, req.StackId)
 }
 
 func (s *ChangesetStore) ReparentStackEntry(ctx context.Context, req *corev1.ReparentStackEntryRequest) (*corev1.ChangesetStack, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	entry, status, err := lockStackEntryForMutationTx(ctx, tx, req.StackId, req.ChangesetId)
-	if err != nil {
-		return nil, err
-	}
-	if status == "submitted" || status == "pending_publish" {
-		return nil, ErrConflict
-	}
-	entries, err := stackEntriesForMutationTx(ctx, tx, req.StackId)
-	if err != nil {
-		return nil, err
-	}
-	newParentID := strings.TrimSpace(req.NewParentChangesetId)
-	newParentPatchsetID := strings.TrimSpace(req.NewParentPatchsetId)
-	if newParentID == "" {
-		var rootID sql.NullString
-		err := tx.QueryRowContext(ctx, `
-			select root_entry_changeset_id
-			from changeset_stacks
-			where id = $1
-			for update
-		`, req.StackId).Scan(&rootID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotFound
-		}
+	if err := execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		entry, status, err := lockStackEntryForMutationTx(ctx, tx, req.StackId, req.ChangesetId)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		if rootID.Valid && rootID.String != entry.ChangesetID {
-			return nil, ErrConflict
+		if status == "submitted" || status == "pending_publish" {
+			return ErrConflict
 		}
-		newParentPatchsetID = ""
-	} else {
-		parent, ok := entries[newParentID]
-		if !ok || parent.ChangesetID == "" {
-			return nil, ErrInvalid
-		}
-		if stackEntryHasAncestor(entries, newParentID, entry.ChangesetID) {
-			return nil, ErrConflict
-		}
-		var parentCurrentPatchsetID sql.NullString
-		err := tx.QueryRowContext(ctx, `
-			select current_patchset_id
-			from changesets
-			where id = $1
-			for update
-		`, newParentID).Scan(&parentCurrentPatchsetID)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotFound
-		}
+		entries, err := stackEntriesForMutationTx(ctx, tx, req.StackId)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		if newParentPatchsetID == "" {
-			newParentPatchsetID = parentCurrentPatchsetID.String
+		newParentID := strings.TrimSpace(req.NewParentChangesetId)
+		newParentPatchsetID := strings.TrimSpace(req.NewParentPatchsetId)
+		if newParentID == "" {
+			var rootID sql.NullString
+			err := tx.QueryRowContext(ctx, `
+				select root_entry_changeset_id
+				from changeset_stacks
+				where id = $1
+				for update
+			`, req.StackId).Scan(&rootID)
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			if err != nil {
+				return err
+			}
+			if rootID.Valid && rootID.String != entry.ChangesetID {
+				return ErrConflict
+			}
+			newParentPatchsetID = ""
+		} else {
+			parent, ok := entries[newParentID]
+			if !ok || parent.ChangesetID == "" {
+				return ErrInvalid
+			}
+			if stackEntryHasAncestor(entries, newParentID, entry.ChangesetID) {
+				return ErrConflict
+			}
+			var parentCurrentPatchsetID sql.NullString
+			err := tx.QueryRowContext(ctx, `
+				select current_patchset_id
+				from changesets
+				where id = $1
+				for update
+			`, newParentID).Scan(&parentCurrentPatchsetID)
+			if errors.Is(err, sql.ErrNoRows) {
+				return ErrNotFound
+			}
+			if err != nil {
+				return err
+			}
+			if newParentPatchsetID == "" {
+				newParentPatchsetID = parentCurrentPatchsetID.String
+			}
+			if !parentCurrentPatchsetID.Valid || newParentPatchsetID == "" || newParentPatchsetID != parentCurrentPatchsetID.String {
+				return ErrConflict
+			}
 		}
-		if !parentCurrentPatchsetID.Valid || newParentPatchsetID == "" || newParentPatchsetID != parentCurrentPatchsetID.String {
-			return nil, ErrConflict
-		}
-	}
-	_, err = tx.ExecContext(ctx, `
-		update changeset_stack_entries
-		set parent_changeset_id = $3,
-		    parent_patchset_id = $4,
-		    sibling_order = -1,
-		    state = 'needs_restack',
-		    updated_at = now()
-		where stack_id = $1 and changeset_id = $2
-	`, req.StackId, entry.ChangesetID, nullString(newParentID), nullString(newParentPatchsetID))
-	if err != nil {
-		return nil, err
-	}
-	_, err = tx.ExecContext(ctx, `
-		update changesets
-		set parent_changeset_id = $3,
-		    parent_patchset_id = $4,
-		    sibling_order = -1,
-		    updated_at = now()
-		where stack_id = $1 and id = $2
-	`, req.StackId, entry.ChangesetID, nullString(newParentID), nullString(newParentPatchsetID))
-	if err != nil {
-		return nil, err
-	}
-	if newParentID == "" {
 		if _, err := tx.ExecContext(ctx, `
-			update changeset_stacks
-			set root_entry_changeset_id = $2
-			where id = $1
-		`, req.StackId, entry.ChangesetID); err != nil {
-			return nil, err
+			update changeset_stack_entries
+			set parent_changeset_id = $3,
+			    parent_patchset_id = $4,
+			    sibling_order = -1,
+			    state = 'needs_restack',
+			    updated_at = now()
+			where stack_id = $1 and changeset_id = $2
+		`, req.StackId, entry.ChangesetID, nullString(newParentID), nullString(newParentPatchsetID)); err != nil {
+			return err
 		}
-	}
-	if err := markSubtreeNeedsRestackTx(ctx, tx, req.StackId, entry.ChangesetID); err != nil {
-		return nil, err
-	}
-	if err := reorderStackSiblingsTx(ctx, tx, req.StackId, newParentID, entry.ChangesetID, req.SiblingOrder); err != nil {
-		return nil, err
-	}
-	if err := recomputeStackDisplayTx(ctx, tx, req.StackId); err != nil {
-		return nil, err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		update changeset_stacks
-		set active_entry_changeset_id = $2,
-		    updated_at = now()
-		where id = $1
-	`, req.StackId, entry.ChangesetID); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
+		if _, err := tx.ExecContext(ctx, `
+			update changesets
+			set parent_changeset_id = $3,
+			    parent_patchset_id = $4,
+			    sibling_order = -1,
+			    updated_at = now()
+			where stack_id = $1 and id = $2
+		`, req.StackId, entry.ChangesetID, nullString(newParentID), nullString(newParentPatchsetID)); err != nil {
+			return err
+		}
+		if newParentID == "" {
+			if _, err := tx.ExecContext(ctx, `
+				update changeset_stacks
+				set root_entry_changeset_id = $2
+				where id = $1
+			`, req.StackId, entry.ChangesetID); err != nil {
+				return err
+			}
+		}
+		if err := markSubtreeNeedsRestackTx(ctx, tx, req.StackId, entry.ChangesetID); err != nil {
+			return err
+		}
+		if err := reorderStackSiblingsTx(ctx, tx, req.StackId, newParentID, entry.ChangesetID, req.SiblingOrder); err != nil {
+			return err
+		}
+		if err := recomputeStackDisplayTx(ctx, tx, req.StackId); err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `
+			update changeset_stacks
+			set active_entry_changeset_id = $2,
+			    updated_at = now()
+			where id = $1
+		`, req.StackId, entry.ChangesetID)
+		return err
+	}); err != nil {
 		return nil, err
 	}
 	return s.GetStack(ctx, req.StackId)
 }
 
 func (s *ChangesetStore) DetachStackEntry(ctx context.Context, subjectID string, req *corev1.DetachStackEntryRequest) (*corev1.DetachStackEntryResponse, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
 	sourceID := strings.TrimSpace(req.StackId)
 	changesetID := strings.TrimSpace(req.ChangesetId)
-	var source struct {
-		ID          string
-		Account     string
-		Slice       string
-		SliceID     string
-		TargetRef   string
-		BaseCommit  string
-		Title       string
-		CreatedBy   string
-		ActiveEntry sql.NullString
-		RootEntry   sql.NullString
-	}
-	err = tx.QueryRowContext(ctx, `
-		select id, authoring_account, authoring_slice, authoring_slice_id,
-		       target_ref, base_commit_id, title, created_by,
-		       active_entry_changeset_id, root_entry_changeset_id
-		from changeset_stacks
-		where id = $1
-		for update
-	`, sourceID).Scan(&source.ID, &source.Account, &source.Slice, &source.SliceID,
-		&source.TargetRef, &source.BaseCommit, &source.Title, &source.CreatedBy,
-		&source.ActiveEntry, &source.RootEntry)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, ErrNotFound
-	}
-	if err != nil {
-		return nil, err
-	}
-	entries, err := stackEntriesForMutationTx(ctx, tx, sourceID)
-	if err != nil {
-		return nil, err
-	}
-	entry, ok := entries[changesetID]
-	if !ok {
-		return nil, ErrNotFound
-	}
-	if !entry.ParentChangesetID.Valid {
-		return nil, ErrInvalid
-	}
-	descendants := stackSubtreeChangesetIDs(entries, changesetID)
-	selectedTitle := ""
-	for _, id := range descendants {
-		var status, title string
+	detachedID, err := inTx(ctx, s.db, func(tx *sql.Tx) (string, error) {
+		var source struct {
+			ID          string
+			Account     string
+			Slice       string
+			SliceID     string
+			TargetRef   string
+			BaseCommit  string
+			Title       string
+			CreatedBy   string
+			ActiveEntry sql.NullString
+			RootEntry   sql.NullString
+		}
 		err := tx.QueryRowContext(ctx, `
-			select status, title
-			from changesets
+			select id, authoring_account, authoring_slice, authoring_slice_id,
+			       target_ref, base_commit_id, title, created_by,
+			       active_entry_changeset_id, root_entry_changeset_id
+			from changeset_stacks
 			where id = $1
 			for update
-		`, id).Scan(&status, &title)
+		`, sourceID).Scan(&source.ID, &source.Account, &source.Slice, &source.SliceID,
+			&source.TargetRef, &source.BaseCommit, &source.Title, &source.CreatedBy,
+			&source.ActiveEntry, &source.RootEntry)
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrNotFound
+			return "", ErrNotFound
 		}
 		if err != nil {
-			return nil, err
+			return "", err
 		}
-		if status == "submitted" || status == "pending_publish" {
-			return nil, ErrConflict
+		entries, err := stackEntriesForMutationTx(ctx, tx, sourceID)
+		if err != nil {
+			return "", err
 		}
-		if id == changesetID {
-			selectedTitle = title
+		entry, ok := entries[changesetID]
+		if !ok {
+			return "", ErrNotFound
 		}
-	}
-	detachedID, err := objectid.RandomID("stk")
-	if err != nil {
-		return nil, err
-	}
-	title := strings.TrimSpace(req.Title)
-	if title == "" {
-		title = strings.TrimSpace(selectedTitle)
-	}
-	if title == "" {
-		title = strings.TrimSpace(source.Title)
-	}
-	if title == "" {
-		title = "Detached stack"
-	}
-	createdBy := strings.TrimSpace(subjectID)
-	if createdBy == "" {
-		createdBy = source.CreatedBy
-	}
-	_, err = tx.ExecContext(ctx, `
-		insert into changeset_stacks(
-			id, authoring_account, authoring_slice, authoring_slice_id,
-			target_ref, base_commit_id, title, status,
-			active_entry_changeset_id, root_entry_changeset_id,
-			created_by, created_at, updated_at
-		)
-		values ($1, $2, $3, $4, $5, $6, $7, 'open', $8, $8, $9, now(), now())
-	`, detachedID, source.Account, source.Slice, source.SliceID, source.TargetRef,
-		source.BaseCommit, title, changesetID, createdBy)
-	if err != nil {
-		return nil, err
-	}
-	for _, id := range descendants {
+		if !entry.ParentChangesetID.Valid {
+			return "", ErrInvalid
+		}
+		descendants := stackSubtreeChangesetIDs(entries, changesetID)
+		selectedTitle := ""
+		for _, id := range descendants {
+			var status, title string
+			err := tx.QueryRowContext(ctx, `
+				select status, title
+				from changesets
+				where id = $1
+				for update
+			`, id).Scan(&status, &title)
+			if errors.Is(err, sql.ErrNoRows) {
+				return "", ErrNotFound
+			}
+			if err != nil {
+				return "", err
+			}
+			if status == "submitted" || status == "pending_publish" {
+				return "", ErrConflict
+			}
+			if id == changesetID {
+				selectedTitle = title
+			}
+		}
+		detachedID, err := objectid.RandomID("stk")
+		if err != nil {
+			return "", err
+		}
+		title := strings.TrimSpace(req.Title)
+		if title == "" {
+			title = strings.TrimSpace(selectedTitle)
+		}
+		if title == "" {
+			title = strings.TrimSpace(source.Title)
+		}
+		if title == "" {
+			title = "Detached stack"
+		}
+		createdBy := strings.TrimSpace(subjectID)
+		if createdBy == "" {
+			createdBy = source.CreatedBy
+		}
+		if _, err := tx.ExecContext(ctx, `
+			insert into changeset_stacks(
+				id, authoring_account, authoring_slice, authoring_slice_id,
+				target_ref, base_commit_id, title, status,
+				active_entry_changeset_id, root_entry_changeset_id,
+				created_by, created_at, updated_at
+			)
+			values ($1, $2, $3, $4, $5, $6, $7, 'open', $8, $8, $9, now(), now())
+		`, detachedID, source.Account, source.Slice, source.SliceID, source.TargetRef,
+			source.BaseCommit, title, changesetID, createdBy); err != nil {
+			return "", err
+		}
+		for _, id := range descendants {
+			if _, err := tx.ExecContext(ctx, `
+				update changeset_stack_entries
+				set stack_id = $2,
+				    state = 'needs_restack',
+				    updated_at = now()
+				where stack_id = $1 and changeset_id = $3
+			`, sourceID, detachedID, id); err != nil {
+				return "", err
+			}
+			if _, err := tx.ExecContext(ctx, `
+				update changesets
+				set stack_id = $2,
+				    updated_at = now()
+				where stack_id = $1 and id = $3
+			`, sourceID, detachedID, id); err != nil {
+				return "", err
+			}
+		}
 		if _, err := tx.ExecContext(ctx, `
 			update changeset_stack_entries
-			set stack_id = $2,
-			    state = 'needs_restack',
+			set parent_changeset_id = null,
+			    parent_patchset_id = null,
+			    sibling_order = 1,
 			    updated_at = now()
-			where stack_id = $1 and changeset_id = $3
-		`, sourceID, detachedID, id); err != nil {
-			return nil, err
+			where stack_id = $1 and changeset_id = $2
+		`, detachedID, changesetID); err != nil {
+			return "", err
 		}
 		if _, err := tx.ExecContext(ctx, `
 			update changesets
-			set stack_id = $2,
+			set parent_changeset_id = null,
+			    parent_patchset_id = null,
+			    base_kind = 'commit',
+			    sibling_order = 1,
 			    updated_at = now()
-			where stack_id = $1 and id = $3
-		`, sourceID, detachedID, id); err != nil {
-			return nil, err
+			where stack_id = $1 and id = $2
+		`, detachedID, changesetID); err != nil {
+			return "", err
 		}
-	}
-	_, err = tx.ExecContext(ctx, `
-		update changeset_stack_entries
-		set parent_changeset_id = null,
-		    parent_patchset_id = null,
-		    sibling_order = 1,
-		    updated_at = now()
-		where stack_id = $1 and changeset_id = $2
-	`, detachedID, changesetID)
-	if err != nil {
-		return nil, err
-	}
-	_, err = tx.ExecContext(ctx, `
-		update changesets
-		set parent_changeset_id = null,
-		    parent_patchset_id = null,
-		    base_kind = 'commit',
-		    sibling_order = 1,
-		    updated_at = now()
-		where stack_id = $1 and id = $2
-	`, detachedID, changesetID)
-	if err != nil {
-		return nil, err
-	}
-	activeEntryID := source.ActiveEntry
-	if activeEntryID.Valid {
-		if stackChangesetIDInList(descendants, activeEntryID.String) {
-			activeEntryID = source.RootEntry
+		activeEntryID := source.ActiveEntry
+		if activeEntryID.Valid {
+			if stackChangesetIDInList(descendants, activeEntryID.String) {
+				activeEntryID = source.RootEntry
+			}
 		}
-	}
-	_, err = tx.ExecContext(ctx, `
-		update changeset_stacks
-		set active_entry_changeset_id = $2,
-		    updated_at = now()
-		where id = $1
-	`, sourceID, activeEntryID)
+		if _, err := tx.ExecContext(ctx, `
+			update changeset_stacks
+			set active_entry_changeset_id = $2,
+			    updated_at = now()
+			where id = $1
+		`, sourceID, activeEntryID); err != nil {
+			return "", err
+		}
+		if err := recomputeStackDisplayTx(ctx, tx, sourceID); err != nil {
+			return "", err
+		}
+		if err := recomputeStackDisplayTx(ctx, tx, detachedID); err != nil {
+			return "", err
+		}
+		return detachedID, nil
+	})
 	if err != nil {
-		return nil, err
-	}
-	if err := recomputeStackDisplayTx(ctx, tx, sourceID); err != nil {
-		return nil, err
-	}
-	if err := recomputeStackDisplayTx(ctx, tx, detachedID); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	sourceStack, err := s.GetStack(ctx, sourceID)

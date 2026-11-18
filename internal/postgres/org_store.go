@@ -37,47 +37,37 @@ func (s *AuthStore) AccountKind(ctx context.Context, accountSlug string) (string
 	return kind, err
 }
 
-func (s *AuthStore) CreateOrganization(ctx context.Context, slug string, ownerSubjectIDs []string, createdBy string) (err error) {
+func (s *AuthStore) CreateOrganization(ctx context.Context, slug string, ownerSubjectIDs []string, createdBy string) error {
 	slug = strings.TrimSpace(slug)
 	if slug == "" || len(ownerSubjectIDs) == 0 {
 		return fmt.Errorf("%w: organization slug and owners are required", ErrInvalid)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
-	accountID := signupAccountID(slug)
-	res, err := tx.ExecContext(ctx, `
-		insert into accounts(id, slug, kind, created_by_subject_id, created_at, updated_at)
-		values ($1, $2, $3, nullif($4, ''), now(), now())
-		on conflict do nothing
-	`, accountID, slug, storage.AccountKindOrganization, strings.TrimSpace(createdBy))
-	if err != nil {
-		return err
-	}
-	if affected, err := res.RowsAffected(); err != nil {
-		return err
-	} else if affected == 0 {
-		return fmt.Errorf("%w: account %q already exists", ErrConflict, slug)
-	}
-	for _, owner := range ownerSubjectIDs {
-		if _, err = tx.ExecContext(ctx, `
-			insert into account_memberships(account_id, subject_id, role, created_at)
-			values ($1, $2, 'owner', now())
+	return execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		accountID := signupAccountID(slug)
+		res, err := tx.ExecContext(ctx, `
+			insert into accounts(id, slug, kind, created_by_subject_id, created_at, updated_at)
+			values ($1, $2, $3, nullif($4, ''), now(), now())
 			on conflict do nothing
-		`, accountID, owner); err != nil {
+		`, accountID, slug, storage.AccountKindOrganization, strings.TrimSpace(createdBy))
+		if err != nil {
 			return err
 		}
-	}
-	if err = s.provisionHomeTx(ctx, tx, accountID, slug, createdBy); err != nil {
-		return err
-	}
-	return tx.Commit()
+		if affected, err := res.RowsAffected(); err != nil {
+			return err
+		} else if affected == 0 {
+			return fmt.Errorf("%w: account %q already exists", ErrConflict, slug)
+		}
+		for _, owner := range ownerSubjectIDs {
+			if _, err := tx.ExecContext(ctx, `
+				insert into account_memberships(account_id, subject_id, role, created_at)
+				values ($1, $2, 'owner', now())
+				on conflict do nothing
+			`, accountID, owner); err != nil {
+				return err
+			}
+		}
+		return s.provisionHomeTx(ctx, tx, accountID, slug, createdBy)
+	})
 }
 
 func (s *AuthStore) ListAccountMembers(ctx context.Context, accountSlug string) ([]storage.AccountMember, error) {
@@ -134,66 +124,46 @@ func (s *AuthStore) ListAccountMembers(ctx context.Context, accountSlug string) 
 	return members, nil
 }
 
-func (s *AuthStore) SetAccountMemberRole(ctx context.Context, accountSlug, subjectID, role string) (err error) {
-	role, err = storage.ValidateAccountMemberRole(role)
+func (s *AuthStore) SetAccountMemberRole(ctx context.Context, accountSlug, subjectID, role string) error {
+	role, err := storage.ValidateAccountMemberRole(role)
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() {
+	return execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		accountID, err := organizationAccountForUpdateTx(ctx, tx, accountSlug)
 		if err != nil {
-			_ = tx.Rollback()
+			return err
 		}
-	}()
-	accountID, err := organizationAccountForUpdateTx(ctx, tx, accountSlug)
-	if err != nil {
-		return err
-	}
-	if _, err = tx.ExecContext(ctx, `delete from account_memberships where account_id = $1 and subject_id = $2`, accountID, subjectID); err != nil {
-		return err
-	}
-	if _, err = tx.ExecContext(ctx, `
-		insert into account_memberships(account_id, subject_id, role, created_at)
-		values ($1, $2, $3, now())
-	`, accountID, subjectID, role); err != nil {
-		return err
-	}
-	if err = requireAnOwnerTx(ctx, tx, accountID, accountSlug); err != nil {
-		return err
-	}
-	return tx.Commit()
+		if _, err := tx.ExecContext(ctx, `delete from account_memberships where account_id = $1 and subject_id = $2`, accountID, subjectID); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			insert into account_memberships(account_id, subject_id, role, created_at)
+			values ($1, $2, $3, now())
+		`, accountID, subjectID, role); err != nil {
+			return err
+		}
+		return requireAnOwnerTx(ctx, tx, accountID, accountSlug)
+	})
 }
 
-func (s *AuthStore) RemoveAccountMember(ctx context.Context, accountSlug, subjectID string) (err error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() {
+func (s *AuthStore) RemoveAccountMember(ctx context.Context, accountSlug, subjectID string) error {
+	return execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		accountID, err := organizationAccountForUpdateTx(ctx, tx, accountSlug)
 		if err != nil {
-			_ = tx.Rollback()
+			return err
 		}
-	}()
-	accountID, err := organizationAccountForUpdateTx(ctx, tx, accountSlug)
-	if err != nil {
-		return err
-	}
-	res, err := tx.ExecContext(ctx, `delete from account_memberships where account_id = $1 and subject_id = $2`, accountID, subjectID)
-	if err != nil {
-		return err
-	}
-	if affected, err := res.RowsAffected(); err != nil {
-		return err
-	} else if affected == 0 {
-		return fmt.Errorf("%w: subject is not a member of %q", ErrNotFound, accountSlug)
-	}
-	if err = requireAnOwnerTx(ctx, tx, accountID, accountSlug); err != nil {
-		return err
-	}
-	return tx.Commit()
+		res, err := tx.ExecContext(ctx, `delete from account_memberships where account_id = $1 and subject_id = $2`, accountID, subjectID)
+		if err != nil {
+			return err
+		}
+		if affected, err := res.RowsAffected(); err != nil {
+			return err
+		} else if affected == 0 {
+			return fmt.Errorf("%w: subject is not a member of %q", ErrNotFound, accountSlug)
+		}
+		return requireAnOwnerTx(ctx, tx, accountID, accountSlug)
+	})
 }
 
 // organizationAccountForUpdateTx locks an organization account row, so that
@@ -340,42 +310,33 @@ func (s *AuthStore) GetAccountInvitation(ctx context.Context, accountSlug, subje
 	return &invitations[0], nil
 }
 
-func (s *AuthStore) AcceptAccountInvitation(ctx context.Context, accountSlug, subjectID string) (role string, err error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return "", err
-	}
-	defer func() {
+func (s *AuthStore) AcceptAccountInvitation(ctx context.Context, accountSlug, subjectID string) (string, error) {
+	return inTx(ctx, s.db, func(tx *sql.Tx) (string, error) {
+		accountID, err := organizationAccountForUpdateTx(ctx, tx, accountSlug)
 		if err != nil {
-			_ = tx.Rollback()
+			return "", err
 		}
-	}()
-	accountID, err := organizationAccountForUpdateTx(ctx, tx, accountSlug)
-	if err != nil {
-		return "", err
-	}
-	err = tx.QueryRowContext(ctx, `
-		delete from account_invitations where account_id = $1 and subject_id = $2 returning role
-	`, accountID, subjectID).Scan(&role)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", ErrNotFound
-	}
-	if err != nil {
-		return "", err
-	}
-	if _, err = tx.ExecContext(ctx, `delete from account_memberships where account_id = $1 and subject_id = $2`, accountID, subjectID); err != nil {
-		return "", err
-	}
-	if _, err = tx.ExecContext(ctx, `
-		insert into account_memberships(account_id, subject_id, role, created_at)
-		values ($1, $2, $3, now())
-	`, accountID, subjectID, role); err != nil {
-		return "", err
-	}
-	if err = tx.Commit(); err != nil {
-		return "", err
-	}
-	return role, nil
+		var role string
+		err = tx.QueryRowContext(ctx, `
+			delete from account_invitations where account_id = $1 and subject_id = $2 returning role
+		`, accountID, subjectID).Scan(&role)
+		if errors.Is(err, sql.ErrNoRows) {
+			return "", ErrNotFound
+		}
+		if err != nil {
+			return "", err
+		}
+		if _, err := tx.ExecContext(ctx, `delete from account_memberships where account_id = $1 and subject_id = $2`, accountID, subjectID); err != nil {
+			return "", err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			insert into account_memberships(account_id, subject_id, role, created_at)
+			values ($1, $2, $3, now())
+		`, accountID, subjectID, role); err != nil {
+			return "", err
+		}
+		return role, nil
+	})
 }
 
 func (s *AuthStore) DeleteAccountInvitation(ctx context.Context, accountSlug, subjectID string) error {

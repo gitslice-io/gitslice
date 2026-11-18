@@ -52,71 +52,68 @@ func (s *ChangesetStore) ProcessOutbox(ctx context.Context, limit int) (storage.
 }
 
 func (s *ChangesetStore) processNextOutboxRow(ctx context.Context, lastID int64) (int64, bool, error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return 0, false, err
+	type outboxStep struct {
+		id     int64
+		ok     bool
+		rowErr error
 	}
-	defer tx.Rollback()
-	if err := lockOutboxProcessorTx(ctx, tx); err != nil {
-		return 0, false, err
-	}
-
-	var id int64
-	var kind string
-	var payload []byte
-	err = tx.QueryRowContext(ctx, `
-		select id, kind, payload
-		from outbox
-		where processed_at is null
-		  and id > $1
-		order by id
-		limit 1
-		for update skip locked
-	`, lastID).Scan(&id, &kind, &payload)
-	if errors.Is(err, sql.ErrNoRows) {
-		if err := tx.Commit(); err != nil {
-			return 0, false, err
+	step, err := inTx(ctx, s.db, func(tx *sql.Tx) (outboxStep, error) {
+		if err := lockOutboxProcessorTx(ctx, tx); err != nil {
+			return outboxStep{}, err
 		}
-		return 0, false, nil
-	}
-	if err != nil {
-		return 0, false, err
-	}
 
-	if _, err := tx.ExecContext(ctx, `savepoint outbox_apply`); err != nil {
-		return id, false, err
-	}
-	if err := s.applyOutboxRowTx(ctx, tx, kind, payload); err != nil {
-		if _, rollbackErr := tx.ExecContext(ctx, `rollback to savepoint outbox_apply`); rollbackErr != nil {
-			return id, false, fmt.Errorf("rollback failed outbox row %d apply: %w", id, rollbackErr)
+		var id int64
+		var kind string
+		var payload []byte
+		err := tx.QueryRowContext(ctx, `
+			select id, kind, payload
+			from outbox
+			where processed_at is null
+			  and id > $1
+			order by id
+			limit 1
+			for update skip locked
+		`, lastID).Scan(&id, &kind, &payload)
+		if errors.Is(err, sql.ErrNoRows) {
+			return outboxStep{}, nil
 		}
-		if _, attemptsErr := tx.ExecContext(ctx, `
+		if err != nil {
+			return outboxStep{}, err
+		}
+
+		if _, err := tx.ExecContext(ctx, `savepoint outbox_apply`); err != nil {
+			return outboxStep{id: id}, err
+		}
+		if err := s.applyOutboxRowTx(ctx, tx, kind, payload); err != nil {
+			if _, rollbackErr := tx.ExecContext(ctx, `rollback to savepoint outbox_apply`); rollbackErr != nil {
+				return outboxStep{id: id}, fmt.Errorf("rollback failed outbox row %d apply: %w", id, rollbackErr)
+			}
+			if _, attemptsErr := tx.ExecContext(ctx, `
+				update outbox
+				set attempts = attempts + 1
+				where id = $1
+				  and processed_at is null
+			`, id); attemptsErr != nil {
+				return outboxStep{id: id}, fmt.Errorf("increment outbox attempts after row failure: %w", attemptsErr)
+			}
+			return outboxStep{id: id, ok: true, rowErr: outboxRowError{id: id, err: err}}, nil
+		}
+		if _, err := tx.ExecContext(ctx, `release savepoint outbox_apply`); err != nil {
+			return outboxStep{id: id}, err
+		}
+		if _, err := tx.ExecContext(ctx, `
 			update outbox
-			set attempts = attempts + 1
+			set processed_at = now()
 			where id = $1
-			  and processed_at is null
-		`, id); attemptsErr != nil {
-			return id, false, fmt.Errorf("increment outbox attempts after row failure: %w", attemptsErr)
+		`, id); err != nil {
+			return outboxStep{id: id}, err
 		}
-		if err := tx.Commit(); err != nil {
-			return id, false, err
-		}
-		return id, true, outboxRowError{id: id, err: err}
+		return outboxStep{id: id, ok: true}, nil
+	})
+	if err != nil {
+		return step.id, false, err
 	}
-	if _, err := tx.ExecContext(ctx, `release savepoint outbox_apply`); err != nil {
-		return id, false, err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		update outbox
-		set processed_at = now()
-		where id = $1
-	`, id); err != nil {
-		return id, false, err
-	}
-	if err := tx.Commit(); err != nil {
-		return id, false, err
-	}
-	return id, true, nil
+	return step.id, step.ok, step.rowErr
 }
 
 func (s *ChangesetStore) applyOutboxRowTx(ctx context.Context, tx *sql.Tx, kind string, raw []byte) error {
@@ -198,62 +195,56 @@ func (s *ChangesetStore) RebuildDerivedIndexes(ctx context.Context, targetRef st
 	if targetRef == "" {
 		targetRef = DefaultTargetRef
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if err := lockOutboxProcessorTx(ctx, tx); err != nil {
-		return err
-	}
+	return execInTx(ctx, s.db, func(tx *sql.Tx) error {
+		if err := lockOutboxProcessorTx(ctx, tx); err != nil {
+			return err
+		}
 
-	var currentCommitID string
-	err = tx.QueryRowContext(ctx, `
-		select commit_id
-		from refs
-		where name = $1
-		for update
-	`, targetRef).Scan(&currentCommitID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return err
-	}
-	if err := lockTargetOutboxRowsTx(ctx, tx, targetRef); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `delete from commit_changed_paths where target_ref = $1`, targetRef); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `delete from commit_entity_changes where target_ref = $1`, targetRef); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `delete from current_path_entities where target_ref = $1`, targetRef); err != nil {
-		return err
-	}
-	if err := deleteOrphanEntitiesTx(ctx, tx); err != nil {
-		return err
-	}
-	if err := rebuildCommitChangedPathsTx(ctx, tx, targetRef); err != nil {
-		return err
-	}
-	if err := rebuildEntityHistoryTx(ctx, tx, s, targetRef); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `
-		update outbox
-		set processed_at = now()
-		where processed_at is null
-		  and kind = $2
-		  and payload->>'target_ref' = $1
-	`, targetRef, outboxKindCommitPublished); err != nil {
-		return err
-	}
-	if err := setMaterializedHeadTx(ctx, tx, targetRef, currentCommitID); err != nil {
-		return err
-	}
-	return tx.Commit()
+		var currentCommitID string
+		err := tx.QueryRowContext(ctx, `
+			select commit_id
+			from refs
+			where name = $1
+			for update
+		`, targetRef).Scan(&currentCommitID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return err
+		}
+		if err := lockTargetOutboxRowsTx(ctx, tx, targetRef); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `delete from commit_changed_paths where target_ref = $1`, targetRef); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `delete from commit_entity_changes where target_ref = $1`, targetRef); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `delete from current_path_entities where target_ref = $1`, targetRef); err != nil {
+			return err
+		}
+		if err := deleteOrphanEntitiesTx(ctx, tx); err != nil {
+			return err
+		}
+		if err := rebuildCommitChangedPathsTx(ctx, tx, targetRef); err != nil {
+			return err
+		}
+		if err := rebuildEntityHistoryTx(ctx, tx, s, targetRef); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			update outbox
+			set processed_at = now()
+			where processed_at is null
+			  and kind = $2
+			  and payload->>'target_ref' = $1
+		`, targetRef, outboxKindCommitPublished); err != nil {
+			return err
+		}
+		return setMaterializedHeadTx(ctx, tx, targetRef, currentCommitID)
+	})
 }
 
 // setMaterializedHeadTx records, in the caller's transaction, the commit that

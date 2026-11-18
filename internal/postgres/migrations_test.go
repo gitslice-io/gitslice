@@ -3,6 +3,7 @@ package postgres
 import (
 	"sync"
 	"testing"
+	"time"
 
 	"gitslice.io/gitslice/internal/storage"
 )
@@ -61,11 +62,20 @@ func TestMigrateConcurrentRunsApplyOnce(t *testing.T) {
 		}
 	}
 	// The advisory lock is transaction-scoped: none is left held afterwards.
+	// Poll briefly because PostgreSQL backend teardown on pooled connections
+	// after tx.Commit() can lag by a few milliseconds under CPU load.
 	var held int
-	if err := store.db.QueryRowContext(ctx, `
-		select count(*) from pg_locks where locktype = 'advisory' and objid = $1
-	`, migrationAdvisoryLockKey).Scan(&held); err != nil {
-		t.Fatal(err)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if err := store.db.QueryRowContext(ctx, `
+			select count(*) from pg_locks where locktype = 'advisory' and objid = $1
+		`, migrationAdvisoryLockKey).Scan(&held); err != nil {
+			t.Fatal(err)
+		}
+		if held == 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	if held != 0 {
 		t.Fatalf("%d advisory locks still held after Migrate", held)
