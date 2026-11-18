@@ -9630,3 +9630,16 @@ pages are code-split, analytics waits for the page to load.
 **Verification**
 - `go build`, `go vet`, `go test ./...`; DB-backed `internal/postgres` and `tests/rpc` trigger, mirror, publish and migration tests on Postgres 16; web `tsc` and `vitest` (95 files, 694 tests).
 - New tests: `internal/events` (fan-out to triggers and mirrors, nudge-only flush, idle wait) and `internal/outbound` (URL guard, private addresses, signing), ported from the webhook tests.
+
+## 2026-11-18 — listing deltas, cache pruning, faster removals in mounts
+
+**Why**: a comparison with Google's ABFS (content-addressed lazy checkouts for AOSP) pointed at three things design/30 had left open: a sync downloaded the slice's whole listing, the client cache never shrank, and build output in a mount was slow.
+
+**What changed**
+- `CheckoutRequest.since_commit_id` / `since_definition_hash`: the server answers with only the entries added or changed since that commit, then `CheckoutRemoved` paths (`CheckoutHeader.delta`). `treestore.DiffTree` skips directories whose tree id is unchanged; `RepositoryStore.DiffTreeAtTree` (Postgres through it; memory by comparing listings, `storage.DiffTreeListings`). The CLI names the newest cached listing of the slice, so `gs init`, `gs init --lazy` and `gs sync` in a mount get deltas; an older server, an unknown commit or a changed definition gets the whole listing.
+- Client cache pruning: least recently used first above `GS_CACHE_MAX` (default 10G) down to 80%, objects used in the last 6 h and pinned objects (checkpoint content, conflict sides) kept; automatic at most hourly after a command and in the mount supervisor; `gs cache status`, `gs cache prune [--max] [--dry-run]`.
+- `lazyfs`: finding the local entries under a path walks the subtree instead of every entry, so `rm -rf` of N files is no longer N². Build output stays in the local layer (design/30, with the measurements).
+
+**Verification**
+- `internal/treestore` random tree diffs applied to the old listing equal the new one; `service` delta Checkout (and the whole listing for a stale definition, unknown commit or none); `tests/cli` `TestCheckoutListingDelta` (a checkout after the slice moved starts from the cached listing); `internal/clientcache` prune order, pins and recent-use protection; `internal/lazyfs` tests with every subtree walk checked against a full scan, and a removal-scaling test (51 µs a removal at 20,000 entries, from 1.8 ms).
+- In a real mount (kernel 5.15): `rm -rf` of 10,000 files 15.9 s → 2.6 s.

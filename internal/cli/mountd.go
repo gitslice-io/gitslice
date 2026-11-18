@@ -91,6 +91,7 @@ loop:
 		case <-ctx.Done():
 			break loop
 		case <-tick.C:
+			s.r.maybePruneObjectCache()
 			s.mu.Lock()
 			quiet := len(s.workspaces) == 0 && len(s.attaching) == 0 && time.Since(s.idleSince) >= idle
 			s.mu.Unlock()

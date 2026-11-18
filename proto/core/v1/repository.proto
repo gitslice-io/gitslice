@@ -157,21 +157,40 @@ message CheckoutRequest {
   // neither.
   string root_tree_id = 4;
   repeated string paths = 5;
+  // A listing the client already has: the slice at since_commit_id, under the
+  // slice definition since_definition_hash. When both are set and the hash is
+  // the slice's current one, the server sends only what changed since that
+  // commit (CheckoutHeader.delta): the entries added or changed, then the
+  // paths removed (CheckoutRemoved). Otherwise, or from a server that predates
+  // it, the listing is complete. Not used with root_tree_id.
+  string since_commit_id = 6;
+  string since_definition_hash = 7;
 }
 message CheckoutResponse {
   oneof part {
     CheckoutHeader header = 1;
     CheckoutEntries entries = 2;
     CheckoutContents contents = 3;
+    CheckoutRemoved removed = 4;
   }
 }
 // The first message.
 message CheckoutHeader {
   Slice slice = 1;
   string commit_id = 2;
+  // The entries are changes since CheckoutRequest.since_commit_id, not the
+  // whole listing: apply CheckoutRemoved (each path with everything under
+  // it), then the entries, to that commit's listing.
+  bool delta = 3;
 }
 message CheckoutEntries {
   repeated TreeEntry entries = 1;
+}
+// Paths of the since listing that are gone, topmost only: a removed
+// directory stands for everything under it. A path whose kind changed is
+// removed and listed again in the entries. Sent only in a delta.
+message CheckoutRemoved {
+  repeated string paths = 1;
 }
 message CheckoutContents {
   repeated CheckoutContent contents = 1;

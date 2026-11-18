@@ -175,3 +175,10 @@ func editStrings(edits []Edit) []string {
 	}
 	return out
 }
+
+func TestMain(m *testing.M) {
+	// Every subtree walk in the tests is checked against a scan of the
+	// whole layer.
+	checkSubtreeWalk = true
+	os.Exit(m.Run())
+}

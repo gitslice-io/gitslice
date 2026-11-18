@@ -60,14 +60,7 @@ func isTerminal(w any) bool {
 }
 
 func (r Runner) objectCache() (*clientcache.ObjectCache, error) {
-	root := os.Getenv("GS_CLIENT_CACHE_DIR")
-	if root == "" {
-		root = os.Getenv("GITSLICE_CLIENT_CACHE_DIR")
-	}
-	if root == "" {
-		root = r.defaultObjectCacheRoot()
-	}
-	return clientcache.New(root)
+	return clientcache.New(r.objectCacheRoot())
 }
 
 func (r Runner) defaultObjectCacheRoot() string {

@@ -179,5 +179,37 @@ them all; gs mount discard deletes one.`,
 			return r.runFork(cmd.Context(), *opts, args[0], args[1])
 		},
 	}
-	return []*cobra.Command{mountCmd, unmountCmd, fetchCmd, restoreCmd, mountdCmd, checkpointCmd, rewindCmd, forkCmd}
+	cacheCmd := &cobra.Command{
+		Use:   "cache",
+		Short: "Show or prune this machine's object cache, shared by every workspace",
+		Long: "The object cache (~/.cache/gitslice) holds file content for every workspace and lazy mount on this machine. " +
+			"Once it is larger than GS_CACHE_MAX (default 10G; off turns pruning off), gs removes the least recently used " +
+			"content, at most once an hour. Content only this machine has (lazy workspaces' checkpoints, sync conflicts) " +
+			"is never removed, nor is anything used in the last six hours.",
+		Args: noArgs("gs cache status|prune"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runCacheStatus(*opts)
+		},
+	}
+	cacheCmd.AddCommand(&cobra.Command{
+		Use:   "status",
+		Short: "Show the cache's size, its limit and how many objects are pinned",
+		Args:  noArgs("gs cache status"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runCacheStatus(*opts)
+		},
+	})
+	pruneMax, pruneDryRun := "", false
+	pruneCmd := &cobra.Command{
+		Use:   "prune",
+		Short: "Remove least recently used content until the cache is under its limit",
+		Args:  noArgs("gs cache prune [--max SIZE] [--dry-run]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runCachePrune(*opts, pruneMax, pruneDryRun)
+		},
+	}
+	pruneCmd.Flags().StringVar(&pruneMax, "max", "", "prune down from this size instead of GS_CACHE_MAX (e.g. 2G)")
+	pruneCmd.Flags().BoolVar(&pruneDryRun, "dry-run", false, "say what would be removed, and remove nothing")
+	cacheCmd.AddCommand(pruneCmd)
+	return []*cobra.Command{mountCmd, unmountCmd, fetchCmd, restoreCmd, mountdCmd, checkpointCmd, rewindCmd, forkCmd, cacheCmd}
 }

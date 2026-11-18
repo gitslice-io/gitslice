@@ -142,7 +142,8 @@ func (c *ObjectCache) PutReader(r io.Reader) (Object, error) {
 	if err != nil {
 		return Object{}, err
 	}
-	if _, err := os.Stat(target); err == nil {
+	if info, err := os.Stat(target); err == nil {
+		touch(target, info)
 		return Object{ContentHash: contentHash, Size: size}, nil
 	} else if !os.IsNotExist(err) {
 		return Object{}, err
@@ -169,28 +170,43 @@ func (c *ObjectCache) commitTempObject(tmpName, target, contentHash string, size
 }
 
 func (c *ObjectCache) Read(contentHash string) ([]byte, error) {
-	p, err := c.Path(contentHash)
+	f, err := c.Open(contentHash)
 	if err != nil {
 		return nil, err
 	}
-	return os.ReadFile(p)
+	defer f.Close()
+	return io.ReadAll(f)
 }
 
+// Open opens an object, marking it as used (see Prune).
 func (c *ObjectCache) Open(contentHash string) (*os.File, error) {
 	p, err := c.Path(contentHash)
 	if err != nil {
 		return nil, err
 	}
-	return os.Open(p)
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	if info, err := f.Stat(); err == nil {
+		touch(p, info)
+	}
+	return f, nil
 }
 
+// Exists reports whether the cache has an object, marking it as used (see
+// Prune): a caller that checks is about to read it, or to rely on it.
 func (c *ObjectCache) Exists(contentHash string) bool {
 	p, err := c.Path(contentHash)
 	if err != nil {
 		return false
 	}
-	_, err = os.Stat(p)
-	return err == nil
+	info, err := os.Stat(p)
+	if err != nil {
+		return false
+	}
+	touch(p, info)
+	return true
 }
 
 func (c *ObjectCache) Path(contentHash string) (string, error) {

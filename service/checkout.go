@@ -53,8 +53,12 @@ func (s *RepositoryService) Checkout(req *corev1.CheckoutRequest, stream corev1.
 	if err != nil {
 		return grpcError(err)
 	}
-	if err := stream.Send(&corev1.CheckoutResponse{Part: &corev1.CheckoutResponse_Header{Header: &corev1.CheckoutHeader{Slice: slice, CommitId: commitID}}}); err != nil {
+	sinceRootTreeID := s.checkoutSinceRoot(ctx, req, slice)
+	if err := stream.Send(&corev1.CheckoutResponse{Part: &corev1.CheckoutResponse_Header{Header: &corev1.CheckoutHeader{Slice: slice, CommitId: commitID, Delta: sinceRootTreeID != ""}}}); err != nil {
 		return err
+	}
+	if sinceRootTreeID != "" {
+		return s.checkoutDelta(ctx, req, slice, sinceRootTreeID, rootTreeID, stream)
 	}
 
 	seen := map[string]bool{}
@@ -95,6 +99,84 @@ func (s *RepositoryService) Checkout(req *corev1.CheckoutRequest, stream corev1.
 	}
 	if err := sendEntries(); err != nil {
 		return err
+	}
+	if !req.GetIncludeContent() {
+		return nil
+	}
+	return s.streamCheckoutContents(ctx, stream, files)
+}
+
+// checkoutSinceRoot returns the root tree of CheckoutRequest.since_commit_id
+// when a delta can be sent: the client names the slice definition its
+// listing was made under and it is still the slice's. Anything else (no
+// since commit, another definition, a commit the server does not know) gets
+// the whole listing, which is always correct.
+func (s *RepositoryService) checkoutSinceRoot(ctx context.Context, req *corev1.CheckoutRequest, slice *corev1.Slice) string {
+	since := strings.TrimSpace(req.GetSinceCommitId())
+	if since == "" || req.GetSinceDefinitionHash() == "" || req.GetSinceDefinitionHash() != slice.GetDefinitionHash() {
+		return ""
+	}
+	root, err := s.Repository.RootTreeForCommit(ctx, since)
+	if err != nil {
+		return ""
+	}
+	return root
+}
+
+// checkoutDelta streams what changed under the slice's included paths from
+// sinceRootTreeID to rootTreeID: the entries added or changed, then the
+// paths removed (CheckoutRemoved), then, when asked, the content of the
+// changed files. The tree diff reads only the directories that differ, so a
+// client that already has a listing pays for the change, not the slice.
+func (s *RepositoryService) checkoutDelta(ctx context.Context, req *corev1.CheckoutRequest, slice *corev1.Slice, sinceRootTreeID, rootTreeID string, stream corev1.RepositoryService_CheckoutServer) error {
+	seen := map[string]bool{}
+	gone := map[string]bool{}
+	var files []storage.TreeEntry
+	var batch []*corev1.TreeEntry
+	var removed []string
+	for _, included := range slice.GetDefinition().GetIncludedPaths() {
+		p, err := repositoryReadPath(included)
+		if err != nil {
+			return status.Error(codes.InvalidArgument, err.Error())
+		}
+		changed, removedHere, err := s.Repository.DiffTreeAtTree(ctx, sinceRootTreeID, rootTreeID, p)
+		if err != nil {
+			return grpcError(err)
+		}
+		for _, entry := range changed {
+			if seen[entry.Path] {
+				continue
+			}
+			seen[entry.Path] = true
+			batch = append(batch, treeEntryFromRepositoryEntry(entry))
+			if entry.Kind == "file" {
+				files = append(files, entry)
+			}
+			if len(batch) >= checkoutEntriesPerMessage {
+				if err := stream.Send(&corev1.CheckoutResponse{Part: &corev1.CheckoutResponse_Entries{Entries: &corev1.CheckoutEntries{Entries: batch}}}); err != nil {
+					return err
+				}
+				batch = nil
+			}
+		}
+		for _, p := range removedHere {
+			if !gone[p] {
+				gone[p] = true
+				removed = append(removed, p)
+			}
+		}
+	}
+	if len(batch) > 0 {
+		if err := stream.Send(&corev1.CheckoutResponse{Part: &corev1.CheckoutResponse_Entries{Entries: &corev1.CheckoutEntries{Entries: batch}}}); err != nil {
+			return err
+		}
+	}
+	for len(removed) > 0 {
+		n := min(len(removed), checkoutEntriesPerMessage)
+		if err := stream.Send(&corev1.CheckoutResponse{Part: &corev1.CheckoutResponse_Removed{Removed: &corev1.CheckoutRemoved{Paths: removed[:n]}}}); err != nil {
+			return err
+		}
+		removed = removed[n:]
 	}
 	if !req.GetIncludeContent() {
 		return nil

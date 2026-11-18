@@ -341,6 +341,10 @@ type RepositoryStore interface {
 	// ListTreeAtTree lists everything under p, files and directories, sorted
 	// by path.
 	ListTreeAtTree(ctx context.Context, rootTreeID, p string) ([]TreeEntry, error)
+	// DiffTreeAtTree reports what changed under p between two trees, as
+	// DiffTreeListings compares their ListTreeAtTree listings, reading only
+	// the directories that differ where the store can.
+	DiffTreeAtTree(ctx context.Context, oldRootTreeID, newRootTreeID, p string) (changed []TreeEntry, removed []string, err error)
 	GetOrCreateGitImport(ctx context.Context, subjectID, source, mountPath string, sliceRef *corev1.SliceRef, sliceID, targetRef, mode string, totalCommits int) (*GitImportRecord, error)
 	GetGitImport(ctx context.Context, source, mountPath, sliceID, targetRef, mode string) (*GitImportRecord, error)
 	ListGitImportCommits(ctx context.Context, importID string) ([]GitImportedCommitRecord, error)

@@ -103,7 +103,11 @@ gs create --all --message "payments: retry declined charges" --submit`}</Command
           </Point>
           <Point label="The cache:">
             fetched content is kept in a cache shared by every workspace on the machine, so a second
-            mount of the same slice reads what the first fetched.
+            mount of the same slice reads what the first fetched. Listings are kept too: a mount,
+            checkout or <Code>gs sync</Code> at a newer commit downloads only what changed since.
+            Once the cache is larger than <Code>GS_CACHE_MAX</Code> (default 10G), the least recently
+            used content is removed, except checkpoints, sync conflicts and anything used in the last
+            six hours. <Code>gs cache status</Code> shows it; <Code>gs cache prune</Code> prunes now.
           </Point>
         </ul>
       </Section>

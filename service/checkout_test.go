@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"reflect"
+	"sort"
+	"strings"
 	"testing"
 
 	"gitslice.io/gitslice/internal/authctx"
@@ -143,5 +145,107 @@ func TestRepositoryCheckoutOfATree(t *testing.T) {
 	}
 	if err := handlers.Repository.Checkout(&corev1.CheckoutRequest{RootTreeId: root}, &checkoutStream{ctx: alice}); err == nil {
 		t.Fatal("a tree checkout without paths should be refused")
+	}
+}
+
+// TestRepositoryCheckoutDeltaSinceACommit: a client that names a listing it
+// has (commit and slice definition) gets only what changed since; applied to
+// that listing, it is the listing of the new commit. A definition that is no
+// longer the slice's gets the whole listing.
+func TestRepositoryCheckoutDeltaSinceACommit(t *testing.T) {
+	mem, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+	one, two := []byte("one\n"), []byte("two\n")
+	for _, data := range [][]byte{one, two} {
+		mem.PutObject(filesystem.BlobKey(objectid.RawContentHash(data)), data)
+	}
+	file := func(p string, data []byte) storage.FileEntry {
+		return storage.FileEntry{Path: p, BlobID: objectid.BlobID(data), ContentHash: objectid.RawContentHash(data), Mode: 0o100644, Size: int64(len(data))}
+	}
+	mem.PutCommitWithFiles("commit_old", []storage.FileEntry{
+		file("/acme/co/a.txt", one),
+		file("/acme/co/src/b.txt", one),
+		file("/acme/co/gone/c.txt", one),
+		file("/acme/co/gone/deeper/d.txt", one),
+		file("/acme/elsewhere/e.txt", one),
+	}, nil)
+	mem.PutCommitWithFiles("commit_new", []storage.FileEntry{
+		file("/acme/co/a.txt", one),
+		file("/acme/co/src/b.txt", two),
+		file("/acme/co/src/new.txt", one),
+		file("/acme/elsewhere/e.txt", two),
+	}, nil)
+	ref := &corev1.SliceRef{Account: "acme", Slice: "co"}
+	slice := mem.PutSlice(ref, []string{"/acme/co"}, "private")
+
+	checkout := func(req *corev1.CheckoutRequest) (*corev1.CheckoutHeader, []*corev1.TreeEntry, []string) {
+		t.Helper()
+		stream := &checkoutStream{ctx: ctx}
+		if err := handlers.Repository.Checkout(req, stream); err != nil {
+			t.Fatal(err)
+		}
+		var entries []*corev1.TreeEntry
+		var removed []string
+		for _, msg := range stream.msgs[1:] {
+			entries = append(entries, msg.GetEntries().GetEntries()...)
+			removed = append(removed, msg.GetRemoved().GetPaths()...)
+		}
+		return stream.msgs[0].GetHeader(), entries, removed
+	}
+	paths := func(entries []*corev1.TreeEntry) []string {
+		var out []string
+		for _, e := range entries {
+			out = append(out, e.GetPath()+" "+e.GetContentHash())
+		}
+		return out
+	}
+
+	_, full, _ := checkout(&corev1.CheckoutRequest{Slice: ref, CommitId: "commit_new"})
+	header, changed, removed := checkout(&corev1.CheckoutRequest{Slice: ref, CommitId: "commit_new", SinceCommitId: "commit_old", SinceDefinitionHash: slice.GetDefinitionHash()})
+	if !header.GetDelta() {
+		t.Fatal("header.delta = false, want a delta")
+	}
+	wantChanged := []string{"/acme/co/src/b.txt " + objectid.RawContentHash(two), "/acme/co/src/new.txt " + objectid.RawContentHash(one)}
+	if got := paths(changed); !reflect.DeepEqual(got, wantChanged) {
+		t.Fatalf("changed = %v, want %v", got, wantChanged)
+	}
+	// The memory store keeps emptied directories, so what is removed is the
+	// files under gone/; the Postgres tree store drops the directory, which
+	// TestDiffTreeMatchesListings covers.
+	if len(removed) == 0 {
+		t.Fatal("removed nothing, want gone/'s files")
+	}
+	_, old, _ := checkout(&corev1.CheckoutRequest{Slice: ref, CommitId: "commit_old"})
+	byPath := map[string]*corev1.TreeEntry{}
+outer:
+	for _, e := range old {
+		for _, r := range removed {
+			if e.GetPath() == r || strings.HasPrefix(e.GetPath(), r+"/") {
+				continue outer
+			}
+		}
+		byPath[e.GetPath()] = e
+	}
+	for _, e := range changed {
+		byPath[e.GetPath()] = e
+	}
+	var applied []*corev1.TreeEntry
+	for _, e := range byPath {
+		applied = append(applied, e)
+	}
+	sort.Slice(applied, func(i, j int) bool { return applied[i].GetPath() < applied[j].GetPath() })
+	if !reflect.DeepEqual(paths(applied), paths(full)) {
+		t.Fatalf("old listing with the delta = %v, want %v", paths(applied), paths(full))
+	}
+
+	for _, req := range []*corev1.CheckoutRequest{
+		{Slice: ref, CommitId: "commit_new", SinceCommitId: "commit_old", SinceDefinitionHash: "sha256:another"},
+		{Slice: ref, CommitId: "commit_new", SinceCommitId: "commit_unknown", SinceDefinitionHash: slice.GetDefinitionHash()},
+		{Slice: ref, CommitId: "commit_new", SinceCommitId: "commit_old"},
+	} {
+		header, entries, removed := checkout(req)
+		if header.GetDelta() || len(removed) != 0 || !reflect.DeepEqual(paths(entries), paths(full)) {
+			t.Fatalf("since %q under %q: delta = %v, %d removed; want the whole listing", req.GetSinceCommitId(), req.GetSinceDefinitionHash(), header.GetDelta(), len(removed))
+		}
 	}
 }

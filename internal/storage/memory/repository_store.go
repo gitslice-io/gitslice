@@ -79,6 +79,19 @@ func (s *RepositoryStore) ListTreeAtTree(ctx context.Context, rootTreeID, p stri
 	return out, nil
 }
 
+func (s *RepositoryStore) DiffTreeAtTree(ctx context.Context, oldRootTreeID, newRootTreeID, p string) ([]storage.TreeEntry, []string, error) {
+	prev, err := s.ListTreeAtTree(ctx, oldRootTreeID, p)
+	if err != nil {
+		return nil, nil, err
+	}
+	next, err := s.ListTreeAtTree(ctx, newRootTreeID, p)
+	if err != nil {
+		return nil, nil, err
+	}
+	changed, removed := storage.DiffTreeListings(prev, next)
+	return changed, removed, nil
+}
+
 func (s *RepositoryStore) ListDirectoryAtTree(ctx context.Context, rootTreeID, p string) ([]storage.TreeEntry, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()

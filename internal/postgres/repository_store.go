@@ -149,6 +149,36 @@ func (s *RepositoryStore) ListTreeAtTree(ctx context.Context, rootTreeID, p stri
 	return out, nil
 }
 
+func (s *RepositoryStore) DiffTreeAtTree(ctx context.Context, oldRootTreeID, newRootTreeID, p string) ([]TreeEntry, []string, error) {
+	if s.trees == nil {
+		return nil, nil, fmt.Errorf("tree store is not configured")
+	}
+	if oldRootTreeID == newRootTreeID {
+		return nil, nil, nil
+	}
+	changed, removed, ok, err := s.trees.DiffTree(ctx, oldRootTreeID, newRootTreeID, p)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ok {
+		prev, err := s.ListTreeAtTree(ctx, oldRootTreeID, p)
+		if err != nil {
+			return nil, nil, err
+		}
+		next, err := s.ListTreeAtTree(ctx, newRootTreeID, p)
+		if err != nil {
+			return nil, nil, err
+		}
+		out, gone := storage.DiffTreeListings(prev, next)
+		return out, gone, nil
+	}
+	out := make([]TreeEntry, 0, len(changed))
+	for _, entry := range changed {
+		out = append(out, treeEntryFromTree(entry))
+	}
+	return out, removed, nil
+}
+
 func (s *RepositoryStore) GetEntry(ctx context.Context, commitID, p string) (*TreeEntry, error) {
 	if entry, handled, err := s.getEntryFromMaterializedHead(ctx, DefaultTargetRef, commitID, p); handled {
 		return entry, err

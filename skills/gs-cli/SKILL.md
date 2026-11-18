@@ -63,6 +63,7 @@ Useful environment defaults:
 - `GS_WEB_URL`: web UI base for `gs browse`.
 - `GS_GATEWAY_URL`: HTTP JSON gateway base.
 - `GS_CLIENT_CACHE_DIR`: shared content-addressed object cache root.
+- `GS_CACHE_MAX`: how large the object cache may grow before gs prunes the least recently used content (default `10G`; `off` never prunes). `gs cache status` shows its size; `gs cache prune [--max 2G] [--dry-run]` prunes now. Checkpoints, sync conflicts and anything used in the last six hours are never pruned.
 - `NO_COLOR=1` or `TERM=dumb`: disable color and interactive shell headers.
 
 The user config normally lives at `~/.gitslice/config.json`. Workspace metadata lives under `.gs/` and must not contain auth tokens.
@@ -176,7 +177,7 @@ gs rewind                               # back to the newest checkpoint that dif
 gs fork <n> ../try-b                    # a second lazy workspace showing checkpoint n, to try another way
 gs workspace delete ~/w/payment         # done with it: unmount and delete (a checkout's directory too); refuses while edits no changeset holds remain (--force discards them)
 gs create --all --message "..." --submit
-gs sync                                 # moves the base; files nobody changed cost nothing
+gs sync                                 # moves the base; the server sends only what changed since the listing you have
 gs fetch                                # fetch everything now, for offline work or a build
 ```
 

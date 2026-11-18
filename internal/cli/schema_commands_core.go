@@ -349,6 +349,19 @@ func schemaWorkspaceCommands() []map[string]any {
 			"machine_output": []string{"number", "base_commit", "edits", "mount_path"},
 		},
 		{
+			"use":            "gs cache status",
+			"summary":        "show this machine's object cache: size, limit (GS_CACHE_MAX, default 10G) and pinned objects",
+			"writes_stdout":  true,
+			"machine_output": []string{"path", "objects", "bytes", "max_bytes", "pinned"},
+		},
+		{
+			"use":            "gs cache prune [--max SIZE] [--dry-run]",
+			"summary":        "remove least recently used content until the cache is under its limit; checkpoints, sync conflicts and anything used in the last 6 hours stay",
+			"flags":          []string{"--max", "--dry-run"},
+			"writes_stdout":  true,
+			"machine_output": []string{"objects", "bytes", "max_bytes", "removed", "removed_bytes", "pinned", "dry_run"},
+		},
+		{
 			"use":            "gs restore <path>... | --all",
 			"summary":        "drop local edits in a lazy workspace, so the base shows again",
 			"args":           []string{"path"},

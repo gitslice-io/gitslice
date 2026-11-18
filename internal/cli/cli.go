@@ -87,6 +87,7 @@ func (r Runner) Run(ctx context.Context, args []string) error {
 	update := r.startUpdateCheck(ctx, expanded)
 	err = r.enhanceCommandError(root.ExecuteContext(ctx))
 	update.finish(r)
+	r.maybePruneObjectCache()
 	return err
 }
 

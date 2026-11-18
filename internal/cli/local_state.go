@@ -291,7 +291,14 @@ func (r Runner) writeWorkspaceConflictState(state WorkspaceConflictState) error 
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	return writeJSONFile(filepath.Join(dir, "conflicts.json"), state, 0o644)
+	path := filepath.Join(dir, "conflicts.json")
+	if err := writeJSONFile(path, state, 0o644); err != nil {
+		return err
+	}
+	if len(state.Conflicts) > 0 {
+		r.pinConflictContent(path)
+	}
+	return nil
 }
 
 func (r Runner) clearWorkspaceConflictState() error {

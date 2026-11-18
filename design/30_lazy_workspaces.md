@@ -6,7 +6,10 @@ edit source, and a writable `gs mount` whose edits stay local until `gs create`
 `gs mount discard`. Phase 4: `gs sync`, `gs submit` and changeset switching in
 a mount (`internal/cli/mount_layers.go`), `gs mount --prefetch`, macOS through
 macFUSE (built, not yet run on a Mac), passthrough where the kernel allows it,
-and `gs agent start --lazy`. Measurements are at the end.
+and `gs agent start --lazy`. Measurements are at the end. 2026-11-18: listing
+deltas for sync and new workspaces ("Moving the base"), cache pruning ("The
+client cache"), and removals that cost the subtree, not the layer ("Ignored
+files and build output").
 
 ## Goal
 
@@ -288,11 +291,22 @@ to what is still unsubmitted.
 
 ### Moving the base
 
-`gs sync` fetches the new head's manifest (one `Checkout` listing) and merges
-only what both sides touched:
+`gs sync` fetches the new head's manifest and merges only what both sides
+touched. The manifest is not downloaded whole: the client names a listing it
+already has (`CheckoutRequest.since_commit_id` and the slice definition it
+was made under, from the listing cache in `~/.cache/gitslice/listings`), and
+the server sends only the entries added or changed since, then the paths
+removed (`CheckoutHeader.delta`, `CheckoutRemoved`). The server compares the
+two commits' trees and skips every directory whose tree id did not change
+(`treestore.DiffTree`), so both its work and the transfer follow the change,
+not the size of the slice. The same request serves `gs init` and
+`gs init --lazy` once the machine has any listing of the slice, and a server
+that predates it, or a slice whose definition changed, sends the whole
+listing. Removed paths are topmost only: a directory stands for everything
+under it.
 
 1. Paths with no local entry simply take the new base. No content is fetched,
-   so a sync after a busy day costs one listing.
+   so a sync after a busy day costs the listing of what changed.
 2. Paths with a local entry that upstream also changed go through the merge that
    eager workspaces use today (line merge by default, `--merge
    manual|ours|theirs`), fetching the three versions. Results go to the local
@@ -330,6 +344,33 @@ moves onto the landed commit the same way: local changes the changeset carried
 leave the local layer (the base has them now, merged with whatever else
 landed), and later ones stay. In a tree, the next `gs sync` does it.
 
+### The client cache
+
+The content cache is shared by every workspace and mount on the machine and
+is content addressed, so anything in it can be fetched again, with two
+exceptions: content only this machine has, which is the content a lazy
+workspace's checkpoints name and the sides of a sync conflict
+(`.gs/conflicts.json`). It is pruned, least recently used first, once it is
+larger than `GS_CACHE_MAX` (default 10 GiB; `off` never prunes), down to four
+fifths of that:
+
+- A use marks an object: opening it, or checking that it is there (a fetch
+  checks before it reads), refreshes its modification time, at most once an
+  hour so reads do not write.
+- An object used in the last six hours is never removed, so a command that
+  saw an object in the cache can still read it. That can leave the cache over
+  its limit for a while.
+- Pinned objects are never removed: the edits of every lazy workspace's
+  checkpoints, and every conflict side in a lazy workspace's state or in a
+  workspace whose conflicts a pointer under `~/.cache/gitslice/pins` names
+  (written with the conflicts; dropped when that workspace is gone).
+- Pruning runs after any command, and in the mount supervisor, at most once
+  an hour (`prune.stamp`), and on demand with `gs cache prune [--max SIZE]
+  [--dry-run]`. `gs cache status` reports size, limit and pins.
+
+Listings are kept beside the content, at most 16 per slice
+(`listings/<slice>/`), as the base of the next delta (see "Moving the base").
+
 ### Ignored files and build output
 
 Build tools write into the mount (`node_modules`, `bin/`, caches). Those writes
@@ -337,6 +378,27 @@ go to the local layer like any other, and the ignore rules that apply today
 (`.gitignore` files, for paths the base does not track) keep them out of edits.
 `gs mount status` reports the local layer's size, and `gs restore --ignored`
 removes ignored files.
+
+Decided (2026-11-18): build output stays in the local layer; there is no
+separate scratch directory. Measured on the design/28 machine with 10,000
+small files under `node_modules/` (kernel 5.15, no passthrough):
+
+| | plain disk | mount, before | mount, after |
+| --- | ---: | ---: | ---: |
+| write them | 1.4 s | 7.3 s | 7.3 s |
+| `rm -rf` them | 0.2 s | 15.9 s | 2.6 s |
+| `gs status` with one edit | | 1.2 s (1.2 s without them) | same |
+
+Removing a path scanned every entry in the layer to find what was under it,
+so `rm -rf` of N files cost N². It now walks the subtree (local entries are
+indexed by directory), 51 µs a removal at 20,000 entries where the scan took
+1.8 ms. What remains is FUSE: the layer spends about 100 µs on a new file,
+flat as the layer grows, and the rest of the 0.7 ms is the kernel round trips
+(lookup, create, write, flush, release). A scratch directory served through
+the same mount would pay those too, so it would save at most a seventh of
+the time, for a second storage model. Where native speed matters, point the
+tool's output outside the mount (Go already does: its build cache is in
+`GOCACHE`).
 
 ### Agents
 
@@ -465,8 +527,9 @@ Targets on the design/28 machine against gitslice.io (about 200 ms away):
 2. ~~Default prefetch?~~ Small files beside the one read, in the same request
    (the phase 2 measurements: 28 round trips for a cold build of `gs`), plus
    `--prefetch <glob>` for what a user knows they will read.
-3. Should ignored build output stay in the local layer, or go to a scratch
-   directory outside the mount by default?
+3. ~~Should ignored build output stay in the local layer, or go to a scratch
+   directory outside the mount by default?~~ It stays; see "Ignored files and
+   build output".
 4. A size limit or warning for the local layer?
 5. ~~macOS: macFUSE or FUSE-T?~~ macFUSE, the one go-fuse supports. FUSE-T
    would need a second adapter.
@@ -474,6 +537,13 @@ Targets on the design/28 machine against gitslice.io (about 200 ms away):
 7. When to build one mount for many workspaces ("Multiple workspaces"): before
    the agent daemon uses lazy workspaces, or only if per-conversation mounts
    prove too heavy?
+8. Lazy directories: load a directory's entries by its tree id when it is
+   first opened (as Google's ABFS does), so a mount costs the directories
+   read rather than the whole listing. The server has the trees; what holds
+   it back is the client, where the base snapshot every workspace command
+   reads (`.gs/base_snapshot.json`), the manifest digest and `gs status`
+   assume the whole listing is at hand. Until slices reach hundreds of
+   thousands of files the listing delta above covers the common cost, a sync.
 
 ## Measurements (phase 2)
 

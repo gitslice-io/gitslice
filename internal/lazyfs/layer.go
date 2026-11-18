@@ -15,6 +15,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -675,13 +676,53 @@ func (f *FS) resolveLocked(op, p string) (node, error) {
 }
 
 // localEntriesUnderLocked returns the local paths at and below p.
+//
+// It walks the subtree, not the whole layer: a local entry is listed under its
+// directory in f.children, and a directory between p and it is either a local
+// entry itself or a base directory. Removing one file of many thousands (rm
+// -rf of build output) then costs that file, not every entry in the layer.
 func (f *FS) localEntriesUnderLocked(p string) []string {
 	var out []string
-	for q := range f.entries {
-		if q == p || isUnder(q, p) {
-			out = append(out, q)
+	if _, ok := f.entries[p]; ok {
+		out = append(out, p)
+	}
+	var walk func(dir string)
+	walk = func(dir string) {
+		names := f.children[dir]
+		for name := range names {
+			q := joinPath(dir, name)
+			if _, ok := f.entries[q]; ok {
+				out = append(out, q)
+			}
+			walk(q)
+		}
+		for _, name := range f.base.Children(dir) {
+			if _, local := names[name]; local {
+				continue
+			}
+			q := joinPath(dir, name)
+			if entry, ok := f.base.Lookup(q); ok && entry.Kind == KindDir {
+				walk(q)
+			}
 		}
 	}
+	walk(p)
 	sort.Strings(out)
+	if checkSubtreeWalk {
+		var want []string
+		for q := range f.entries {
+			if q == p || isUnder(q, p) {
+				want = append(want, q)
+			}
+		}
+		sort.Strings(want)
+		if strings.Join(want, "\n") != strings.Join(out, "\n") {
+			panic(fmt.Sprintf("lazyfs: entries under %s: walked %v, want %v", p, out, want))
+		}
+	}
 	return out
 }
+
+// checkSubtreeWalk makes localEntriesUnderLocked compare its walk with a scan
+// of every entry. Tests turn it on.
+var checkSubtreeWalk = false
