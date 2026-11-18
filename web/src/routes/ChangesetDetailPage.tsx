@@ -1,9 +1,4 @@
-import {
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient
-} from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import {
   useNavigate,
   useParams,
@@ -15,74 +10,58 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useState,
-  type FormEvent
+  useState
 } from "react";
+
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
-import { useSelection } from "../state/selection";
-import { PageHeader } from "../components/PageHeader";
-import { MobileDetailsProvider } from "../components/MobileDetails";
-import {
-  DiffViewer,
-  type DiffViewerFileState
-} from "../components/diff/DiffViewer";
-import { type DiffFile } from "../components/diff/parseDiff";
 import { type ViewMode } from "../components/diff/diffViewShared";
+import { DiffViewer } from "../components/diff/DiffViewer";
+import { type DiffFile } from "../components/diff/parseDiff";
+import { MobileDetailsProvider } from "../components/MobileDetails";
+import { PageHeader } from "../components/PageHeader";
 import { cn } from "../lib/cn";
-import { shortChangesetId } from "../lib/objectId";
-import { changesetPageTitle } from "../lib/socialMeta";
 import { conversationsEnabled } from "../lib/features";
+import { shortChangesetId } from "../lib/objectId";
 import { useChangesetPermissions } from "../lib/permissions";
-
+import { changesetPageTitle } from "../lib/socialMeta";
+import { useMediaQuery } from "../lib/useMediaQuery";
 import {
-  ChangesetSkeleton,
-  ChecksPanel,
-  ConversationDrawer,
-  TriggerRunsPanel,
-  HeaderCard,
-  PageMessage,
-  PatchsetComparePanel
-} from "./changeset-detail";
-import {
-  changesetBreadcrumbItems,
-  changesetSliceSearch,
-  errorMessage,
-  isTerminalStatus,
-  mergeErrorMessage
-} from "./changeset-detail/status";
-import {
-  changesetDiffQuery,
-  changesetKey,
   changesetQuery as changesetQuery_,
   dependentChangesetsQuery,
   type DependentChangeset
 } from "../queries/changesets";
-import { sortedPatchsets } from "./changeset-detail/patchsetUtils";
+import { useSelection } from "../state/selection";
+import {
+  ChangesetSkeleton,
+  ChecksPanel,
+  ConversationDrawer,
+  HeaderCard,
+  PageMessage,
+  PatchsetComparePanel,
+  TriggerRunsPanel
+} from "./changeset-detail";
+import { ChangesetLoadError } from "./changeset-detail/ChangesetLoadError";
+import { samePath } from "./changeset-detail/diffFiles";
 import {
   FileVersionDrawer,
   fileVersionSides,
   type FileVersionSide,
   type FileVersionTarget
 } from "./changeset-detail/FileVersionDrawer";
-
+import { sortedPatchsets } from "./changeset-detail/patchsetUtils";
 import {
-  changedPathsForDiff,
-  fileMetadataForPath,
-  diffFileForResponse,
-  samePath
-} from "./changeset-detail/diffFiles";
-import { ChangesetLoadError } from "./changeset-detail/ChangesetLoadError";
+  changesetBreadcrumbItems,
+  changesetSliceSearch,
+  isTerminalStatus
+} from "./changeset-detail/status";
+import { useChangesetActions } from "./changeset-detail/useChangesetActions";
+import { usePatchsetDiffComparison } from "./changeset-detail/usePatchsetDiffComparison";
 
-const fullDiffPathLimit = 20;
-const eagerFileDiffCount = 10;
-
-// One array for "none", so what reads it does not see a new value each render.
 const NO_DEPENDENTS: DependentChangeset[] = [];
 
 export function ChangesetDetailPage() {
   const api = useApi();
-  const queryClient = useQueryClient();
   const { isLoaded, isSignedIn } = useAuth();
   const viewerSignedOut = isLoaded && !isSignedIn;
   const { accounts: viewerAccounts } = useSelection();
@@ -90,44 +69,10 @@ export function ChangesetDetailPage() {
   const changesetId = params.id ?? "";
   const navigate = useNavigate();
   const router = useRouter();
-  // Validated by the route (searchSchemas).
   const search = useSearch({ from: "/publicApp/cs/$id" });
-  const [abandonReason, setAbandonReason] = useState("");
-  // On phones the page opens with its details (breadcrumbs, ids, patchsets,
-  // checks) folded so the diff comes first; the header's Details unfolds them.
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [actionError, setActionError] = useState("");
-  // The conversation drawer's open state lives in the URL so browser/mobile
-  // back closes it instead of leaving the changeset detail page.
-  // Conversations are not offered for now (lib/features): an old link that
-  // asks for the drawer opens the changeset without it.
   const conversationOpen = conversationsEnabled && Boolean(search.conversation);
-  const [isWide, setIsWide] = useState(() =>
-    typeof window === "undefined" || typeof window.matchMedia !== "function"
-      ? false
-      : window.matchMedia("(min-width: 1280px)").matches
-  );
-
-  useEffect(() => {
-    if (
-      typeof window === "undefined" ||
-      typeof window.matchMedia !== "function"
-    ) {
-      return;
-    }
-
-    const wideQuery = window.matchMedia("(min-width: 1280px)");
-    const updateIsWide = () => {
-      setIsWide(wideQuery.matches);
-    };
-
-    updateIsWide();
-    wideQuery.addEventListener("change", updateIsWide);
-
-    return () => {
-      wideQuery.removeEventListener("change", updateIsWide);
-    };
-  }, []);
+  const isWide = useMediaQuery("(min-width: 1280px)");
 
   const changesetQuery = useQuery({
     ...changesetQuery_(api, changesetId),
@@ -140,9 +85,6 @@ export function ChangesetDetailPage() {
   const authoringSlice = changeset?.authoringSlice;
   const changesetPermissions = useChangesetPermissions(changeset);
 
-  // The tab and the browser history name the changeset. The route sets the
-  // title when it knows the changeset; this covers arriving by an in-app link,
-  // before the page has loaded it.
   const pageTitle = changeset
     ? changesetPageTitle(changeset.title ?? "", authoringSlice?.account ?? "", authoringSlice?.slice ?? "")
     : "";
@@ -152,9 +94,6 @@ export function ChangesetDetailPage() {
     }
   }, [pageTitle]);
 
-  // A link made from a landed commit's id (gs shows commits shortened to 12
-  // characters) still opens the changeset that landed it; switch the address
-  // to the changeset's own link so that is what gets shared.
   useEffect(() => {
     const id = changeset?.id ?? "";
     const requested = changesetId.toLowerCase().replace(/^cs_/, "");
@@ -167,7 +106,7 @@ export function ChangesetDetailPage() {
       search,
       to: "/cs/$id"
     });
-  }, [changeset?.id, changesetId]);
+  }, [changeset?.id, changesetId, navigate, search]);
 
   const sliceChangesetsQuery = useQuery({
     enabled: Boolean(
@@ -177,91 +116,31 @@ export function ChangesetDetailPage() {
   });
 
   const dependentChangesets = sliceChangesetsQuery.data ?? NO_DEPENDENTS;
-
   const canonicalChangesetId = changeset?.id || changesetId;
   const sliceSearch = changeset ? changesetSliceSearch(changeset) : "";
-  const patchsets = useMemo(() => sortedPatchsets(changeset), [changeset]);
-  const patchsetIds = useMemo(
-    () =>
-      new Set(
-        patchsets
-          .map((patchset) => patchset.id)
-          .filter((id): id is string => Boolean(id))
-      ),
-    [patchsets]
-  );
-  const defaultToPatchset =
-    changeset?.currentPatchsetId || patchsets[patchsets.length - 1]?.id || "";
-  // The compare handles live in the URL (?from=&to=) so a selection is
-  // shareable and survives reloads. Fall back to the recorded base / current
-  // patchset when a param is missing or no longer points at a real patchset.
-  const fromPatchset =
-    search.from && patchsetIds.has(search.from) ? search.from : "";
-  const selectedToPatchset =
-    search.to && patchsetIds.has(search.to) ? search.to : defaultToPatchset;
 
-  const selectedFromPatchset = useMemo(
-    () => patchsets.find((patchset) => patchset.id === fromPatchset),
-    [fromPatchset, patchsets]
-  );
-  const selectedToPatchsetMetadata = useMemo(
-    () => patchsets.find((patchset) => patchset.id === selectedToPatchset),
-    [patchsets, selectedToPatchset]
-  );
-  const changedPaths = useMemo(
-    () =>
-      changedPathsForDiff(
-        selectedFromPatchset,
-        selectedToPatchsetMetadata
-      ),
-    [selectedFromPatchset, selectedToPatchsetMetadata]
-  );
-  const changedPathSet = useMemo(() => new Set(changedPaths), [changedPaths]);
-  const fileMetadataByPath = useMemo(
-    () =>
-      new Map(
-        changedPaths.map((path) => [
-          path,
-          fileMetadataForPath(
-            path,
-            selectedFromPatchset,
-            selectedToPatchsetMetadata
-          )
-        ])
-      ),
-    [changedPaths, selectedFromPatchset, selectedToPatchsetMetadata]
-  );
-  const usesLazyFileDiffs = changedPaths.length > fullDiffPathLimit;
-  const comparisonKey = `${canonicalChangesetId}\0${fromPatchset}\0${selectedToPatchset}`;
-  const [requestedFilePaths, setRequestedFilePaths] = useState<{
-    comparisonKey: string;
-    paths: Set<string>;
-  }>(() => ({ comparisonKey: "", paths: new Set() }));
-  const demandedFilePaths =
-    requestedFilePaths.comparisonKey === comparisonKey
-      ? requestedFilePaths.paths
-      : undefined;
-
-  const requestFileDiff = useCallback(
-    (path: string) => {
-      if (!usesLazyFileDiffs || !changedPathSet.has(path)) {
-        return;
-      }
-      setRequestedFilePaths((current) => {
-        const currentPaths =
-          current.comparisonKey === comparisonKey
-            ? current.paths
-            : new Set<string>();
-        if (currentPaths.has(path)) {
-          return current;
-        }
-        const nextPaths = new Set(currentPaths);
-        nextPaths.add(path);
-        return { comparisonKey, paths: nextPaths };
-      });
-    },
-    [changedPathSet, comparisonKey, usesLazyFileDiffs]
-  );
+  const {
+    patchsets,
+    fromPatchset,
+    selectedToPatchset,
+    selectedFromPatchset,
+    selectedToPatchsetMetadata,
+    changedPaths,
+    fileMetadataByPath,
+    usesLazyFileDiffs,
+    comparisonKey,
+    diffQuery,
+    fileStates,
+    requestFileDiff,
+    retryFileDiff
+  } = usePatchsetDiffComparison({
+    api,
+    changeset,
+    canonicalChangesetId,
+    fromSearch: search.from,
+    toSearch: search.to,
+    focusFilePath: search.file
+  });
 
   const updateCompareSearch = useCallback(
     (next: { from?: string; to?: string }) => {
@@ -270,7 +149,6 @@ export function ChangesetDetailPage() {
         replace: true,
         search: (prev) => {
           const merged = { ...prev, ...next };
-          // Keep the recorded base / default target out of the URL.
           for (const key of ["from", "to"] as const) {
             if (!merged[key]) {
               delete merged[key];
@@ -292,103 +170,6 @@ export function ChangesetDetailPage() {
     [updateCompareSearch]
   );
 
-  const diffQuery = useQuery({
-    enabled: Boolean(
-      changeset && canonicalChangesetId && !usesLazyFileDiffs
-    ),
-    ...changesetDiffQuery(api, canonicalChangesetId, fromPatchset, selectedToPatchset)
-  });
-
-  const fileDiffQueries = useQueries({
-    queries: usesLazyFileDiffs
-      ? changedPaths.map((path, index) => ({
-          enabled: Boolean(
-            canonicalChangesetId &&
-              (index < eagerFileDiffCount ||
-                demandedFilePaths?.has(path) ||
-                search.file === path)
-          ),
-          queryKey: [
-            "changesetFileDiff",
-            canonicalChangesetId,
-            fromPatchset,
-            selectedToPatchset,
-            path
-          ],
-          queryFn: async () => {
-            const response = await api.diffChangeset({
-              changesetId: canonicalChangesetId,
-              fromPatchset: fromPatchset || undefined,
-              paths: [path],
-              toPatchset: selectedToPatchset || undefined
-            });
-            return {
-              file: diffFileForResponse(
-                path,
-                fileMetadataByPath.get(path)?.changeKind,
-                response.diff
-              )
-            };
-          },
-          retry: false,
-          staleTime: Infinity
-        }))
-      : []
-  });
-
-  const fileStates = useMemo<DiffViewerFileState[] | undefined>(() => {
-    if (!usesLazyFileDiffs) {
-      return undefined;
-    }
-
-    return changedPaths.map((path, index) => {
-      const query = fileDiffQueries[index];
-      const metadata = fileMetadataByPath.get(path) ?? {};
-
-      if (query?.data) {
-        return {
-          ...metadata,
-          file: query.data.file,
-          path,
-          status: "loaded"
-        };
-      }
-      if (query?.isError) {
-        return {
-          ...metadata,
-          error: query.error,
-          path,
-          status: "error"
-        };
-      }
-      if (query?.isFetching) {
-        return { ...metadata, path, status: "loading" };
-      }
-      return { ...metadata, path, status: "pending" };
-    });
-  }, [
-    changedPaths,
-    fileMetadataByPath,
-    fileDiffQueries,
-    usesLazyFileDiffs
-  ]);
-
-  const retryFileDiff = useCallback(
-    (path: string) => {
-      requestFileDiff(path);
-      const index = changedPaths.indexOf(path);
-      if (index >= 0) {
-        void fileDiffQueries[index]?.refetch();
-      }
-    },
-    [changedPaths, fileDiffQueries, requestFileDiff]
-  );
-
-  const invalidateChangeset = async () => {
-    await queryClient.invalidateQueries({
-      queryKey: changesetKey(changesetId)
-    });
-  };
   const openConversation = useCallback(() => {
     void navigate({
       params: { id: changesetId },
@@ -412,9 +193,6 @@ export function ChangesetDetailPage() {
     openConversation();
   }, [closeConversation, conversationOpen, openConversation]);
 
-  // The file being read in full lives in the URL (?view=<path>&side=) like
-  // the conversation, so back closes it and the link can be shared. The diff
-  // knows a file's change kind; a shared link falls back to the edits.
   const [viewedFile, setViewedFile] = useState<FileVersionTarget>();
   const fileViewPath = search.view ?? "";
   const fileViewTarget = useMemo<FileVersionTarget | undefined>(() => {
@@ -456,9 +234,6 @@ export function ChangesetDetailPage() {
     },
     [changesetId, navigate]
   );
-  // The diff's unified/split mode lives in the URL (`?diff=split`), so the
-  // server renders the right mode and a shared link opens in it. Switching
-  // replaces the entry: back leaves the page rather than undoing the toggle.
   const diffViewMode: ViewMode = search.diff === "split" ? "split" : "unified";
   const setDiffViewMode = useCallback(
     (mode: ViewMode) => {
@@ -480,64 +255,22 @@ export function ChangesetDetailPage() {
     }
   }, [fileViewPath, router.history]);
 
-  const mergeMutation = useMutation({
-    mutationFn: async () => {
-      if (!canonicalChangesetId) {
-        throw new Error("This changeset did not return an id.");
-      }
-      if (!changeset?.currentPatchsetId) {
-        throw new Error("This changeset has no current patchset to merge.");
-      }
-
-      return api.submitChangeset({
-        changesetId: canonicalChangesetId,
-        expectedCurrentPatchsetId: changeset.currentPatchsetId
-      });
-    },
-    onError: (error) => setActionError(mergeErrorMessage(error)),
-    onMutate: () => setActionError(""),
-    onSuccess: async () => {
-      setActionError("");
-      await invalidateChangeset();
-    }
+  const {
+    abandonReason,
+    setAbandonReason,
+    actionError,
+    actionBusy,
+    mergePending,
+    abandonPending,
+    merge,
+    submitAbandon,
+    saveInfo
+  } = useChangesetActions({
+    api,
+    changeset,
+    changesetId,
+    canonicalChangesetId
   });
-
-  const saveInfo = async (title: string, description: string) => {
-    if (!canonicalChangesetId) {
-      throw new Error("This changeset did not return an id.");
-    }
-    await api.updateChangesetInfo({
-      changesetId: canonicalChangesetId,
-      description,
-      title
-    });
-    await invalidateChangeset();
-  };
-
-  const abandonMutation = useMutation({
-    mutationFn: async () => {
-      if (!canonicalChangesetId) {
-        throw new Error("This changeset did not return an id.");
-      }
-
-      return api.abandonChangeset({
-        changesetId: canonicalChangesetId,
-        reason: abandonReason.trim()
-      });
-    },
-    onError: (error) => setActionError(errorMessage(error)),
-    onMutate: () => setActionError(""),
-    onSuccess: async () => {
-      setActionError("");
-      setAbandonReason("");
-      await invalidateChangeset();
-    }
-  });
-
-  const submitAbandon = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    abandonMutation.mutate();
-  };
 
   if (!changesetId) {
     return (
@@ -572,7 +305,6 @@ export function ChangesetDetailPage() {
   }
 
   const terminal = isTerminalStatus(changeset.status);
-  const actionBusy = mergeMutation.isPending || abandonMutation.isPending;
   return (
     <MobileDetailsProvider
       onToggle={() => setDetailsOpen((open) => !open)}
@@ -596,15 +328,15 @@ export function ChangesetDetailPage() {
           abandonReason={abandonReason}
           actionBusy={actionBusy}
           actionError={actionError}
-          abandonPending={abandonMutation.isPending}
+          abandonPending={abandonPending}
           canAbandon={changesetPermissions.canAbandon}
           canSubmit={changesetPermissions.canSubmit}
           changeset={changeset}
           dependentChangesets={dependentChangesets}
-          mergePending={mergeMutation.isPending}
+          mergePending={mergePending}
           onAbandon={submitAbandon}
           onAbandonReasonChange={setAbandonReason}
-          onMerge={() => mergeMutation.mutate()}
+          onMerge={merge}
           onSaveInfo={changesetPermissions.canEditInfo ? saveInfo : undefined}
           patchsetCompare={
             <PatchsetComparePanel

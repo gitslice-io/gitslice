@@ -6,6 +6,7 @@ import type { ApiClient } from "../../api/useApi";
 import { agentDaemonsQuery, sliceConversationsQuery } from "../../queries/agents";
 import { cn } from "../../lib/cn";
 import { canHostConversations, daemonName } from "../../lib/daemons";
+import { useMediaQuery } from "../../lib/useMediaQuery";
 import { Popup } from "../Popup";
 import { AgentConversation } from "./AgentConversation";
 import { SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
@@ -57,7 +58,7 @@ export function AgentsTab({
   // desktop. On mobile the list is a full-screen view of its own, so
   // auto-opening would trap the user in a transcript with no way back to the
   // list. Defaults to false (also the SSR value) and resolves on mount.
-  const [isDesktop, setIsDesktop] = useState(false);
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
 
   const selectConversation = useCallback(
     (id: string) => {
@@ -66,20 +67,6 @@ export function AgentsTab({
     },
     [onSelectConversation],
   );
-
-  // Resolve the lg breakpoint on the client and keep it in sync as the viewport
-  // crosses it (resize / rotate). Guarded for SSR and jsdom, where matchMedia
-  // may be absent — there isDesktop stays false.
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) {
-      return;
-    }
-    const query = window.matchMedia("(min-width: 1024px)");
-    const update = () => setIsDesktop(query.matches);
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
 
   // Keep daemon selection valid as the online set changes. We only reassign
   // when the current pick is gone; we never clobber a user-chosen daemon.
