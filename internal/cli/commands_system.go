@@ -2,7 +2,6 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
-	"gitslice.io/gitslice/internal/postgres"
 )
 
 // configCommand builds gs config.
@@ -184,43 +183,4 @@ func (r Runner) schemaCommand(opts *commandOptions) *cobra.Command {
 	}
 
 	return schemaCmd
-}
-
-// adminCommand builds gs admin, the administrative repair commands.
-func (r Runner) adminCommand(opts *commandOptions) *cobra.Command {
-	adminCmd := &cobra.Command{
-		Use:    "admin",
-		Short:  "Administrative repair commands",
-		Hidden: true,
-		RunE:   requireSubcommand("admin"),
-	}
-	adminRebuildYes := false
-	adminRebuildTargetRef := postgres.DefaultTargetRef
-	adminRebuildIndexesCmd := &cobra.Command{
-		Use:    "rebuild-indexes",
-		Short:  "Rebuild derived indexes from source-of-truth commits",
-		Hidden: true,
-		Args:   noArgs("gs admin rebuild-indexes --yes"),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runAdminRebuildIndexes(cmd.Context(), *opts, adminRebuildTargetRef, adminRebuildYes)
-		},
-	}
-	adminRebuildIndexesCmd.Flags().StringVar(&adminRebuildTargetRef, "target-ref", adminRebuildTargetRef, "target ref to rebuild")
-	adminRebuildIndexesCmd.Flags().BoolVar(&adminRebuildYes, "yes", adminRebuildYes, "confirm derived index rebuild")
-	adminGCDryRun := false
-	adminGCSampleLimit := 0
-	adminGCCmd := &cobra.Command{
-		Use:    "gc",
-		Short:  "Report unreachable storage objects",
-		Hidden: true,
-		Args:   noArgs("gs admin gc --dry-run [--json] [--sample-limit N]"),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runAdminGC(cmd.Context(), *opts, adminGCDryRun, adminGCSampleLimit)
-		},
-	}
-	adminGCCmd.Flags().BoolVar(&adminGCDryRun, "dry-run", adminGCDryRun, "report only; required because deletion is future work")
-	adminGCCmd.Flags().IntVar(&adminGCSampleLimit, "sample-limit", adminGCSampleLimit, "maximum sample ids to print per category")
-	adminCmd.AddCommand(adminRebuildIndexesCmd, adminGCCmd)
-
-	return adminCmd
 }

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 )
@@ -172,8 +172,8 @@ func invitationFromProto(i *corev1.AccountInvitation) invitationOutput {
 
 func (r Runner) runAccountInvite(ctx context.Context, opts commandOptions, org, username, role string) error {
 	normalizedRole := strings.ToLower(strings.TrimSpace(role))
-	if storage.AccountRoleRank(normalizedRole) >= len(storage.AccountRoles) {
-		return userError("invalid_role", fmt.Sprintf("role must be one of %s", strings.Join(storage.AccountRoles, ", ")), "Pass --role owner, admin, writer, member, contributor or reader.")
+	if model.AccountRoleRank(normalizedRole) >= len(model.AccountRoles) {
+		return userError("invalid_role", fmt.Sprintf("role must be one of %s", strings.Join(model.AccountRoles, ", ")), "Pass --role owner, admin, writer, member, contributor or reader.")
 	}
 	_, conn, authCtx, err := r.authenticatedConn(ctx)
 	if err != nil {

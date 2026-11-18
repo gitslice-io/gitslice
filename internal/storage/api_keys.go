@@ -7,6 +7,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"gitslice.io/gitslice/internal/model"
 )
 
 const (
@@ -35,30 +37,13 @@ func NormalizeAPIKeyName(name string) (string, error) {
 // NormalizeAPIKeyMaxRole validates an optional API key max_role ("", "reader",
 // "contributor", or "writer").
 func NormalizeAPIKeyMaxRole(role string) (string, error) {
-	role = strings.ToLower(strings.TrimSpace(role))
-	switch role {
-	case "", "reader", "contributor", "writer":
-		return role, nil
-	default:
-		return "", fmt.Errorf("%w: max_role must be reader, contributor, or writer", ErrInvalid)
-	}
+	return model.NormalizeAPIKeyMaxRole(role)
 }
 
 // APIKeyRoleTier orders API key max_role values. Empty (uncapped) returns 4 so
 // attenuation comparisons treat uncapped > writer > contributor > reader.
 func APIKeyRoleTier(role string) int {
-	switch strings.ToLower(strings.TrimSpace(role)) {
-	case "reader":
-		return 1
-	case "contributor":
-		return 2
-	case "writer":
-		return 3
-	case "":
-		return 4
-	default:
-		return 0
-	}
+	return model.APIKeyRoleTier(role)
 }
 
 // NormalizeAPIKeyText validates optional key audit fields (purpose, daemon_id,
@@ -247,21 +232,7 @@ func NormalizeDelegatedAgentDisplayName(displayName, fallback string) (string, e
 // CreateDelegatedAgent. Empty sliceID forbids a non-empty role; non-empty
 // sliceID defaults an empty role to "contributor".
 func NormalizeDelegatedAgentSliceRole(sliceID, role string) (string, error) {
-	sliceID = strings.TrimSpace(sliceID)
-	role = strings.ToLower(strings.TrimSpace(role))
-	if sliceID == "" {
-		if role != "" {
-			return "", fmt.Errorf("%w: role requires a slice", ErrInvalid)
-		}
-		return "", nil
-	}
-	if role == "" {
-		return "contributor", nil
-	}
-	if !slices.Contains(SliceRoles, role) {
-		return "", fmt.Errorf("%w: role must be one of %s", ErrInvalid, strings.Join(SliceRoles, ", "))
-	}
-	return role, nil
+	return model.NormalizeDelegatedAgentSliceRole(sliceID, role)
 }
 
 // NormalizeConversationRole validates a conversation role, defaulting empty to

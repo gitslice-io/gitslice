@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -31,7 +31,7 @@ func (r Runner) runChangesetLink(ctx context.Context, opts commandOptions, reque
 	}
 	handle := firstNonEmpty(displayChangesetID(cs), cs.Id)
 	link := webResourceURL("/cs/" + handle)
-	_, commitShaped := storage.CommitIDLookupPrefix(changesetID)
+	_, commitShaped := model.CommitIDLookupPrefix(changesetID)
 	fromCommit := commitShaped && !sameChangesetSelector(changesetID, cs.Id)
 	if fromCommit && !opts.Quiet && !opts.jsonOutput() {
 		fmt.Fprintf(r.Stderr, "%s is the commit changeset %s landed as; this is the changeset's link.\n", changesetID, handle)
@@ -77,7 +77,7 @@ func (r Runner) runChangesetApprove(ctx context.Context, opts commandOptions, re
 }
 
 func (r Runner) runChangesetCheck(ctx context.Context, opts commandOptions, requestedID, checkName, resultStatus string) error {
-	if _, ok := storage.NormalizeCheckStatus(resultStatus); !ok {
+	if _, ok := model.NormalizeCheckStatus(resultStatus); !ok {
 		return userError("invalid_args", "check status must be pass or fail", "Pass --status pass or --status fail.")
 	}
 	cfg, _, _, _, changesetID, _, err := r.resolveChangesetCommandState(requestedID)

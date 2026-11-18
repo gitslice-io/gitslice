@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -597,7 +597,7 @@ func webSliceResourceURL(ref *corev1.SliceRef) string {
 }
 
 func parseSliceRef(value string) (*corev1.SliceRef, error) {
-	accountPart, slicePart, ok := storage.SplitSliceHandle(value)
+	accountPart, slicePart, ok := model.SplitSliceHandle(value)
 	if !ok {
 		return nil, userError("invalid_slice_ref", "slice must be account:slice", "Pass a slice reference such as acme:payment.")
 	}

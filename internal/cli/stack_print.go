@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -67,7 +67,7 @@ func printStack(w io.Writer, stack *corev1.ChangesetStack) {
 	fmt.Fprintf(w, "dependencies: %s\n", stack.Id)
 	fmt.Fprintf(w, "status: %s\n", stack.Status)
 	if stack.ActiveEntryId != "" {
-		fmt.Fprintf(w, "active: %s\n", firstNonEmpty(storage.ShortChangesetID(stack.ActiveEntryId), stack.ActiveEntryId))
+		fmt.Fprintf(w, "active: %s\n", firstNonEmpty(model.ShortChangesetID(stack.ActiveEntryId), stack.ActiveEntryId))
 	}
 	printStackEntries(w, stack)
 }
@@ -83,7 +83,7 @@ func printWorkspaceStack(w io.Writer, stack *corev1.ChangesetStack, activeChange
 	}
 	fmt.Fprintln(w, header)
 	if active := firstNonEmpty(activeChangesetID, stack.ActiveEntryId); active != "" {
-		fmt.Fprintf(w, "active: %s\n", firstNonEmpty(storage.ShortChangesetID(active), active))
+		fmt.Fprintf(w, "active: %s\n", firstNonEmpty(model.ShortChangesetID(active), active))
 	}
 	printStackEntries(w, stack)
 }
@@ -95,7 +95,7 @@ func printStackEntries(w io.Writer, stack *corev1.ChangesetStack) {
 		return
 	}
 	for _, entry := range stack.Entries {
-		label := firstNonEmpty(storage.ShortChangesetID(entry.ChangesetId), entry.ChangesetId)
+		label := firstNonEmpty(model.ShortChangesetID(entry.ChangesetId), entry.ChangesetId)
 		status := displayDependencyState(entry.State)
 		patchset := int64(0)
 		if entry.Changeset != nil {
@@ -180,7 +180,7 @@ func sameChangesetSelector(a, b string) bool {
 }
 
 func changesetSelectorBody(selector string) (string, bool) {
-	prefix, ok := storage.ChangesetIDLookupPrefix(selector)
+	prefix, ok := model.ChangesetIDLookupPrefix(selector)
 	if !ok {
 		return "", false
 	}

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/internal/paths"
-	"gitslice.io/gitslice/internal/postgres"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -150,7 +150,7 @@ func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, oper
 	}
 	callCtx := authContext(ctx, m.cfg)
 	repoClient := corev1.NewRepositoryServiceClient(m.conn)
-	ref, err := repoClient.GetRef(callCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	ref, err := repoClient.GetRef(callCtx, &corev1.GetRefRequest{RefName: model.DefaultTargetRef})
 	if err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, oper
 	}
 	cs, err := changesetClient.CreateChangeset(callCtx, &corev1.CreateChangesetRequest{
 		AuthoringSlice: m.slice.Ref,
-		TargetRef:      postgres.DefaultTargetRef,
+		TargetRef:      model.DefaultTargetRef,
 		BaseCommitId:   ref.CommitId,
 		Title:          title,
 	})

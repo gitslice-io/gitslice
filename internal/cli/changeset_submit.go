@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"gitslice.io/gitslice/internal/lazyfs"
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	grpcstatus "google.golang.org/grpc/status"
@@ -161,7 +161,7 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 			return err
 		}
 	}
-	handle := firstNonEmpty(storage.ShortChangesetID(changesetID), changesetID)
+	handle := firstNonEmpty(model.ShortChangesetID(changesetID), changesetID)
 	webURL := webResourceURL("/cs/" + handle)
 	if opts.jsonOutput() {
 		// changeset and changeset_url name the changeset; commit_id is the
@@ -390,10 +390,10 @@ func (r Runner) writeSubmitDependencies(opts commandOptions, res *corev1.SubmitS
 func (r Runner) writeSubmitResultsText(res *corev1.SubmitStackResponse) {
 	for _, result := range res.Results {
 		if result.BlockedReason != "" {
-			fmt.Fprintf(r.Stdout, "blocked %s: %s\n", firstNonEmpty(storage.ShortChangesetID(result.ChangesetId), result.ChangesetId), result.BlockedReason)
+			fmt.Fprintf(r.Stdout, "blocked %s: %s\n", firstNonEmpty(model.ShortChangesetID(result.ChangesetId), result.ChangesetId), result.BlockedReason)
 			continue
 		}
-		fmt.Fprintf(r.Stdout, "%s %s\n", result.Status, firstNonEmpty(storage.ShortChangesetID(result.ChangesetId), result.ChangesetId))
+		fmt.Fprintf(r.Stdout, "%s %s\n", result.Status, firstNonEmpty(model.ShortChangesetID(result.ChangesetId), result.ChangesetId))
 	}
 	if res.Status == "partial" {
 		fmt.Fprintln(r.Stdout, "dependencies partially submitted")
@@ -465,7 +465,7 @@ func displaySubmitBlockedReason(reason string) string {
 // submitted itself.
 func landedByServerMerge(cs *corev1.Changeset, submitted string) bool {
 	current := currentPatchset(cs)
-	return current != nil && submitted != "" && current.GetId() != submitted && current.GetKind() == storage.SubmitMergeKind
+	return current != nil && submitted != "" && current.GetId() != submitted && current.GetKind() == model.SubmitMergeKind
 }
 
 func landedPatchset(cs *corev1.Changeset, patchsetID string) *corev1.Patchset {

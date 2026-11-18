@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -75,7 +75,7 @@ func (r Runner) completeChangesets(cmd *cobra.Command, args []string, toComplete
 	}
 	var out []string
 	for _, entry := range stack.GetEntries() {
-		id := storage.ShortChangesetID(entry.GetChangesetId())
+		id := model.ShortChangesetID(entry.GetChangesetId())
 		if id == "" || !strings.HasPrefix(id, toComplete) {
 			continue
 		}

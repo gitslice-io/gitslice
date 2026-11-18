@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 )
@@ -359,7 +359,7 @@ func (r Runner) runCheckAllow(ctx context.Context, opts commandOptions, requeste
 			DurationMs: run.GetDurationMs(),
 		})
 	}
-	csLabel := firstNonEmpty(storage.ShortChangesetID(res.GetChangesetId()), res.GetChangesetId(), changesetID)
+	csLabel := firstNonEmpty(model.ShortChangesetID(res.GetChangesetId()), res.GetChangesetId(), changesetID)
 	out := allowPatchsetSecretsOutput{
 		Changeset:   csLabel,
 		ChangesetID: res.GetChangesetId(),

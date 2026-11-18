@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -106,8 +106,8 @@ func (r Runner) sliceMemberConn(ctx context.Context, value string) (UserConfig, 
 
 func (r Runner) runSliceShare(ctx context.Context, opts commandOptions, sliceValue, username, role string) error {
 	normalizedRole := strings.ToLower(strings.TrimSpace(role))
-	if storage.SliceRoleRank(normalizedRole) >= len(storage.SliceRoles) {
-		return userError("invalid_role", fmt.Sprintf("role must be one of %s", strings.Join(storage.SliceRoles, ", ")), "Pass --role reader, contributor, writer or admin.")
+	if model.SliceRoleRank(normalizedRole) >= len(model.SliceRoles) {
+		return userError("invalid_role", fmt.Sprintf("role must be one of %s", strings.Join(model.SliceRoles, ", ")), "Pass --role reader, contributor, writer or admin.")
 	}
 	_, client, callCtx, ref, done, err := r.sliceMemberConn(ctx, sliceValue)
 	if err != nil {
@@ -221,7 +221,7 @@ func (r Runner) runSliceMembers(ctx context.Context, opts commandOptions, sliceV
 			}
 			handle := groupMember.Handle
 			if handle == "" && groupMember.Account != "" && groupMember.Name != "" {
-				handle = storage.FormatGroupHandle(groupMember.Account, groupMember.Name)
+				handle = model.FormatGroupHandle(groupMember.Account, groupMember.Name)
 			}
 			fmt.Fprintf(r.Stdout, "%s\t%s\t(%s)\n", handle, groupMember.Role, strings.Join(notes, ", "))
 		}

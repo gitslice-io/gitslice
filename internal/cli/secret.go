@@ -8,8 +8,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/internal/paths"
-	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"golang.org/x/term"
 	"google.golang.org/grpc"
@@ -174,7 +174,7 @@ func (r Runner) runSecretList(ctx context.Context, opts commandOptions, account 
 
 func (r Runner) runSecretCreate(ctx context.Context, opts commandOptions, account, name string, flags secretScopeFlags) error {
 	name = strings.TrimSpace(name)
-	if !storage.ValidSliceSecretName(name) {
+	if !model.ValidSliceSecretName(name) {
 		return userError("invalid_secret_name", "secret name must match ^[A-Z_][A-Z0-9_]*$", "Use an environment-variable style name such as CI_TOKEN.")
 	}
 	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
@@ -313,7 +313,7 @@ func (r Runner) readSecretValue(name string) (string, error) {
 		raw, err = term.ReadPassword(int(r.stdin().(*os.File).Fd()))
 		fmt.Fprintln(r.stderr())
 	} else {
-		raw, err = io.ReadAll(io.LimitReader(r.stdin(), storage.MaxSecretValueBytes+2))
+		raw, err = io.ReadAll(io.LimitReader(r.stdin(), model.MaxSecretValueBytes+2))
 	}
 	if err != nil {
 		return "", err
@@ -323,8 +323,8 @@ func (r Runner) readSecretValue(name string) (string, error) {
 		return "", userError("secret_value_required", "no value was given for "+name,
 			`Pipe it in (printf %s "$TOKEN" | gs secret ...), or run the command in a terminal and type it.`)
 	}
-	if len(value) > storage.MaxSecretValueBytes {
-		return "", userError("invalid_argument", fmt.Sprintf("a secret value can be at most %d KiB", storage.MaxSecretValueBytes>>10), "")
+	if len(value) > model.MaxSecretValueBytes {
+		return "", userError("invalid_argument", fmt.Sprintf("a secret value can be at most %d KiB", model.MaxSecretValueBytes>>10), "")
 	}
 	return value, nil
 }

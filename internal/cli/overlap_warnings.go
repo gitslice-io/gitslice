@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"gitslice.io/gitslice/internal/intents"
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 )
@@ -102,7 +102,7 @@ func (r Runner) fetchAdvisorySliceState(ctx context.Context, conn *grpc.ClientCo
 		Limit:          200,
 	}); err == nil {
 		for _, cs := range csResp.GetChangesets() {
-			idLabel := firstNonEmpty(displayChangesetID(cs), storage.ShortChangesetID(cs.GetId()), cs.GetId())
+			idLabel := firstNonEmpty(displayChangesetID(cs), model.ShortChangesetID(cs.GetId()), cs.GetId())
 			openCS = append(openCS, intents.OpenChangeset{
 				ID:            cs.GetId(),
 				Title:         cs.GetTitle(),
@@ -158,7 +158,7 @@ func toOverlapWarningOutputs(warnings []intents.OverlapWarning, now time.Time) [
 	for _, w := range warnings {
 		displayID := w.ID
 		if w.Kind == "changeset" {
-			displayID = firstNonEmpty(storage.ShortChangesetID(w.ID), w.ID)
+			displayID = firstNonEmpty(model.ShortChangesetID(w.ID), w.ID)
 		}
 		formatted := w
 		formatted.ID = displayID

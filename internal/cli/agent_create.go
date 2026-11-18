@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -49,7 +49,7 @@ func (r Runner) runAgentCreate(ctx context.Context, opts commandOptions, name st
 	normalizedRole := ""
 	if sliceInput != "" {
 		var err error
-		normalizedRole, err = storage.NormalizeDelegatedAgentSliceRole(sliceInput, roleInput)
+		normalizedRole, err = model.NormalizeDelegatedAgentSliceRole(sliceInput, roleInput)
 		if err != nil {
 			return userError("invalid_role", err.Error(), "Use reader, contributor, writer, or admin.")
 		}

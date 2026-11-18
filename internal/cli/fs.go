@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"gitslice.io/gitslice/internal/postgres"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -225,7 +225,7 @@ func (r Runner) homeFSReadScope(ctx context.Context) (UserConfig, *grpc.ClientCo
 		return UserConfig{}, nil, nil, nil, "", err
 	}
 	repo := corev1.NewRepositoryServiceClient(conn)
-	ref, err := repo.GetRef(callCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	ref, err := repo.GetRef(callCtx, &corev1.GetRefRequest{RefName: model.DefaultTargetRef})
 	if err != nil {
 		conn.Close()
 		return UserConfig{}, nil, nil, nil, "", err

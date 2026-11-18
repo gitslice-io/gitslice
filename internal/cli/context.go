@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 )
 
 type contextOutput struct {
@@ -113,7 +113,7 @@ func (r Runner) writeContextText(out contextOutput) error {
 			fmt.Fprintf(r.Stdout, "base_commit: %s\n", out.Workspace.BaseCommitID)
 		}
 		if out.Workspace.CurrentChangesetID != "" {
-			fmt.Fprintf(r.Stdout, "current_changeset: %s\n", firstNonEmpty(storage.ShortChangesetID(out.Workspace.CurrentChangesetID), out.Workspace.CurrentChangesetID))
+			fmt.Fprintf(r.Stdout, "current_changeset: %s\n", firstNonEmpty(model.ShortChangesetID(out.Workspace.CurrentChangesetID), out.Workspace.CurrentChangesetID))
 		}
 	} else {
 		fmt.Fprintln(r.Stdout, "workspace: none")

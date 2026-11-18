@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -52,7 +52,7 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 	if err != nil {
 		return err
 	}
-	label := firstNonEmpty(storage.ShortChangesetID(state.CurrentChangesetID), state.CurrentChangesetID)
+	label := firstNonEmpty(model.ShortChangesetID(state.CurrentChangesetID), state.CurrentChangesetID)
 	webURL := webResourceURL("/cs/" + label)
 	if previousPatchsetID != "" && patchset.Id == previousPatchsetID {
 		if opts.jsonOutput() {

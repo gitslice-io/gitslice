@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -189,17 +190,12 @@ const (
 )
 
 // AccountRoles lists membership roles from most to least privileged.
-var AccountRoles = []string{"owner", "admin", "writer", "member", "contributor", "reader"}
+var AccountRoles = model.AccountRoles
 
 // AccountRoleRank orders roles (lower is more privileged); unknown roles rank
 // after every known one.
 func AccountRoleRank(role string) int {
-	for i, known := range AccountRoles {
-		if role == known {
-			return i
-		}
-	}
-	return len(AccountRoles)
+	return model.AccountRoleRank(role)
 }
 
 type BlobStore interface {
@@ -489,17 +485,12 @@ type SliceStore interface {
 
 // SliceRoles are the roles a slice member can have (design/26_slice_members.md,
 // design/36_multi_agent_collaboration.md).
-var SliceRoles = []string{"admin", "writer", "contributor", "reader"}
+var SliceRoles = model.SliceRoles
 
 // SliceRoleRank orders slice roles (lower is more privileged); unknown roles
 // rank after every known one.
 func SliceRoleRank(role string) int {
-	for i, known := range SliceRoles {
-		if role == known {
-			return i
-		}
-	}
-	return len(SliceRoles)
+	return model.SliceRoleRank(role)
 }
 
 // SliceMember is a person or agent given a role on one slice.
@@ -537,23 +528,7 @@ type SliceTag struct {
 
 // ValidSliceSecretName reports whether name matches ^[A-Z_][A-Z0-9_]*$.
 func ValidSliceSecretName(name string) bool {
-	if name == "" {
-		return false
-	}
-	for i := 0; i < len(name); i++ {
-		c := name[i]
-		if i == 0 {
-			if c == '_' || (c >= 'A' && c <= 'Z') {
-				continue
-			}
-			return false
-		}
-		if c == '_' || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
-			continue
-		}
-		return false
-	}
-	return true
+	return model.ValidSliceSecretName(name)
 }
 
 // AgentDaemonInput is the registration payload for an agent daemon.

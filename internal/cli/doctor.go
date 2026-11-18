@@ -18,7 +18,7 @@ import (
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
 	grpcstatus "google.golang.org/grpc/status"
 
-	"gitslice.io/gitslice/internal/postgres"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -294,7 +294,7 @@ func (d *doctor) checkWorkspace(ctx context.Context, cfg UserConfig, conn *grpc.
 	if conn != nil && base != "" {
 		callCtx, cancel := context.WithTimeout(authContext(ctx, cfg), doctorStepTimeout)
 		defer cancel()
-		if head, err := corev1.NewRepositoryServiceClient(conn).GetRef(callCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef}); err == nil && head.GetCommitId() != "" && head.GetCommitId() != base {
+		if head, err := corev1.NewRepositoryServiceClient(conn).GetRef(callCtx, &corev1.GetRefRequest{RefName: model.DefaultTargetRef}); err == nil && head.GetCommitId() != "" && head.GetCommitId() != base {
 			summary += fmt.Sprintf(" (based on %s; the latest is %s, gs sync updates it)", shortID(base), shortID(head.GetCommitId()))
 		}
 	}

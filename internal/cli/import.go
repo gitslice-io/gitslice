@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/internal/paths"
-	"gitslice.io/gitslice/internal/postgres"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -64,7 +64,7 @@ func (r Runner) runImportGitRepository(ctx context.Context, opts commandOptions,
 		MountPath:      mountPath,
 		AuthoringSlice: ref,
 		Mode:           mode,
-		TargetRef:      postgres.DefaultTargetRef,
+		TargetRef:      model.DefaultTargetRef,
 		MaxCommits:     int32(maxCommits),
 		Resume:         resume,
 	}

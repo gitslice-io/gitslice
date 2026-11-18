@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"gitslice.io/gitslice/internal/clientcache"
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 )
@@ -136,7 +136,7 @@ func (r Runner) runStackRestack(ctx context.Context, opts commandOptions, entry 
 	}
 	fmt.Fprintf(r.Stdout, "updated: %s\n", strings.Join(ids, ", "))
 	if firstConflict != nil {
-		fmt.Fprintf(r.Stdout, "conflicts: %s\n", firstNonEmpty(storage.ShortChangesetID(firstConflict.Id), firstConflict.Id))
+		fmt.Fprintf(r.Stdout, "conflicts: %s\n", firstNonEmpty(model.ShortChangesetID(firstConflict.Id), firstConflict.Id))
 	}
 	return nil
 }

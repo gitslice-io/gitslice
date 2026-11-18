@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/usernames"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -55,7 +55,7 @@ func (r Runner) readPendingAgentRegistration() (pendingAgentRegistration, bool) 
 		return pendingAgentRegistration{}, false
 	}
 	var pending pendingAgentRegistration
-	if err := json.Unmarshal(raw, &pending); err != nil || len(pending.Token) < storage.MinRegistrationTokenLength {
+	if err := json.Unmarshal(raw, &pending); err != nil || len(pending.Token) < model.MinRegistrationTokenLength {
 		return pendingAgentRegistration{}, false
 	}
 	return pending, true
@@ -91,7 +91,7 @@ func (r Runner) runAuthRegisterAgent(ctx context.Context, opts commandOptions, i
 	if err != nil {
 		return userError("invalid_username", err.Error(), "Usernames are 4-63 characters of lowercase letters, digits and '-', must not start or end with '-', and must be unique. See gs auth register-agent --help.")
 	}
-	email, err := storage.NormalizeOwnerEmail(in.email)
+	email, err := model.NormalizeOwnerEmail(in.email)
 	if err != nil {
 		return userError("invalid_email", strings.TrimPrefix(err.Error(), "invalid: "), "Pass the email of the human who should be able to claim this agent, e.g. --email you@example.com.")
 	}

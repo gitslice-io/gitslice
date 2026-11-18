@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -254,7 +254,7 @@ func (r Runner) runGroupDelete(ctx context.Context, opts commandOptions, rawGrou
 	}); err != nil {
 		return groupError(err)
 	}
-	handle := storage.FormatGroupHandle(account, name)
+	handle := model.FormatGroupHandle(account, name)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
 			"account": account,
@@ -343,13 +343,13 @@ func (r Runner) resolveCLIGroupTarget(ctx context.Context, cfg UserConfig, conn 
 		if !strings.HasPrefix(ref, "@") {
 			ref = "@" + ref
 		}
-		account, name, err := storage.ParseGroupRefStrict(ref)
+		account, name, err := model.ParseGroupRefStrict(ref)
 		if err != nil {
 			return "", "", userError("invalid_group", err.Error(), "Use @account/name, for example @acme/api.")
 		}
 		return account, name, nil
 	}
-	name, err := storage.NormalizeGroupName(trimmed)
+	name, err := model.NormalizeGroupName(trimmed)
 	if err != nil {
 		return "", "", userError("invalid_group", err.Error(), "Use @account/name, for example @acme/api.")
 	}

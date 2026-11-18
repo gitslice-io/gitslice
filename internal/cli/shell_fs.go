@@ -7,9 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/internal/paths"
-	"gitslice.io/gitslice/internal/postgres"
-	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -139,7 +138,7 @@ func (s *serverShell) mutate(ctx context.Context, operation string, edits []*cor
 	if err != nil {
 		return err
 	}
-	ref, err := s.repo.GetRef(ctx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	ref, err := s.repo.GetRef(ctx, &corev1.GetRefRequest{RefName: model.DefaultTargetRef})
 	if err != nil {
 		return err
 	}
@@ -349,7 +348,7 @@ func (s *serverShell) resolve(value string) (string, error) {
 			candidate = value
 		case strings.HasPrefix(value, "/"):
 			segments := strings.Split(strings.Trim(value, "/"), "/")
-			scopeAccount, _, _ := storage.SplitSliceHandle(s.scope)
+			scopeAccount, _, _ := model.SplitSliceHandle(s.scope)
 			if len(segments) >= 2 && scopeAccount != "" && segments[0] == scopeAccount {
 				candidate = value
 			} else {

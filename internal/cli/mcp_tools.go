@@ -16,9 +16,8 @@ import (
 	grpcstatus "google.golang.org/grpc/status"
 
 	"gitslice.io/gitslice/internal/clientcache"
+	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/postgres"
-	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -221,7 +220,7 @@ func (s mcpSlice) repoPath(p string) (string, error) {
 }
 
 func (b *mcpBackend) head(ctx context.Context) (string, error) {
-	ref, err := corev1.NewRepositoryServiceClient(b.conn).GetRef(b.ctx(ctx), &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	ref, err := corev1.NewRepositoryServiceClient(b.conn).GetRef(b.ctx(ctx), &corev1.GetRefRequest{RefName: model.DefaultTargetRef})
 	if err != nil {
 		return "", err
 	}
@@ -545,7 +544,7 @@ func (b *mcpBackend) history(ctx context.Context, raw json.RawMessage) (any, err
 	if limit <= 0 {
 		limit = mcpDefaultHistory
 	}
-	resp, err := corev1.NewRepositoryServiceClient(b.conn).ListCommits(b.ctx(ctx), &corev1.ListCommitsRequest{RefName: postgres.DefaultTargetRef, Slice: s.ref, Path: p, Limit: int32(min(limit, mcpMaxHistory))})
+	resp, err := corev1.NewRepositoryServiceClient(b.conn).ListCommits(b.ctx(ctx), &corev1.ListCommitsRequest{RefName: model.DefaultTargetRef, Slice: s.ref, Path: p, Limit: int32(min(limit, mcpMaxHistory))})
 	if err != nil {
 		return nil, err
 	}
@@ -631,7 +630,7 @@ func (b *mcpBackend) createChangeset(ctx context.Context, raw json.RawMessage) (
 	client := corev1.NewChangesetServiceClient(b.conn)
 	cs, err := client.CreateChangeset(b.ctx(ctx), &corev1.CreateChangesetRequest{
 		AuthoringSlice: s.ref,
-		TargetRef:      postgres.DefaultTargetRef,
+		TargetRef:      model.DefaultTargetRef,
 		BaseCommitId:   commit,
 		Title:          strings.TrimSpace(args.Title),
 		Description:    args.Description,
@@ -852,7 +851,7 @@ func (b *mcpBackend) submit(ctx context.Context, changesetID, patchsetID string)
 // --- shared shapes
 
 func changesetHeader(cs *corev1.Changeset) map[string]any {
-	handle := firstNonEmpty(storage.ShortChangesetID(cs.GetId()), cs.GetId())
+	handle := firstNonEmpty(model.ShortChangesetID(cs.GetId()), cs.GetId())
 	out := map[string]any{"changeset": handle, "changeset_id": cs.GetId(), "title": cs.GetTitle()}
 	if cs.GetDescription() != "" {
 		out["description"] = cs.GetDescription()
@@ -869,7 +868,7 @@ func commitSummary(commit *corev1.Commit) map[string]any {
 	}
 	out := map[string]any{"commit": commit.GetId(), "message": commit.GetMessage(), "author": commit.GetAuthor(), "created_at": commit.GetCreatedAt()}
 	if commit.GetChangesetId() != "" {
-		out["changeset"] = storage.ShortChangesetID(commit.GetChangesetId())
+		out["changeset"] = model.ShortChangesetID(commit.GetChangesetId())
 	}
 	return out
 }

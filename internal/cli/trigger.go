@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/internal/paths"
-	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -144,7 +144,7 @@ type triggerRunOutput struct {
 func triggerRunToOutput(run *corev1.TriggerRun) triggerRunOutput {
 	return triggerRunOutput{
 		ID: run.Id, Trigger: run.TriggerId, Status: run.Status, Event: run.EventKind, EventID: run.EventId, Action: run.Action,
-		Changeset: storage.ShortChangesetID(run.ChangesetId), Attempt: run.Attempt, MaxAttempts: run.MaxAttempts,
+		Changeset: model.ShortChangesetID(run.ChangesetId), Attempt: run.Attempt, MaxAttempts: run.MaxAttempts,
 		Error: run.Error, CreatedAt: run.CreatedAt, FinishedAt: run.FinishedAt, Definition: run.DefinitionCommitId,
 	}
 }

@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -42,7 +42,7 @@ func parseEnvTemplate(content string) ([]envTemplateLine, []string, error) {
 			}
 			if strings.HasPrefix(value, secretPlaceholderPrefix) {
 				name := strings.TrimPrefix(value, secretPlaceholderPrefix)
-				if !storage.ValidSliceSecretName(name) {
+				if !model.ValidSliceSecretName(name) {
 					return nil, nil, userError("invalid_template", fmt.Sprintf("line %d: %q is not a secret name", i+1, name), "Write placeholders as NAME="+secretPlaceholderPrefix+"SECRET_NAME, with SECRET_NAME like CI_TOKEN.")
 				}
 				line.prefix, line.key, line.secret = m[1], m[2], name

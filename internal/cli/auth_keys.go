@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"golang.org/x/term"
 	"google.golang.org/grpc/codes"
@@ -290,7 +290,7 @@ func (r Runner) runAuthKeysCreate(ctx context.Context, opts commandOptions, crea
 	if err != nil {
 		return err
 	}
-	maxRole, err := storage.NormalizeAPIKeyMaxRole(createOpts.MaxRole)
+	maxRole, err := model.NormalizeAPIKeyMaxRole(createOpts.MaxRole)
 	if err != nil {
 		return userError("invalid_role", err.Error(), "Use reader, contributor, or writer.")
 	}
@@ -360,8 +360,8 @@ func (r Runner) runAuthUseKey(ctx context.Context, opts commandOptions, serverAd
 	if err != nil {
 		return err
 	}
-	if !strings.HasPrefix(key, storage.APIKeyPrefix) {
-		return userError("invalid_api_key", "that is not an API key (they start with "+storage.APIKeyPrefix+")",
+	if !strings.HasPrefix(key, model.APIKeyPrefix) {
+		return userError("invalid_api_key", "that is not an API key (they start with "+model.APIKeyPrefix+")",
 			"Use the key printed by gs auth keys create. A browser login token is not an agent key.")
 	}
 	serverAddr = strings.TrimSpace(serverAddr)

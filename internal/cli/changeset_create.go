@@ -11,8 +11,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"gitslice.io/gitslice/internal/postgres"
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -58,7 +57,7 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 	callCtx := authContext(ctx, cfg)
 	cs, err := changesetClient.CreateChangeset(callCtx, &corev1.CreateChangesetRequest{
 		AuthoringSlice: &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
-		TargetRef:      postgres.DefaultTargetRef,
+		TargetRef:      model.DefaultTargetRef,
 		BaseCommitId:   state.BaseCommitID,
 		Title:          title,
 	})
@@ -179,7 +178,7 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 	if !reuse {
 		cs, err := changesetClient.CreateChangeset(callCtx, &corev1.CreateChangesetRequest{
 			AuthoringSlice: &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
-			TargetRef:      postgres.DefaultTargetRef,
+			TargetRef:      model.DefaultTargetRef,
 			BaseCommitId:   state.BaseCommitID,
 			Title:          title,
 		})
@@ -241,7 +240,7 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 		return err
 	}
 
-	label := firstNonEmpty(storage.ShortChangesetID(changesetID), changesetID)
+	label := firstNonEmpty(model.ShortChangesetID(changesetID), changesetID)
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, changesetOutput{
 			ChangesetID:    changesetID,
@@ -404,7 +403,7 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 	if newStack {
 		stack, err = stackClient.CreateStack(callCtx, &corev1.CreateStackRequest{
 			AuthoringSlice: &corev1.SliceRef{Account: ws.Account, Slice: ws.Slice},
-			TargetRef:      postgres.DefaultTargetRef,
+			TargetRef:      model.DefaultTargetRef,
 			BaseCommitId:   state.BaseCommitID,
 			Title:          title,
 		})
@@ -536,7 +535,7 @@ func (r Runner) guardChangesetCreate(ctx context.Context, cfg UserConfig, state 
 	case "submitted", "abandoned":
 		return nil
 	}
-	label := firstNonEmpty(displayChangesetID(cs), storage.ShortChangesetID(state.CurrentChangesetID), state.CurrentChangesetID)
+	label := firstNonEmpty(displayChangesetID(cs), model.ShortChangesetID(state.CurrentChangesetID), state.CurrentChangesetID)
 	if cs.Status == "draft" || cs.Status == "" {
 		return userError(
 			"workspace_changeset_exists",

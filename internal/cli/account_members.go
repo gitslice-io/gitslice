@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -100,8 +100,8 @@ func (r Runner) runAccountSetMember(ctx context.Context, opts commandOptions, ac
 	if normalizedRole == "" {
 		return userError("role_required", "--role is required", "Pass --role owner, admin, writer, member, contributor or reader.")
 	}
-	if storage.AccountRoleRank(normalizedRole) >= len(storage.AccountRoles) {
-		return userError("invalid_role", fmt.Sprintf("role must be one of %s", strings.Join(storage.AccountRoles, ", ")), "Pass --role owner, admin, writer, member, contributor or reader.")
+	if model.AccountRoleRank(normalizedRole) >= len(model.AccountRoles) {
+		return userError("invalid_role", fmt.Sprintf("role must be one of %s", strings.Join(model.AccountRoles, ", ")), "Pass --role owner, admin, writer, member, contributor or reader.")
 	}
 	_, conn, authCtx, err := r.authenticatedConn(ctx)
 	if err != nil {

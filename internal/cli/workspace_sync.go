@@ -8,8 +8,7 @@ import (
 
 	"gitslice.io/gitslice/internal/clientcache"
 	"gitslice.io/gitslice/internal/lazyfs"
-	"gitslice.io/gitslice/internal/postgres"
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -77,7 +76,7 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	defer conn.Close()
 	callCtx := authContext(ctx, cfg)
 	repo := corev1.NewRepositoryServiceClient(conn)
-	ref, err := repo.GetRef(callCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+	ref, err := repo.GetRef(callCtx, &corev1.GetRefRequest{RefName: model.DefaultTargetRef})
 	if err != nil {
 		return err
 	}
@@ -370,7 +369,7 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	if output.LandedStackID != "" {
 		landed := "dependency tree " + output.LandedStackID
 		if output.LandedChangesetID != "" {
-			landed = firstNonEmpty(storage.ShortChangesetID(output.LandedChangesetID), output.LandedChangesetID)
+			landed = firstNonEmpty(model.ShortChangesetID(output.LandedChangesetID), output.LandedChangesetID)
 		}
 		fmt.Fprintf(r.Stdout, "%s landed; workspace is now on the latest commit\n", landed)
 	}
@@ -387,7 +386,7 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		fmt.Fprintf(r.Stdout, "your uncommitted edits were copied to %s first\n", output.BackupDir)
 	}
 	if output.PatchsetID != "" {
-		fmt.Fprintf(r.Stdout, "created sync patchset %d for %s\n", output.PatchsetNumber, firstNonEmpty(storage.ShortChangesetID(output.ChangesetID), output.ChangesetID))
+		fmt.Fprintf(r.Stdout, "created sync patchset %d for %s\n", output.PatchsetNumber, firstNonEmpty(model.ShortChangesetID(output.ChangesetID), output.ChangesetID))
 	}
 	if len(output.RestackedChangesets) > 0 {
 		fmt.Fprintf(r.Stdout, "updated: %s\n", strings.Join(output.RestackedChangesets, ", "))

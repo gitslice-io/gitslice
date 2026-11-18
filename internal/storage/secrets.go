@@ -6,12 +6,13 @@ import (
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/internal/paths"
 )
 
 // Secret limits (design/33_secrets.md).
 const (
-	MaxSecretValueBytes  = 48 << 10
+	MaxSecretValueBytes  = model.MaxSecretValueBytes
 	MaxSecretsPerAccount = 200
 	MaxSecretPaths       = 50
 )

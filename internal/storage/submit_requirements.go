@@ -8,12 +8,13 @@ import (
 	"sort"
 	"strings"
 
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 const (
-	CheckStatusPass = "pass"
-	CheckStatusFail = "fail"
+	CheckStatusPass = model.CheckStatusPass
+	CheckStatusFail = model.CheckStatusFail
 )
 
 // StaleBaseReason is why a submit is refused when a path the patchset changes
@@ -23,16 +24,10 @@ const StaleBaseReason = "path base conflict, refresh or rebase the changeset"
 
 // SubmitMergeKind is the kind of a patchset the server made by merging a
 // stale changeset onto the latest base at submit.
-const SubmitMergeKind = "submit_merge"
+const SubmitMergeKind = model.SubmitMergeKind
 
 func NormalizeCheckStatus(status string) (string, bool) {
-	status = strings.ToLower(strings.TrimSpace(status))
-	switch status {
-	case CheckStatusPass, CheckStatusFail:
-		return status, true
-	default:
-		return "", false
-	}
+	return model.NormalizeCheckStatus(status)
 }
 
 // EvaluateSubmitRequirements checks approval, human approval, and required check

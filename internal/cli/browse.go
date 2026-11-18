@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/internal/paths"
-	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -93,7 +93,7 @@ func (r Runner) browseChangesetHandle(ctx context.Context, id string) (string, e
 	switch grpcstatus.Code(err) {
 	case codes.OK:
 		handle := firstNonEmpty(displayChangesetID(cs), cs.Id)
-		if _, commitShaped := storage.CommitIDLookupPrefix(id); commitShaped && !sameChangesetSelector(id, cs.Id) {
+		if _, commitShaped := model.CommitIDLookupPrefix(id); commitShaped && !sameChangesetSelector(id, cs.Id) {
 			fmt.Fprintf(r.stderr(), "%s is the commit changeset %s landed as; linking the changeset.\n", id, handle)
 		}
 		return handle, nil
@@ -288,7 +288,7 @@ func (r Runner) browseNotes(ctx context.Context, t browseTarget) []string {
 	}
 	var notes []string
 	if t.path != "" {
-		if ref, err := corev1.NewRepositoryServiceClient(conn).GetRef(authCtx, &corev1.GetRefRequest{RefName: storage.DefaultTargetRef}); err == nil && ref.GetCommitId() != "" {
+		if ref, err := corev1.NewRepositoryServiceClient(conn).GetRef(authCtx, &corev1.GetRefRequest{RefName: model.DefaultTargetRef}); err == nil && ref.GetCommitId() != "" {
 			_, err := corev1.NewRepositoryServiceClient(conn).ResolvePath(authCtx, &corev1.ResolvePathRequest{
 				CommitId: ref.GetCommitId(),
 				Path:     t.path,

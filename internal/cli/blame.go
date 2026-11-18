@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -88,7 +88,7 @@ func (r Runner) runBlame(ctx context.Context, opts commandOptions, rawPath, slic
 	for _, c := range res.GetCommits() {
 		summary, _, _ := strings.Cut(c.GetMessage(), "\n")
 		commit := blameCommitOutput{ID: c.GetId(), Author: c.GetAuthor(), CreatedAt: c.GetCreatedAt(), Summary: summary, ChangesetID: c.GetChangesetId()}
-		if handle := storage.ShortChangesetID(c.GetChangesetId()); handle != "" {
+		if handle := model.ShortChangesetID(c.GetChangesetId()); handle != "" {
 			commit.ChangesetURL = webResourceURL("/cs/" + handle)
 		}
 		commits[commit.ID] = commit
@@ -117,7 +117,7 @@ func (r Runner) runBlame(ctx context.Context, opts commandOptions, rawPath, slic
 	}
 	for _, rg := range out.Ranges {
 		c := commits[rg.CommitID]
-		handle := storage.ShortChangesetID(c.ChangesetID)
+		handle := model.ShortChangesetID(c.ChangesetID)
 		if handle == "" {
 			handle = "-"
 		}

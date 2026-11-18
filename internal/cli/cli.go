@@ -164,7 +164,6 @@ func (r Runner) rootCommand() *cobra.Command {
 		r.browseCommand(opts),
 		r.versionCommand(opts),
 		r.schemaCommand(opts),
-		r.adminCommand(opts),
 		r.upgradeCommand(opts),
 		r.doctorCommand(opts),
 		r.feedbackCommand(opts),

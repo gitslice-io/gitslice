@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -44,7 +44,7 @@ func (r Runner) runSliceSetCIDaemon(ctx context.Context, opts commandOptions, sl
 }
 
 func (r Runner) runSliceSecretSet(ctx context.Context, opts commandOptions, sliceRef, name string, valueArg *string) error {
-	if !storage.ValidSliceSecretName(name) {
+	if !model.ValidSliceSecretName(name) {
 		return userError("invalid_secret_name", "secret name must match ^[A-Z_][A-Z0-9_]*$", "Use an environment-variable style name such as CI_TOKEN.")
 	}
 	var value string
@@ -88,7 +88,7 @@ func (r Runner) runSliceSecretSet(ctx context.Context, opts commandOptions, slic
 }
 
 func (r Runner) runSliceSecretRemove(ctx context.Context, opts commandOptions, sliceRef, name string) error {
-	if !storage.ValidSliceSecretName(name) {
+	if !model.ValidSliceSecretName(name) {
 		return userError("invalid_secret_name", "secret name must match ^[A-Z_][A-Z0-9_]*$", "Use an environment-variable style name such as CI_TOKEN.")
 	}
 	cfg, conn, callCtx, err := r.authenticatedConn(ctx)

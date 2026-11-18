@@ -1,11 +1,47 @@
 package cli_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func stripCachedListingEntry(t *testing.T, listingPath, substr string) bool {
+	t.Helper()
+	data, err := os.ReadFile(listingPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Entries []json.RawMessage `json:"entries"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("unmarshal cached listing %s: %v", listingPath, err)
+	}
+	kept := make([]json.RawMessage, 0, len(doc.Entries))
+	removed := false
+	for _, entry := range doc.Entries {
+		if strings.Contains(string(entry), substr) {
+			removed = true
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	if !removed {
+		return false
+	}
+	doc.Entries = kept
+	out, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(listingPath, out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return true
+}
 
 // TestCheckoutListingCache covers fb_3fc4 (5): a workspace made at a commit
 // whose listing this machine already has takes the listing from the local
@@ -33,23 +69,7 @@ func TestCheckoutListingCache(t *testing.T) {
 	// Take drop.txt out of every cached listing: a checkout that uses the
 	// cache does not have it.
 	for _, path := range listings {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		text := string(data)
-		i := strings.Index(text, "drop.txt")
-		if i < 0 {
-			continue
-		}
-		start := strings.LastIndex(text[:i], "{")
-		end := i + strings.Index(text[i:], "}") + 1
-		text = text[:start] + text[end:]
-		text = strings.ReplaceAll(strings.ReplaceAll(text, ",,", ","), "[,", "[")
-		text = strings.ReplaceAll(text, ",]", "]")
-		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		stripCachedListingEntry(t, path, "drop.txt")
 	}
 	cached := t.TempDir()
 	runCLI(t, home, cached, "init", "acme/payment")
@@ -89,22 +109,8 @@ func TestCheckoutListingDelta(t *testing.T) {
 	if len(listings) != 1 {
 		t.Fatalf("cached listings = %v, want one", listings)
 	}
-	data, err := os.ReadFile(listings[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(data)
-	i := strings.Index(text, "marker.txt")
-	if i < 0 {
-		t.Fatalf("marker.txt is not in the cached listing: %s", text)
-	}
-	start := strings.LastIndex(text[:i], "{")
-	end := i + strings.Index(text[i:], "}") + 1
-	text = text[:start] + text[end:]
-	text = strings.ReplaceAll(strings.ReplaceAll(text, ",,", ","), "[,", "[")
-	text = strings.ReplaceAll(text, ",]", "]")
-	if err := os.WriteFile(listings[0], []byte(text), 0o600); err != nil {
-		t.Fatal(err)
+	if !stripCachedListingEntry(t, listings[0], "marker.txt") {
+		t.Fatalf("marker.txt is not in the cached listing %s", listings[0])
 	}
 
 	runCLI(t, home, work, "sync")

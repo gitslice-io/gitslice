@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -22,7 +22,7 @@ func printChangesetDetails(w io.Writer, cs *corev1.Changeset, explain bool) {
 	if cs.Description != "" {
 		fmt.Fprintf(w, "description:\n%s\n", indentLines(cs.Description, "  "))
 	}
-	authorLine := storage.FormatActorAttribution(effectiveChangesetAttribution(cs), cs.Author)
+	authorLine := model.FormatActorAttribution(effectiveChangesetAttribution(cs), cs.Author)
 	if authorLine != "" {
 		fmt.Fprintf(w, "author: %s\n", authorLine)
 	}
@@ -32,7 +32,7 @@ func printChangesetDetails(w io.Writer, cs *corev1.Changeset, explain bool) {
 	if len(cs.Collaborators) > 0 {
 		fmt.Fprintf(w, "collaborators: %s\n", strings.Join(cs.Collaborators, ", "))
 	}
-	if subLine := storage.FormatActorAttribution(cs.GetSubmittedAttribution(), ""); subLine != "" {
+	if subLine := model.FormatActorAttribution(cs.GetSubmittedAttribution(), ""); subLine != "" {
 		fmt.Fprintf(w, "submitted_by: %s\n", subLine)
 	}
 	if len(cs.GetApprovals()) > 0 {
@@ -41,7 +41,7 @@ func printChangesetDetails(w io.Writer, cs *corev1.Changeset, explain bool) {
 			if app == nil {
 				continue
 			}
-			lbl := storage.FormatActorAttribution(app.GetAttribution(), firstNonEmpty(app.GetUsername(), app.GetSubjectId()))
+			lbl := model.FormatActorAttribution(app.GetAttribution(), firstNonEmpty(app.GetUsername(), app.GetSubjectId()))
 			if lbl != "" {
 				appLabels = append(appLabels, lbl)
 			}
@@ -99,8 +99,8 @@ func printPatchsetsColor(w io.Writer, cs *corev1.Changeset, color bool) {
 		changed := patchsetChangedPaths(patchset)
 		number := colorize(color, ansiYellow, fmt.Sprintf("%d", patchset.Number))
 		current = colorize(color, ansiGreen, current)
-		psActor := storage.FormatActorAttribution(patchset.GetAttribution(), patchset.GetAuthor())
-		csActor := storage.FormatActorAttribution(effectiveChangesetAttribution(cs), cs.GetAuthor())
+		psActor := model.FormatActorAttribution(patchset.GetAttribution(), patchset.GetAuthor())
+		csActor := model.FormatActorAttribution(effectiveChangesetAttribution(cs), cs.GetAuthor())
 		psSuffix := ""
 		if psActor != "" && (psActor != csActor || patchset.GetAttribution().GetDaemonId() != "" || patchset.GetAttribution().GetConversationId() != "") {
 			psSuffix = fmt.Sprintf(" by %s", psActor)
@@ -205,7 +205,7 @@ func displayChangesetID(cs *corev1.Changeset) string {
 	if cs == nil {
 		return ""
 	}
-	return storage.ShortChangesetID(cs.Id)
+	return model.ShortChangesetID(cs.Id)
 }
 
 func pathSetEntryPaths(entries []*corev1.PathSetEntry) []string {

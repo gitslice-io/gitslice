@@ -3,13 +3,15 @@ package storage
 import (
 	"errors"
 	"time"
+
+	"gitslice.io/gitslice/internal/model"
 )
 
-const DefaultTargetRef = "refs/global/main"
+const DefaultTargetRef = model.DefaultTargetRef
 
 var (
 	ErrConflict        = errors.New("conflict")
-	ErrInvalid         = errors.New("invalid")
+	ErrInvalid         = model.ErrInvalid
 	ErrNotFound        = errors.New("not found")
 	ErrUnauthenticated = errors.New("unauthenticated")
 	ErrUnauthorized    = errors.New("unauthorized")
@@ -25,7 +27,7 @@ type Subject struct {
 // APIKeyPrefix marks a long-lived API key (see design/20_agent_signup_and_claim.md).
 // SubjectForToken resolves tokens with this prefix against api keys rather than
 // login sessions.
-const APIKeyPrefix = "gsk_"
+const APIKeyPrefix = model.APIKeyPrefix
 
 // RegisterAgentInput is the request to self-register an agent subject with its
 // own personal account. OwnerEmail names the human who may later claim
@@ -41,7 +43,7 @@ type RegisterAgentInput struct {
 
 // MinRegistrationTokenLength is the minimum length of a client-generated
 // registration token; it is a secret, so it must not be guessable.
-const MinRegistrationTokenLength = 32
+const MinRegistrationTokenLength = model.MinRegistrationTokenLength
 
 // PendingClaim is an unclaimed agent registration that a signed-in human may
 // accept because its owner email is one of their verified emails.
@@ -115,7 +117,7 @@ func (k APIKey) Active(now time.Time) bool {
 const MaxActiveAPIKeys = 20
 
 // MaxAPIKeyNameLength is the longest label an API key can have.
-const MaxAPIKeyNameLength = 64
+const MaxAPIKeyNameLength = model.MaxAPIKeyNameLength
 
 type RegisteredAgent struct {
 	SubjectID string

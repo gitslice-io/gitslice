@@ -6,8 +6,7 @@ import (
 	"io"
 	"strings"
 
-	"gitslice.io/gitslice/internal/postgres"
-	"gitslice.io/gitslice/internal/storage"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -109,7 +108,7 @@ func (r Runner) runCommitLog(ctx context.Context, opts commandOptions, logOpts c
 		return err
 	}
 	req := &corev1.ListCommitsRequest{
-		RefName:   postgres.DefaultTargetRef,
+		RefName:   model.DefaultTargetRef,
 		Limit:     int32(logOpts.Limit),
 		Path:      pathFilter,
 		Slice:     scopeSlice,
@@ -244,7 +243,7 @@ type commitResolveScope struct {
 func (r Runner) resolveCommit(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, input string, scope *commitResolveScope) (*corev1.Commit, error) {
 	req := &corev1.ResolveCommitRequest{
 		CommitId: input,
-		RefName:  postgres.DefaultTargetRef,
+		RefName:  model.DefaultTargetRef,
 	}
 	if scope != nil {
 		req.Path = scope.Path
@@ -287,7 +286,7 @@ func commitToOutput(commit *corev1.Commit) commitOutput {
 		ChangedPaths: append([]string(nil), commit.ChangedPaths...),
 	}
 	if commit.ChangesetId != "" {
-		out.Changeset = storage.ShortChangesetID(commit.ChangesetId)
+		out.Changeset = model.ShortChangesetID(commit.ChangesetId)
 		out.ChangesetURL = webResourceURL("/cs/" + out.Changeset)
 	}
 	if imported := commit.GetGitImport(); imported != nil {
@@ -309,7 +308,7 @@ func printCommitLogOneline(w io.Writer, commits []*corev1.Commit, full, nameOnly
 		// web page.
 		landed := ""
 		if commit.ChangesetId != "" {
-			landed = colorize(color, ansiDim, "  (changeset "+storage.ShortChangesetID(commit.ChangesetId)+")")
+			landed = colorize(color, ansiDim, "  (changeset "+model.ShortChangesetID(commit.ChangesetId)+")")
 		}
 		fmt.Fprintf(w, "%s  %s%s\n", colorize(color, ansiYellow, id), commit.Message, landed)
 		if nameOnly {
@@ -345,7 +344,7 @@ func printCommitDetails(w io.Writer, commit *corev1.Commit, full, color bool) {
 		fmt.Fprintf(w, "%s %s\n", colorize(color, ansiDim, "Root:"), displayCommitID(commit.RootTreeId, full))
 	}
 	if commit.ChangesetId != "" {
-		handle := storage.ShortChangesetID(commit.ChangesetId)
+		handle := model.ShortChangesetID(commit.ChangesetId)
 		fmt.Fprintf(w, "%s %s %s\n", colorize(color, ansiDim, "Changeset:"), handle, webResourceURL("/cs/"+handle))
 	}
 	if commit.Author != "" {

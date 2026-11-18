@@ -2,10 +2,10 @@ package storage
 
 import (
 	"context"
-	"fmt"
 	"strings"
 
 	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -113,38 +113,5 @@ func ActorAttributionFrom(ctx context.Context, fallbackSubjectID string) ActorAt
 // FormatActorAttribution renders an ActorAttribution in the canonical human
 // format: "<acting> (for <controller>) via <daemon_name || daemon_id>, conversation <conv_id>".
 func FormatActorAttribution(attr *corev1.ActorAttribution, fallbackUsername string) string {
-	acting := strings.TrimSpace(attr.GetActingUsername())
-	if acting == "" {
-		acting = strings.TrimSpace(fallbackUsername)
-	}
-	if acting == "" {
-		acting = strings.TrimSpace(attr.GetActingSubjectId())
-	}
-	if acting == "" {
-		return ""
-	}
-
-	var b strings.Builder
-	b.WriteString(acting)
-
-	ctrl := strings.TrimSpace(attr.GetControllerUsername())
-	if ctrl == "" && strings.TrimSpace(attr.GetControllerSubjectId()) != "" && strings.TrimSpace(attr.GetControllerSubjectId()) != strings.TrimSpace(attr.GetActingSubjectId()) {
-		ctrl = strings.TrimSpace(attr.GetControllerSubjectId())
-	}
-	if ctrl != "" && ctrl != acting && (strings.TrimSpace(attr.GetControllerSubjectId()) == "" || strings.TrimSpace(attr.GetControllerSubjectId()) != strings.TrimSpace(attr.GetActingSubjectId())) {
-		fmt.Fprintf(&b, " (for %s)", ctrl)
-	}
-
-	daemon := strings.TrimSpace(attr.GetDaemonName())
-	if daemon == "" {
-		daemon = strings.TrimSpace(attr.GetDaemonId())
-	}
-	if daemon != "" {
-		fmt.Fprintf(&b, " via %s", daemon)
-	}
-
-	if conv := strings.TrimSpace(attr.GetConversationId()); conv != "" {
-		fmt.Fprintf(&b, ", conversation %s", conv)
-	}
-	return b.String()
+	return model.FormatActorAttribution(attr, fallbackUsername)
 }

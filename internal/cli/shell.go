@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/peterh/liner"
-	"gitslice.io/gitslice/internal/postgres"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -35,7 +35,7 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID, sli
 	repo := corev1.NewRepositoryServiceClient(conn)
 	pinnedCommit := commitID != ""
 	if commitID == "" {
-		ref, err := repo.GetRef(callCtx, &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+		ref, err := repo.GetRef(callCtx, &corev1.GetRefRequest{RefName: model.DefaultTargetRef})
 		if err != nil {
 			return err
 		}

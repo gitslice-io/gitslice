@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"time"
 
-	"gitslice.io/gitslice/internal/postgres"
+	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -15,7 +15,7 @@ import (
 )
 
 // pendingCheckPattern matches a submit blocked only because a required check
-// has no result yet (storage.EvaluateSubmitRequirements).
+// has no result yet (model.EvaluateSubmitRequirements).
 var pendingCheckPattern = regexp.MustCompile(`required check "([^"]+)" has no result`)
 
 // submitRetryInterval is how often gs create --submit and gs submit retry
@@ -198,7 +198,7 @@ func (r Runner) waitForChangesetSubmitted(
 			if !fetchRef {
 				return cs, "", nil
 			}
-			ref, err := repoClient.GetRef(authContext(waitCtx, cfg), &corev1.GetRefRequest{RefName: postgres.DefaultTargetRef})
+			ref, err := repoClient.GetRef(authContext(waitCtx, cfg), &corev1.GetRefRequest{RefName: model.DefaultTargetRef})
 			if err != nil {
 				return nil, "", err
 			}
