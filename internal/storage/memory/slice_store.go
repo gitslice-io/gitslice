@@ -75,6 +75,94 @@ func (s *SliceStore) ListPublic(ctx context.Context, account, after string, limi
 	return s.list(account, after, limit, true, "", includeArchived)
 }
 
+func (s *SliceStore) ListSorted(ctx context.Context, account, visibilityMode, subjectID, afterCursor string, limit int, includeArchived bool, sortOrder storage.SliceSort) ([]*corev1.Slice, string, error) {
+	publicOnly := visibilityMode != "all"
+	sharedWith := ""
+	if visibilityMode == "visible" {
+		sharedWith = strings.TrimSpace(subjectID)
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	if sortOrder == "" || sortOrder == storage.SliceSortName {
+		slices, err := s.list(account, afterCursor, limit+1, publicOnly, sharedWith, includeArchived)
+		if err != nil {
+			return nil, "", err
+		}
+		var next string
+		if len(slices) > limit {
+			slices = slices[:limit]
+			next = slices[limit-1].GetRef().GetSlice()
+		}
+		return slices, next, nil
+	}
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	var items []*corev1.Slice
+	for _, slice := range s.b.slices {
+		if s.b.retiredSlices[slice.Id] || (slice.Archived && !includeArchived) {
+			continue
+		}
+		_, shared := s.b.sliceMembers[slice.Id][sharedWith]
+		if !shared && sharedWith != "" {
+			_, shared = s.b.subjectSliceGroupRoleLocked(sharedWith, slice.Id)
+		}
+		if slice.Ref.Account == account && (!publicOnly || slice.GetDefinition().GetVisibility() == "public" || (sharedWith != "" && shared)) {
+			items = append(items, s.withCIDaemonName(cloneSlice(slice)))
+		}
+	}
+	sortTimestamp := func(sl *corev1.Slice) int64 {
+		raw := sl.GetCreatedAt()
+		if sortOrder == storage.SliceSortActive && sl.GetLastActivityAt() != "" {
+			raw = sl.GetLastActivityAt()
+		}
+		if raw == "" {
+			return 0
+		}
+		t, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			return 0
+		}
+		return t.UTC().UnixNano()
+	}
+	sort.Slice(items, func(i, j int) bool {
+		hi := items[i].GetRef().GetSlice() == "home"
+		hj := items[j].GetRef().GetSlice() == "home"
+		if hi != hj {
+			return hi
+		}
+		ti, tj := sortTimestamp(items[i]), sortTimestamp(items[j])
+		if ti != tj {
+			return ti > tj
+		}
+		return items[i].GetRef().GetSlice() < items[j].GetRef().GetSlice()
+	})
+	start := 0
+	if afterCursor != "" {
+		found := false
+		for i, sl := range items {
+			if sl.GetRef().GetSlice() == afterCursor {
+				start = i + 1
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, "", nil
+		}
+	}
+	if start >= len(items) {
+		return nil, "", nil
+	}
+	items = items[start:]
+	var next string
+	if len(items) > limit {
+		items = items[:limit]
+		next = items[limit-1].GetRef().GetSlice()
+	}
+	return items, next, nil
+}
+
 // list lists an account's slices: all of them, or with publicOnly the public
 // ones and those shared with sharedWith.
 func (s *SliceStore) list(account, after string, limit int, publicOnly bool, sharedWith string, includeArchived bool) ([]*corev1.Slice, error) {

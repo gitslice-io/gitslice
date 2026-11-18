@@ -399,6 +399,10 @@ type SliceStore interface {
 	// ListVisible lists the account's slices someone outside the account can
 	// see: the public ones and those shared with subjectID.
 	ListVisible(ctx context.Context, account, subjectID, after string, limit int, includeArchived bool) ([]*corev1.Slice, error)
+	// ListSorted lists an account's slices in the requested sort order with
+	// opaque keyset cursors (home first, then active/newest/name).
+	// visibilityMode is "all", "public", or "visible".
+	ListSorted(ctx context.Context, account, visibilityMode, subjectID, afterCursor string, limit int, includeArchived bool, sortOrder SliceSort) (slices []*corev1.Slice, nextCursor string, err error)
 	// ListMembers lists the people and agents given a role on the slice.
 	ListMembers(ctx context.Context, sliceID string) ([]SliceMember, error)
 	// SetMember gives the subject a role on the slice, or changes it.

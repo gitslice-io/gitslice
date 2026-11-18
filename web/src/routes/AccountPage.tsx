@@ -39,12 +39,21 @@ export function AccountPage() {
   const account = params.account ?? "";
   // The viewer's place in this account, if they belong to it.
   const membership = membershipFor(memberships, account);
+  const [sort, setSort] = useState<SliceSort>("name");
+  const [sortReady, setSortReady] = useState(false);
+  // Read after mount, so the server render and the first client render agree,
+  // and wait before firing listSlices so a saved non-default sort doesn't
+  // waste an initial name-sorted request.
+  useEffect(() => {
+    setSort(loadSliceSort());
+    setSortReady(true);
+  }, []);
 
   const slicesQuery = useInfiniteQuery({
-    ...accountSlicesQuery(api, account, membership?.role ?? ""),
+    ...accountSlicesQuery(api, account, membership?.role ?? "", sort),
     // Wait for Clerk, so a member's token is attached and their private slices
     // are included on the first request.
-    enabled: Boolean(isLoaded && account),
+    enabled: Boolean(isLoaded && sortReady && account),
     // Asking again does not change a definite answer (no such account, not
     // signed in, not allowed); only failures that may pass are retried.
     retry: (count, error) => !isDefiniteClientError(error) && count < 2
@@ -63,20 +72,10 @@ export function AccountPage() {
     }
   }, [profile?.account, profile?.avatarVersion]);
   const pages = slicesQuery.data?.pages ?? [];
-  const [sort, setSort] = useState<SliceSort>("name");
-  // Read after mount, so the server render and the first client render agree.
-  useEffect(() => setSort(loadSliceSort()), []);
   const slices = sortSlices(
     pages.flatMap((page: ListSlicesResponse) => page.slices ?? []),
     sort
   );
-  // Pages come in name order, so another order needs them all.
-  const { fetchNextPage, hasNextPage, isFetchingNextPage } = slicesQuery;
-  useEffect(() => {
-    if (sort !== "name" && hasNextPage && !isFetchingNextPage) {
-      void fetchNextPage();
-    }
-  }, [sort, hasNextPage, isFetchingNextPage, fetchNextPage]);
   const kind = membership?.kind || profile?.kind || pages[0]?.accountKind || "";
   const notFound = isNotFoundError(slicesQuery.error) || isNotFoundError(profileQuery.error);
   // An organization's owners and admins edit its profile; a person edits their own.
@@ -257,7 +256,7 @@ export function AccountPage() {
               })}
             </ul>
           )}
-          {slicesQuery.hasNextPage && sort === "name" ? (
+          {slicesQuery.hasNextPage ? (
             <div className="mt-4 flex justify-center">
               <button
                 className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"

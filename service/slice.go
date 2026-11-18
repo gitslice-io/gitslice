@@ -131,15 +131,17 @@ func (s *SliceService) ListSlices(ctx context.Context, req *corev1.ListSlicesReq
 			return nil, err
 		}
 	}
-	list := s.Slices.ListPublic
+	visibilityMode := "public"
 	switch {
 	case member:
-		list = s.Slices.List
+		visibilityMode = "all"
 	case subjectID != "":
 		// Outside the account: the public slices and any shared with them.
-		list = func(ctx context.Context, account, after string, limit int, includeArchived bool) ([]*corev1.Slice, error) {
-			return s.Slices.ListVisible(ctx, account, subjectID, after, limit, includeArchived)
-		}
+		visibilityMode = "visible"
+	}
+	sortOrder, err := storage.NormalizeSliceSort(req.GetSort())
+	if err != nil {
+		return nil, grpcError(err)
 	}
 	pageSize := int(req.PageSize)
 	if pageSize <= 0 {
@@ -156,7 +158,7 @@ func (s *SliceService) ListSlices(ctx context.Context, req *corev1.ListSlicesReq
 		after := req.Cursor
 		batchLimit := maxSlicePageSize
 		for {
-			batch, err := list(ctx, account, after, batchLimit, req.IncludeArchived)
+			batch, batchNext, err := s.Slices.ListSorted(ctx, account, visibilityMode, subjectID, after, batchLimit, req.IncludeArchived, sortOrder)
 			if err != nil {
 				return nil, grpcError(err)
 			}
@@ -165,31 +167,26 @@ func (s *SliceService) ListSlices(ctx context.Context, req *corev1.ListSlicesReq
 					out = append(out, sl)
 					if len(out) > pageSize {
 						out = out[:pageSize]
-						next = out[pageSize-1].GetRef().GetSlice()
+						// Keep cursor from store when available; for name order slug is the cursor.
+						if sortOrder == storage.SliceSortName {
+							next = out[pageSize-1].GetRef().GetSlice()
+						} else {
+							next = batchNext
+						}
 						return &corev1.ListSlicesResponse{Slices: out, NextCursor: next, AccountKind: kind}, nil
 					}
 				}
 			}
-			if len(batch) < batchLimit {
+			if batchNext == "" || batchNext == after {
 				break
 			}
-			nextAfter := batch[len(batch)-1].GetRef().GetSlice()
-			if nextAfter == "" || nextAfter == after {
-				break
-			}
-			after = nextAfter
+			after = batchNext
 		}
 		return &corev1.ListSlicesResponse{Slices: out, NextCursor: next, AccountKind: kind}, nil
 	}
-	// One more than a page tells whether another page follows.
-	slices, err := list(ctx, account, req.Cursor, pageSize+1, req.IncludeArchived)
+	slices, next, err := s.Slices.ListSorted(ctx, account, visibilityMode, subjectID, req.Cursor, pageSize, req.IncludeArchived, sortOrder)
 	if err != nil {
 		return nil, grpcError(err)
-	}
-	next := ""
-	if len(slices) > pageSize {
-		slices = slices[:pageSize]
-		next = slices[pageSize-1].GetRef().GetSlice()
 	}
 	return &corev1.ListSlicesResponse{Slices: slices, NextCursor: next, AccountKind: kind}, nil
 }

@@ -928,31 +928,49 @@ describe("slice route pages (render smoke)", () => {
     expect(screen.getByText("/sunny · everything in sunny").closest("li")).toHaveTextContent("homeHome");
 
     fireEvent.change(screen.getByLabelText("Sort"), { target: { value: "newest" } });
-    expect(names()).toEqual(["home", "rental-price", "botparley"]);
+    await waitFor(() => expect(names()).toEqual(["home", "rental-price", "botparley"]));
+    expect(api.listSlices).toHaveBeenCalledWith(expect.objectContaining({ account: "sunny", sort: "newest" }));
     fireEvent.change(screen.getByLabelText("Sort"), { target: { value: "active" } });
-    expect(names()).toEqual(["home", "botparley", "rental-price"]);
+    await waitFor(() => expect(names()).toEqual(["home", "botparley", "rental-price"]));
+    expect(api.listSlices).toHaveBeenCalledWith(expect.objectContaining({ account: "sunny", sort: "active" }));
     expect(window.localStorage.getItem("gitslice.sliceSort")).toBe("active");
     window.localStorage.removeItem("gitslice.sliceSort");
   });
 
-  it("loads every page to sort by a date", async () => {
+  it("paginates server-sorted slices without fetching every page upfront", async () => {
     routerMock.params = { account: "big" };
     window.localStorage.setItem("gitslice.sliceSort", "newest");
     const api = makeApi();
-    api.listSlices = vi
-      .fn()
-      .mockResolvedValueOnce({
-        slices: [{ id: "a", ref: { account: "big", slice: "alpha" }, definition: { visibility: "public" }, createdAt: "2026-01-01T00:00:00Z" }],
-        nextCursor: "alpha"
-      })
-      .mockResolvedValueOnce({
-        slices: [{ id: "b", ref: { account: "big", slice: "bravo" }, definition: { visibility: "public" }, createdAt: "2026-02-01T00:00:00Z" }]
-      });
+    api.listSlices = vi.fn().mockImplementation(async (req: { cursor?: string; sort?: string }) => {
+      if (req.sort !== "newest") {
+        return {
+          slices: [{ id: "b", ref: { account: "big", slice: "bravo" }, definition: { visibility: "public" }, createdAt: "2026-02-01T00:00:00Z" }],
+          nextCursor: "v1|0|1|bravo"
+        };
+      }
+      if (!req.cursor) {
+        return {
+          slices: [{ id: "b", ref: { account: "big", slice: "bravo" }, definition: { visibility: "public" }, createdAt: "2026-02-01T00:00:00Z" }],
+          nextCursor: "v1|0|1|bravo"
+        };
+      }
+      return {
+        slices: [{ id: "a", ref: { account: "big", slice: "alpha" }, definition: { visibility: "public" }, createdAt: "2026-01-01T00:00:00Z" }]
+      };
+    });
     apiMock.current = api;
     renderRoute(<AccountPage />);
 
     expect(await screen.findByText("bravo")).toBeInTheDocument();
-    expect(screen.getByText("alpha")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(api.listSlices).toHaveBeenCalledWith(expect.objectContaining({ account: "big", cursor: "", sort: "newest" }))
+    );
+    expect(screen.queryByText("alpha")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
+    expect(await screen.findByText("alpha")).toBeInTheDocument();
+    expect(api.listSlices).toHaveBeenLastCalledWith(
+      expect.objectContaining({ account: "big", cursor: "v1|0|1|bravo", sort: "newest" })
+    );
     expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
     window.localStorage.removeItem("gitslice.sliceSort");
   });

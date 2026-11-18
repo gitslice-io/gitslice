@@ -158,6 +158,31 @@ func TestListSlicesPagesThroughAnAccountAndRejectsUnknownAccounts(t *testing.T) 
 	if status.Code(err) != codes.NotFound {
 		t.Fatalf("an unknown account should be not found, got %v", err)
 	}
+
+	// Sort validation rejects unknown sort orders, while "newest" and "active" paginate cleanly.
+	_, err = handlers.Slice.ListSlices(context.Background(), &corev1.ListSlicesRequest{Account: "acme", Sort: "bogus"})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("invalid sort code = %v, want InvalidArgument", status.Code(err))
+	}
+
+	var newest []string
+	cursor = ""
+	for {
+		page, err := handlers.Slice.ListSlices(alice, &corev1.ListSlicesRequest{Account: "acme", Cursor: cursor, PageSize: 2, Sort: "newest"})
+		if err != nil {
+			t.Fatalf("ListSlices sort=newest: %v", err)
+		}
+		for _, slice := range page.Slices {
+			newest = append(newest, slice.Ref.Slice)
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if len(newest) == 0 || newest[0] != "home" {
+		t.Fatalf("newest slices = %v, want home first", newest)
+	}
 }
 
 func TestSliceCRUDAndCommitHistoryUseInMemoryStorage(t *testing.T) {

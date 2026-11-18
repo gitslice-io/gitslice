@@ -47,7 +47,13 @@ describe("query options", () => {
     expect(checkRunsQuery({} as ApiClient, "cs_1", "ps_2").queryKey).toEqual([...checkRunsKeyPrefix("cs_1"), "ps_2"]);
     expect(authStatusQuery({} as ApiClient).queryKey).toEqual(["authStatus"]);
     expect(accountProfileQuery({} as ApiClient, "acme").queryKey).toEqual(["accountProfile", "acme"]);
-    expect(accountSlicesQuery({} as ApiClient, "acme", "owner").queryKey).toEqual(["accountSlices", "acme", "owner"]);
+    expect(accountSlicesQuery({} as ApiClient, "acme", "owner").queryKey).toEqual(["accountSlices", "acme", "owner", "name"]);
+    expect(accountSlicesQuery({} as ApiClient, "acme", "owner", "active").queryKey).toEqual([
+      "accountSlices",
+      "acme",
+      "owner",
+      "active"
+    ]);
     expect(sliceRenderedFileQueryKey(slice, "c1", "/acme/shop/README.md")).toEqual([
       "sliceRenderedFile",
       "acme",

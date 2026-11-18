@@ -53,6 +53,7 @@ export interface ListSlicesRequest {
   cursor?: string;
   pageSize?: number;
   includeArchived?: boolean;
+  sort?: "name" | "active" | "newest";
 }
 
 export interface ListSlicesResponse {

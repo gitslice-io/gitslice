@@ -192,6 +192,10 @@ message ListSlicesRequest {
   int32 page_size = 3;
   // Include archived slices, which are left out otherwise.
   bool include_archived = 4;
+  // Optional sort order: "" or "name" (default, slug ascending), "active"
+  // (home first, then most recently active), or "newest" (home first, then
+  // newest created_at).
+  string sort = 5;
 }
 
 message ListSlicesResponse {

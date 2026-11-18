@@ -866,8 +866,12 @@ type ListSlicesRequest struct {
 	PageSize int32                  `protobuf:"varint,3,opt,name=page_size,json=pageSize,proto3" json:"page_size,omitempty"`
 	// Include archived slices, which are left out otherwise.
 	IncludeArchived bool `protobuf:"varint,4,opt,name=include_archived,json=includeArchived,proto3" json:"include_archived,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Optional sort order: "" or "name" (default, slug ascending), "active"
+	// (home first, then most recently active), or "newest" (home first, then
+	// newest created_at).
+	Sort          string `protobuf:"bytes,5,opt,name=sort,proto3" json:"sort,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListSlicesRequest) Reset() {
@@ -926,6 +930,13 @@ func (x *ListSlicesRequest) GetIncludeArchived() bool {
 		return x.IncludeArchived
 	}
 	return false
+}
+
+func (x *ListSlicesRequest) GetSort() string {
+	if x != nil {
+		return x.Sort
+	}
+	return ""
 }
 
 type ListSlicesResponse struct {
@@ -2838,12 +2849,13 @@ const file_proto_core_v1_slice_proto_rawDesc = "" +
 	"\x13ResolveSliceRequest\x12,\n" +
 	"\x03ref\x18\x01 \x01(\v2\x1a.gitslice.core.v1.SliceRefR\x03ref\",\n" +
 	"\x0fGetSliceRequest\x12\x19\n" +
-	"\bslice_id\x18\x01 \x01(\tR\asliceId\"\x8d\x01\n" +
+	"\bslice_id\x18\x01 \x01(\tR\asliceId\"\xa1\x01\n" +
 	"\x11ListSlicesRequest\x12\x18\n" +
 	"\aaccount\x18\x01 \x01(\tR\aaccount\x12\x16\n" +
 	"\x06cursor\x18\x02 \x01(\tR\x06cursor\x12\x1b\n" +
 	"\tpage_size\x18\x03 \x01(\x05R\bpageSize\x12)\n" +
-	"\x10include_archived\x18\x04 \x01(\bR\x0fincludeArchived\"\x89\x01\n" +
+	"\x10include_archived\x18\x04 \x01(\bR\x0fincludeArchived\x12\x12\n" +
+	"\x04sort\x18\x05 \x01(\tR\x04sort\"\x89\x01\n" +
 	"\x12ListSlicesResponse\x12/\n" +
 	"\x06slices\x18\x01 \x03(\v2\x17.gitslice.core.v1.SliceR\x06slices\x12\x1f\n" +
 	"\vnext_cursor\x18\x02 \x01(\tR\n" +
