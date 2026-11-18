@@ -23,11 +23,10 @@ import (
 )
 
 func TestGRPCRateLimitUnaryUsesSubjectID(t *testing.T) {
-	limiter := newGRPCRateLimiter(Config{
+	interceptor := newServerLimiters(Config{
 		RateLimitPerSubjectRPS:   1,
 		RateLimitPerSubjectBurst: 1,
-	})
-	interceptor := grpcRateLimitUnaryInterceptor(limiter)
+	}).grpcSubjectUnaryInterceptor()
 	info := &grpc.UnaryServerInfo{FullMethod: "/gitslice.core.v1.SliceService/GetSlice"}
 	calls := 0
 	handler := func(ctx context.Context, req any) (any, error) {
@@ -52,11 +51,13 @@ func TestGRPCRateLimitUnaryUsesSubjectID(t *testing.T) {
 }
 
 func TestGRPCRateLimitUnaryFallsBackToPeerIP(t *testing.T) {
-	limiter := newGRPCRateLimiter(Config{
-		RateLimitPerSubjectRPS:   1,
-		RateLimitPerSubjectBurst: 1,
-	})
-	interceptor := grpcRateLimitUnaryInterceptor(limiter)
+	limiters := &serverLimiters{
+		subject: newGRPCRateLimiter(Config{
+			RateLimitPerSubjectRPS:   1,
+			RateLimitPerSubjectBurst: 1,
+		}),
+	}
+	interceptor := limiters.grpcSubjectUnaryInterceptor()
 	info := &grpc.UnaryServerInfo{FullMethod: "/gitslice.core.v1.AuthService/StartCliLogin"}
 	handler := func(ctx context.Context, req any) (any, error) {
 		return "ok", nil
@@ -72,11 +73,10 @@ func TestGRPCRateLimitUnaryFallsBackToPeerIP(t *testing.T) {
 }
 
 func TestGRPCRateLimitExemptsHealthChecks(t *testing.T) {
-	limiter := newGRPCRateLimiter(Config{
+	interceptor := newServerLimiters(Config{
 		RateLimitPerSubjectRPS:   1,
 		RateLimitPerSubjectBurst: 1,
-	})
-	interceptor := grpcRateLimitUnaryInterceptor(limiter)
+	}).grpcSubjectUnaryInterceptor()
 	info := &grpc.UnaryServerInfo{FullMethod: "/grpc.health.v1.Health/Check"}
 	handler := func(ctx context.Context, req any) (any, error) {
 		return "ok", nil
@@ -90,11 +90,10 @@ func TestGRPCRateLimitExemptsHealthChecks(t *testing.T) {
 }
 
 func TestGRPCRateLimitStreamRejectsOverLimit(t *testing.T) {
-	limiter := newGRPCRateLimiter(Config{
+	interceptor := newServerLimiters(Config{
 		RateLimitPerSubjectRPS:   1,
 		RateLimitPerSubjectBurst: 1,
-	})
-	interceptor := grpcRateLimitStreamInterceptor(limiter)
+	}).grpcSubjectStreamInterceptor()
 	info := &grpc.StreamServerInfo{FullMethod: "/gitslice.core.v1.BlobService/UploadBlob"}
 	stream := &testServerStream{ctx: authctx.WithSubjectID(context.Background(), "alice")}
 	handler := func(srv any, stream grpc.ServerStream) error {
@@ -110,10 +109,10 @@ func TestGRPCRateLimitStreamRejectsOverLimit(t *testing.T) {
 }
 
 func TestHTTPRateLimitUsesForwardedForRightmostHop(t *testing.T) {
-	handler := newHTTPRateLimitMiddleware(Config{
+	handler := newServerLimiters(Config{
 		RateLimitHTTPPerIPRPS:   1,
 		RateLimitHTTPPerIPBurst: 1,
-	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	}).httpIPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
@@ -223,10 +222,10 @@ func TestHTTPClientIP(t *testing.T) {
 
 func TestUntrustedProxyIgnoresForwardedForAndTrustedProxyCIDRHonorsIt(t *testing.T) {
 	// Default: public peer 198.51.100.50 cannot spoof X-Forwarded-For on HTTP or gRPC.
-	untrusted := newHTTPRateLimitMiddleware(Config{
+	untrusted := newServerLimiters(Config{
 		RateLimitHTTPPerIPRPS:   0.001,
 		RateLimitHTTPPerIPBurst: 1,
-	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	}).httpIPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
@@ -275,10 +274,10 @@ func TestUntrustedProxyIgnoresForwardedForAndTrustedProxyCIDRHonorsIt(t *testing
 }
 
 func TestIPv6Subnet64Bucketing(t *testing.T) {
-	handler := newHTTPRateLimitMiddleware(Config{
+	handler := newServerLimiters(Config{
 		RateLimitHTTPPerIPRPS:   0.001,
 		RateLimitHTTPPerIPBurst: 1,
-	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	}).httpIPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
@@ -461,11 +460,11 @@ func TestTriggerRunFailureRateLimiter(t *testing.T) {
 }
 
 func TestHTTPRateLimitDisabledPassesThrough(t *testing.T) {
-	handler := newHTTPRateLimitMiddleware(Config{
+	handler := newServerLimiters(Config{
 		RateLimitDisabled:       true,
 		RateLimitHTTPPerIPRPS:   1,
 		RateLimitHTTPPerIPBurst: 1,
-	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	}).httpIPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 

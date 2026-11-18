@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -191,10 +190,14 @@ func (w *statusRecorder) Write(data []byte) (int, error) {
 // requestToken returns the bearer token or HTTP basic-auth password, or "" when
 // the request carries no credentials.
 func requestToken(r *http.Request) string {
-	if token := bearerToken(r.Header.Get("Authorization")); token != "" {
+	header := r.Header.Get("Authorization")
+	if token, ok := authctx.BearerToken(header); ok {
 		return token
 	}
-	return basicPassword(r.Header.Get("Authorization"))
+	if password, ok := authctx.BasicPassword(header); ok {
+		return password
+	}
+	return ""
 }
 
 func isAccessError(err error) bool {
@@ -552,32 +555,6 @@ func gitHTTPOperation(r *http.Request) string {
 	default:
 		return "unknown"
 	}
-}
-
-func bearerToken(header string) string {
-	const prefix = "bearer "
-	header = strings.TrimSpace(header)
-	if strings.HasPrefix(strings.ToLower(header), prefix) {
-		return strings.TrimSpace(header[len(prefix):])
-	}
-	return ""
-}
-
-func basicPassword(header string) string {
-	const prefix = "basic "
-	header = strings.TrimSpace(header)
-	if !strings.HasPrefix(strings.ToLower(header), prefix) {
-		return ""
-	}
-	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(header[len(prefix):]))
-	if err != nil {
-		return ""
-	}
-	_, password, ok := strings.Cut(string(raw), ":")
-	if !ok {
-		return ""
-	}
-	return password
 }
 
 func writeGitError(w http.ResponseWriter, err error) {

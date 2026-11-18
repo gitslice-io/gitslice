@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
+	"connectrpc.com/connect"
 	"gitslice.io/gitslice/internal/metrics"
 	"gitslice.io/gitslice/internal/requestid"
 	"google.golang.org/grpc"
@@ -64,6 +66,45 @@ func grpcMetricsStreamInterceptor() grpc.StreamServerInterceptor {
 		recordGRPCRequest(stream.Context(), info.FullMethod, status.Code(err), time.Since(start), err)
 		return err
 	}
+}
+
+type connectObservabilityInterceptor struct{}
+
+func connectMetricsInterceptor() connect.Interceptor {
+	return connectObservabilityInterceptor{}
+}
+
+func (connectObservabilityInterceptor) WrapUnary(next connect.UnaryFunc) connect.UnaryFunc {
+	return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
+		start := time.Now()
+		resp, err := next(ctx, req)
+		recordGRPCRequest(ctx, req.Spec().Procedure, connectStatusCode(err), time.Since(start), err)
+		return resp, err
+	}
+}
+
+func (connectObservabilityInterceptor) WrapStreamingClient(next connect.StreamingClientFunc) connect.StreamingClientFunc {
+	return next
+}
+
+func (connectObservabilityInterceptor) WrapStreamingHandler(next connect.StreamingHandlerFunc) connect.StreamingHandlerFunc {
+	return func(ctx context.Context, conn connect.StreamingHandlerConn) error {
+		start := time.Now()
+		err := next(ctx, conn)
+		recordGRPCRequest(ctx, conn.Spec().Procedure, connectStatusCode(err), time.Since(start), err)
+		return err
+	}
+}
+
+func connectStatusCode(err error) codes.Code {
+	if err == nil {
+		return codes.OK
+	}
+	var connectErr *connect.Error
+	if errors.As(err, &connectErr) {
+		return codes.Code(connectErr.Code())
+	}
+	return status.Code(err)
 }
 
 func recordGRPCRequest(ctx context.Context, method string, code codes.Code, duration time.Duration, err error) {

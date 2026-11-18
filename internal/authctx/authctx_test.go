@@ -2,6 +2,8 @@ package authctx
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"slices"
 	"testing"
 )
@@ -68,5 +70,38 @@ func TestPrincipalRoundTripAndBackwardCompatibility(t *testing.T) {
 	}
 	if plainP, ok := PrincipalFrom(plainCtx); ok || plainP.KeyID != "" {
 		t.Fatalf("PrincipalFrom(plainCtx) = (%+v, %v), want empty false", plainP, ok)
+	}
+}
+
+func TestParseBearerAuthorizationAndBasicPassword(t *testing.T) {
+	if tok, ok, err := ParseBearerAuthorization("   "); err != nil || ok || tok != "" {
+		t.Fatalf("empty ParseBearerAuthorization = (%q, %v, %v)", tok, ok, err)
+	}
+	if _, _, err := ParseBearerAuthorization("Basic abc"); !errors.Is(err, ErrMalformedBearerToken) {
+		t.Fatalf("Basic header err = %v, want ErrMalformedBearerToken", err)
+	}
+	if _, _, err := ParseBearerAuthorization("Bearer    "); !errors.Is(err, ErrEmptyBearerToken) {
+		t.Fatalf("empty bearer err = %v, want ErrEmptyBearerToken", err)
+	}
+	if tok, ok, err := ParseBearerAuthorization("  bEaReR   secret_token_123  "); err != nil || !ok || tok != "secret_token_123" {
+		t.Fatalf("valid ParseBearerAuthorization = (%q, %v, %v)", tok, ok, err)
+	}
+	if tok, ok := BearerToken("Bearer tok_abc"); !ok || tok != "tok_abc" {
+		t.Fatalf("BearerToken = (%q, %v), want (tok_abc, true)", tok, ok)
+	}
+	if tok, ok := BearerToken("Basic xyz"); ok || tok != "" {
+		t.Fatalf("BearerToken(Basic) = (%q, %v), want empty false", tok, ok)
+	}
+
+	encoded := base64.StdEncoding.EncodeToString([]byte("x-token:my_pat_secret"))
+	if pw, ok := BasicPassword("Basic " + encoded); !ok || pw != "my_pat_secret" {
+		t.Fatalf("BasicPassword = (%q, %v), want (my_pat_secret, true)", pw, ok)
+	}
+	emptyPass := base64.StdEncoding.EncodeToString([]byte("user:"))
+	if pw, ok := BasicPassword("Basic " + emptyPass); ok || pw != "" {
+		t.Fatalf("BasicPassword(empty) = (%q, %v), want empty false", pw, ok)
+	}
+	if pw, ok := BasicPassword("Basic !!!not-base64!!!"); ok || pw != "" {
+		t.Fatalf("BasicPassword(invalid base64) = (%q, %v), want empty false", pw, ok)
 	}
 }

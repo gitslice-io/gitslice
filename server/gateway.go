@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/metrics"
 	"gitslice.io/gitslice/internal/rpclimits"
 )
@@ -65,8 +66,6 @@ func newHTTPHandler(
 	}
 
 	apiHandler := withMaxBody(api, rpclimits.MaxUnaryMessageBytes)
-	apiHandler = limiters.agentSignupHTTPMiddleware()(apiHandler)
-	apiHandler = limiters.httpIPMiddleware()(apiHandler)
 	mux.Handle("/", withCORS(apiHandler, allowedOrigin))
 	return mux
 }
@@ -86,12 +85,7 @@ func validMetricsToken(r *http.Request, token string) bool {
 	if token == "" {
 		return false
 	}
-	const prefix = "bearer "
-	var candidate string
-	value := strings.TrimSpace(r.Header.Get("Authorization"))
-	if strings.HasPrefix(strings.ToLower(value), prefix) {
-		candidate = strings.TrimSpace(value[len(prefix):])
-	}
+	candidate, _ := authctx.BearerToken(r.Header.Get("Authorization"))
 	if candidate == "" {
 		if q := r.URL.Query().Get("token"); q != "" {
 			deprecatedMetricsQueryTokenOnce.Do(func() {
@@ -135,7 +129,7 @@ func withCORS(handler http.Handler, allowedOrigin string) http.Handler {
 			w.Header().Add("Vary", "Origin")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Connect-Protocol-Version, Connect-Timeout, Connect-Timeout-Ms, Content-Type, X-User-Agent")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-			w.Header().Set("Access-Control-Expose-Headers", "Connect-Content-Encoding, Connect-Accept-Encoding, Grpc-Message, Grpc-Status, Grpc-Status-Details-Bin")
+			w.Header().Set("Access-Control-Expose-Headers", "Connect-Content-Encoding, Connect-Accept-Encoding, Grpc-Message, Grpc-Status, Grpc-Status-Details-Bin, X-Request-Id")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)

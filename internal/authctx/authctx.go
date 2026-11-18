@@ -2,8 +2,17 @@ package authctx
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
 	"slices"
 	"strings"
+)
+
+var (
+	// ErrMalformedBearerToken indicates an Authorization header that is not a Bearer token.
+	ErrMalformedBearerToken = errors.New("authorization must be a bearer token")
+	// ErrEmptyBearerToken indicates a Bearer Authorization header with an empty token value.
+	ErrEmptyBearerToken = errors.New("empty bearer token")
 )
 
 type subjectKey struct{}
@@ -97,4 +106,56 @@ func SubjectID(ctx context.Context) (string, bool) {
 		return p.SubjectID, true
 	}
 	return "", false
+}
+
+// ParseBearerAuthorization parses an HTTP/gRPC Authorization header value for a
+// Bearer token. An empty header returns ("", false, nil). A non-empty header
+// without a "Bearer " prefix returns ErrMalformedBearerToken, and a "Bearer "
+// header with no token returns ErrEmptyBearerToken.
+func ParseBearerAuthorization(header string) (token string, present bool, err error) {
+	const prefix = "bearer "
+	header = strings.TrimSpace(header)
+	if header == "" {
+		return "", false, nil
+	}
+	if strings.EqualFold(header, "bearer") {
+		return "", false, ErrEmptyBearerToken
+	}
+	if !strings.HasPrefix(strings.ToLower(header), prefix) {
+		return "", false, ErrMalformedBearerToken
+	}
+	token = strings.TrimSpace(header[len(prefix):])
+	if token == "" {
+		return "", false, ErrEmptyBearerToken
+	}
+	return token, true, nil
+}
+
+// BearerToken returns the bearer token from an Authorization header if present
+// and non-empty.
+func BearerToken(header string) (string, bool) {
+	token, ok, err := ParseBearerAuthorization(header)
+	if err != nil || !ok {
+		return "", false
+	}
+	return token, true
+}
+
+// BasicPassword extracts the password component from a Basic Authorization
+// header value, if present and non-empty.
+func BasicPassword(header string) (string, bool) {
+	const prefix = "basic "
+	header = strings.TrimSpace(header)
+	if !strings.HasPrefix(strings.ToLower(header), prefix) {
+		return "", false
+	}
+	raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(header[len(prefix):]))
+	if err != nil {
+		return "", false
+	}
+	_, password, ok := strings.Cut(string(raw), ":")
+	if !ok || password == "" {
+		return "", false
+	}
+	return password, true
 }

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -127,7 +128,10 @@ type serverLimiters struct {
 }
 
 func newServerLimiters(cfg Config) *serverLimiters {
-	proxies, _ := parseTrustedProxies(cfg.TrustedProxyCIDRs)
+	proxies, err := parseTrustedProxies(cfg.TrustedProxyCIDRs)
+	if err != nil {
+		slog.Warn("ignoring invalid trusted proxy CIDRs in rate limiter; validate config before starting server", "error", err)
+	}
 	if cfg.RateLimitDisabled {
 		return &serverLimiters{proxies: proxies}
 	}
@@ -162,22 +166,6 @@ func (l *serverLimiters) httpIPMiddleware() func(http.Handler) http.Handler {
 			if !l.ip.Allow("ip:" + httpClientIPWithProxies(r, l.proxies)) {
 				ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
 				http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func (l *serverLimiters) agentSignupHTTPMiddleware() func(http.Handler) http.Handler {
-	if l == nil || l.signup == nil {
-		return func(next http.Handler) http.Handler { return next }
-	}
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.URL.Path == agentSignupMethod && !l.signup.Allow("ip:"+httpClientIPWithProxies(r, l.proxies)) {
-				ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
-				http.Error(w, "agent sign-up rate limit exceeded", http.StatusTooManyRequests)
 				return
 			}
 			next.ServeHTTP(w, r)
@@ -334,59 +322,11 @@ func newGRPCRateLimiter(cfg Config) *ratelimit.Limiter {
 	return ratelimit.New(cfg.RateLimitPerSubjectRPS, serverRateLimitBurst(cfg.RateLimitPerSubjectBurst), rateLimitBucketTTL)
 }
 
-func grpcRateLimitUnaryInterceptor(limiter *ratelimit.Limiter) grpc.UnaryServerInterceptor {
-	if limiter == nil {
-		return func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-			return handler(ctx, req)
-		}
-	}
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if isHealthCheckMethod(info.FullMethod) || limiter.Allow(grpcRateLimitKey(ctx)) {
-			return handler(ctx, req)
-		}
-		ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "grpc"})
-		return nil, status.Error(codes.ResourceExhausted, "rate limit exceeded")
-	}
-}
-
-func grpcRateLimitStreamInterceptor(limiter *ratelimit.Limiter) grpc.StreamServerInterceptor {
-	if limiter == nil {
-		return func(srv any, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-			return handler(srv, stream)
-		}
-	}
-	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		if isHealthCheckMethod(info.FullMethod) || limiter.Allow(grpcRateLimitKey(stream.Context())) {
-			return handler(srv, stream)
-		}
-		ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "grpc"})
-		return status.Error(codes.ResourceExhausted, "rate limit exceeded")
-	}
-}
-
-func newHTTPRateLimitMiddleware(cfg Config) func(http.Handler) http.Handler {
-	return newServerLimiters(cfg).httpIPMiddleware()
-}
-
 func newAgentSignupLimiter(cfg Config) *ratelimit.Limiter {
 	if cfg.RateLimitDisabled || cfg.AgentSignupPerHour <= 0 {
 		return nil
 	}
 	return ratelimit.New(float64(cfg.AgentSignupPerHour)/3600, cfg.AgentSignupPerHour, agentSignupBucketTTL)
-}
-
-func agentSignupUnaryInterceptor(limiter *ratelimit.Limiter) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if limiter == nil || info.FullMethod != agentSignupMethod || limiter.Allow(grpcPeerIPKey(ctx)) {
-			return handler(ctx, req)
-		}
-		ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "grpc"})
-		return nil, status.Error(codes.ResourceExhausted, "agent sign-up rate limit exceeded")
-	}
-}
-
-func newAgentSignupHTTPMiddleware(cfg Config) func(http.Handler) http.Handler {
-	return newServerLimiters(cfg).agentSignupHTTPMiddleware()
 }
 
 func grpcPeerIPKey(ctx context.Context) string {
@@ -413,13 +353,6 @@ func grpcPeerIPKeyWithProxies(ctx context.Context, proxies trustedProxies) strin
 		return "ip:" + peerHost
 	}
 	return "ip:unknown"
-}
-
-func grpcRateLimitKey(ctx context.Context) string {
-	if subjectID, ok := authctx.SubjectID(ctx); ok {
-		return "subject:" + subjectID
-	}
-	return grpcPeerIPKey(ctx)
 }
 
 func isHealthCheckMethod(method string) bool {

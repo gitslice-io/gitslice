@@ -1,29 +1,30 @@
 package server
 
 import (
-	"context"
 	"errors"
-	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/metrics"
-	corev1 "gitslice.io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/requestid"
 	corev1connect "gitslice.io/gitslice/proto/core/v1/corev1connect"
 	"gitslice.io/gitslice/service"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 )
 
-func NewConnectHandler(resolve subjectResolver, handlers *service.Handlers) http.Handler {
-	return NewPrincipalConnectHandler(toPrincipalResolver(resolve), handlers)
+func NewConnectHandler(resolve subjectResolver, handlers *service.Handlers, cfgs ...Config) http.Handler {
+	return NewPrincipalConnectHandler(toPrincipalResolver(resolve), handlers, cfgs...)
 }
 
-func NewPrincipalConnectHandler(resolve principalResolver, handlers *service.Handlers) http.Handler {
-	return newPrincipalConnectHandler(resolve, handlers, nil)
+func NewPrincipalConnectHandler(resolve principalResolver, handlers *service.Handlers, cfgs ...Config) http.Handler {
+	var limiters *serverLimiters
+	if len(cfgs) > 0 {
+		limiters = newServerLimiters(cfgs[0])
+	}
+	return newPrincipalConnectHandler(resolve, handlers, limiters)
 }
 
 func newConnectHandler(resolve subjectResolver, handlers *service.Handlers, limiters *serverLimiters) http.Handler {
@@ -32,26 +33,27 @@ func newConnectHandler(resolve subjectResolver, handlers *service.Handlers, limi
 
 func newPrincipalConnectHandler(resolve principalResolver, handlers *service.Handlers, limiters *serverLimiters) http.Handler {
 	mux := http.NewServeMux()
+	opts := []connect.HandlerOption{connect.WithInterceptors(connectMetricsInterceptor())}
 	mount := func(pattern string, handler http.Handler) {
 		mux.Handle(pattern, connectPrincipalAuthMiddlewareWithLimiters(resolve, limiters)(handler))
 	}
 	// Shared-link preview images; anonymous by design (see social_image.go).
-	mux.Handle("/og/", newSocialImageHandler(handlers.Slice))
+	mux.Handle("/og/", limiters.httpIPMiddleware()(newSocialImageHandler(handlers.Slice)))
 	// Account pictures; public, like the profile they belong to.
-	mux.Handle("/avatars/", newAvatarImageHandler(handlers.Auth))
-	mount(corev1connect.NewAuthServiceHandler(connectAuthAdapter{svc: handlers.Auth}))
-	mount(corev1connect.NewRepositoryServiceHandler(connectRepositoryAdapter{svc: handlers.Repository}))
-	mount(corev1connect.NewBlobServiceHandler(connectBlobAdapter{svc: handlers.Blob}))
-	mount(corev1connect.NewSliceServiceHandler(connectSliceAdapter{svc: handlers.Slice}))
-	mount(corev1connect.NewWorkspaceServiceHandler(connectWorkspaceAdapter{svc: handlers.Workspace}))
-	mount(corev1connect.NewChangesetServiceHandler(connectChangesetAdapter{svc: handlers.Changeset}))
-	mount(corev1connect.NewChangesetStackServiceHandler(connectStackAdapter{svc: handlers.Stack}))
-	mount(corev1connect.NewAgentServiceHandler(connectAgentAdapter{svc: handlers.Agent}))
-	mount(corev1connect.NewCheckServiceHandler(connectCheckAdapter{svc: handlers.Check}))
-	mount(corev1connect.NewSecretServiceHandler(connectSecretAdapter{svc: handlers.Secret}))
-	mount(corev1connect.NewFeedbackServiceHandler(connectFeedbackAdapter{svc: handlers.Feedback}))
-	mount(corev1connect.NewTriggerServiceHandler(connectTriggerServiceAdapter{svc: handlers.Trigger}))
-	mount(corev1connect.NewTriggerRunServiceHandler(connectTriggerRunServiceAdapter{svc: handlers.TriggerRun, limiters: limiters}))
+	mux.Handle("/avatars/", limiters.httpIPMiddleware()(newAvatarImageHandler(handlers.Auth)))
+	mount(corev1connect.NewAuthServiceHandler(connectAuthAdapter{svc: handlers.Auth}, opts...))
+	mount(corev1connect.NewRepositoryServiceHandler(connectRepositoryAdapter{svc: handlers.Repository}, opts...))
+	mount(corev1connect.NewBlobServiceHandler(connectBlobAdapter{svc: handlers.Blob}, opts...))
+	mount(corev1connect.NewSliceServiceHandler(connectSliceAdapter{svc: handlers.Slice}, opts...))
+	mount(corev1connect.NewWorkspaceServiceHandler(connectWorkspaceAdapter{svc: handlers.Workspace}, opts...))
+	mount(corev1connect.NewChangesetServiceHandler(connectChangesetAdapter{svc: handlers.Changeset}, opts...))
+	mount(corev1connect.NewChangesetStackServiceHandler(connectStackAdapter{svc: handlers.Stack}, opts...))
+	mount(corev1connect.NewAgentServiceHandler(connectAgentAdapter{svc: handlers.Agent}, opts...))
+	mount(corev1connect.NewCheckServiceHandler(connectCheckAdapter{svc: handlers.Check}, opts...))
+	mount(corev1connect.NewSecretServiceHandler(connectSecretAdapter{svc: handlers.Secret}, opts...))
+	mount(corev1connect.NewFeedbackServiceHandler(connectFeedbackAdapter{svc: handlers.Feedback}, opts...))
+	mount(corev1connect.NewTriggerServiceHandler(connectTriggerServiceAdapter{svc: handlers.Trigger}, opts...))
+	mount(corev1connect.NewTriggerRunServiceHandler(connectTriggerRunServiceAdapter{svc: handlers.TriggerRun, limiters: limiters}, opts...))
 	return mux
 }
 
@@ -61,14 +63,32 @@ func connectAuthMiddleware(resolve subjectResolver) func(http.Handler) http.Hand
 
 func connectPrincipalAuthMiddlewareWithLimiters(resolve principalResolver, limiters *serverLimiters) func(http.Handler) http.Handler {
 	errorWriter := connect.NewErrorWriter()
+	reject := func(w http.ResponseWriter, r *http.Request, start time.Time, err error) {
+		recordGRPCRequest(r.Context(), r.URL.Path, connectStatusCode(err), time.Since(start), err)
+		_ = errorWriter.Write(w, r, err)
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			id := requestid.New()
+			w.Header().Set("X-Request-Id", id)
+			r = r.WithContext(requestid.With(r.Context(), id))
+
+			var ipKey string
+			if limiters != nil {
+				ipKey = "ip:" + httpClientIPWithProxies(r, limiters.proxies)
+			}
+			if limiters != nil && limiters.grpcIP != nil && !limiters.grpcIP.Allow(ipKey) {
+				ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
+				reject(w, r, start, connect.NewError(connect.CodeResourceExhausted, errors.New("rate limit exceeded")))
+				return
+			}
+
 			if strings.HasPrefix(r.URL.Path, triggerRunServicePrefix) {
 				if limiters != nil && limiters.triggerFail != nil {
-					ipKey := "ip:" + httpClientIPWithProxies(r, limiters.proxies)
 					if !limiters.triggerFail.Peek(ipKey) {
 						ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
-						_ = errorWriter.Write(w, r, connect.NewError(connect.CodeResourceExhausted, errors.New("trigger run authentication failure rate limit exceeded")))
+						reject(w, r, start, connect.NewError(connect.CodeResourceExhausted, errors.New("trigger run authentication failure rate limit exceeded")))
 						return
 					}
 					r = r.WithContext(withClientIPKey(r.Context(), ipKey))
@@ -76,31 +96,48 @@ func connectPrincipalAuthMiddlewareWithLimiters(resolve principalResolver, limit
 				next.ServeHTTP(w, r)
 				return
 			}
+
 			if isPublicMethod(r.URL.Path) {
+				if r.URL.Path == agentSignupMethod && limiters != nil && limiters.signup != nil && !limiters.signup.Allow(ipKey) {
+					ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
+					reject(w, r, start, connect.NewError(connect.CodeResourceExhausted, errors.New("agent sign-up rate limit exceeded")))
+					return
+				}
+				if limiters != nil && limiters.subject != nil && limiters.grpcIP == nil && !limiters.subject.Allow(ipKey) {
+					ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
+					reject(w, r, start, connect.NewError(connect.CodeResourceExhausted, errors.New("rate limit exceeded")))
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			}
+
 			token, ok, err := optionalBearerTokenValue(r.Header.Get("Authorization"))
 			if err != nil {
-				_ = errorWriter.Write(w, r, connectError(err))
+				reject(w, r, start, connectError(err))
 				return
 			}
 			if !ok {
+				if limiters != nil && limiters.subject != nil && limiters.grpcIP == nil && !limiters.subject.Allow(ipKey) {
+					ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
+					reject(w, r, start, connect.NewError(connect.CodeResourceExhausted, errors.New("rate limit exceeded")))
+					return
+				}
 				next.ServeHTTP(w, r)
 				return
 			}
 			principal, err := resolve(r.Context(), token)
 			if err != nil {
-				_ = errorWriter.Write(w, r, connectAuthError(err))
+				reject(w, r, start, connectAuthError(err))
 				return
 			}
 			if principal == nil {
-				_ = errorWriter.Write(w, r, connect.NewError(connect.CodeUnauthenticated, errors.New("missing authenticated principal")))
+				reject(w, r, start, connect.NewError(connect.CodeUnauthenticated, errors.New("missing authenticated principal")))
 				return
 			}
 			if limiters != nil && limiters.subject != nil && !limiters.subject.Allow("subject:"+principal.SubjectID) {
 				ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
-				_ = errorWriter.Write(w, r, connect.NewError(connect.CodeResourceExhausted, errors.New("rate limit exceeded")))
+				reject(w, r, start, connect.NewError(connect.CodeResourceExhausted, errors.New("rate limit exceeded")))
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(authctx.WithPrincipal(r.Context(), *principal)))
@@ -131,837 +168,4 @@ func connectError(err error) error {
 
 func connectAuthError(err error) error {
 	return connectError(grpcAuthError(err))
-}
-
-type connectAuthAdapter struct {
-	svc *service.AuthService
-}
-
-func (a connectAuthAdapter) StartCliLogin(ctx context.Context, req *connect.Request[corev1.StartCliLoginRequest]) (*connect.Response[corev1.StartCliLoginResponse], error) {
-	return connectResponse(a.svc.StartCliLogin(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) PollCliLogin(ctx context.Context, req *connect.Request[corev1.PollCliLoginRequest]) (*connect.Response[corev1.PollCliLoginResponse], error) {
-	return connectResponse(a.svc.PollCliLogin(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) CompleteCliLogin(ctx context.Context, req *connect.Request[corev1.CompleteCliLoginRequest]) (*connect.Response[corev1.CompleteCliLoginResponse], error) {
-	return connectResponse(a.svc.CompleteCliLogin(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) GetAuthStatus(ctx context.Context, req *connect.Request[corev1.GetAuthStatusRequest]) (*connect.Response[corev1.GetAuthStatusResponse], error) {
-	return connectResponse(a.svc.GetAuthStatus(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) CheckUsernameAvailable(ctx context.Context, req *connect.Request[corev1.CheckUsernameAvailableRequest]) (*connect.Response[corev1.CheckUsernameAvailableResponse], error) {
-	return connectResponse(a.svc.CheckUsernameAvailable(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) ChooseUsername(ctx context.Context, req *connect.Request[corev1.ChooseUsernameRequest]) (*connect.Response[corev1.ChooseUsernameResponse], error) {
-	return connectResponse(a.svc.ChooseUsername(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) ListPendingClaims(ctx context.Context, req *connect.Request[corev1.ListPendingClaimsRequest]) (*connect.Response[corev1.ListPendingClaimsResponse], error) {
-	return connectResponse(a.svc.ListPendingClaims(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) AcceptClaim(ctx context.Context, req *connect.Request[corev1.AcceptClaimRequest]) (*connect.Response[corev1.AcceptClaimResponse], error) {
-	return connectResponse(a.svc.AcceptClaim(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) ListApiKeys(ctx context.Context, req *connect.Request[corev1.ListApiKeysRequest]) (*connect.Response[corev1.ListApiKeysResponse], error) {
-	return connectResponse(a.svc.ListApiKeys(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) CreateApiKey(ctx context.Context, req *connect.Request[corev1.CreateApiKeyRequest]) (*connect.Response[corev1.CreateApiKeyResponse], error) {
-	return connectResponse(a.svc.CreateApiKey(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) RevokeApiKey(ctx context.Context, req *connect.Request[corev1.RevokeApiKeyRequest]) (*connect.Response[corev1.RevokeApiKeyResponse], error) {
-	return connectResponse(a.svc.RevokeApiKey(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) ListOwnedAgents(ctx context.Context, req *connect.Request[corev1.ListOwnedAgentsRequest]) (*connect.Response[corev1.ListOwnedAgentsResponse], error) {
-	return connectResponse(a.svc.ListOwnedAgents(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) CreateDelegatedAgent(ctx context.Context, req *connect.Request[corev1.CreateDelegatedAgentRequest]) (*connect.Response[corev1.CreateDelegatedAgentResponse], error) {
-	return connectResponse(a.svc.CreateDelegatedAgent(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) CreateGroup(ctx context.Context, req *connect.Request[corev1.CreateGroupRequest]) (*connect.Response[corev1.AccountGroup], error) {
-	return connectResponse(a.svc.CreateGroup(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) GetGroup(ctx context.Context, req *connect.Request[corev1.GetGroupRequest]) (*connect.Response[corev1.AccountGroup], error) {
-	return connectResponse(a.svc.GetGroup(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) ListGroups(ctx context.Context, req *connect.Request[corev1.ListGroupsRequest]) (*connect.Response[corev1.ListGroupsResponse], error) {
-	return connectResponse(a.svc.ListGroups(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) DeleteGroup(ctx context.Context, req *connect.Request[corev1.DeleteGroupRequest]) (*connect.Response[corev1.Empty], error) {
-	return connectResponse(a.svc.DeleteGroup(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) AddGroupMember(ctx context.Context, req *connect.Request[corev1.AddGroupMemberRequest]) (*connect.Response[corev1.AccountGroup], error) {
-	return connectResponse(a.svc.AddGroupMember(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) RemoveGroupMember(ctx context.Context, req *connect.Request[corev1.RemoveGroupMemberRequest]) (*connect.Response[corev1.AccountGroup], error) {
-	return connectResponse(a.svc.RemoveGroupMember(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) CreateOrganization(ctx context.Context, req *connect.Request[corev1.CreateOrganizationRequest]) (*connect.Response[corev1.CreateOrganizationResponse], error) {
-	return connectResponse(a.svc.CreateOrganization(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) ListAccountMembers(ctx context.Context, req *connect.Request[corev1.ListAccountMembersRequest]) (*connect.Response[corev1.ListAccountMembersResponse], error) {
-	return connectResponse(a.svc.ListAccountMembers(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) SetAccountMember(ctx context.Context, req *connect.Request[corev1.SetAccountMemberRequest]) (*connect.Response[corev1.SetAccountMemberResponse], error) {
-	return connectResponse(a.svc.SetAccountMember(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) RemoveAccountMember(ctx context.Context, req *connect.Request[corev1.RemoveAccountMemberRequest]) (*connect.Response[corev1.RemoveAccountMemberResponse], error) {
-	return connectResponse(a.svc.RemoveAccountMember(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) InviteAccountMember(ctx context.Context, req *connect.Request[corev1.InviteAccountMemberRequest]) (*connect.Response[corev1.InviteAccountMemberResponse], error) {
-	return connectResponse(a.svc.InviteAccountMember(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) ListAccountInvitations(ctx context.Context, req *connect.Request[corev1.ListAccountInvitationsRequest]) (*connect.Response[corev1.ListAccountInvitationsResponse], error) {
-	return connectResponse(a.svc.ListAccountInvitations(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) ListMyInvitations(ctx context.Context, req *connect.Request[corev1.ListMyInvitationsRequest]) (*connect.Response[corev1.ListMyInvitationsResponse], error) {
-	return connectResponse(a.svc.ListMyInvitations(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) RespondToInvitation(ctx context.Context, req *connect.Request[corev1.RespondToInvitationRequest]) (*connect.Response[corev1.RespondToInvitationResponse], error) {
-	return connectResponse(a.svc.RespondToInvitation(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) CancelAccountInvitation(ctx context.Context, req *connect.Request[corev1.CancelAccountInvitationRequest]) (*connect.Response[corev1.CancelAccountInvitationResponse], error) {
-	return connectResponse(a.svc.CancelAccountInvitation(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) GetAccountProfile(ctx context.Context, req *connect.Request[corev1.GetAccountProfileRequest]) (*connect.Response[corev1.AccountProfile], error) {
-	return connectResponse(a.svc.GetAccountProfile(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) SetAccountAvatar(ctx context.Context, req *connect.Request[corev1.SetAccountAvatarRequest]) (*connect.Response[corev1.AccountProfile], error) {
-	return connectResponse(a.svc.SetAccountAvatar(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) UpdateAccountProfile(ctx context.Context, req *connect.Request[corev1.UpdateAccountProfileRequest]) (*connect.Response[corev1.AccountProfile], error) {
-	return connectResponse(a.svc.UpdateAccountProfile(ctx, req.Msg))
-}
-
-func (a connectAuthAdapter) RegisterAgent(ctx context.Context, req *connect.Request[corev1.RegisterAgentRequest]) (*connect.Response[corev1.RegisterAgentResponse], error) {
-	return connectResponse(a.svc.RegisterAgent(ctx, req.Msg))
-}
-
-type connectRepositoryAdapter struct {
-	svc *service.RepositoryService
-}
-
-func (a connectRepositoryAdapter) ResolvePath(ctx context.Context, req *connect.Request[corev1.ResolvePathRequest]) (*connect.Response[corev1.ResolvePathResponse], error) {
-	return connectResponse(a.svc.ResolvePath(ctx, req.Msg))
-}
-
-func (a connectRepositoryAdapter) ListDirectory(ctx context.Context, req *connect.Request[corev1.ListDirectoryRequest]) (*connect.Response[corev1.ListDirectoryResponse], error) {
-	return connectResponse(a.svc.ListDirectory(ctx, req.Msg))
-}
-
-func (a connectRepositoryAdapter) ReadFile(ctx context.Context, req *connect.Request[corev1.ReadFileRequest]) (*connect.Response[corev1.ReadFileResponse], error) {
-	return connectResponse(a.svc.ReadFile(ctx, req.Msg))
-}
-
-func (a connectRepositoryAdapter) RenderFile(ctx context.Context, req *connect.Request[corev1.RenderFileRequest]) (*connect.Response[corev1.RenderFileResponse], error) {
-	return connectResponse(a.svc.RenderFile(ctx, req.Msg))
-}
-
-func (a connectRepositoryAdapter) ReadFiles(ctx context.Context, req *connect.Request[corev1.ReadFilesRequest]) (*connect.Response[corev1.ReadFilesResponse], error) {
-	return connectResponse(a.svc.ReadFiles(ctx, req.Msg))
-}
-
-func (a connectRepositoryAdapter) GetCommit(ctx context.Context, req *connect.Request[corev1.GetCommitRequest]) (*connect.Response[corev1.Commit], error) {
-	return connectResponse(a.svc.GetCommit(ctx, req.Msg))
-}
-
-func (a connectRepositoryAdapter) ResolveCommit(ctx context.Context, req *connect.Request[corev1.ResolveCommitRequest]) (*connect.Response[corev1.ResolveCommitResponse], error) {
-	return connectResponse(a.svc.ResolveCommit(ctx, req.Msg))
-}
-
-func (a connectRepositoryAdapter) ListCommits(ctx context.Context, req *connect.Request[corev1.ListCommitsRequest]) (*connect.Response[corev1.ListCommitsResponse], error) {
-	return connectResponse(a.svc.ListCommits(ctx, req.Msg))
-}
-
-func (a connectRepositoryAdapter) BlameFile(ctx context.Context, req *connect.Request[corev1.BlameFileRequest]) (*connect.Response[corev1.BlameFileResponse], error) {
-	return connectResponse(a.svc.BlameFile(ctx, req.Msg))
-}
-
-func (a connectRepositoryAdapter) GetRef(ctx context.Context, req *connect.Request[corev1.GetRefRequest]) (*connect.Response[corev1.Ref], error) {
-	return connectResponse(a.svc.GetRef(ctx, req.Msg))
-}
-
-func (a connectRepositoryAdapter) ImportGitRepository(ctx context.Context, req *connect.Request[corev1.ImportGitRepositoryRequest]) (*connect.Response[corev1.ImportGitRepositoryResponse], error) {
-	return connectResponse(a.svc.ImportGitRepository(ctx, req.Msg))
-}
-
-func (a connectRepositoryAdapter) ImportGitRepositoryStream(ctx context.Context, req *connect.Request[corev1.ImportGitRepositoryRequest], stream *connect.ServerStream[corev1.ImportGitRepositoryProgress]) error {
-	return connectError(a.svc.ImportGitRepositoryStream(req.Msg, connectRepositoryImportStream{ctx: ctx, stream: stream}))
-}
-
-func (a connectRepositoryAdapter) Checkout(ctx context.Context, req *connect.Request[corev1.CheckoutRequest], stream *connect.ServerStream[corev1.CheckoutResponse]) error {
-	return connectError(a.svc.Checkout(req.Msg, connectRepositoryCheckoutStream{ctx: ctx, stream: stream}))
-}
-
-type connectBlobAdapter struct {
-	svc *service.BlobService
-}
-
-func (a connectBlobAdapter) GetBlobStatus(ctx context.Context, req *connect.Request[corev1.GetBlobStatusRequest]) (*connect.Response[corev1.GetBlobStatusResponse], error) {
-	return connectResponse(a.svc.GetBlobStatus(ctx, req.Msg))
-}
-
-func (a connectBlobAdapter) UploadBlob(ctx context.Context, req *connect.Request[corev1.UploadBlobRequest]) (*connect.Response[corev1.UploadBlobResponse], error) {
-	return connectResponse(a.svc.UploadBlob(ctx, req.Msg))
-}
-
-func (a connectBlobAdapter) UploadBlobs(ctx context.Context, req *connect.Request[corev1.UploadBlobsRequest]) (*connect.Response[corev1.UploadBlobsResponse], error) {
-	return connectResponse(a.svc.UploadBlobs(ctx, req.Msg))
-}
-
-func (a connectBlobAdapter) UploadBlobStream(ctx context.Context, stream *connect.ClientStream[corev1.UploadBlobChunk]) (*connect.Response[corev1.UploadBlobResponse], error) {
-	adapter := &connectUploadBlobStream{ctx: ctx, stream: stream}
-	if err := a.svc.UploadBlobStream(adapter); err != nil {
-		return nil, connectError(err)
-	}
-	if adapter.response == nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("upload completed without response"))
-	}
-	return connect.NewResponse(adapter.response), nil
-}
-
-func (a connectBlobAdapter) ReadBlobStream(ctx context.Context, req *connect.Request[corev1.ReadBlobStreamRequest], stream *connect.ServerStream[corev1.ReadBlobChunk]) error {
-	return connectError(a.svc.ReadBlobStream(req.Msg, connectReadBlobStream{ctx: ctx, stream: stream}))
-}
-
-type connectSliceAdapter struct {
-	svc *service.SliceService
-}
-
-func (a connectSliceAdapter) CreateSlice(ctx context.Context, req *connect.Request[corev1.CreateSliceRequest]) (*connect.Response[corev1.Slice], error) {
-	return connectResponse(a.svc.CreateSlice(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) CreateTag(ctx context.Context, req *connect.Request[corev1.CreateTagRequest]) (*connect.Response[corev1.Tag], error) {
-	return connectResponse(a.svc.CreateTag(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) ListTags(ctx context.Context, req *connect.Request[corev1.ListTagsRequest]) (*connect.Response[corev1.ListTagsResponse], error) {
-	return connectResponse(a.svc.ListTags(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) ResolveSlice(ctx context.Context, req *connect.Request[corev1.ResolveSliceRequest]) (*connect.Response[corev1.Slice], error) {
-	return connectResponse(a.svc.ResolveSlice(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) GetSlice(ctx context.Context, req *connect.Request[corev1.GetSliceRequest]) (*connect.Response[corev1.Slice], error) {
-	return connectResponse(a.svc.GetSlice(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) ListSlices(ctx context.Context, req *connect.Request[corev1.ListSlicesRequest]) (*connect.Response[corev1.ListSlicesResponse], error) {
-	return connectResponse(a.svc.ListSlices(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) ListSliceDefinitionVersions(ctx context.Context, req *connect.Request[corev1.ListSliceDefinitionVersionsRequest]) (*connect.Response[corev1.ListSliceDefinitionVersionsResponse], error) {
-	return connectResponse(a.svc.ListSliceDefinitionVersions(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) UpdateSliceDefinition(ctx context.Context, req *connect.Request[corev1.UpdateSliceDefinitionRequest]) (*connect.Response[corev1.SliceDefinition], error) {
-	return connectResponse(a.svc.UpdateSliceDefinition(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) RenameSlice(ctx context.Context, req *connect.Request[corev1.RenameSliceRequest]) (*connect.Response[corev1.Slice], error) {
-	return connectResponse(a.svc.RenameSlice(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) SetSliceArchived(ctx context.Context, req *connect.Request[corev1.SetSliceArchivedRequest]) (*connect.Response[corev1.Slice], error) {
-	return connectResponse(a.svc.SetSliceArchived(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) SetSliceDescription(ctx context.Context, req *connect.Request[corev1.SetSliceDescriptionRequest]) (*connect.Response[corev1.Slice], error) {
-	return connectResponse(a.svc.SetSliceDescription(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) GetSliceGitMirror(ctx context.Context, req *connect.Request[corev1.GetSliceGitMirrorRequest]) (*connect.Response[corev1.SliceGitMirror], error) {
-	return connectResponse(a.svc.GetSliceGitMirror(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) SetSliceGitMirror(ctx context.Context, req *connect.Request[corev1.SetSliceGitMirrorRequest]) (*connect.Response[corev1.SliceGitMirror], error) {
-	return connectResponse(a.svc.SetSliceGitMirror(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) DeleteSliceGitMirror(ctx context.Context, req *connect.Request[corev1.DeleteSliceGitMirrorRequest]) (*connect.Response[corev1.Empty], error) {
-	return connectResponse(a.svc.DeleteSliceGitMirror(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) PushSliceGitMirror(ctx context.Context, req *connect.Request[corev1.PushSliceGitMirrorRequest]) (*connect.Response[corev1.SliceGitMirror], error) {
-	return connectResponse(a.svc.PushSliceGitMirror(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) SetSliceMergeOnSubmit(ctx context.Context, req *connect.Request[corev1.SetSliceMergeOnSubmitRequest]) (*connect.Response[corev1.Slice], error) {
-	return connectResponse(a.svc.SetSliceMergeOnSubmit(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) SetSliceCIDaemon(ctx context.Context, req *connect.Request[corev1.SetSliceCIDaemonRequest]) (*connect.Response[corev1.Slice], error) {
-	return connectResponse(a.svc.SetSliceCIDaemon(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) SetSliceSecret(ctx context.Context, req *connect.Request[corev1.SetSliceSecretRequest]) (*connect.Response[corev1.Empty], error) {
-	return connectResponse(a.svc.SetSliceSecret(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) DeleteSliceSecret(ctx context.Context, req *connect.Request[corev1.DeleteSliceSecretRequest]) (*connect.Response[corev1.Empty], error) {
-	return connectResponse(a.svc.DeleteSliceSecret(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) ListSliceSecrets(ctx context.Context, req *connect.Request[corev1.ListSliceSecretsRequest]) (*connect.Response[corev1.ListSliceSecretsResponse], error) {
-	return connectResponse(a.svc.ListSliceSecrets(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) DeleteSlice(ctx context.Context, req *connect.Request[corev1.DeleteSliceRequest]) (*connect.Response[corev1.DeleteSliceResponse], error) {
-	return connectResponse(a.svc.DeleteSlice(ctx, req.Msg))
-}
-
-type connectWorkspaceAdapter struct {
-	svc *service.WorkspaceService
-}
-
-func (a connectWorkspaceAdapter) GetWorkspaceState(ctx context.Context, req *connect.Request[corev1.GetWorkspaceStateRequest]) (*connect.Response[corev1.WorkspaceState], error) {
-	return connectResponse(a.svc.GetWorkspaceState(ctx, req.Msg))
-}
-
-func (a connectWorkspaceAdapter) HydratePaths(ctx context.Context, req *connect.Request[corev1.HydratePathsRequest]) (*connect.Response[corev1.HydratePathsResponse], error) {
-	return connectResponse(a.svc.HydratePaths(ctx, req.Msg))
-}
-
-func (a connectWorkspaceAdapter) ValidateWorkspaceDiff(ctx context.Context, req *connect.Request[corev1.ValidateWorkspaceDiffRequest]) (*connect.Response[corev1.ValidateWorkspaceDiffResponse], error) {
-	return connectResponse(a.svc.ValidateWorkspaceDiff(ctx, req.Msg))
-}
-
-func (a connectWorkspaceAdapter) RecordWorkspaceOperation(ctx context.Context, req *connect.Request[corev1.RecordWorkspaceOperationRequest]) (*connect.Response[corev1.RecordWorkspaceOperationResponse], error) {
-	return connectResponse(a.svc.RecordWorkspaceOperation(ctx, req.Msg))
-}
-
-type connectChangesetAdapter struct {
-	svc *service.ChangesetService
-}
-
-func (a connectChangesetAdapter) CreateChangeset(ctx context.Context, req *connect.Request[corev1.CreateChangesetRequest]) (*connect.Response[corev1.Changeset], error) {
-	return connectResponse(a.svc.CreateChangeset(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) GetChangeset(ctx context.Context, req *connect.Request[corev1.GetChangesetRequest]) (*connect.Response[corev1.Changeset], error) {
-	return connectResponse(a.svc.GetChangeset(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) ListChangesets(ctx context.Context, req *connect.Request[corev1.ListChangesetsRequest]) (*connect.Response[corev1.ListChangesetsResponse], error) {
-	return connectResponse(a.svc.ListChangesets(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) DiffChangeset(ctx context.Context, req *connect.Request[corev1.DiffChangesetRequest]) (*connect.Response[corev1.DiffChangesetResponse], error) {
-	return connectResponse(a.svc.DiffChangeset(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) UpdateChangeset(ctx context.Context, req *connect.Request[corev1.UpdateChangesetRequest]) (*connect.Response[corev1.Patchset], error) {
-	return connectResponse(a.svc.UpdateChangeset(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) ApproveChangeset(ctx context.Context, req *connect.Request[corev1.ApproveChangesetRequest]) (*connect.Response[corev1.ApproveChangesetResponse], error) {
-	return connectResponse(a.svc.ApproveChangeset(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) ReportCheckResult(ctx context.Context, req *connect.Request[corev1.ReportCheckResultRequest]) (*connect.Response[corev1.ReportCheckResultResponse], error) {
-	return connectResponse(a.svc.ReportCheckResult(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) SubmitChangeset(ctx context.Context, req *connect.Request[corev1.SubmitChangesetRequest]) (*connect.Response[corev1.SubmitChangesetResponse], error) {
-	return connectResponse(a.svc.SubmitChangeset(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) AbandonChangeset(ctx context.Context, req *connect.Request[corev1.AbandonChangesetRequest]) (*connect.Response[corev1.Empty], error) {
-	return connectResponse(a.svc.AbandonChangeset(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) UpdateChangesetInfo(ctx context.Context, req *connect.Request[corev1.UpdateChangesetInfoRequest]) (*connect.Response[corev1.Changeset], error) {
-	return connectResponse(a.svc.UpdateChangesetInfo(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) AddChangesetCollaborator(ctx context.Context, req *connect.Request[corev1.AddChangesetCollaboratorRequest]) (*connect.Response[corev1.Changeset], error) {
-	return connectResponse(a.svc.AddChangesetCollaborator(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) RemoveChangesetCollaborator(ctx context.Context, req *connect.Request[corev1.RemoveChangesetCollaboratorRequest]) (*connect.Response[corev1.Changeset], error) {
-	return connectResponse(a.svc.RemoveChangesetCollaborator(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) HandoffChangeset(ctx context.Context, req *connect.Request[corev1.HandoffChangesetRequest]) (*connect.Response[corev1.Changeset], error) {
-	return connectResponse(a.svc.HandoffChangeset(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) CopyPath(ctx context.Context, req *connect.Request[corev1.CopyPathRequest]) (*connect.Response[corev1.PathOperationResponse], error) {
-	return connectResponse(a.svc.CopyPath(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) MovePath(ctx context.Context, req *connect.Request[corev1.MovePathRequest]) (*connect.Response[corev1.PathOperationResponse], error) {
-	return connectResponse(a.svc.MovePath(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) CreatePathIntent(ctx context.Context, req *connect.Request[corev1.CreatePathIntentRequest]) (*connect.Response[corev1.PathIntent], error) {
-	return connectResponse(a.svc.CreatePathIntent(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) ListPathIntents(ctx context.Context, req *connect.Request[corev1.ListPathIntentsRequest]) (*connect.Response[corev1.ListPathIntentsResponse], error) {
-	return connectResponse(a.svc.ListPathIntents(ctx, req.Msg))
-}
-
-func (a connectChangesetAdapter) DeletePathIntent(ctx context.Context, req *connect.Request[corev1.DeletePathIntentRequest]) (*connect.Response[corev1.Empty], error) {
-	return connectResponse(a.svc.DeletePathIntent(ctx, req.Msg))
-}
-
-type connectStackAdapter struct {
-	svc *service.ChangesetStackService
-}
-
-func (a connectStackAdapter) CreateStack(ctx context.Context, req *connect.Request[corev1.CreateStackRequest]) (*connect.Response[corev1.ChangesetStack], error) {
-	return connectResponse(a.svc.CreateStack(ctx, req.Msg))
-}
-
-func (a connectStackAdapter) GetStack(ctx context.Context, req *connect.Request[corev1.GetStackRequest]) (*connect.Response[corev1.ChangesetStack], error) {
-	return connectResponse(a.svc.GetStack(ctx, req.Msg))
-}
-
-func (a connectStackAdapter) ListStacks(ctx context.Context, req *connect.Request[corev1.ListStacksRequest]) (*connect.Response[corev1.ListStacksResponse], error) {
-	return connectResponse(a.svc.ListStacks(ctx, req.Msg))
-}
-
-func (a connectStackAdapter) AddStackEntry(ctx context.Context, req *connect.Request[corev1.AddStackEntryRequest]) (*connect.Response[corev1.Changeset], error) {
-	return connectResponse(a.svc.AddStackEntry(ctx, req.Msg))
-}
-
-func (a connectStackAdapter) MoveStackEntry(ctx context.Context, req *connect.Request[corev1.MoveStackEntryRequest]) (*connect.Response[corev1.ChangesetStack], error) {
-	return connectResponse(a.svc.MoveStackEntry(ctx, req.Msg))
-}
-
-func (a connectStackAdapter) ReparentStackEntry(ctx context.Context, req *connect.Request[corev1.ReparentStackEntryRequest]) (*connect.Response[corev1.ChangesetStack], error) {
-	return connectResponse(a.svc.ReparentStackEntry(ctx, req.Msg))
-}
-
-func (a connectStackAdapter) DetachStackEntry(ctx context.Context, req *connect.Request[corev1.DetachStackEntryRequest]) (*connect.Response[corev1.DetachStackEntryResponse], error) {
-	return connectResponse(a.svc.DetachStackEntry(ctx, req.Msg))
-}
-
-func (a connectStackAdapter) Restack(ctx context.Context, req *connect.Request[corev1.RestackRequest]) (*connect.Response[corev1.RestackResponse], error) {
-	return connectResponse(a.svc.Restack(ctx, req.Msg))
-}
-
-func (a connectStackAdapter) SubmitStack(ctx context.Context, req *connect.Request[corev1.SubmitStackRequest]) (*connect.Response[corev1.SubmitStackResponse], error) {
-	return connectResponse(a.svc.SubmitStack(ctx, req.Msg))
-}
-
-type connectAgentAdapter struct {
-	svc *service.AgentService
-}
-
-func (a connectAgentAdapter) StandbyPoll(ctx context.Context, req *connect.Request[corev1.StandbyPollRequest]) (*connect.Response[corev1.StandbyPollResponse], error) {
-	return connectResponse(a.svc.StandbyPoll(ctx, req.Msg))
-}
-
-func (a connectAgentAdapter) Connect(ctx context.Context, stream *connect.BidiStream[corev1.DaemonMessage, corev1.ServerMessage]) error {
-	return connectError(a.svc.Connect(connectAgentConnectStream{ctx: ctx, stream: stream}))
-}
-
-func (a connectAgentAdapter) ListDaemons(ctx context.Context, req *connect.Request[corev1.ListDaemonsRequest]) (*connect.Response[corev1.ListDaemonsResponse], error) {
-	return connectResponse(a.svc.ListDaemons(ctx, req.Msg))
-}
-
-func (a connectAgentAdapter) RenameDaemon(ctx context.Context, req *connect.Request[corev1.RenameDaemonRequest]) (*connect.Response[corev1.AgentDaemon], error) {
-	return connectResponse(a.svc.RenameDaemon(ctx, req.Msg))
-}
-
-func (a connectAgentAdapter) ExposeDaemon(ctx context.Context, req *connect.Request[corev1.ExposeDaemonRequest]) (*connect.Response[corev1.AgentDaemon], error) {
-	return connectResponse(a.svc.ExposeDaemon(ctx, req.Msg))
-}
-
-func (a connectAgentAdapter) UnexposeDaemon(ctx context.Context, req *connect.Request[corev1.UnexposeDaemonRequest]) (*connect.Response[corev1.AgentDaemon], error) {
-	return connectResponse(a.svc.UnexposeDaemon(ctx, req.Msg))
-}
-
-func (a connectAgentAdapter) CreateConversation(ctx context.Context, req *connect.Request[corev1.CreateConversationRequest]) (*connect.Response[corev1.Conversation], error) {
-	return connectResponse(a.svc.CreateConversation(ctx, req.Msg))
-}
-
-func (a connectAgentAdapter) ListConversations(ctx context.Context, req *connect.Request[corev1.ListConversationsRequest]) (*connect.Response[corev1.ListConversationsResponse], error) {
-	return connectResponse(a.svc.ListConversations(ctx, req.Msg))
-}
-
-func (a connectAgentAdapter) GetConversation(ctx context.Context, req *connect.Request[corev1.GetConversationRequest]) (*connect.Response[corev1.Conversation], error) {
-	return connectResponse(a.svc.GetConversation(ctx, req.Msg))
-}
-
-func (a connectAgentAdapter) SendAgentMessage(ctx context.Context, req *connect.Request[corev1.SendAgentMessageRequest]) (*connect.Response[corev1.SendAgentMessageResponse], error) {
-	return connectResponse(a.svc.SendAgentMessage(ctx, req.Msg))
-}
-
-func (a connectAgentAdapter) StreamConversation(ctx context.Context, req *connect.Request[corev1.StreamConversationRequest], stream *connect.ServerStream[corev1.ConversationEvent]) error {
-	return connectError(a.svc.StreamConversation(req.Msg, connectAgentConversationStream{ctx: ctx, stream: stream}))
-}
-
-func (a connectAgentAdapter) GetConversationEvents(ctx context.Context, req *connect.Request[corev1.GetConversationEventsRequest]) (*connect.Response[corev1.GetConversationEventsResponse], error) {
-	return connectResponse(a.svc.GetConversationEvents(ctx, req.Msg))
-}
-
-func (a connectAgentAdapter) CloseConversation(ctx context.Context, req *connect.Request[corev1.CloseConversationRequest]) (*connect.Response[corev1.Conversation], error) {
-	return connectResponse(a.svc.CloseConversation(ctx, req.Msg))
-}
-
-type connectCheckAdapter struct {
-	svc *service.CheckService
-}
-
-func (a connectCheckAdapter) ListCheckRuns(ctx context.Context, req *connect.Request[corev1.ListCheckRunsRequest]) (*connect.Response[corev1.ListCheckRunsResponse], error) {
-	return connectResponse(a.svc.ListCheckRuns(ctx, req.Msg))
-}
-
-func (a connectCheckAdapter) GetCheckRun(ctx context.Context, req *connect.Request[corev1.GetCheckRunRequest]) (*connect.Response[corev1.CheckRun], error) {
-	return connectResponse(a.svc.GetCheckRun(ctx, req.Msg))
-}
-
-func (a connectCheckAdapter) RerunCheck(ctx context.Context, req *connect.Request[corev1.RerunCheckRequest]) (*connect.Response[corev1.CheckRun], error) {
-	return connectResponse(a.svc.RerunCheck(ctx, req.Msg))
-}
-
-func (a connectCheckAdapter) StreamCheckRun(ctx context.Context, req *connect.Request[corev1.StreamCheckRunRequest], stream *connect.ServerStream[corev1.CheckRunLog]) error {
-	return connectError(a.svc.StreamCheckRun(req.Msg, connectCheckRunLogStream{ctx: ctx, stream: stream}))
-}
-
-func (a connectCheckAdapter) AllowPatchsetSecrets(ctx context.Context, req *connect.Request[corev1.AllowPatchsetSecretsRequest]) (*connect.Response[corev1.AllowPatchsetSecretsResponse], error) {
-	return connectResponse(a.svc.AllowPatchsetSecrets(ctx, req.Msg))
-}
-
-type connectGRPCServerStream struct {
-	ctx context.Context
-}
-
-func (s connectGRPCServerStream) SetHeader(metadata.MD) error {
-	return nil
-}
-
-func (s connectGRPCServerStream) SendHeader(metadata.MD) error {
-	return nil
-}
-
-func (s connectGRPCServerStream) SetTrailer(metadata.MD) {}
-
-func (s connectGRPCServerStream) Context() context.Context {
-	return s.ctx
-}
-
-func (s connectGRPCServerStream) SendMsg(any) error {
-	return status.Error(codes.Unimplemented, "SendMsg is not implemented by connect stream adapter")
-}
-
-func (s connectGRPCServerStream) RecvMsg(any) error {
-	return status.Error(codes.Unimplemented, "RecvMsg is not implemented by connect stream adapter")
-}
-
-type connectRepositoryImportStream struct {
-	connectGRPCServerStream
-	ctx    context.Context
-	stream *connect.ServerStream[corev1.ImportGitRepositoryProgress]
-}
-
-func (s connectRepositoryImportStream) Context() context.Context {
-	return s.ctx
-}
-
-func (s connectRepositoryImportStream) Send(msg *corev1.ImportGitRepositoryProgress) error {
-	return s.stream.Send(msg)
-}
-
-type connectRepositoryCheckoutStream struct {
-	connectGRPCServerStream
-	ctx    context.Context
-	stream *connect.ServerStream[corev1.CheckoutResponse]
-}
-
-func (s connectRepositoryCheckoutStream) Context() context.Context {
-	return s.ctx
-}
-
-func (s connectRepositoryCheckoutStream) Send(msg *corev1.CheckoutResponse) error {
-	return s.stream.Send(msg)
-}
-
-type connectReadBlobStream struct {
-	connectGRPCServerStream
-	ctx    context.Context
-	stream *connect.ServerStream[corev1.ReadBlobChunk]
-}
-
-func (s connectReadBlobStream) Context() context.Context {
-	return s.ctx
-}
-
-func (s connectReadBlobStream) Send(msg *corev1.ReadBlobChunk) error {
-	return s.stream.Send(msg)
-}
-
-type connectUploadBlobStream struct {
-	connectGRPCServerStream
-	ctx      context.Context
-	stream   *connect.ClientStream[corev1.UploadBlobChunk]
-	response *corev1.UploadBlobResponse
-}
-
-func (s *connectUploadBlobStream) Context() context.Context {
-	return s.ctx
-}
-
-func (s *connectUploadBlobStream) Recv() (*corev1.UploadBlobChunk, error) {
-	if !s.stream.Receive() {
-		if err := s.stream.Err(); err != nil {
-			return nil, connectError(err)
-		}
-		return nil, io.EOF
-	}
-	return s.stream.Msg(), nil
-}
-
-func (s *connectUploadBlobStream) SendAndClose(msg *corev1.UploadBlobResponse) error {
-	s.response = msg
-	return nil
-}
-
-type connectAgentConnectStream struct {
-	connectGRPCServerStream
-	ctx    context.Context
-	stream *connect.BidiStream[corev1.DaemonMessage, corev1.ServerMessage]
-}
-
-func (s connectAgentConnectStream) Context() context.Context {
-	return s.ctx
-}
-
-func (s connectAgentConnectStream) Send(msg *corev1.ServerMessage) error {
-	return s.stream.Send(msg)
-}
-
-func (s connectAgentConnectStream) Recv() (*corev1.DaemonMessage, error) {
-	msg, err := s.stream.Receive()
-	if err != nil {
-		return nil, connectError(err)
-	}
-	return msg, nil
-}
-
-type connectAgentConversationStream struct {
-	connectGRPCServerStream
-	ctx    context.Context
-	stream *connect.ServerStream[corev1.ConversationEvent]
-}
-
-func (s connectAgentConversationStream) Context() context.Context {
-	return s.ctx
-}
-
-func (s connectAgentConversationStream) Send(msg *corev1.ConversationEvent) error {
-	return s.stream.Send(msg)
-}
-
-type connectCheckRunLogStream struct {
-	connectGRPCServerStream
-	ctx    context.Context
-	stream *connect.ServerStream[corev1.CheckRunLog]
-}
-
-func (s connectCheckRunLogStream) Context() context.Context {
-	return s.ctx
-}
-
-func (s connectCheckRunLogStream) Send(msg *corev1.CheckRunLog) error {
-	return s.stream.Send(msg)
-}
-
-type connectFeedbackAdapter struct {
-	svc *service.FeedbackService
-}
-
-func (a connectFeedbackAdapter) SubmitFeedback(ctx context.Context, req *connect.Request[corev1.SubmitFeedbackRequest]) (*connect.Response[corev1.Feedback], error) {
-	return connectResponse(a.svc.SubmitFeedback(ctx, req.Msg))
-}
-
-func (a connectFeedbackAdapter) ListFeedback(ctx context.Context, req *connect.Request[corev1.ListFeedbackRequest]) (*connect.Response[corev1.ListFeedbackResponse], error) {
-	return connectResponse(a.svc.ListFeedback(ctx, req.Msg))
-}
-
-func (a connectFeedbackAdapter) ResolveFeedback(ctx context.Context, req *connect.Request[corev1.ResolveFeedbackRequest]) (*connect.Response[corev1.Feedback], error) {
-	return connectResponse(a.svc.ResolveFeedback(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) ListSliceMembers(ctx context.Context, req *connect.Request[corev1.ListSliceMembersRequest]) (*connect.Response[corev1.ListSliceMembersResponse], error) {
-	return connectResponse(a.svc.ListSliceMembers(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) SetSliceMember(ctx context.Context, req *connect.Request[corev1.SetSliceMemberRequest]) (*connect.Response[corev1.SliceMember], error) {
-	return connectResponse(a.svc.SetSliceMember(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) RemoveSliceMember(ctx context.Context, req *connect.Request[corev1.RemoveSliceMemberRequest]) (*connect.Response[corev1.Empty], error) {
-	return connectResponse(a.svc.RemoveSliceMember(ctx, req.Msg))
-}
-
-func (a connectSliceAdapter) ListSharedSlices(ctx context.Context, req *connect.Request[corev1.ListSharedSlicesRequest]) (*connect.Response[corev1.ListSharedSlicesResponse], error) {
-	return connectResponse(a.svc.ListSharedSlices(ctx, req.Msg))
-}
-
-type connectSecretAdapter struct {
-	svc *service.SecretService
-}
-
-func (a connectSecretAdapter) ListSecrets(ctx context.Context, req *connect.Request[corev1.ListSecretsRequest]) (*connect.Response[corev1.ListSecretsResponse], error) {
-	return connectResponse(a.svc.ListSecrets(ctx, req.Msg))
-}
-
-func (a connectSecretAdapter) GetSecret(ctx context.Context, req *connect.Request[corev1.GetSecretRequest]) (*connect.Response[corev1.Secret], error) {
-	return connectResponse(a.svc.GetSecret(ctx, req.Msg))
-}
-
-func (a connectSecretAdapter) CreateSecret(ctx context.Context, req *connect.Request[corev1.CreateSecretRequest]) (*connect.Response[corev1.Secret], error) {
-	return connectResponse(a.svc.CreateSecret(ctx, req.Msg))
-}
-
-func (a connectSecretAdapter) UpdateSecret(ctx context.Context, req *connect.Request[corev1.UpdateSecretRequest]) (*connect.Response[corev1.Secret], error) {
-	return connectResponse(a.svc.UpdateSecret(ctx, req.Msg))
-}
-
-func (a connectSecretAdapter) DeleteSecret(ctx context.Context, req *connect.Request[corev1.DeleteSecretRequest]) (*connect.Response[corev1.Empty], error) {
-	return connectResponse(a.svc.DeleteSecret(ctx, req.Msg))
-}
-
-func (a connectSecretAdapter) RevealSecrets(ctx context.Context, req *connect.Request[corev1.RevealSecretsRequest]) (*connect.Response[corev1.RevealSecretsResponse], error) {
-	return connectResponse(a.svc.RevealSecrets(ctx, req.Msg))
-}
-
-func (a connectSecretAdapter) RevealSliceSecrets(ctx context.Context, req *connect.Request[corev1.RevealSliceSecretsRequest]) (*connect.Response[corev1.RevealSliceSecretsResponse], error) {
-	return connectResponse(a.svc.RevealSliceSecrets(ctx, req.Msg))
-}
-
-type connectTriggerServiceAdapter struct {
-	svc *service.TriggerService
-}
-
-func (a connectTriggerServiceAdapter) ListTriggers(ctx context.Context, req *connect.Request[corev1.ListTriggersRequest]) (*connect.Response[corev1.ListTriggersResponse], error) {
-	return connectResponse(a.svc.ListTriggers(ctx, req.Msg))
-}
-
-func (a connectTriggerServiceAdapter) ListTriggerRuns(ctx context.Context, req *connect.Request[corev1.ListTriggerRunsRequest]) (*connect.Response[corev1.ListTriggerRunsResponse], error) {
-	return connectResponse(a.svc.ListTriggerRuns(ctx, req.Msg))
-}
-
-func (a connectTriggerServiceAdapter) GetTriggerRun(ctx context.Context, req *connect.Request[corev1.GetTriggerRunRequest]) (*connect.Response[corev1.TriggerRun], error) {
-	return connectResponse(a.svc.GetTriggerRun(ctx, req.Msg))
-}
-
-func (a connectTriggerServiceAdapter) ListTriggerRunLogs(ctx context.Context, req *connect.Request[corev1.ListTriggerRunLogsRequest]) (*connect.Response[corev1.ListTriggerRunLogsResponse], error) {
-	return connectResponse(a.svc.ListTriggerRunLogs(ctx, req.Msg))
-}
-
-func (a connectTriggerServiceAdapter) RunTrigger(ctx context.Context, req *connect.Request[corev1.RunTriggerRequest]) (*connect.Response[corev1.TriggerRun], error) {
-	return connectResponse(a.svc.RunTrigger(ctx, req.Msg))
-}
-
-func (a connectTriggerServiceAdapter) RerunTriggerRun(ctx context.Context, req *connect.Request[corev1.RerunTriggerRunRequest]) (*connect.Response[corev1.TriggerRun], error) {
-	return connectResponse(a.svc.RerunTriggerRun(ctx, req.Msg))
-}
-
-func (a connectTriggerServiceAdapter) CancelTriggerRun(ctx context.Context, req *connect.Request[corev1.CancelTriggerRunRequest]) (*connect.Response[corev1.TriggerRun], error) {
-	return connectResponse(a.svc.CancelTriggerRun(ctx, req.Msg))
-}
-
-type connectTriggerRunServiceAdapter struct {
-	svc      *service.TriggerRunService
-	limiters *serverLimiters
-}
-
-func connectTriggerRunResponse[T any](ctx context.Context, limiters *serverLimiters, msg *T, err error) (*connect.Response[T], error) {
-	if isAuthFailureError(err) && limiters != nil && limiters.triggerFail != nil {
-		if ipKey, ok := clientIPKeyFromContext(ctx); ok && !limiters.triggerFail.Allow(ipKey) {
-			ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
-			return nil, connect.NewError(connect.CodeResourceExhausted, errors.New("trigger run authentication failure rate limit exceeded"))
-		}
-	}
-	return connectResponse(msg, err)
-}
-
-func (a connectTriggerRunServiceAdapter) StartRun(ctx context.Context, req *connect.Request[corev1.StartTriggerRunRequest]) (*connect.Response[corev1.StartTriggerRunResponse], error) {
-	msg, err := a.svc.StartRun(ctx, req.Msg)
-	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
-}
-
-func (a connectTriggerRunServiceAdapter) StartCallback(ctx context.Context, req *connect.Request[corev1.StartTriggerRunRequest]) (*connect.Response[corev1.StartTriggerRunResponse], error) {
-	msg, err := a.svc.StartCallback(ctx, req.Msg)
-	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
-}
-
-func (a connectTriggerRunServiceAdapter) FinishRun(ctx context.Context, req *connect.Request[corev1.FinishTriggerRunRequest]) (*connect.Response[corev1.TriggerRun], error) {
-	msg, err := a.svc.FinishRun(ctx, req.Msg)
-	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
-}
-
-func (a connectTriggerRunServiceAdapter) AppendRunLog(ctx context.Context, req *connect.Request[corev1.AppendTriggerRunLogRequest]) (*connect.Response[corev1.Empty], error) {
-	msg, err := a.svc.AppendRunLog(ctx, req.Msg)
-	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
-}
-
-func (a connectTriggerRunServiceAdapter) GetRunState(ctx context.Context, req *connect.Request[corev1.TriggerRunTokenRequest]) (*connect.Response[corev1.TriggerRunState], error) {
-	msg, err := a.svc.GetRunState(ctx, req.Msg)
-	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
-}
-
-func (a connectTriggerRunServiceAdapter) SetRunState(ctx context.Context, req *connect.Request[corev1.SetTriggerRunStateRequest]) (*connect.Response[corev1.Empty], error) {
-	msg, err := a.svc.SetRunState(ctx, req.Msg)
-	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
-}
-
-func (a connectTriggerRunServiceAdapter) CreateCheck(ctx context.Context, req *connect.Request[corev1.CreateTriggerCheckRequest]) (*connect.Response[corev1.CheckRun], error) {
-	msg, err := a.svc.CreateCheck(ctx, req.Msg)
-	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
-}
-
-func (a connectTriggerRunServiceAdapter) UpdateCheck(ctx context.Context, req *connect.Request[corev1.UpdateTriggerCheckRequest]) (*connect.Response[corev1.CheckRun], error) {
-	msg, err := a.svc.UpdateCheck(ctx, req.Msg)
-	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
-}
-
-func (a connectTriggerRunServiceAdapter) ReadFile(ctx context.Context, req *connect.Request[corev1.TriggerReadFileRequest]) (*connect.Response[corev1.TriggerReadFileResponse], error) {
-	msg, err := a.svc.ReadFile(ctx, req.Msg)
-	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
-}
-
-func (a connectTriggerRunServiceAdapter) ListDirectory(ctx context.Context, req *connect.Request[corev1.TriggerListDirectoryRequest]) (*connect.Response[corev1.TriggerListDirectoryResponse], error) {
-	msg, err := a.svc.ListDirectory(ctx, req.Msg)
-	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
-}
-
-func (a connectTriggerRunServiceAdapter) GetChangeset(ctx context.Context, req *connect.Request[corev1.TriggerRunTokenRequest]) (*connect.Response[corev1.Changeset], error) {
-	msg, err := a.svc.GetChangeset(ctx, req.Msg)
-	return connectTriggerRunResponse(ctx, a.limiters, msg, err)
 }
