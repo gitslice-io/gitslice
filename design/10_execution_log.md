@@ -9685,3 +9685,27 @@ pages are code-split, analytics waits for the page to load.
 **Verification**
 - The check's command passes at head, and fails with `undefined: mountd.ListenMountControl` when that stub is removed again.
 - Test files still do not compile for Windows (FUSE, `Setpgid`, unix-only helpers); tests run on Linux and macOS only, so the check builds `gs`, not the tests.
+
+
+## 2026-11-18 — Wave 2 architectural & code-quality refactoring sweep (R1–R10)
+
+**Why**
+- Completed the 10-proposal Wave 2 follow-on refactoring sweep across Backend & Edge (`R1–R4`), CLI & Local Runtime (`R5–R7`), and Web App (`R8–R10`) to finish subpackage/module decompositions, enforce `<600` LOC ceilings across Go and TypeScript/React files, unify session/query/output contracts, and harden RPC/Connect error handling.
+
+**What changed**
+- **Backend & Edge (`R1–R4`):**
+  - `R1` (`sha256:a503c214eec7`): hardened `service.grpcError` (`nil`, `status.FromError` code/detail preservation, `context.Canceled`/`context.DeadlineExceeded`, `storage.ErrAlreadyExists`, `storage.ErrResourceExhausted`) with table-driven unit tests in `service/errors_test.go`.
+  - `R2` (`sha256:23a841a9f036`): fixed `TestMigrateConcurrentRunsApplyOnce` `pg_locks` flake, rolled out `inTx`/`execInTx`/`querySlice` across 13 `internal/postgres` files, and split `internal/postgres/secrets.go` into `secrets.go` + `secrets_paths.go`.
+  - `R3` (`sha256:2f60f92100c3`): decomposed `agents/src/hub.ts` (925 -> 321 LOC) into `hub.ts`, `hubBaseline.ts`, `hubNative.ts`, `hubDashboard.ts`, and `hubOverlap.ts` via a private `HubHost` adapter preserving Durable Object storage keys, RPC surface, and scale-to-zero `scheduleAlarm()`, and hardened `GitsliceError` (`agents/src/gitslice.ts`) and `ApiError` (`trigger-dispatch/src/api.ts`) Connect-JSON envelope parsing (+ 30 edge unit tests).
+  - `R4` (`sha256:165afd5f5361`): split the last >600-LOC Go backend files (`internal/intents`, `internal/gitcompat/lazy`, `service/git_import`, `service/changeset`, `internal/checks/parse` & `resolve` — zero non-generated `.go` files >600 LOC repo-wide) and wired `internal/checks` into `gitslicecfg.Resolver[*checks.File]`.
+- **CLI & Local Runtime (`R5–R7`):**
+  - `R5` (`sha256:36122cf730b4`): moved the stateful `agentd.Daemon` supervisor loop (`daemon*.go`, `conversation.go`, and daemon unit tests) out of `internal/cli` into `internal/agentd` (`<480` LOC per file) wired via `agentd.HostCallbacks` / `agentd.Host`, and deleted the 8 pass-through alias shim files in `internal/cli/`.
+  - `R6` (`sha256:333e0d17524e`): completed `r.withSession` / `r.withConfigSession` / `r.withSliceSession` migration across the remaining 15 CLI command files and split `intent.go` + `intent_resolve.go`.
+  - `R7` (`sha256:91d785429207`): bound CLI `--json` output rendering to `withSchemaOutput[T]` via `writeSchemaOutput[T]` / `renderCommandOutput[T]` (+ `TestSchemaOutputAnnotatedCommandsBindMachineOutputAndJSONRendering` and `schema_defaults.go`), and split `hydrate.go` + `hydrate_fetch.go` and `changeset_create.go` + `changeset_capture.go` (`<= 410` LOC across all touched files).
+- **Web App (`R8–R10`):**
+  - `R8` (`sha256:52cb0864a60d`): decomposed the 8 remaining >600-LOC web page monoliths (`ConversationsPage`, `AgentSessionPage`, `CliAuthPage`, `AccountSettingsPage`, `AdminAccountsPage`, `HomePage`, `SliceSettingsPage`, `DocsPage` — zero `.ts`/`.tsx` files >600 LOC across `web/src/`).
+  - `R9` (`sha256:fcb4a981fe77`): completed TanStack Query migration (`useQuery`/`useQueries`/`useMutation`, `queryKeys.admin.*`, `accountQueries`, `claimQueries`, `conversationQueries`) across the remaining manual `useEffect` fetch pages while preserving realtime `EventSource`/WebSocket overlays.
+  - `R10` (`sha256:7ed8d8550666`): consolidated `web/src/styles/app.css` into focused `@import` domain partials under `web/src/styles/` (`tokens`, `shell`, `ui`, `markdown`, `landing`, `code-diff`, `slices`, `changesets`, `conversations`, `accounts-admin`, `docs-settings`, `responsive`), each `<420` LOC with zero CSS cascade drift.
+
+**Verification**
+- All 10 changesets verified green across local `-race` Go suites, live-PG `internal/postgres`/`service`/`tests/rpc`/`tests/cli`, `TestCmdGSBinaryDoesNotLinkServerStorageStack`, `TestSchemaOutputAnnotatedCommandsBindMachineOutputAndJSONRendering`, `agents/` & `trigger-dispatch/` `tsc --noEmit` + `node --test`, `web/` `tsc -b` + `npm run build` + `vitest`, and remote CI (`build`, `e2e`, `gofmt`, `test`, `vet`).
