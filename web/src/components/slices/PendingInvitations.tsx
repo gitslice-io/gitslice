@@ -6,6 +6,7 @@ import { useApi } from "../../api/useApi";
 import { AccountLink } from "../AccountAvatar";
 import { useSelection } from "../../state/selection";
 import { getErrorMessage } from "./SlicePageParts";
+import { authStatusKey } from "../../queries/auth";
 
 export const MY_INVITATIONS_KEY = ["myInvitations"] as const;
 
@@ -35,7 +36,7 @@ export function PendingInvitations() {
     onSuccess: async (_result, input) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: MY_INVITATIONS_KEY }),
-        queryClient.invalidateQueries({ queryKey: ["authStatus"] })
+        queryClient.invalidateQueries({ queryKey: authStatusKey })
       ]);
       if (input.accept) {
         setActiveAccount(input.account);

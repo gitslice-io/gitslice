@@ -6,6 +6,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { isDefiniteClientError, isNotFoundError } from "../api/rpcError";
 import type { AccountProfile, ListSlicesResponse } from "../api/types";
 import { useApi } from "../api/useApi";
+import { accountProfileKey, accountProfileQuery, accountSlicesQuery } from "../queries/accounts";
 import { AccountAvatar, rememberAvatarVersion } from "../components/AccountAvatar";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
@@ -25,8 +26,6 @@ import { isHomeSlice, isSliceSort, loadSliceSort, saveSliceSort, sliceSorts, sor
 import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 
-const PAGE_SIZE = 50;
-
 // An account's page, personal or organization: its slices that the visitor can
 // open, and for the account's members its people. Anyone sees the public
 // slices; members see every slice.
@@ -40,21 +39,17 @@ export function AccountPage() {
   const membership = membershipFor(memberships, account);
 
   const slicesQuery = useInfiniteQuery({
+    ...accountSlicesQuery(api, account, membership?.role ?? ""),
     // Wait for Clerk, so a member's token is attached and their private slices
     // are included on the first request.
     enabled: Boolean(isLoaded && account),
-    getNextPageParam: (last: ListSlicesResponse) => last.nextCursor || undefined,
-    initialPageParam: "",
-    queryKey: ["accountSlices", account, membership?.role ?? ""],
-    queryFn: ({ pageParam }) => api.listSlices({ account, cursor: pageParam, pageSize: PAGE_SIZE }),
     // Asking again does not change a definite answer (no such account, not
     // signed in, not allowed); only failures that may pass are retried.
     retry: (count, error) => !isDefiniteClientError(error) && count < 2
   });
   const profileQuery = useQuery({
+    ...accountProfileQuery(api, account),
     enabled: Boolean(account),
-    queryKey: ["accountProfile", account],
-    queryFn: () => api.getAccountProfile({ account }),
     retry: (count, error) => !isDefiniteClientError(error) && count < 2
   });
   const profile = profileQuery.data;
@@ -352,7 +347,7 @@ function PictureEditor({ account, kind, version }: { account: string; kind: stri
   const change = useMutation({
     mutationFn: (image: Uint8Array | undefined) => api.setAccountAvatar({ account, image }),
     onSuccess: (updated) => {
-      queryClient.setQueryData(["accountProfile", account], updated);
+      queryClient.setQueryData(accountProfileKey(account), updated);
       rememberAvatarVersion(account, updated.avatarVersion ?? "");
     }
   });
@@ -421,7 +416,7 @@ function ProfileEditor({ account, onDone, profile }: { account: string; onDone()
   const save = useMutation({
     mutationFn: () => api.updateAccountProfile({ account, description, displayName, website }),
     onSuccess: (updated) => {
-      queryClient.setQueryData(["accountProfile", account], updated);
+      queryClient.setQueryData(accountProfileKey(account), updated);
       onDone();
     }
   });

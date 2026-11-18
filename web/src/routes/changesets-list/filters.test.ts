@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { changesetsListQuery } from "../../queries/changesets";
 import {
   changesetsListKeyPrefix,
-  changesetsListQuery,
   changesetsListRequest,
   parseSearch,
   parseStatusTab,
@@ -61,11 +61,14 @@ describe("changesets list filters", () => {
     const listChangesets = vi.fn().mockResolvedValue({ changesets: [], nextPageToken: "next" });
     const query = changesetsListQuery({ listChangesets } as never, slice, "landed", " fix ");
     expect(query.queryKey).toEqual(["changesets", "gitslice", "gitslice", "landed", "fix"]);
-    const page = await query.queryFn({ pageParam: "" });
+    // The page's fetcher, as the query runs it (only the page param matters).
+    const fetchPage = query.queryFn as unknown as (context: { pageParam: string }) => Promise<{ nextPageToken?: string }>;
+    const nextParam = (last: { nextPageToken?: string }) => query.getNextPageParam(last, [], "", []);
+    const page = await fetchPage({ pageParam: "" });
     expect(listChangesets).toHaveBeenCalledWith(expect.not.objectContaining({ pageToken: expect.anything() }));
-    expect(query.getNextPageParam(page)).toBe("next");
-    expect(query.getNextPageParam({ changesets: [] })).toBeUndefined();
-    await query.queryFn({ pageParam: "next" });
+    expect(nextParam(page)).toBe("next");
+    expect(nextParam({})).toBeUndefined();
+    await fetchPage({ pageParam: "next" });
     expect(listChangesets).toHaveBeenLastCalledWith(expect.objectContaining({ pageToken: "next" }));
   });
 });

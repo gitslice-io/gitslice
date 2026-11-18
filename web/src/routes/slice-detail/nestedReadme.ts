@@ -2,8 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { SliceRef, TreeEntry } from "../../api/types";
 import { useApi } from "../../api/useApi";
-import { listDirectoryAll, normalizeRepositoryPath } from "../../components/source/sourceUtils";
-import { sliceDirectoryQueryKey } from "../../lib/sliceQueryKeys";
+import { normalizeRepositoryPath } from "../../components/source/sourceUtils";
+import { sliceDirectoryQuery } from "../../queries/slices";
 import { findReadmeEntry } from "./readme";
 
 // How many single-folder levels a folder page looks down for a README.
@@ -61,10 +61,7 @@ export function useFolderReadme(
     queryKey: nestedReadmeQueryKey(sliceRef, commitId, onlyPath),
     queryFn: async () =>
       (await findNestedReadme(entries, (path) =>
-        queryClient.fetchQuery({
-          queryKey: sliceDirectoryQueryKey(sliceRef, commitId, path),
-          queryFn: () => listDirectoryAll(api, { commitId, path, slice: sliceRef })
-        })
+        queryClient.fetchQuery(sliceDirectoryQuery(api, sliceRef, commitId, path))
       )) ?? null,
     // A commit's tree never changes.
     staleTime: Number.POSITIVE_INFINITY

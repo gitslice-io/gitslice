@@ -3,7 +3,8 @@ import { useAuth } from "@clerk/tanstack-react-start";
 import { useQuery } from "@tanstack/react-query";
 
 import type { Changeset, SharedSlice, Slice, SliceRef } from "../api/types";
-import { useApi, type ApiClient } from "../api/useApi";
+import { useApi } from "../api/useApi";
+import { sharedSlicesQuery } from "../queries/auth";
 import { useSelection } from "../state/selection";
 import {
   canAdmin,
@@ -18,24 +19,12 @@ import {
   type Membership
 } from "./accounts";
 
-export const SHARED_SLICES_QUERY_KEY = ["sharedSlices"] as const;
-
-export async function fetchSharedSlices(
-  api: Partial<Pick<ApiClient, "listSharedSlices">>
-): Promise<SharedSlice[]> {
-  if (typeof api.listSharedSlices !== "function") {
-    return [];
-  }
-  return (await api.listSharedSlices({})).slices ?? [];
-}
-
 export function useSharedSlices(enabled = true) {
   const api = useApi();
   const { isLoaded, isSignedIn } = useAuth();
   return useQuery({
+    ...sharedSlicesQuery(api),
     enabled: Boolean(isLoaded && isSignedIn && enabled),
-    queryKey: SHARED_SLICES_QUERY_KEY,
-    queryFn: () => fetchSharedSlices(api),
     staleTime: 60_000,
     retry: false
   });

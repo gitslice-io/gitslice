@@ -4,6 +4,8 @@ import { useEffect, useState, type FormEvent } from "react";
 
 import type { AgentDaemon, Slice, SliceDefinition } from "../api/types";
 import { useApi } from "../api/useApi";
+import { sliceDaemonsQuery } from "../queries/agents";
+import { sliceRefKey, sliceRefQuery } from "../queries/slices";
 import { shortHash } from "../lib/objectId";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
@@ -56,9 +58,8 @@ export function SliceSettingsPage() {
   const [conflictMessage, setConflictMessage] = useState<string | null>(null);
 
   const sliceQuery = useQuery({
-    enabled: Boolean(routeSliceRef),
-    queryKey: ["sliceRef", routeAccount, routeSlice],
-    queryFn: () => api.resolveSlice({ ref: routeSliceRef })
+    ...sliceRefQuery(api, routeAccount, routeSlice),
+    enabled: Boolean(routeSliceRef)
   });
 
   const slice = sliceQuery.data;
@@ -70,10 +71,8 @@ export function SliceSettingsPage() {
     : `${routeAccount}:${routeSlice}`;
 
   const daemonsQuery = useQuery({
-    enabled: Boolean(slice),
-    queryKey: ["agentDaemons", "forSlice", routeAccount, routeSlice],
-    queryFn: async () =>
-      (await api.listDaemons({ forSlice: { account: routeAccount, slice: routeSlice } })).daemons ?? []
+    ...sliceDaemonsQuery(api, { account: routeAccount, slice: routeSlice }),
+    enabled: Boolean(slice)
   });
 
   useEffect(() => {
@@ -116,7 +115,7 @@ export function SliceSettingsPage() {
           "The slice definition changed on the server. The latest definition has been reloaded; review it and save again."
         );
         void queryClient.invalidateQueries({
-          queryKey: ["sliceRef", routeAccount, routeSlice]
+          queryKey: sliceRefKey(routeAccount, routeSlice)
         });
       }
     },
@@ -124,7 +123,7 @@ export function SliceSettingsPage() {
       setConflictMessage(null);
       setSaveMessage("Definition saved.");
       await queryClient.invalidateQueries({
-        queryKey: ["sliceRef", routeAccount, routeSlice]
+        queryKey: sliceRefKey(routeAccount, routeSlice)
       });
       await queryClient.invalidateQueries({ queryKey: ["slices"] });
     }
@@ -151,11 +150,11 @@ export function SliceSettingsPage() {
     onSuccess: async (updatedSlice) => {
       setCiSaveMessage("CI daemon updated.");
       queryClient.setQueryData(
-        ["sliceRef", routeAccount, routeSlice],
+        sliceRefKey(routeAccount, routeSlice),
         updatedSlice
       );
       await queryClient.invalidateQueries({
-        queryKey: ["sliceRef", routeAccount, routeSlice]
+        queryKey: sliceRefKey(routeAccount, routeSlice)
       });
       await queryClient.invalidateQueries({ queryKey: ["slices"] });
     }

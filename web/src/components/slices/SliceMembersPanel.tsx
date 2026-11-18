@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 
 import type { SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
-import { SHARED_SLICES_QUERY_KEY } from "../../lib/permissions";
+import { sharedSlicesKey } from "../../queries/auth";
 import { AccountLink } from "../AccountAvatar";
 import { SliceLoadingBlock, SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
 
@@ -39,7 +39,7 @@ export function SliceMembersPanel({ slice }: { slice: SliceRef }) {
   const refresh = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey }),
-      queryClient.invalidateQueries({ queryKey: SHARED_SLICES_QUERY_KEY })
+      queryClient.invalidateQueries({ queryKey: sharedSlicesKey })
     ]);
   const onError = (err: unknown) => setError(getErrorMessage(err));
 

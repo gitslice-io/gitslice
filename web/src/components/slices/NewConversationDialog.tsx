@@ -3,6 +3,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { Conversation, Slice, SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
+import {
+  agentDaemonsQuery,
+  allConversationsKey,
+  recentConversationsKey,
+  sliceConversationsKey
+} from "../../queries/agents";
 import { canHostConversations, daemonName } from "../../lib/daemons";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
 import { useSelection } from "../../state/selection";
@@ -44,9 +50,8 @@ export function NewConversationDialog({
   const [title, setTitle] = useState("");
 
   const daemonsQuery = useQuery({
-    enabled: open,
-    queryKey: ["agentDaemons"],
-    queryFn: async () => (await api.listDaemons({})).daemons ?? []
+    ...agentDaemonsQuery(api),
+    enabled: open
   });
 
   const slicesQuery = useQuery({
@@ -104,11 +109,10 @@ export function NewConversationDialog({
         title: input.title || undefined
       }),
     onSuccess: (conversation, input) => {
-      const sliceKey = `${input.slice.account ?? ""}:${input.slice.slice ?? ""}`;
-      void queryClient.invalidateQueries({ queryKey: ["recentConversations"] });
-      void queryClient.invalidateQueries({ queryKey: ["allConversations"] });
+      void queryClient.invalidateQueries({ queryKey: recentConversationsKey });
+      void queryClient.invalidateQueries({ queryKey: allConversationsKey });
       void queryClient.invalidateQueries({
-        queryKey: ["sliceConversations", sliceKey]
+        queryKey: sliceConversationsKey(input.slice)
       });
       onCreated?.(conversation);
       setTitle("");

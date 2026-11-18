@@ -7,6 +7,7 @@ import type { ConversationEvent } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { cn } from "../../lib/cn";
 import { renderMarkdownToHtml } from "../../lib/markdown";
+import { changesetQuery } from "../../queries/changesets";
 import { useInternalLinkClickHandler } from "../../lib/internalLinkNavigation";
 
 import {
@@ -213,10 +214,7 @@ function CapturedChangesetLink({ changesetId }: { changesetId: string }) {
   const queryClient = useQueryClient();
 
   const prefetchChangeset = () => {
-    void queryClient.prefetchQuery({
-      queryKey: ["changeset", changesetId],
-      queryFn: () => api.getChangeset({ changesetId })
-    });
+    void queryClient.prefetchQuery(changesetQuery(api, changesetId));
   };
 
   return (

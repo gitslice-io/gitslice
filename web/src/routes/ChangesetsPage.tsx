@@ -12,7 +12,8 @@ import type { Changeset, SliceRef } from "../api/types";
 import { type ApiClient, useApi } from "../api/useApi";
 import { AuthorLabel } from "../components/AccountAvatar";
 import { ChangesetMetaLine } from "./changeset-detail/ChangesetMetaLine";
-import { changesetsListQuery, parseStatusTab, statusTabs, type StatusTab } from "./changesets-list/filters";
+import { parseStatusTab, statusTabs, type StatusTab } from "./changesets-list/filters";
+import { changesetsListQuery } from "../queries/changesets";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
 import {

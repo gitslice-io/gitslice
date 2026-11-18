@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useApi } from "../api/useApi";
 import { BrandMark } from "../components/BrandMark";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { authStatusKey } from "../queries/auth";
 
 export function ChooseUsernamePage() {
   const api = useApi();
@@ -39,7 +40,7 @@ export function ChooseUsernamePage() {
       setSubmitError("");
     },
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ["authStatus"] });
+      await queryClient.invalidateQueries({ queryKey: authStatusKey });
     }
   });
 

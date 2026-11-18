@@ -1,5 +1,4 @@
-import type { ApiClient } from "../../api/useApi";
-import type { ListChangesetsRequest, ListChangesetsResponse, SliceRef } from "../../api/types";
+import type { ListChangesetsRequest, SliceRef } from "../../api/types";
 
 // The changesets list shows one status group at a time (the review queue is
 // the open ones) and can narrow it by text and author. They live in the URL,
@@ -68,17 +67,5 @@ export function changesetsListRequest(
     ...(query ? { query } : {}),
     ...(author ? { author } : {}),
     ...(pageToken ? { pageToken } : {})
-  };
-}
-
-// The options of the list's infinite query, shared by the page and the server
-// render that prefetches its first page.
-export function changesetsListQuery(api: ApiClient, slice: SliceRef, tab: StatusTab, typed: string) {
-  return {
-    queryKey: [...changesetsListKeyPrefix(slice), tab, typed.trim()] as const,
-    initialPageParam: "",
-    queryFn: ({ pageParam }: { pageParam: string }): Promise<ListChangesetsResponse> =>
-      api.listChangesets(changesetsListRequest(slice, tab, typed, pageParam)),
-    getNextPageParam: (last: ListChangesetsResponse) => last.nextPageToken || undefined
   };
 }

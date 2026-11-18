@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { AgentDaemon, Conversation, SliceRef } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
+import { agentDaemonsQuery, sliceConversationsQuery } from "../../queries/agents";
 import { cn } from "../../lib/cn";
 import { canHostConversations, daemonName } from "../../lib/daemons";
 import { Popup } from "../Popup";
@@ -28,16 +29,13 @@ export function AgentsTab({
   const sliceDefined = Boolean(slice.account && slice.slice);
 
   const daemonsQuery = useQuery({
+    ...agentDaemonsQuery(api),
     enabled: sliceDefined,
-    queryKey: ["agentDaemons"],
-    queryFn: async () => (await api.listDaemons({})).daemons ?? [],
   });
 
   const conversationsQuery = useQuery({
+    ...sliceConversationsQuery(api, slice),
     enabled: sliceDefined,
-    queryKey: ["sliceConversations", sliceKey],
-    queryFn: async () =>
-      (await api.listConversations({ slice })).conversations ?? [],
   });
 
   const daemons = daemonsQuery.data ?? [];
@@ -159,8 +157,8 @@ export function AgentsTab({
       // the next refetch will reconcile against server truth. The query cache
       // stores the array directly (the queryFn returns Conversation[]), so we
       // must update with an array too — not the wire-level response object.
-      queryClient.setQueryData<Conversation[]>(
-        ["sliceConversations", sliceKey],
+      queryClient.setQueryData(
+        sliceConversationsQuery(api, slice).queryKey,
         (current) => [
           conversation,
           ...(current ?? []).filter((item) => item.id !== conversation.id),

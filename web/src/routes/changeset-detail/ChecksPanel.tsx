@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isUnauthenticatedError } from "../../api/rpcError";
 import type { CheckRun, CheckRunLog } from "../../api/types";
 import { useApi, type ApiClient } from "../../api/useApi";
+import { checkRunsQuery, triggerRunsKey } from "../../queries/checks";
 import { cn } from "../../lib/cn";
 import { formatRelativeTime } from "../../lib/time";
 import { isTerminalCheckStatus, normalizeCheckStatus } from "./checkStatus";
@@ -44,16 +45,15 @@ export function ChecksPanel({ changesetId, patchsetId, signedOut = false }: Chec
   const api = useApi();
   const queryClient = useQueryClient();
   const [selectedRunId, setSelectedRunId] = useState("");
-  const checkRunsQueryKey = useMemo(
-    () => ["checkRuns", changesetId, patchsetId],
-    [changesetId, patchsetId]
+  const checkRuns = useMemo(
+    () => checkRunsQuery(api, changesetId, patchsetId),
+    [api, changesetId, patchsetId]
   );
+  const checkRunsQueryKey = checkRuns.queryKey;
 
   const runsQuery = useQuery({
+    ...checkRuns,
     enabled: Boolean(changesetId && patchsetId) && !signedOut,
-    queryKey: checkRunsQueryKey,
-    queryFn: async () =>
-      (await api.listCheckRuns({ changesetId, patchsetId })).runs ?? [],
     retry: (failures, error) => !isUnauthenticatedError(error) && failures < 3,
     refetchInterval: (query) =>
       query.state.data?.some((run) => !isTerminalCheckStatus(run.status))
@@ -71,7 +71,7 @@ export function ChecksPanel({ changesetId, patchsetId, signedOut = false }: Chec
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: checkRunsQueryKey });
-      await queryClient.invalidateQueries({ queryKey: ["triggerRuns", changesetId] });
+      await queryClient.invalidateQueries({ queryKey: triggerRunsKey(changesetId) });
     }
   });
 

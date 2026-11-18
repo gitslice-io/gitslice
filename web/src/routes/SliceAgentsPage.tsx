@@ -4,6 +4,8 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback } from "react";
 
 import { useApi } from "../api/useApi";
+import { conversationQuery as conversationQuery_ } from "../queries/agents";
+import { sliceRefQuery } from "../queries/slices";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
 import { AgentConversation } from "../components/slices/AgentConversation";
@@ -38,15 +40,13 @@ export function SliceAgentsPage() {
       : undefined;
 
   const sliceQuery = useQuery({
+    ...sliceRefQuery(api, routeAccount, routeSlice),
     enabled: Boolean(isLoaded && isSignedIn && routeSliceRef),
-    queryKey: ["sliceRef", routeAccount, routeSlice],
-    queryFn: () => api.resolveSlice({ ref: routeSliceRef }),
   });
 
   const conversationQuery = useQuery({
+    ...conversationQuery_(api, conversationId),
     enabled: Boolean(isLoaded && conversationId),
-    queryKey: ["conversation", conversationId],
-    queryFn: () => api.getConversation({ conversationId }),
   });
 
   const slice = sliceQuery.data;

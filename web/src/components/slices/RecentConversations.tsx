@@ -4,6 +4,7 @@ import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 
 import { useApi } from "../../api/useApi";
+import { recentConversationsQuery } from "../../queries/agents";
 import {
   ConversationCard,
   sortConversationsNewestFirst
@@ -18,9 +19,8 @@ export function RecentConversations({ accounts }: { accounts?: string[] } = {}) 
   const enabled = Boolean(isLoaded && isSignedIn);
 
   const conversationsQuery = useQuery({
-    enabled,
-    queryKey: ["recentConversations"],
-    queryFn: async () => (await api.listConversations({})).conversations ?? []
+    ...recentConversationsQuery(api),
+    enabled
   });
 
   const accountKey = accounts?.map((a) => a.toLowerCase()).join(" ") ?? "";

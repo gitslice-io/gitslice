@@ -68,6 +68,8 @@ vi.mock("@tanstack/react-query", () => ({
       options.onSuccess?.(data);
     })
   }),
+  // The real queryOptions only types its argument.
+  queryOptions: <TOptions,>(options: TOptions) => options,
   useQueryClient: () => queryClientMock.current
 }));
 

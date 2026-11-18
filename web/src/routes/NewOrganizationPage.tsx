@@ -7,6 +7,7 @@ import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
 import { SliceNotice, SlicePanel, getErrorMessage } from "../components/slices/SlicePageParts";
 import { useSelection } from "../state/selection";
+import { authStatusKey } from "../queries/auth";
 
 // The same shape as usernames (internal/usernames); the server has the final
 // word, including names reserved for sign-up.
@@ -40,7 +41,7 @@ export function NewOrganizationPage() {
     onError: (err) => setError(getErrorMessage(err)),
     onSuccess: async (created) => {
       const account = created.account ?? normalizeOrganizationName(name);
-      await queryClient.invalidateQueries({ queryKey: ["authStatus"] });
+      await queryClient.invalidateQueries({ queryKey: authStatusKey });
       setActiveAccount(account);
       void navigate({ params: { account }, to: "/accounts/$account" });
     }

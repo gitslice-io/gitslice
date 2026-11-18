@@ -4,6 +4,7 @@ import { useState } from "react";
 import { RpcError, isDefiniteClientError } from "../../api/rpcError";
 import type { TriggerRun } from "../../api/types";
 import { useApi } from "../../api/useApi";
+import { checkRunsKeyPrefix, triggerRunsKey, triggerRunsQuery } from "../../queries/checks";
 import { Timestamp } from "../../components/Timestamp";
 import { cn } from "../../lib/cn";
 import { errorMessage } from "./status";
@@ -22,11 +23,10 @@ export function TriggerRunsPanel({ changesetId, patchsetId }: { changesetId: str
   const api = useApi();
   const queryClient = useQueryClient();
   const [openRunId, setOpenRunId] = useState("");
-  const queryKey = ["triggerRuns", changesetId];
+  const queryKey = triggerRunsKey(changesetId);
   const runsQuery = useQuery({
+    ...triggerRunsQuery(api, changesetId),
     enabled: Boolean(changesetId),
-    queryKey,
-    queryFn: async () => (await api.listTriggerRuns({ changesetId, limit: 50 })).runs ?? [],
     retry: (failures, error) =>
       !isDefiniteClientError(error) &&
       !(error instanceof RpcError && error.status === 503) &&
@@ -35,7 +35,7 @@ export function TriggerRunsPanel({ changesetId, patchsetId }: { changesetId: str
   });
   const refresh = () => Promise.all([
     queryClient.invalidateQueries({ queryKey }),
-    queryClient.invalidateQueries({ queryKey: ["checkRuns", changesetId] })
+    queryClient.invalidateQueries({ queryKey: checkRunsKeyPrefix(changesetId) })
   ]);
   const rerun = useMutation({ mutationFn: (runId: string) => api.rerunTriggerRun({ runId }), onSuccess: refresh });
   const cancel = useMutation({ mutationFn: (runId: string) => api.cancelTriggerRun({ runId }), onSuccess: refresh });

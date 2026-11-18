@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@clerk/tanstack-react-start";
 
 import { useApi } from "../api/useApi";
+import { authStatusQuery } from "../queries/auth";
 import { ACTIVE_ACCOUNT_KEY, membershipFor, normalizeMemberships, type Membership } from "../lib/accounts";
 
 // The "account" is the signed-in user's own account, resolved from the session
@@ -33,9 +34,8 @@ export function SelectionProvider({ children }: { children: ReactNode }) {
   const isAuthReady = isLoaded && Boolean(isSignedIn);
   const shouldLoadAuthStatus = isAuthReady;
   const { data, error, isError, isLoading } = useQuery({
-    enabled: shouldLoadAuthStatus,
-    queryKey: ["authStatus"],
-    queryFn: () => api.getAuthStatus({})
+    ...authStatusQuery(api),
+    enabled: shouldLoadAuthStatus
   });
 
   const accounts = data?.accounts ?? [];

@@ -5,6 +5,7 @@ import { useApi } from "../../api/useApi";
 import { canAdmin, type Membership } from "../../lib/accounts";
 import { AccountAvatar, AccountLink } from "../AccountAvatar";
 import { SliceLoadingBlock, SliceNotice, getErrorMessage } from "./SlicePageParts";
+import { authStatusKey } from "../../queries/auth";
 
 const ROLES = ["owner", "admin", "writer", "member", "contributor", "reader"] as const;
 
@@ -44,7 +45,7 @@ export function AccountPeople({ account, membership }: { account: string; member
       queryClient.invalidateQueries({ queryKey: ["accountMembers", account] }),
       queryClient.invalidateQueries({ queryKey: ["accountInvitations", account] }),
       // Your own role may have changed.
-      queryClient.invalidateQueries({ queryKey: ["authStatus"] })
+      queryClient.invalidateQueries({ queryKey: authStatusKey })
     ]);
   };
 

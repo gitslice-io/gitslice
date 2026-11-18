@@ -27,15 +27,29 @@ import { PostHogProvider } from "../analytics/PostHogProvider";
 import { ClerkAuthProvider } from "../auth/ClerkAuthProvider";
 import { clerkScriptPreload } from "../auth/clerkScript";
 import { RpcError } from "../api/rpcError";
+import { accountProfileQuery } from "../queries/accounts";
+import { conversationQuery } from "../queries/agents";
+import { authStatusQuery } from "../queries/auth";
 import {
-  sliceDirectoryQueryKey,
-  sliceFileQueryKey,
-  slicePathQueryKey,
+  changesetDiffQuery,
+  changesetKey,
+  changesetQuery,
+  changesetsListQuery,
+  dependentChangesetsQuery
+} from "../queries/changesets";
+import { checkRunsQuery, triggerRunsQuery } from "../queries/checks";
+import {
+  globalRefQuery,
+  sliceDirectoryQuery,
+  sliceFileQuery,
+  slicePathQuery,
+  sliceRefKey,
+  sliceRefQuery,
+  sliceRenderedFileQuery,
   sliceRenderedFileQueryKey
-} from "../lib/sliceQueryKeys";
+} from "../queries/slices";
 import {
   isSliceProjectionDirectoryPath,
-  listDirectoryAll,
   normalizeRepositoryPath
 } from "../components/source/sourceUtils";
 import { findNestedReadme, nestedReadmeQueryKey, onlyDirectory } from "./slice-detail/nestedReadme";
@@ -48,8 +62,7 @@ import { visitorBannerWanted } from "../lib/visitorBanner";
 import { isNotFoundError } from "../api/rpcError";
 import type { Changeset, Slice } from "../api/types";
 import { shortChangesetId } from "../lib/objectId";
-import { changesetsListQuery, parseStatusTab } from "./changesets-list/filters";
-import { GLOBAL_REF_NAME } from "../lib/globalRef";
+import { parseStatusTab } from "./changesets-list/filters";
 import { conversationsEnabled } from "../lib/features";
 import { CLERK_UI_ATTRIBUTE, clerkUiInDocument, clerkUiWanted } from "../lib/clerkUi";
 import {
@@ -62,7 +75,6 @@ import {
 import { SelectionProvider, useSelection } from "../state/selection";
 import { THEME_BOOTSTRAP_SCRIPT } from "../theme";
 import { isTerminalCheckStatus } from "./changeset-detail/checkStatus";
-import { dependentChangesetsQuery } from "./changeset-detail/dependents";
 import { sortedPatchsets } from "./changeset-detail/patchsetUtils";
 import { UsernameGate } from "./UsernameGate";
 import { AccountNotFound, ChangesetNotFound, PageNotFound, SliceNotFound } from "./NotFoundPage";
@@ -254,10 +266,7 @@ const indexRoute = createRoute({
         if (!authState.isAuthenticated) return;
         const { createServerApiClient } = await import("../api/serverApi");
         const api = await createServerApiClient();
-        await context.queryClient.ensureQueryData({
-          queryKey: ["authStatus"],
-          queryFn: () => api.getAuthStatus({})
-        });
+        await context.queryClient.ensureQueryData(authStatusQuery(api));
       } catch {
         // The component keeps the existing client-side load/error behavior.
       }
@@ -279,10 +288,7 @@ const appRoute = createRoute({
         if (!authState.isAuthenticated) return;
         const { createServerApiClient } = await import("../api/serverApi");
         const api = await createServerApiClient();
-        await context.queryClient.ensureQueryData({
-          queryKey: ["authStatus"],
-          queryFn: () => api.getAuthStatus({})
-        });
+        await context.queryClient.ensureQueryData(authStatusQuery(api));
       } catch {
         // The component keeps the existing client-side load/error behavior.
       }
@@ -421,10 +427,7 @@ const accountRoute = createRoute({
         const { createServerApiClient } = await import("../api/serverApi");
         const api = await createServerApiClient();
         await lookupOrNotFound(() =>
-          context.queryClient.ensureQueryData({
-            queryKey: ["accountProfile", params.account],
-            queryFn: () => api.getAccountProfile({ account: params.account })
-          })
+          context.queryClient.ensureQueryData(accountProfileQuery(api, params.account))
         );
       } catch (error) {
         // Anything else the component finds out for itself.
@@ -456,7 +459,7 @@ const sliceDetailRoute = createRoute({
     if (!import.meta.env.SSR && params.account && params.slice) {
       // In the browser the page loads the slice itself; the title follows
       // whatever is already known.
-      const known = context.queryClient.getQueryData<Slice>(["sliceRef", params.account, params.slice]);
+      const known = context.queryClient.getQueryData(sliceRefKey(params.account, params.slice));
       if (known) {
         social = sliceSocial(known, params, deps.path, window.location.origin);
       }
@@ -474,10 +477,7 @@ const sliceDetailRoute = createRoute({
         // so it adds no wait of its own; a failure leaves it to the browser.
         const memberships = isServerSignedIn().then((signedIn) =>
           signedIn
-            ? context.queryClient.prefetchQuery({
-                queryKey: ["authStatus"],
-                queryFn: () => api.getAuthStatus({})
-              })
+            ? context.queryClient.prefetchQuery(authStatusQuery(api))
             : undefined
         );
         // The default view resolves the slice and the latest global ref (which
@@ -485,23 +485,9 @@ const sliceDetailRoute = createRoute({
         // paint and have no derived inputs, so prefetch them together.
         const [slice, latest] = await Promise.all([
           lookupOrNotFound(() =>
-            context.queryClient.ensureQueryData({
-              queryKey: ["sliceRef", params.account, params.slice],
-              queryFn: () => api.resolveSlice({ ref })
-            })
+            context.queryClient.ensureQueryData(sliceRefQuery(api, params.account, params.slice))
           ),
-          context.queryClient.ensureQueryData({
-            queryKey: ["globalRef", GLOBAL_REF_NAME],
-            queryFn: async () => {
-              const latest = await api.getRef({ refName: GLOBAL_REF_NAME });
-              if (!latest.commitId) {
-                throw new Error(
-                  "Latest global state did not return a commit id."
-                );
-              }
-              return latest;
-            }
-          })
+          context.queryClient.ensureQueryData(globalRefQuery(api))
         ]);
         await memberships.catch(() => undefined);
         social = sliceSocial(slice, params, deps.path, getRequestUrl().origin);
@@ -514,16 +500,11 @@ const sliceDetailRoute = createRoute({
           // listing, then the navigator's ancestor listings, one round trip at
           // a time. Prefetch them here with the page's own query keys.
           const listing = (path: string) =>
-            context.queryClient.ensureQueryData({
-              queryKey: sliceDirectoryQueryKey(sliceRef, commitId, path),
-              queryFn: () =>
-                listDirectoryAll(api, {
-                  allowMissingDirectory: isSliceProjectionDirectoryPath(path, includedPaths),
-                  commitId,
-                  path,
-                  slice: sliceRef
-                })
-            });
+            context.queryClient.ensureQueryData(
+              sliceDirectoryQuery(api, sliceRef, commitId, path, {
+                allowMissingDirectory: isSliceProjectionDirectoryPath(path, includedPaths)
+              })
+            );
           // The listings say which README the root shows, and rendering it
           // is one more round trip after them. A slice of one folder nearly
           // always shows that folder's README.md, so ask for it alongside the
@@ -534,10 +515,9 @@ const sliceDetailRoute = createRoute({
               : "";
           const guessedReadmeKey = sliceRenderedFileQueryKey(sliceRef, commitId, guessedReadmePath);
           if (guessedReadmePath) {
-            void context.queryClient.prefetchQuery({
-              queryKey: guessedReadmeKey,
-              queryFn: () => api.renderFile({ commitId, path: guessedReadmePath, slice: sliceRef })
-            });
+            void context.queryClient.prefetchQuery(
+              sliceRenderedFileQuery(api, sliceRef, commitId, guessedReadmePath)
+            );
           }
           const dropGuessedReadme = () => {
             if (guessedReadmePath) {
@@ -565,10 +545,9 @@ const sliceDetailRoute = createRoute({
             if (readmePath !== guessedReadmePath) {
               dropGuessedReadme();
             }
-            await context.queryClient.ensureQueryData({
-              queryKey: sliceRenderedFileQueryKey(sliceRef, commitId, readmePath),
-              queryFn: () => api.renderFile({ commitId, path: readmePath, slice: sliceRef })
-            });
+            await context.queryClient.ensureQueryData(
+              sliceRenderedFileQuery(api, sliceRef, commitId, readmePath)
+            );
           };
           const navigatorPaths = new Set(
             initialTreeExpansion(selectedPath, includedPaths, false)
@@ -581,31 +560,24 @@ const sliceDetailRoute = createRoute({
             // Without one it is nearly always a folder: list it meanwhile.
             // A wrong guess fails, and the lookup's answer is what is used.
             if (/[^/]\.[^/]+$/.test(selectedPath)) {
-              void context.queryClient.prefetchQuery({
-                queryKey: sliceFileQueryKey(sliceRef, commitId, selectedPath),
-                queryFn: () => api.readFile({ commitId, path: selectedPath, slice: sliceRef })
-              });
+              void context.queryClient.prefetchQuery(
+                sliceFileQuery(api, sliceRef, commitId, selectedPath)
+              );
             } else {
               void listing(selectedPath).catch(() => undefined);
             }
             work.push(
               context.queryClient
-                .ensureQueryData({
-                  queryKey: slicePathQueryKey(sliceRef, commitId, selectedPath),
-                  queryFn: () =>
-                    api.resolvePath({ commitId, path: selectedPath, slice: sliceRef })
-                })
+                .ensureQueryData(slicePathQuery(api, sliceRef, commitId, selectedPath))
                 .then((resolved): Promise<unknown> | undefined => {
                   const kind = resolved.entry?.kind;
                   if (kind === "ENTRY_KIND_DIRECTORY") {
                     return readmeFor(selectedPath);
                   }
                   if (kind === "ENTRY_KIND_FILE") {
-                    return context.queryClient.ensureQueryData({
-                      queryKey: sliceFileQueryKey(sliceRef, commitId, selectedPath),
-                      queryFn: () =>
-                        api.readFile({ commitId, path: selectedPath, slice: sliceRef })
-                    });
+                    return context.queryClient.ensureQueryData(
+                      sliceFileQuery(api, sliceRef, commitId, selectedPath)
+                    );
                   }
                   return undefined;
                 })
@@ -660,18 +632,11 @@ const sliceSettingsRoute = createRoute({
       try {
         const { createServerApiClient } = await import("../api/serverApi");
         const api = await createServerApiClient();
-        const ref = { account: params.account, slice: params.slice };
         // Settings resolves the slice and (in the definition form) the latest
         // global ref; both render on first paint.
         await Promise.all([
-          context.queryClient.ensureQueryData({
-            queryKey: ["sliceRef", params.account, params.slice],
-            queryFn: () => api.resolveSlice({ ref })
-          }),
-          context.queryClient.ensureQueryData({
-            queryKey: ["globalRef", GLOBAL_REF_NAME],
-            queryFn: () => api.getRef({ refName: GLOBAL_REF_NAME })
-          })
+          context.queryClient.ensureQueryData(sliceRefQuery(api, params.account, params.slice)),
+          context.queryClient.ensureQueryData(globalRefQuery(api))
         ]);
       } catch {
         // The component keeps the existing client-side load/error behavior.
@@ -705,11 +670,7 @@ const sliceAgentConversationRoute = createRoute({
       try {
         const { createServerApiClient } = await import("../api/serverApi");
         const api = await createServerApiClient();
-        await context.queryClient.ensureQueryData({
-          queryKey: ["conversation", params.conversationId],
-          queryFn: () =>
-            api.getConversation({ conversationId: params.conversationId })
-        });
+        await context.queryClient.ensureQueryData(conversationQuery(api, params.conversationId));
       } catch {
         // The component keeps the existing client-side load/error behavior.
       }
@@ -768,7 +729,7 @@ const changesetShortRoute = createRoute({
     if (!import.meta.env.SSR) {
       // In the browser the page loads the changeset itself; the title follows
       // whatever is already known.
-      const known = context.queryClient.getQueryData<Changeset>(["changeset", params.id]);
+      const known = context.queryClient.getQueryData(changesetKey(params.id));
       if (known) {
         social = changesetSocial(known, params.id, window.location.origin);
       }
@@ -779,10 +740,7 @@ const changesetShortRoute = createRoute({
         const { getRequestUrl } = await import("@tanstack/react-start/server");
         const api = await createServerApiClient();
         const changeset = await lookupOrNotFound(() =>
-          context.queryClient.ensureQueryData({
-            queryKey: ["changeset", params.id],
-            queryFn: () => api.getChangeset({ changesetId: params.id })
-          })
+          context.queryClient.ensureQueryData(changesetQuery(api, params.id))
         );
         // Link previews read the server-rendered head (lib/socialMeta).
         social = changesetSocial(changeset, params.id, getRequestUrl().origin);
@@ -813,25 +771,18 @@ const changesetShortRoute = createRoute({
         // the browser, as before. Check runs need a session.
         const { isServerSignedIn } = await import("../api/serverApi");
         const panels = [
-          context.queryClient.prefetchQuery({
-            queryKey: ["triggerRuns", canonicalChangesetId],
-            queryFn: async () =>
-              (await api.listTriggerRuns({ changesetId: canonicalChangesetId, limit: 50 })).runs ?? []
-          }),
+          context.queryClient.prefetchQuery(triggerRunsQuery(api, canonicalChangesetId)),
           isServerSignedIn().then(async (signedIn) => {
             if (!signedIn || !toPatchset) {
               return;
             }
-            const queryKey = ["checkRuns", canonicalChangesetId, toPatchset];
-            await context.queryClient.prefetchQuery({
-              queryKey,
-              queryFn: async () =>
-                (await api.listCheckRuns({ changesetId: canonicalChangesetId, patchsetId: toPatchset })).runs ?? []
-            });
+            const checkRuns = checkRunsQuery(api, canonicalChangesetId, toPatchset);
+            const queryKey = checkRuns.queryKey;
+            await context.queryClient.prefetchQuery(checkRuns);
             // A run still going shows times that move ("last seen 5s ago");
             // the server's text and the browser's would differ. Those are
             // left to the browser, which polls them anyway.
-            const runs = context.queryClient.getQueryData<{ status?: string }[]>(queryKey);
+            const runs = context.queryClient.getQueryData(queryKey);
             if (runs?.some((run) => !isTerminalCheckStatus(run.status))) {
               context.queryClient.removeQueries({ exact: true, queryKey });
             }
@@ -839,20 +790,9 @@ const changesetShortRoute = createRoute({
         ];
         await Promise.all([
           Promise.allSettled(panels),
-          context.queryClient.ensureQueryData({
-            queryKey: [
-              "changesetDiff",
-              canonicalChangesetId,
-              fromPatchset,
-              toPatchset
-            ],
-            queryFn: () =>
-              api.diffChangeset({
-                changesetId: canonicalChangesetId,
-                fromPatchset: fromPatchset || undefined,
-                toPatchset: toPatchset || undefined
-              })
-          }),
+          context.queryClient.ensureQueryData(
+            changesetDiffQuery(api, canonicalChangesetId, fromPatchset, toPatchset)
+          ),
           authoringSlice?.account && authoringSlice?.slice
             ? context.queryClient.ensureQueryData(
                 dependentChangesetsQuery(api, authoringSlice, changeset.id ?? "")

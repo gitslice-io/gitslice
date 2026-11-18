@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { TreeEntry } from "../../api/types";
 import { useApi } from "../../api/useApi";
-import { GLOBAL_REF_NAME } from "../../lib/globalRef";
+import { globalRefQuery } from "../../queries/slices";
 import { SlicePanel } from "./SlicePageParts";
 
 export const VISIBILITY_OPTIONS = ["private", "public"] as const;
@@ -53,10 +53,7 @@ export function SliceDefinitionForm({
     previousDefaultPathDraft.current = defaultPathDraft;
   }, [defaultPathDraft]);
 
-  const latestGlobalRefQuery = useQuery({
-    queryKey: ["globalRef", GLOBAL_REF_NAME],
-    queryFn: () => api.getRef({ refName: GLOBAL_REF_NAME })
-  });
+  const latestGlobalRefQuery = useQuery(globalRefQuery(api));
   const commitId = latestGlobalRefQuery.data?.commitId ?? "";
   const lastSlash = pathDraft.lastIndexOf("/");
   const partial = lastSlash >= 0 ? pathDraft.slice(lastSlash + 1) : pathDraft;

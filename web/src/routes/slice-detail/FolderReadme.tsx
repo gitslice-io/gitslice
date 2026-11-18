@@ -10,7 +10,7 @@ import {
   normalizeRepositoryPath
 } from "../../components/source/sourceUtils";
 import { projectRoot } from "../../lib/repoLinks";
-import { sliceRenderedFileQueryKey } from "../../lib/sliceQueryKeys";
+import { sliceRenderedFileQuery } from "../../queries/slices";
 import { README_MAX_BYTES } from "./readme";
 
 interface FolderReadmeProps {
@@ -36,8 +36,7 @@ export function FolderReadme({ canEdit, commitId, entry, includedPaths, label, o
   // also asks for, so a README arrives with the page.
   const query = useQuery({
     enabled: Boolean(commitId && sliceRef?.account && sliceRef?.slice) && !tooLarge,
-    queryKey: sliceRenderedFileQueryKey(sliceRef, commitId, path),
-    queryFn: () => api.renderFile({ commitId, path, slice: sliceRef }),
+    ...sliceRenderedFileQuery(api, sliceRef, commitId, path),
     // A commit's file never changes.
     staleTime: Number.POSITIVE_INFINITY
   });

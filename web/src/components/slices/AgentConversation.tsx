@@ -11,6 +11,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type { Conversation, ConversationEvent } from "../../api/types";
 import { type ApiClient } from "../../api/useApi";
+import {
+  conversationKey,
+  conversationQuery,
+  recentConversationsKey,
+  recentConversationsQuery,
+  sliceConversationsKeyPrefix
+} from "../../queries/agents";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { cn } from "../../lib/cn";
 import { getErrorMessage } from "./SlicePageParts";
@@ -467,25 +474,25 @@ export function AgentConversation({
   const closeConversationMutation = useMutation({
     mutationFn: () => api.closeConversation({ conversationId }),
     onSuccess: (updatedConversation) => {
-      queryClient.setQueryData<Conversation>(
-        ["conversation", conversationId],
+      queryClient.setQueryData(
+        conversationQuery(api, conversationId).queryKey,
         updatedConversation
       );
       queryClient.setQueriesData<Conversation[]>(
-        { queryKey: ["sliceConversations"] },
+        { queryKey: sliceConversationsKeyPrefix },
         (current) =>
           updateConversationList(current, conversationId, updatedConversation)
       );
-      queryClient.setQueryData<Conversation[]>(
-        ["recentConversations"],
+      queryClient.setQueryData(
+        recentConversationsQuery(api).queryKey,
         (current) =>
           updateConversationList(current, conversationId, updatedConversation)
       );
       void queryClient.invalidateQueries({
-        queryKey: ["conversation", conversationId]
+        queryKey: conversationKey(conversationId)
       });
-      void queryClient.invalidateQueries({ queryKey: ["sliceConversations"] });
-      void queryClient.invalidateQueries({ queryKey: ["recentConversations"] });
+      void queryClient.invalidateQueries({ queryKey: sliceConversationsKeyPrefix });
+      void queryClient.invalidateQueries({ queryKey: recentConversationsKey });
       setIsCloseConfirmOpen(false);
     }
   });

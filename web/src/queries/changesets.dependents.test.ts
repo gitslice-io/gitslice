@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { dependentChangesetsQuery } from "./dependents";
+import { dependentChangesetsQuery } from "./changesets";
 
 describe("dependentChangesetsQuery", () => {
   const slice = { account: "acme", slice: "shop" };
@@ -17,7 +17,7 @@ describe("dependentChangesetsQuery", () => {
     }));
     const query = dependentChangesetsQuery({ listChangesets } as never, slice, "cs_root");
 
-    await expect(query.queryFn()).resolves.toEqual([
+    await expect((query.queryFn as unknown as () => Promise<unknown>)()).resolves.toEqual([
       { id: "cs_child", title: "Child" },
       { id: "cs_untitled", title: "" }
     ]);

@@ -6,6 +6,7 @@ import type { PendingClaim } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { getErrorMessage } from "./SlicePageParts";
 import { formatDate } from "../../lib/time";
+import { authStatusKey } from "../../queries/auth";
 
 // PendingClaims lists agents that registered with one of the signed-in user's
 // verified emails and lets them accept co-ownership. It renders nothing when
@@ -30,7 +31,7 @@ export function PendingClaims({ showEmpty = false }: { showEmpty?: boolean }) {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["pendingClaims"] }),
-        queryClient.invalidateQueries({ queryKey: ["authStatus"] }),
+        queryClient.invalidateQueries({ queryKey: authStatusKey }),
         queryClient.invalidateQueries({ queryKey: ["ownedAgents"] }),
         queryClient.invalidateQueries({ queryKey: ["slices"] })
       ]);

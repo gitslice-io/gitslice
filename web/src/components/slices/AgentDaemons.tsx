@@ -5,6 +5,7 @@ import { useState, type FormEvent } from "react";
 
 import type { AgentDaemon, SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
+import { agentDaemonsKey, agentDaemonsQuery } from "../../queries/agents";
 import { daemonName } from "../../lib/daemons";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
 import { formatRelativeTime } from "../../lib/time";
@@ -28,9 +29,8 @@ export function AgentDaemons() {
   const { isLoaded, isSignedIn } = useAuth();
   const enabled = Boolean(isLoaded && isSignedIn);
   const query = useQuery({
+    ...agentDaemonsQuery(api),
     enabled,
-    queryKey: ["agentDaemons"],
-    queryFn: async () => (await api.listDaemons({})).daemons ?? [],
     retry: false
   });
   if (!enabled || query.isPending || query.isError) {
@@ -86,7 +86,7 @@ function DaemonCard({ daemon }: { daemon: AgentDaemon }) {
 
   const refreshDaemons = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["agentDaemons"] }),
+      queryClient.invalidateQueries({ queryKey: agentDaemonsKey }),
       queryClient.invalidateQueries({ queryKey: ["sliceRef"] })
     ]);
   };
@@ -109,7 +109,7 @@ function DaemonCard({ daemon }: { daemon: AgentDaemon }) {
       setEditing(false);
       // The name shows in the pickers, slice settings and check runs too.
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["agentDaemons"] }),
+        queryClient.invalidateQueries({ queryKey: agentDaemonsKey }),
         queryClient.invalidateQueries({ queryKey: ["sliceRef"] }),
         queryClient.invalidateQueries({ queryKey: ["checkRuns"] })
       ]);

@@ -4,7 +4,6 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import type { ApiClient } from "../../api/useApi";
 import { SlicePanel } from "../../components/slices/SlicePageParts";
 import {
-  listDirectoryAll,
   isSliceProjectionDirectoryPath
 } from "../../components/source/sourceUtils";
 import {
@@ -18,7 +17,7 @@ import {
   type DirectoryLoadResult,
   type SourceTreeRow
 } from "./sourceTree";
-import { sliceDirectoryQueryKey } from "../../lib/sliceQueryKeys";
+import { sliceDirectoryQuery } from "../../queries/slices";
 import { TreeRow } from "./TreeRow";
 import { SourceSkeleton, NavigatorSkeleton } from "./skeletons";
 
@@ -90,19 +89,11 @@ export function SliceFolderNavigator({
       enabled: Boolean(
         commitId && sliceRef?.account && sliceRef?.slice && !isLatestLoading
       ),
-      // Same key as the slice page's directory listing, so the selected
+      // Same options as the slice page's directory listing, so the selected
       // directory is fetched once for both panes.
-      queryKey: sliceDirectoryQueryKey(sliceRef, commitId, path),
-      queryFn: () =>
-        listDirectoryAll(api, {
-          allowMissingDirectory: isSliceProjectionDirectoryPath(
-            path,
-            includedPaths
-          ),
-          commitId,
-          path,
-          slice: sliceRef
-        })
+      ...sliceDirectoryQuery(api, sliceRef, commitId, path, {
+        allowMissingDirectory: isSliceProjectionDirectoryPath(path, includedPaths)
+      })
     }))
   });
 

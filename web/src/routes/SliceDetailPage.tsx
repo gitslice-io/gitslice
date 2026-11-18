@@ -31,7 +31,6 @@ import {
   decodeBase64File,
   entryKindLabel,
   isSliceProjectionDirectoryPath,
-  listDirectoryAll,
   normalizeRepositoryPath,
   syntheticDirectoryEntry,
 } from "../components/source/sourceUtils";
@@ -39,7 +38,6 @@ import {
   useDraftChangesetController,
   type PendingEdit,
 } from "../components/source/SliceEditing";
-import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { shortChangesetId, shortHash } from "../lib/objectId";
 import { useSlicePermissions } from "../lib/permissions";
 import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
@@ -49,10 +47,12 @@ import { buildGitCloneHint } from "./slice-detail/sourceTree";
 import { useGitCloneOrigin } from "./slice-detail/useGitCloneOrigin";
 import { SliceAccessNotice } from "../components/slices/SliceAccessNotice";
 import {
-  sliceDirectoryQueryKey,
-  sliceFileQueryKey,
-  slicePathQueryKey,
-} from "../lib/sliceQueryKeys";
+  globalRefQuery,
+  sliceDirectoryQuery,
+  sliceFileQuery,
+  slicePathQuery,
+  sliceRefQuery,
+} from "../queries/slices";
 import { CheckoutMenu } from "./slice-detail/CheckoutMenu";
 import { FileFinder } from "./slice-detail/FileFinder";
 import { HistoryDrawer } from "./slice-detail/HistoryDrawer";
@@ -113,9 +113,8 @@ export function SliceDetailPage() {
   const gitCloneOrigin = useGitCloneOrigin();
 
   const sliceQuery = useQuery({
+    ...sliceRefQuery(api, routeAccount, routeSlice),
     enabled: Boolean(isLoaded && routeSliceRef),
-    queryKey: ["sliceRef", routeAccount, routeSlice],
-    queryFn: () => api.resolveSlice({ ref: routeSliceRef }),
   });
 
   const latestQuery = useQuery({
@@ -124,15 +123,8 @@ export function SliceDetailPage() {
     // from the file-view request waterfall (resolveSlice/getRef both feed the
     // commit + slice that resolvePath/readFile need). It stays gated on the
     // slice not having errored so we skip the fetch for missing/forbidden slices.
+    ...globalRefQuery(api),
     enabled: Boolean(isLoaded && routeSliceRef && !sliceQuery.isError),
-    queryKey: ["globalRef", GLOBAL_REF_NAME],
-    queryFn: async () => {
-      const ref = await api.getRef({ refName: GLOBAL_REF_NAME });
-      if (!ref.commitId) {
-        throw new Error("Latest global state did not return a commit id.");
-      }
-      return ref;
-    },
   });
 
   const slice = sliceQuery.data;
@@ -215,9 +207,7 @@ export function SliceDetailPage() {
       sliceRef?.account &&
       sliceRef?.slice,
     ),
-    queryKey: slicePathQueryKey(sliceRef, commitId, selectedPath),
-    queryFn: () =>
-      api.resolvePath({ commitId, path: selectedPath, slice: sliceRef }),
+    ...slicePathQuery(api, sliceRef, commitId, selectedPath),
   });
 
   const entry = isProjectedDirectoryPath
@@ -230,14 +220,9 @@ export function SliceDetailPage() {
     enabled: Boolean(
       commitId && sliceRef?.account && sliceRef?.slice && isDirectory,
     ),
-    queryKey: sliceDirectoryQueryKey(sliceRef, commitId, selectedPath),
-    queryFn: () =>
-      listDirectoryAll(api, {
-        allowMissingDirectory: isProjectedDirectoryPath,
-        commitId,
-        path: selectedPath,
-        slice: sliceRef,
-      }),
+    ...sliceDirectoryQuery(api, sliceRef, commitId, selectedPath, {
+      allowMissingDirectory: isProjectedDirectoryPath,
+    }),
   });
 
   // The README a folder shows. Found here, not where it is drawn, because the
@@ -279,9 +264,7 @@ export function SliceDetailPage() {
       sliceRef?.account &&
       sliceRef?.slice,
     ),
-    queryKey: sliceFileQueryKey(sliceRef, commitId, selectedPath),
-    queryFn: () =>
-      api.readFile({ commitId, path: selectedPath, slice: sliceRef }),
+    ...sliceFileQuery(api, sliceRef, commitId, selectedPath),
   });
 
   function selectPath(path: string) {

@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 import type { Conversation } from "../api/types";
 import { useApi } from "../api/useApi";
+import { allConversationsQuery } from "../queries/agents";
 import { PageHeader } from "../components/PageHeader";
 import {
   ConversationCard,
@@ -25,9 +26,8 @@ export function ConversationsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   const conversationsQuery = useQuery({
-    enabled: isLoaded && isSignedIn,
-    queryKey: ["allConversations"],
-    queryFn: async () => (await api.listConversations({})).conversations ?? []
+    ...allConversationsQuery(api),
+    enabled: isLoaded && isSignedIn
   });
 
   const conversations = useMemo(

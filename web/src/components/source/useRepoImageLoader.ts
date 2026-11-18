@@ -3,7 +3,7 @@ import { useCallback } from "react";
 
 import { useApi } from "../../api/useApi";
 import type { SliceRef } from "../../api/types";
-import { sliceFileQueryKey } from "../../lib/sliceQueryKeys";
+import { sliceFileQuery } from "../../queries/slices";
 import { imageMimeTypeFromPath } from "./ImageViewer";
 
 /**
@@ -24,8 +24,7 @@ export function useRepoImageLoader(commitId: string, slice: SliceRef | undefined
       }
       const file = await queryClient.fetchQuery({
         // The file view reads the same key, so opening the image is instant.
-        queryKey: sliceFileQueryKey(slice, commitId, path),
-        queryFn: () => api.readFile({ commitId, path, slice }),
+        ...sliceFileQuery(api, slice, commitId, path),
         staleTime: Infinity
       });
       return file.data ? `data:${mimeType};base64,${file.data}` : null;

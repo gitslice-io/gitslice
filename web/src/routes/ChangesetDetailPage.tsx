@@ -51,7 +51,13 @@ import {
   isTerminalStatus,
   mergeErrorMessage
 } from "./changeset-detail/status";
-import { dependentChangesetsQuery, type DependentChangeset } from "./changeset-detail/dependents";
+import {
+  changesetDiffQuery,
+  changesetKey,
+  changesetQuery as changesetQuery_,
+  dependentChangesetsQuery,
+  type DependentChangeset
+} from "../queries/changesets";
 import { sortedPatchsets } from "./changeset-detail/patchsetUtils";
 import {
   FileVersionDrawer,
@@ -124,9 +130,8 @@ export function ChangesetDetailPage() {
   }, []);
 
   const changesetQuery = useQuery({
+    ...changesetQuery_(api, changesetId),
     enabled: Boolean(isLoaded && changesetId),
-    queryKey: ["changeset", changesetId],
-    queryFn: () => api.getChangeset({ changesetId }),
     refetchInterval: (query) =>
       query.state.data?.status === "pending_publish" ? 2500 : false
   });
@@ -291,18 +296,7 @@ export function ChangesetDetailPage() {
     enabled: Boolean(
       changeset && canonicalChangesetId && !usesLazyFileDiffs
     ),
-    queryKey: [
-      "changesetDiff",
-      canonicalChangesetId,
-      fromPatchset,
-      selectedToPatchset
-    ],
-    queryFn: () =>
-      api.diffChangeset({
-        changesetId: canonicalChangesetId,
-        fromPatchset: fromPatchset || undefined,
-        toPatchset: selectedToPatchset || undefined
-      })
+    ...changesetDiffQuery(api, canonicalChangesetId, fromPatchset, selectedToPatchset)
   });
 
   const fileDiffQueries = useQueries({
@@ -392,7 +386,7 @@ export function ChangesetDetailPage() {
 
   const invalidateChangeset = async () => {
     await queryClient.invalidateQueries({
-      queryKey: ["changeset", changesetId]
+      queryKey: changesetKey(changesetId)
     });
   };
   const openConversation = useCallback(() => {
