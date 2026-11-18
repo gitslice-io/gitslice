@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
+	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -177,19 +178,7 @@ func (s *ChangesetStore) initialAcceptedPathHeadsFromTreeTx(ctx context.Context,
 }
 
 func validateAcceptedPathBase(head PathHead, base *corev1.PathBase) error {
-	if !head.Exists {
-		if base.Exists || base.EntryFingerprint != MissingEntryFingerprint() {
-			return ErrConflict
-		}
-		return nil
-	}
-	if !base.Exists {
-		return ErrConflict
-	}
-	if head.EntryFingerprint != base.EntryFingerprint {
-		return ErrConflict
-	}
-	return nil
+	return storage.ValidateAcceptedPathBase(head, base)
 }
 
 func getPathHeadsTx(ctx context.Context, tx *sql.Tx, paths []string) (map[string]PathHead, error) {

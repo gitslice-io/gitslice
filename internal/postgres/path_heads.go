@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/treestore"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
@@ -376,30 +377,9 @@ func uniqueSortedStrings(values []string) []string {
 }
 
 func pathHeadFromFile(entry FileEntry) PathHead {
-	return PathHead{
-		Path:             entry.Path,
-		Exists:           true,
-		EntryFingerprint: FileEntryFingerprint(entry),
-		BlobID:           entry.BlobID,
-		ContentHash:      entry.ContentHash,
-		Mode:             entry.Mode,
-		Size:             entry.Size,
-	}
+	return storage.PathHeadFromFile(entry)
 }
 
 func pathHeadFromTreeEntry(entry TreeEntry) PathHead {
-	if entry.Kind == "directory" {
-		return PathHead{
-			Path:             entry.Path,
-			Exists:           true,
-			EntryFingerprint: DirectoryEntryFingerprint(entry.TreeID),
-		}
-	}
-	return pathHeadFromFile(FileEntry{
-		Path:        entry.Path,
-		BlobID:      entry.BlobID,
-		ContentHash: entry.ContentHash,
-		Mode:        entry.Mode,
-		Size:        entry.Size,
-	})
+	return storage.PathHeadFromTreeEntry(entry)
 }

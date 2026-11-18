@@ -106,11 +106,12 @@ func (b *backend) revokeKeyCascadeLocked(keyID string, now time.Time) {
 	}
 }
 
-// revokeAgentKeysLocked revokes every key the subject holds.
-func (b *backend) revokeAgentKeysLocked(subjectID string) {
+// revokeUnusedAgentKeysLocked revokes never-used keys held by subjectID,
+// matching Postgres resumeAgentRegistrationTx (last_used_at is null).
+func (b *backend) revokeUnusedAgentKeysLocked(subjectID string) {
 	now := time.Now().UTC()
 	for _, record := range b.apiKeyRecords {
-		if record.key.SubjectID == subjectID {
+		if record.key.SubjectID == subjectID && record.key.LastUsedAt.IsZero() && record.key.RevokedAt.IsZero() {
 			b.revokeKeyCascadeLocked(record.key.ID, now)
 		}
 	}

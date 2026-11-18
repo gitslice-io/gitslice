@@ -49,7 +49,9 @@ func (s *ChangesetService) evaluateOwnerRule(ctx context.Context, authorIDs, app
 		return ownerEvalResult{count: 0}
 	}
 	needIDs := make([]string, 0, len(spec.ownerSubjects)+len(authorIDs)+len(approverIDs))
+	ownerIDs := make([]string, 0, len(spec.ownerSubjects))
 	for id := range spec.ownerSubjects {
+		ownerIDs = append(ownerIDs, id)
 		needIDs = append(needIDs, id)
 	}
 	needIDs = append(needIDs, authorIDs...)
@@ -60,55 +62,28 @@ func (s *ChangesetService) evaluateOwnerRule(ctx context.Context, authorIDs, app
 		return ownerEvalResult{err: grpcError(err)}
 	}
 
-	ownerControllers := make(map[string]bool, len(spec.ownerSubjects))
-	for ownerID := range spec.ownerSubjects {
-		subj, ok := subjects[ownerID]
-		if !ok || strings.TrimSpace(subj.ControllerSubjectID) == "" {
-			continue // unclaimed agents never count as owners
-		}
-		ownerControllers[subj.ControllerSubjectID] = true
-	}
-
-	authorControllers := make(map[string]bool, len(authorIDs))
-	allNonMechanicalAuthorsClaimed := len(authorIDs) > 0
-	allAuthorsOwn := len(authorIDs) > 0
-	for _, authorID := range uniqueNonEmptyStrings(authorIDs...) {
-		subj, ok := subjects[authorID]
-		if !ok || strings.TrimSpace(subj.ControllerSubjectID) == "" {
-			allNonMechanicalAuthorsClaimed = false
-			allAuthorsOwn = false
-			continue
-		}
-		authorControllers[subj.ControllerSubjectID] = true
-		if spec.selfBySubject {
-			if !spec.ownerSubjects[authorID] {
-				allAuthorsOwn = false
+	resolveSubjects := func(ids []string) []storage.Subject {
+		out := make([]storage.Subject, 0, len(ids))
+		for _, id := range uniqueNonEmptyStrings(ids...) {
+			if subj, ok := subjects[id]; ok {
+				out = append(out, subj)
+			} else {
+				out = append(out, storage.Subject{ID: id})
 			}
-		} else if !ownerControllers[subj.ControllerSubjectID] {
-			allAuthorsOwn = false
 		}
+		return out
 	}
 
-	approvedOwnerControllers := make(map[string]bool, len(approverIDs))
-	for _, approverID := range uniqueNonEmptyStrings(approverIDs...) {
-		if !spec.ownerSubjects[approverID] {
-			continue
-		}
-		subj, ok := subjects[approverID]
-		if !ok || strings.TrimSpace(subj.ControllerSubjectID) == "" {
-			continue // unclaimed agents never count as approvers
-		}
-		if authorControllers[subj.ControllerSubjectID] {
-			continue // controller deduplication with authors
-		}
-		approvedOwnerControllers[subj.ControllerSubjectID] = true
-	}
-
-	count := len(approvedOwnerControllers)
-	if allNonMechanicalAuthorsClaimed && allAuthorsOwn {
-		count += len(authorControllers)
-	}
-	return ownerEvalResult{count: count}
+	eval := storage.EvaluateControllerApprovals(storage.ControllerApprovalInput{
+		Authors:                 resolveSubjects(authorIDs),
+		Approvers:               resolveSubjects(approverIDs),
+		AllowedSubjects:         resolveSubjects(ownerIDs),
+		AllowedSubjectIDs:       spec.ownerSubjects,
+		RestrictToAllowed:       true,
+		CountSelfAuthorApproval: true,
+		SelfOwnBySubject:        spec.selfBySubject,
+	})
+	return ownerEvalResult{count: int(eval.ControllerCount)}
 }
 
 // requireGitsliceApproval enforces the implicit .gitslice/** ownership rule:

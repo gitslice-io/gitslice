@@ -4,9 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"strings"
 
+	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -62,9 +62,8 @@ func (s *ChangesetStore) AddCollaborator(ctx context.Context, changesetID, subje
 	if err != nil {
 		return nil, err
 	}
-	subjectID = strings.TrimSpace(subjectID)
 	addedBy = strings.TrimSpace(addedBy)
-	if subjectID == "" {
+	if strings.TrimSpace(subjectID) == "" {
 		return nil, ErrInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -85,10 +84,11 @@ func (s *ChangesetStore) AddCollaborator(ctx context.Context, changesetID, subje
 	if err != nil {
 		return nil, err
 	}
-	if status != "draft" {
-		return nil, fmt.Errorf("%w: collaborators can only be modified while a changeset is open; this one is %s", ErrConflict, status)
+	subjectID, err = storage.ValidateCollaboratorChange(status, subjectID)
+	if err != nil {
+		return nil, err
 	}
-	if subjectID != strings.TrimSpace(authorSubjectID) {
+	if _, added := storage.ApplyCollaboratorAddition(authorSubjectID, nil, subjectID); added {
 		if _, err := tx.ExecContext(ctx, `
 			insert into changeset_collaborators(changeset_id, subject_id, added_by)
 			values ($1, $2, $3)
@@ -113,8 +113,7 @@ func (s *ChangesetStore) RemoveCollaborator(ctx context.Context, changesetID, su
 	if err != nil {
 		return nil, err
 	}
-	subjectID = strings.TrimSpace(subjectID)
-	if subjectID == "" {
+	if strings.TrimSpace(subjectID) == "" {
 		return nil, ErrInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -135,8 +134,9 @@ func (s *ChangesetStore) RemoveCollaborator(ctx context.Context, changesetID, su
 	if err != nil {
 		return nil, err
 	}
-	if status != "draft" {
-		return nil, fmt.Errorf("%w: collaborators can only be modified while a changeset is open; this one is %s", ErrConflict, status)
+	subjectID, err = storage.ValidateCollaboratorChange(status, subjectID)
+	if err != nil {
+		return nil, err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		delete from changeset_collaborators
@@ -160,8 +160,7 @@ func (s *ChangesetStore) Handoff(ctx context.Context, changesetID, newAuthorSubj
 	if err != nil {
 		return nil, err
 	}
-	newAuthorSubjectID = strings.TrimSpace(newAuthorSubjectID)
-	if newAuthorSubjectID == "" {
+	if strings.TrimSpace(newAuthorSubjectID) == "" {
 		return nil, ErrInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -182,10 +181,11 @@ func (s *ChangesetStore) Handoff(ctx context.Context, changesetID, newAuthorSubj
 	if err != nil {
 		return nil, err
 	}
-	if status != "draft" {
-		return nil, fmt.Errorf("%w: a changeset can only be handed off while it is open; this one is %s", ErrConflict, status)
+	newAuthorSubjectID, err = storage.ValidateHandoff(status, newAuthorSubjectID)
+	if err != nil {
+		return nil, err
 	}
-	if newAuthorSubjectID != strings.TrimSpace(authorSubjectID) {
+	if _, _, _, changed := storage.ApplyHandoff(authorSubjectID, "", nil, newAuthorSubjectID); changed {
 		if _, err := tx.ExecContext(ctx, `
 			update changesets
 			set original_author_subject_id = coalesce(original_author_subject_id, author_subject_id),

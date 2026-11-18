@@ -155,11 +155,8 @@ func activeSliceRequirementsAndIncludedPathsTx(ctx context.Context, tx *sql.Tx, 
 	if err != nil {
 		return nil, nil, err
 	}
-	if deleted {
-		return nil, nil, fmt.Errorf("%w: slice is deleted", ErrConflict)
-	}
-	if archived {
-		return nil, nil, fmt.Errorf("%w: slice is archived", ErrConflict)
+	if err := storage.ValidateSubmitSliceState(archived, deleted); err != nil {
+		return nil, nil, err
 	}
 	return req, included, nil
 }

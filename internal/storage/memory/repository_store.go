@@ -2,7 +2,6 @@ package memory
 
 import (
 	"context"
-	"path"
 	"sort"
 	"strings"
 
@@ -349,17 +348,7 @@ func (s *RepositoryStore) GetEntry(ctx context.Context, commitID, p string) (*st
 	if files == nil {
 		return nil, storage.ErrNotFound
 	}
-	dirs := s.b.commitDirs[commitID]
-	if file, ok := files[p]; ok {
-		return &storage.TreeEntry{Path: file.Path, Name: path.Base(file.Path), Kind: "file", Mode: file.Mode, BlobID: file.BlobID, ContentHash: file.ContentHash, Size: file.Size}, nil
-	}
-	if _, ok := dirs[p]; ok {
-		return &storage.TreeEntry{Path: p, Name: path.Base(p), Kind: "directory", TreeID: "mem_tree_" + strings.Trim(p, "/")}, nil
-	}
-	if p == "/" || hasDescendant(files, p) || hasDescendantDir(dirs, p) {
-		return &storage.TreeEntry{Path: p, Name: path.Base(p), Kind: "directory", TreeID: "mem_tree_" + strings.Trim(p, "/")}, nil
-	}
-	return nil, storage.ErrNotFound
+	return treeEntryFromMemorySnapshot(files, s.b.commitDirs[commitID], p)
 }
 
 func (s *RepositoryStore) ListDirectory(ctx context.Context, commitID, p string) ([]storage.TreeEntry, error) {

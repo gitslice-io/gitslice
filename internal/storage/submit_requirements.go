@@ -172,28 +172,27 @@ func EvaluateSubmitRequirementsWithCode(req *corev1.SubmitRequirements, excluded
 		return SubmitBlockCodeNone, ""
 	}
 	if req.RequiredApprovals > 0 || req.RequiredHumanApprovals > 0 {
-		candidates := approvers
 		approversGroup := strings.TrimSpace(req.GetApprovers())
-		if approversGroup != "" {
-			candidates = FilterApproversByMembership(approvers, approverGroupMembers)
-		}
-		eligible := FilterApprovalSubjects(candidates, excludedAuthors...)
+		eval := EvaluateControllerApprovals(ControllerApprovalInput{
+			Authors:           excludedAuthors,
+			Approvers:         approvers,
+			AllowedSubjectIDs: approverGroupMembers,
+			RestrictToAllowed: approversGroup != "",
+		})
 		if req.RequiredApprovals > 0 {
-			count := DistinctControllerApprovalCount(eligible)
-			if count < req.RequiredApprovals {
+			if eval.ControllerCount < req.RequiredApprovals {
 				if approversGroup != "" {
-					return SubmitBlockCodeApprovalsMissing, fmt.Sprintf("required approvals not satisfied: requires %d distinct non-author approval(s) from %s, has %d", req.RequiredApprovals, approversGroup, count)
+					return SubmitBlockCodeApprovalsMissing, fmt.Sprintf("required approvals not satisfied: requires %d distinct non-author approval(s) from %s, has %d", req.RequiredApprovals, approversGroup, eval.ControllerCount)
 				}
-				return SubmitBlockCodeApprovalsMissing, fmt.Sprintf("required approvals not satisfied: requires %d distinct non-author approval(s), has %d", req.RequiredApprovals, count)
+				return SubmitBlockCodeApprovalsMissing, fmt.Sprintf("required approvals not satisfied: requires %d distinct non-author approval(s), has %d", req.RequiredApprovals, eval.ControllerCount)
 			}
 		}
 		if req.RequiredHumanApprovals > 0 {
-			count := DistinctHumanApprovalCount(eligible)
-			if count < req.RequiredHumanApprovals {
+			if eval.HumanCount < req.RequiredHumanApprovals {
 				if approversGroup != "" {
-					return SubmitBlockCodeApprovalsMissing, fmt.Sprintf("required human approvals not satisfied: requires %d human approval(s) from %s, has %d", req.RequiredHumanApprovals, approversGroup, count)
+					return SubmitBlockCodeApprovalsMissing, fmt.Sprintf("required human approvals not satisfied: requires %d human approval(s) from %s, has %d", req.RequiredHumanApprovals, approversGroup, eval.HumanCount)
 				}
-				return SubmitBlockCodeApprovalsMissing, fmt.Sprintf("required human approvals not satisfied: requires %d human approval(s), has %d", req.RequiredHumanApprovals, count)
+				return SubmitBlockCodeApprovalsMissing, fmt.Sprintf("required human approvals not satisfied: requires %d human approval(s), has %d", req.RequiredHumanApprovals, eval.HumanCount)
 			}
 		}
 	}
@@ -299,27 +298,7 @@ func FilterApprovalSubjects(approvers []Subject, excludedAuthors ...Subject) []S
 			excludedControllers[ctrl] = struct{}{}
 		}
 	}
-	out := make([]Subject, 0, len(approvers))
-	for _, approver := range approvers {
-		id := strings.TrimSpace(approver.ID)
-		ctrl := strings.TrimSpace(approver.ControllerSubjectID)
-		if id == "" || ctrl == "" {
-			continue
-		}
-		if _, skip := excludedIDs[id]; skip {
-			continue
-		}
-		if _, skip := excludedControllers[ctrl]; skip {
-			continue
-		}
-		out = append(out, Subject{
-			ID:                  id,
-			Kind:                strings.TrimSpace(approver.Kind),
-			ControllerSubjectID: ctrl,
-			DisplayName:         approver.DisplayName,
-		})
-	}
-	return out
+	return filterEligibleApprovers(approvers, excludedIDs, excludedControllers)
 }
 
 // DistinctControllerApprovalCount counts distinct non-empty controller subject

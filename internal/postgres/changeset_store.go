@@ -385,53 +385,36 @@ func (s *ChangesetStore) resolveChangesetSelector(ctx context.Context, selector 
 	if !isChangeset && !isCommit {
 		return selector, nil
 	}
+	var changesetMatches []string
 	if isChangeset {
-		var (
-			matches []string
-			err     error
-		)
+		var err error
 		if len(prefix) == len("cs_")+32 {
-			matches, err = s.selectChangesetIDs(ctx, `select id from changesets where id = $1`, prefix)
+			changesetMatches, err = s.selectChangesetIDs(ctx, `select id from changesets where id = $1`, prefix)
 		} else if upper, ok := hexPrefixUpperBound(prefix); ok {
-			matches, err = s.selectChangesetIDs(ctx, `select id from changesets where id >= $1 and id < $2 and starts_with(id, $1) order by id limit 2`, prefix, upper)
+			changesetMatches, err = s.selectChangesetIDs(ctx, `select id from changesets where id >= $1 and id < $2 and starts_with(id, $1) order by id limit 2`, prefix, upper)
 		} else {
-			matches, err = s.selectChangesetIDs(ctx, `select id from changesets where starts_with(id, $1) order by id limit 2`, prefix)
+			changesetMatches, err = s.selectChangesetIDs(ctx, `select id from changesets where starts_with(id, $1) order by id limit 2`, prefix)
 		}
 		if err != nil {
 			return "", err
 		}
-		if len(matches) > 1 {
-			return "", fmt.Errorf("changeset id prefix %q is ambiguous: %w", selector, ErrInvalid)
-		}
-		if len(matches) == 1 {
-			return matches[0], nil
+		if len(changesetMatches) == 1 {
+			return changesetMatches[0], nil
 		}
 	}
-	if isCommit {
-		// Not a changeset: maybe the id of the commit a changeset landed as.
-		var (
-			matches []string
-			err     error
-		)
+	var commitMatches []string
+	if isCommit && len(changesetMatches) == 0 {
+		var err error
 		if len(commitPrefix) == len("sha256:")+64 {
-			matches, err = s.selectChangesetIDs(ctx, `select id from changesets where commit_id = $1 order by id limit 2`, commitPrefix)
+			commitMatches, err = s.selectChangesetIDs(ctx, `select id from changesets where commit_id = $1 order by id limit 2`, commitPrefix)
 		} else {
-			matches, err = s.selectChangesetIDs(ctx, `select id from changesets where commit_id like $1 || '%' order by id limit 2`, commitPrefix)
+			commitMatches, err = s.selectChangesetIDs(ctx, `select id from changesets where commit_id like $1 || '%' order by id limit 2`, commitPrefix)
 		}
 		if err != nil {
 			return "", err
 		}
-		if len(matches) > 1 {
-			return "", fmt.Errorf("commit id prefix %q is ambiguous: %w", selector, ErrInvalid)
-		}
-		if len(matches) == 1 {
-			return matches[0], nil
-		}
 	}
-	if !isChangeset {
-		return selector, nil
-	}
-	return "", ErrNotFound
+	return storage.ResolveChangesetSelectorMatches(selector, isChangeset, isCommit, changesetMatches, commitMatches)
 }
 
 // hexPrefixUpperBound returns an exclusive upper bound for a lowercase hex

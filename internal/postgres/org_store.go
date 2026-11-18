@@ -135,9 +135,9 @@ func (s *AuthStore) ListAccountMembers(ctx context.Context, accountSlug string) 
 }
 
 func (s *AuthStore) SetAccountMemberRole(ctx context.Context, accountSlug, subjectID, role string) (err error) {
-	role = strings.ToLower(strings.TrimSpace(role))
-	if storage.AccountRoleRank(role) >= len(storage.AccountRoles) {
-		return fmt.Errorf("%w: invalid account role %q", ErrInvalid, role)
+	role, err = storage.ValidateAccountMemberRole(role)
+	if err != nil {
+		return err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

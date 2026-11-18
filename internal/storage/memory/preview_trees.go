@@ -200,15 +200,41 @@ func ensureMemoryParentDirs(dirs map[string]struct{}, p string) {
 	}
 }
 
+func memoryDirectoryTreeID(files map[string]storage.FileEntry, dirs map[string]struct{}, p string) string {
+	type dirSnapshot struct {
+		Path  string              `json:"path"`
+		Files []storage.FileEntry `json:"files"`
+		Dirs  []string            `json:"dirs"`
+	}
+	snap := dirSnapshot{Path: p}
+	for filePath, file := range files {
+		if p == "/" || pathContains(p, filePath) {
+			snap.Files = append(snap.Files, file)
+		}
+	}
+	sort.Slice(snap.Files, func(i, j int) bool {
+		return snap.Files[i].Path < snap.Files[j].Path
+	})
+	for dirPath := range dirs {
+		if p == "/" || pathContains(p, dirPath) {
+			snap.Dirs = append(snap.Dirs, dirPath)
+		}
+	}
+	sort.Strings(snap.Dirs)
+	payload, _ := json.Marshal(snap)
+	sum := sha256.Sum256(payload)
+	return "mem_tree_" + hex.EncodeToString(sum[:])
+}
+
 func treeEntryFromMemorySnapshot(files map[string]storage.FileEntry, dirs map[string]struct{}, p string) (*storage.TreeEntry, error) {
 	if file, ok := files[p]; ok {
 		return &storage.TreeEntry{Path: file.Path, Name: path.Base(file.Path), Kind: "file", Mode: file.Mode, BlobID: file.BlobID, ContentHash: file.ContentHash, Size: file.Size}, nil
 	}
 	if p == "/" || hasDescendant(files, p) || hasDescendantDir(dirs, p) {
-		return &storage.TreeEntry{Path: p, Name: path.Base(p), Kind: "directory", TreeID: "mem_tree_" + strings.Trim(p, "/")}, nil
+		return &storage.TreeEntry{Path: p, Name: path.Base(p), Kind: "directory", TreeID: memoryDirectoryTreeID(files, dirs, p)}, nil
 	}
 	if _, ok := dirs[p]; ok {
-		return &storage.TreeEntry{Path: p, Name: path.Base(p), Kind: "directory", TreeID: "mem_tree_" + strings.Trim(p, "/")}, nil
+		return &storage.TreeEntry{Path: p, Name: path.Base(p), Kind: "directory", TreeID: memoryDirectoryTreeID(files, dirs, p)}, nil
 	}
 	return nil, storage.ErrNotFound
 }

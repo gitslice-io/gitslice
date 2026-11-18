@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -531,37 +532,39 @@ func memoryTokenHash(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (b *backend) resolveChangesetSelectorLocked(selector string) string {
-	if prefix, ok := storage.ChangesetIDLookupPrefix(selector); ok {
-		var match string
+func (b *backend) resolveChangesetSelectorLocked(selector string) (string, error) {
+	if selector != "" && b.changesets[selector] != nil {
+		return selector, nil
+	}
+	prefix, isChangeset := storage.ChangesetIDLookupPrefix(selector)
+	commitPrefix, isCommit := storage.CommitIDLookupPrefix(selector)
+	if !isChangeset && !isCommit {
+		return selector, nil
+	}
+	var changesetMatches []string
+	if isChangeset {
 		for id, cs := range b.changesets {
 			if cs == nil {
 				continue
 			}
 			if strings.HasPrefix(strings.ToLower(id), prefix) {
-				if match != "" {
-					return ""
-				}
-				match = id
+				changesetMatches = append(changesetMatches, id)
 			}
 		}
-		if match != "" {
-			return match
+		sort.Strings(changesetMatches)
+		if len(changesetMatches) == 1 {
+			return changesetMatches[0], nil
 		}
 	}
-	// Not a changeset: maybe the id of the commit a changeset landed as.
-	if prefix, ok := storage.CommitIDLookupPrefix(selector); ok {
-		var match string
+	var commitMatches []string
+	if isCommit && len(changesetMatches) == 0 {
 		for id, cs := range b.changesets {
-			if cs == nil || cs.CommitId == "" || !strings.HasPrefix(cs.CommitId, prefix) {
+			if cs == nil || cs.CommitId == "" || !strings.HasPrefix(cs.CommitId, commitPrefix) {
 				continue
 			}
-			if match != "" {
-				return ""
-			}
-			match = id
+			commitMatches = append(commitMatches, id)
 		}
-		return match
+		sort.Strings(commitMatches)
 	}
-	return ""
+	return storage.ResolveChangesetSelectorMatches(selector, isChangeset, isCommit, changesetMatches, commitMatches)
 }

@@ -96,6 +96,27 @@ func TestRegisterAgentResumesWithSameToken(t *testing.T) {
 		t.Fatalf("resumed key = %+v, %v", subject, err)
 	}
 
+	// Once second.APIKey has been used (last_used_at set), a subsequent retry
+	// revokes only unused keys and preserves the already-used key (Postgres parity).
+	third, err := stores.Auth.RegisterAgent(ctx, in)
+	if err != nil || !third.Resumed || third.APIKey == second.APIKey {
+		t.Fatalf("third retry = %+v, %v", third, err)
+	}
+	if _, err := stores.Auth.SubjectForToken(ctx, second.APIKey); err != nil {
+		t.Fatalf("already-used second key should remain active after resume, got err = %v", err)
+	}
+	// Fourth retry revokes unused third.APIKey while keeping used second.APIKey.
+	fourth, err := stores.Auth.RegisterAgent(ctx, in)
+	if err != nil || !fourth.Resumed {
+		t.Fatalf("fourth retry = %+v, %v", fourth, err)
+	}
+	if _, err := stores.Auth.SubjectForToken(ctx, third.APIKey); !errors.Is(err, storage.ErrUnauthenticated) {
+		t.Fatalf("unused third key err = %v; want ErrUnauthenticated", err)
+	}
+	if _, err := stores.Auth.SubjectForToken(ctx, second.APIKey); err != nil {
+		t.Fatalf("used second key after fourth retry err = %v; want nil", err)
+	}
+
 	other := in
 	other.Username = "other-bot"
 	if _, err := stores.Auth.RegisterAgent(ctx, other); !errors.Is(err, storage.ErrConflict) {

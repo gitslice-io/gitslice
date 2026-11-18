@@ -64,8 +64,10 @@ func (s *ChangesetStore) Create(ctx context.Context, subjectID string, req *core
 func (s *ChangesetStore) Get(ctx context.Context, changesetID string) (*corev1.Changeset, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	if resolved := s.b.resolveChangesetSelectorLocked(changesetID); resolved != "" {
-		changesetID = resolved
+	var err error
+	changesetID, err = s.b.resolveChangesetSelectorLocked(changesetID)
+	if err != nil {
+		return nil, err
 	}
 	cs := s.b.changesets[changesetID]
 	if cs == nil {
@@ -161,6 +163,11 @@ func (s *ChangesetStore) PatchsetsByConversation(ctx context.Context, conversati
 func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedCurrentPatchsetID string, patchset *corev1.Patchset) (*corev1.Patchset, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
+	var err error
+	changesetID, err = s.b.resolveChangesetSelectorLocked(changesetID)
+	if err != nil {
+		return nil, err
+	}
 	cs := s.b.changesets[changesetID]
 	if cs == nil {
 		return nil, storage.ErrNotFound
@@ -247,8 +254,10 @@ func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedC
 func (s *ChangesetStore) Approve(ctx context.Context, changesetID, subjectID string) (*corev1.ApproveChangesetResponse, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	if resolved := s.b.resolveChangesetSelectorLocked(changesetID); resolved != "" {
-		changesetID = resolved
+	var err error
+	changesetID, err = s.b.resolveChangesetSelectorLocked(changesetID)
+	if err != nil {
+		return nil, err
 	}
 	cs := s.b.changesets[changesetID]
 	if cs == nil {
@@ -296,8 +305,10 @@ func (s *ChangesetStore) Approve(ctx context.Context, changesetID, subjectID str
 func (s *ChangesetStore) ReportCheckResult(ctx context.Context, changesetID, subjectID, checkName, resultStatus string) (*corev1.ReportCheckResultResponse, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	if resolved := s.b.resolveChangesetSelectorLocked(changesetID); resolved != "" {
-		changesetID = resolved
+	var err error
+	changesetID, err = s.b.resolveChangesetSelectorLocked(changesetID)
+	if err != nil {
+		return nil, err
 	}
 	cs := s.b.changesets[changesetID]
 	if cs == nil {
@@ -343,6 +354,11 @@ func (b *backend) clearRequirementBlockLocked(cs *corev1.Changeset, patchsetID s
 func (s *ChangesetStore) UpdateInfo(ctx context.Context, changesetID string, title, description *string) (*corev1.Changeset, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
+	var err error
+	changesetID, err = s.b.resolveChangesetSelectorLocked(changesetID)
+	if err != nil {
+		return nil, err
+	}
 	cs := s.b.changesets[changesetID]
 	if cs == nil {
 		return nil, storage.ErrNotFound
@@ -370,23 +386,23 @@ func (s *ChangesetStore) UpdateInfo(ctx context.Context, changesetID string, tit
 func (s *ChangesetStore) AddCollaborator(ctx context.Context, changesetID, subjectID, addedBy string) (*corev1.Changeset, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	if resolved := s.b.resolveChangesetSelectorLocked(changesetID); resolved != "" {
-		changesetID = resolved
+	var err error
+	changesetID, err = s.b.resolveChangesetSelectorLocked(changesetID)
+	if err != nil {
+		return nil, err
 	}
-	subjectID = strings.TrimSpace(subjectID)
-	if subjectID == "" {
+	if strings.TrimSpace(subjectID) == "" {
 		return nil, storage.ErrInvalid
 	}
 	cs := s.b.changesets[changesetID]
 	if cs == nil {
 		return nil, storage.ErrNotFound
 	}
-	if cs.Status != "draft" {
-		return nil, fmt.Errorf("%w: collaborators can only be modified while a changeset is open; this one is %s", storage.ErrConflict, cs.Status)
+	subjectID, err = storage.ValidateCollaboratorChange(cs.Status, subjectID)
+	if err != nil {
+		return nil, err
 	}
-	if subjectID != strings.TrimSpace(cs.Author) && !slices.Contains(cs.Collaborators, subjectID) {
-		cs.Collaborators = append(cs.Collaborators, subjectID)
-	}
+	cs.Collaborators, _ = storage.ApplyCollaboratorAddition(cs.Author, cs.Collaborators, subjectID)
 	out := cloneChangeset(cs)
 	storage.PopulateChangesetHandles(out)
 	return out, nil
@@ -395,31 +411,23 @@ func (s *ChangesetStore) AddCollaborator(ctx context.Context, changesetID, subje
 func (s *ChangesetStore) RemoveCollaborator(ctx context.Context, changesetID, subjectID string) (*corev1.Changeset, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	if resolved := s.b.resolveChangesetSelectorLocked(changesetID); resolved != "" {
-		changesetID = resolved
+	var err error
+	changesetID, err = s.b.resolveChangesetSelectorLocked(changesetID)
+	if err != nil {
+		return nil, err
 	}
-	subjectID = strings.TrimSpace(subjectID)
-	if subjectID == "" {
+	if strings.TrimSpace(subjectID) == "" {
 		return nil, storage.ErrInvalid
 	}
 	cs := s.b.changesets[changesetID]
 	if cs == nil {
 		return nil, storage.ErrNotFound
 	}
-	if cs.Status != "draft" {
-		return nil, fmt.Errorf("%w: collaborators can only be modified while a changeset is open; this one is %s", storage.ErrConflict, cs.Status)
+	subjectID, err = storage.ValidateCollaboratorChange(cs.Status, subjectID)
+	if err != nil {
+		return nil, err
 	}
-	filtered := cs.Collaborators[:0]
-	for _, existing := range cs.Collaborators {
-		if strings.TrimSpace(existing) != subjectID {
-			filtered = append(filtered, existing)
-		}
-	}
-	if len(filtered) == 0 {
-		cs.Collaborators = nil
-	} else {
-		cs.Collaborators = filtered
-	}
+	cs.Collaborators = storage.ApplyCollaboratorRemoval(cs.Collaborators, subjectID)
 	out := cloneChangeset(cs)
 	storage.PopulateChangesetHandles(out)
 	return out, nil
@@ -428,285 +436,36 @@ func (s *ChangesetStore) RemoveCollaborator(ctx context.Context, changesetID, su
 func (s *ChangesetStore) Handoff(ctx context.Context, changesetID, newAuthorSubjectID string) (*corev1.Changeset, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	if resolved := s.b.resolveChangesetSelectorLocked(changesetID); resolved != "" {
-		changesetID = resolved
+	var err error
+	changesetID, err = s.b.resolveChangesetSelectorLocked(changesetID)
+	if err != nil {
+		return nil, err
 	}
-	newAuthorSubjectID = strings.TrimSpace(newAuthorSubjectID)
-	if newAuthorSubjectID == "" {
+	if strings.TrimSpace(newAuthorSubjectID) == "" {
 		return nil, storage.ErrInvalid
 	}
 	cs := s.b.changesets[changesetID]
 	if cs == nil {
 		return nil, storage.ErrNotFound
 	}
-	if cs.Status != "draft" {
-		return nil, fmt.Errorf("%w: a changeset can only be handed off while it is open; this one is %s", storage.ErrConflict, cs.Status)
+	newAuthorSubjectID, err = storage.ValidateHandoff(cs.Status, newAuthorSubjectID)
+	if err != nil {
+		return nil, err
 	}
-	if newAuthorSubjectID != strings.TrimSpace(cs.Author) {
-		if strings.TrimSpace(cs.OriginalAuthor) == "" {
-			cs.OriginalAuthor = cs.Author
-		}
-		cs.Author = newAuthorSubjectID
-		filtered := cs.Collaborators[:0]
-		for _, existing := range cs.Collaborators {
-			if strings.TrimSpace(existing) != newAuthorSubjectID {
-				filtered = append(filtered, existing)
-			}
-		}
-		if len(filtered) == 0 {
-			cs.Collaborators = nil
-		} else {
-			cs.Collaborators = filtered
-		}
-	}
+	cs.Author, cs.OriginalAuthor, cs.Collaborators, _ = storage.ApplyHandoff(cs.Author, cs.OriginalAuthor, cs.Collaborators, newAuthorSubjectID)
 	out := cloneChangeset(cs)
 	storage.PopulateChangesetHandles(out)
 	return out, nil
 }
 
-func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
-	return s.SubmitChangeset(ctx, storage.SubmitInput{
-		ChangesetID:               changesetID,
-		ExpectedCurrentPatchsetID: expectedCurrentPatchsetID,
-	})
-}
-
-func (s *ChangesetStore) SubmitChangeset(ctx context.Context, in storage.SubmitInput) (res *corev1.SubmitChangesetResponse, err error) {
-	return s.submit(ctx, in.ChangesetID, in.ExpectedCurrentPatchsetID, in.ExtraCheckStatuses, in.BypassRequirements)
-}
-
-// RecordSubmitBlockedReason records a service-enforced requirement block (such
-// as path owners or .gitslice approval) onto a draft changeset.
-func (s *ChangesetStore) RecordSubmitBlockedReason(_ context.Context, changesetID, expectedCurrentPatchsetID, reason string) error {
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	if resolved := s.b.resolveChangesetSelectorLocked(changesetID); resolved != "" {
-		changesetID = resolved
-	}
-	cs := s.b.changesets[changesetID]
-	if cs != nil && cs.Status == "draft" && cs.CurrentPatchsetId == strings.TrimSpace(expectedCurrentPatchsetID) {
-		cs.SubmitBlockedReason = reason
-		if reason == "" {
-			delete(s.b.submitBlockedCodes, cs.Id)
-		} else {
-			s.b.submitBlockedCodes[cs.Id] = storage.ClassifySubmitBlockedReason(reason)
-		}
-	}
-	return nil
-}
-
-func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string, bypassRequirements bool) (res *corev1.SubmitChangesetResponse, err error) {
-	defer func() {
-		storage.RecordSubmitResult(err)
-	}()
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	cs := s.b.changesets[changesetID]
-	if cs == nil {
-		return nil, storage.ErrNotFound
-	}
-	if cs.Status == "abandoned" {
-		return nil, storage.ErrConflict
-	}
-	if cs.Status == "submitted" && cs.CommitId != "" {
-		return &corev1.SubmitChangesetResponse{CommitId: cs.CommitId, TargetRef: cs.TargetRef, NewRefCommitId: cs.CommitId, Status: "submitted"}, nil
-	}
-	if cs.Status == "pending_publish" {
-		return &corev1.SubmitChangesetResponse{TargetRef: cs.TargetRef, Status: cs.Status, PendingPublishId: cs.Id}, nil
-	}
-	if cs.Status != "draft" {
-		return nil, storage.ErrConflict
-	}
-	if expectedCurrentPatchsetID != "" && cs.CurrentPatchsetId != expectedCurrentPatchsetID {
-		return nil, storage.ErrConflict
-	}
-	patchset := currentPatchset(cs)
-	if patchset == nil {
-		return nil, storage.ErrConflict
-	}
-	if cs.ParentChangesetId != "" {
-		parent := s.b.changesets[cs.ParentChangesetId]
-		if parent == nil {
-			return nil, storage.ErrNotFound
-		}
-		if parent.Status != "submitted" && parent.Status != "pending_publish" {
-			return nil, s.b.blockSubmitLocked(cs, storage.SubmitBlockCodeBlockedOnParent, "BlockedOnBaseChangeset")
-		}
-	}
-	if len(patchset.Conflicts) > 0 {
-		return nil, fmt.Errorf("%w: unresolved patchset conflicts", storage.ErrConflict)
-	}
-	sliceID := s.b.sliceRefs[sliceRefKey(cs.AuthoringSlice)]
-	slice := s.b.slices[sliceID]
-	if slice == nil {
-		return nil, storage.ErrNotFound
-	}
-	if s.b.retiredSlices[sliceID] {
-		return nil, fmt.Errorf("%w: slice is deleted", storage.ErrConflict)
-	}
-	if slice.Archived {
-		return nil, fmt.Errorf("%w: slice is archived", storage.ErrConflict)
-	}
-	latestReq := submitRequirementsForMemorySlice(slice)
-	for _, p := range patchset.ChangedPaths {
-		if slice.Definition == nil || !pathInAnyPrefix(slice.Definition.IncludedPaths, p) {
-			return nil, s.b.blockSubmitLocked(cs, storage.SubmitBlockCodeRequirementsChanged, fmt.Sprintf("changed path %s is outside latest slice definition, refresh the changeset", p))
-		}
-	}
-	key := patchsetRequirementKey(changesetID, patchset.Id)
-	approvers := make([]storage.Subject, 0, len(s.b.approvals[key]))
-	for subjectID := range s.b.approvals[key] {
-		approvers = append(approvers, s.b.subjectOrIDLocked(subjectID))
-	}
-	excludedAuthors := []storage.Subject{s.b.subjectOrIDLocked(cs.Author)}
-	for _, ps := range cs.Patchsets {
-		if ps == nil || ps.Kind == storage.SubmitMergeKind {
-			continue
-		}
-		excludedAuthors = append(excludedAuthors, s.b.subjectOrIDLocked(ps.Author))
-	}
-	checkStatuses := map[string]string{}
-	for checkName, status := range s.b.checkResults[key] {
-		checkStatuses[checkName] = status
-	}
-	for checkName, status := range extraCheckStatuses {
-		checkName = strings.TrimSpace(checkName)
-		normalized, ok := storage.NormalizeCheckStatus(status)
-		if checkName == "" || !ok {
-			continue
-		}
-		checkStatuses[checkName] = normalized
-	}
-	var approverGroupMembers map[string]bool
-	if latestReq.GetApprovers() != "" && !bypassRequirements {
-		approverGroupMembers = s.b.groupMemberSubjectIDsLocked(latestReq.GetApprovers())
-	}
-	if code, reason := storage.EvaluateSubmitRequirementsWithCode(latestReq, excludedAuthors, approvers, checkStatuses, approverGroupMembers); reason != "" && !bypassRequirements {
-		return nil, s.b.blockSubmitLocked(cs, code, reason)
-	}
-	submitAttr := s.b.resolveAttributionLocked(ctx, "")
-	cs.Status = "pending_publish"
-	cs.SubmitBlockedReason = ""
-	delete(s.b.submitBlockedCodes, cs.Id)
-	if submitAttr.ActingSubjectID != "" {
-		cs.SubmittedAttribution = submitAttr.ToProto()
-	}
-	s.b.pendingAcceptedAt[cs.Id] = time.Now()
-	s.b.nextPendingSeq++
-	s.b.pendingSequence[cs.Id] = s.b.nextPendingSeq
-	return &corev1.SubmitChangesetResponse{
-		TargetRef:        cs.TargetRef,
-		Status:           cs.Status,
-		PendingPublishId: cs.Id,
-		Attribution:      cloneChangeset(&corev1.Changeset{Attribution: cs.SubmittedAttribution}).GetAttribution(),
-	}, nil
-}
-
-func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (published int, err error) {
-	defer func() {
-		storage.RecordPublishBatch(published, err)
-	}()
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	if limit <= 0 {
-		limit = 128
-	}
-	for _, cs := range s.b.pendingChangesetsInSequenceLocked() {
-		if published >= limit {
-			break
-		}
-		if cs.Status != "pending_publish" {
-			continue
-		}
-		patchset := currentPatchset(cs)
-		if patchset == nil {
-			continue
-		}
-		ref := s.b.refs[cs.TargetRef]
-		if ref == nil {
-			return published, storage.ErrNotFound
-		}
-		baseFiles := cloneFileMap(s.b.commitFiles[ref.CommitId])
-		baseDirs := cloneDirSet(s.b.commitDirs[ref.CommitId])
-		for _, edit := range patchset.FileEdits {
-			switch edit.Op {
-			case "delete":
-				delete(baseFiles, edit.Path)
-				delete(baseDirs, edit.Path)
-			case "rename":
-				file, ok := baseFiles[edit.OldPath]
-				if ok {
-					delete(baseFiles, edit.OldPath)
-					file.Path = edit.Path
-					baseFiles[edit.Path] = file
-				}
-				if _, ok := baseDirs[edit.OldPath]; ok {
-					delete(baseDirs, edit.OldPath)
-					baseDirs[edit.Path] = struct{}{}
-				}
-			case "copy":
-				copyMemoryPath(baseFiles, baseDirs, edit.OldPath, edit.Path)
-			case "mkdir":
-				baseDirs[edit.Path] = struct{}{}
-			default:
-				blob := s.b.blobs[edit.BlobId]
-				if blob == nil && edit.ContentHash == "" {
-					return published, storage.ErrNotFound
-				}
-				contentHash := edit.ContentHash
-				size := int64(0)
-				if blob != nil {
-					contentHash = blob.ContentHash
-					size = blob.Size
-				}
-				baseFiles[edit.Path] = storage.FileEntry{Path: edit.Path, BlobID: edit.BlobId, ContentHash: contentHash, Mode: edit.Mode, Size: size}
-			}
-		}
-		files := make([]storage.FileEntry, 0, len(baseFiles))
-		for _, file := range baseFiles {
-			files = append(files, file)
-		}
-		commitID := s.b.nextIDLocked("commit")
-		s.b.putCommitWithFilesAndDirsLocked(commitID, files, baseDirs, patchset.ChangedPaths, storage.CommitMessage(cs.Title, cs.Description))
-		cs.Status = "submitted"
-		cs.CommitId = commitID
-		s.b.clearSubmittedPathIntentsLocked(cs, patchset.ChangedPaths)
-		if acceptedAt, ok := s.b.pendingAcceptedAt[cs.Id]; ok {
-			storage.ObservePublishLatency(time.Since(acceptedAt))
-			delete(s.b.pendingAcceptedAt, cs.Id)
-		}
-		delete(s.b.pendingSequence, cs.Id)
-		if _, err := s.b.appendEventLocked(storage.Event{
-			Kind:         storage.EventChangesetSubmitted,
-			ChangesetID:  cs.Id,
-			PatchsetID:   patchset.Id,
-			CommitID:     commitID,
-			TargetRef:    cs.TargetRef,
-			ChangedPaths: patchset.ChangedPaths,
-		}); err != nil {
-			return published, err
-		}
-		published++
-		s.b.refreshStackStatusLocked(cs.StackId)
-	}
-	return published, nil
-}
-
-func (s *ChangesetStore) PendingPublishDepth(ctx context.Context) (int, error) {
-	s.b.mu.Lock()
-	defer s.b.mu.Unlock()
-	depth := 0
-	for _, cs := range s.b.changesets {
-		if cs != nil && cs.Status == "pending_publish" {
-			depth++
-		}
-	}
-	return depth, nil
-}
-
 func (s *ChangesetStore) Abandon(ctx context.Context, changesetID string) error {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
+	var err error
+	changesetID, err = s.b.resolveChangesetSelectorLocked(changesetID)
+	if err != nil {
+		return err
+	}
 	cs := s.b.changesets[changesetID]
 	if cs == nil {
 		return storage.ErrNotFound
@@ -729,76 +488,12 @@ func patchsetRequirementKey(changesetID, patchsetID string) string {
 	return changesetID + "\x00" + patchsetID
 }
 
-func submitRequirementsForMemorySlice(slice *corev1.Slice) *corev1.SubmitRequirements {
-	req := &corev1.SubmitRequirements{}
-	if slice == nil {
-		return req
-	}
-	if slice.Definition != nil {
-		req.RequiredApprovals = slice.Definition.RequiredApprovals
-		req.RequiredHumanApprovals = slice.Definition.RequiredHumanApprovals
-		req.RequiredChecks = append([]string(nil), slice.Definition.RequiredChecks...)
-		req.Approvers = slice.Definition.Approvers
-		req.SourceSliceDefinitionHash = storage.SubmitRequirementsHashWithApprovers(
-			slice.Definition.IncludedPaths,
-			slice.Definition.RequiredApprovals,
-			slice.Definition.RequiredHumanApprovals,
-			slice.Definition.RequiredChecks,
-			slice.Definition.Approvers,
-		)
-	}
-	return req
-}
-
-func (b *backend) subjectOrIDLocked(subjectID string) storage.Subject {
-	subjectID = strings.TrimSpace(subjectID)
-	if subjectID == "" {
-		return storage.Subject{}
-	}
-	if subj, ok := b.subjects[subjectID]; ok {
-		return subj
-	}
-	return storage.Subject{ID: subjectID}
-}
-
-func (b *backend) blockSubmitLocked(cs *corev1.Changeset, code storage.SubmitBlockCode, reason string) error {
-	if code == storage.SubmitBlockCodeNone {
-		code = storage.ClassifySubmitBlockedReason(reason)
-	}
-	cs.SubmitBlockedReason = reason
-	b.submitBlockedCodes[cs.Id] = code
-	return storage.NewSubmitBlockedError(code, reason)
-}
-
 func sortedChangesets(changesets map[string]*corev1.Changeset) []*corev1.Changeset {
 	out := make([]*corev1.Changeset, 0, len(changesets))
 	for _, cs := range changesets {
 		out = append(out, cs)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Id < out[j].Id })
-	return out
-}
-
-func (b *backend) pendingChangesetsInSequenceLocked() []*corev1.Changeset {
-	out := make([]*corev1.Changeset, 0, len(b.changesets))
-	for _, cs := range b.changesets {
-		if cs != nil && cs.Status == "pending_publish" {
-			out = append(out, cs)
-		}
-	}
-	sort.Slice(out, func(i, j int) bool {
-		leftSeq := b.pendingSequence[out[i].Id]
-		rightSeq := b.pendingSequence[out[j].Id]
-		if leftSeq == rightSeq {
-			leftAt := b.pendingAcceptedAt[out[i].Id]
-			rightAt := b.pendingAcceptedAt[out[j].Id]
-			if leftAt.Equal(rightAt) {
-				return out[i].Id < out[j].Id
-			}
-			return leftAt.Before(rightAt)
-		}
-		return leftSeq < rightSeq
-	})
 	return out
 }
 
@@ -830,6 +525,9 @@ func changesetHasPatchsetID(cs *corev1.Changeset, patchsetID string) bool {
 func (s *ChangesetStore) ApprovalSubjects(ctx context.Context, changesetID, patchsetID string) ([]string, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
+	if resolved, err := s.b.resolveChangesetSelectorLocked(changesetID); err == nil {
+		changesetID = resolved
+	}
 	var out []string
 	for subjectID := range s.b.approvals[patchsetRequirementKey(changesetID, patchsetID)] {
 		out = append(out, subjectID)

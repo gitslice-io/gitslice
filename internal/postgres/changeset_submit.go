@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"time"
 
 	"gitslice.io/gitslice/internal/objectid"
@@ -31,6 +30,10 @@ func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurren
 	defer func() {
 		storage.RecordSubmitResult(err)
 	}()
+	changesetID, err = s.resolveChangesetSelector(ctx, changesetID)
+	if err != nil {
+		return nil, err
+	}
 retry:
 	for attempt := 0; attempt < submitRetryAttempts; attempt++ {
 		res, err = s.submitOnce(ctx, changesetID, expectedCurrentPatchsetID, extraCheckStatuses, bypassRequirements)
@@ -111,24 +114,15 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 		}
 		return nil, ErrConflict
 	}
-	if cs.Status != "draft" {
-		return nil, ErrConflict
-	}
-	if expectedCurrentPatchsetID != "" && cs.CurrentPatchsetID != expectedCurrentPatchsetID {
-		return nil, ErrConflict
-	}
-	if cs.CurrentPatchsetID == "" {
-		return nil, ErrConflict
+	if err := storage.ValidateSubmitDraftHeader(cs.Status, cs.CurrentPatchsetID, expectedCurrentPatchsetID); err != nil {
+		return nil, err
 	}
 	patchset, err := getPatchsetTx(ctx, tx, cs.CurrentPatchsetID)
 	if err != nil {
 		return nil, err
 	}
-	if len(patchset.Conflicts) > 0 {
-		return nil, fmt.Errorf("%w: unresolved patchset conflicts", ErrConflict)
-	}
+	var parentStatus string
 	if cs.ParentChangesetID.Valid {
-		var parentStatus string
 		err = tx.QueryRowContext(ctx, `
 			select status
 			from changesets
@@ -141,18 +135,28 @@ func (s *ChangesetStore) submitOnce(ctx context.Context, changesetID, expectedCu
 		if err != nil {
 			return nil, err
 		}
-		if parentStatus != "submitted" && parentStatus != "pending_publish" {
-			return nil, blockSubmitTx(ctx, tx, cs.ID, storage.SubmitBlockCodeBlockedOnParent, "BlockedOnBaseChangeset")
-		}
 	}
-	latestReq, latestIncludedPaths, err := activeSliceRequirementsAndIncludedPathsTx(ctx, tx, cs.SliceID)
+	latestReq, latestIncludedPaths, archived, deleted, err := sliceSubmitMetadataTx(ctx, tx, cs.SliceID)
 	if err != nil {
 		return nil, err
 	}
-	for _, p := range patchset.ChangedPaths {
-		if !pathInAnyPrefix(latestIncludedPaths, p) {
-			return nil, blockSubmitTx(ctx, tx, cs.ID, storage.SubmitBlockCodeRequirementsChanged, fmt.Sprintf("changed path %s is outside latest slice definition, refresh the changeset", p))
-		}
+	blockCode, blockReason, err := storage.ValidateSubmitPreconditions(storage.SubmitPreconditionInput{
+		Status:                    cs.Status,
+		CurrentPatchsetID:         cs.CurrentPatchsetID,
+		ExpectedCurrentPatchsetID: expectedCurrentPatchsetID,
+		HasConflicts:              len(patchset.Conflicts) > 0,
+		HasParent:                 cs.ParentChangesetID.Valid,
+		ParentStatus:              parentStatus,
+		SliceArchived:             archived,
+		SliceDeleted:              deleted,
+		ChangedPaths:              patchset.ChangedPaths,
+		IncludedPaths:             latestIncludedPaths,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if blockReason != "" {
+		return nil, blockSubmitTx(ctx, tx, cs.ID, blockCode, blockReason)
 	}
 	nonMechanicalAuthors, err := nonMechanicalPatchsetAuthorsTx(ctx, tx, cs.ID)
 	if err != nil {
