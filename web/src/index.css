@@ -140,3 +140,53 @@ select {
     transition-duration: 0.01ms;
   }
 }
+
+/* Landing page typography & interactive showcase primitives */
+.landing-sheen {
+  background: radial-gradient(
+    ellipse 62% 48% at 50% 0%,
+    rgb(14 165 233 / 0.11),
+    rgb(16 185 129 / 0.04) 45%,
+    transparent 74%
+  );
+}
+
+:root.dark .landing-sheen {
+  background: radial-gradient(
+    ellipse 62% 48% at 50% 0%,
+    rgb(56 189 248 / 0.13),
+    rgb(52 211 153 / 0.04) 45%,
+    transparent 74%
+  );
+}
+
+.landing-tab {
+  position: relative;
+}
+
+/* Shape indicator drawn with a pseudo-element border so selected state works
+   in forced-colors mode without shifting tab dimensions or relying on color alone. */
+.landing-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset-inline: 0.75rem;
+  inset-block-end: 0;
+  border-block-end: 2px solid #38bdf8;
+}
+
+.landing-copy-tip {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.landing-copy-btn[data-copied] + .landing-copy-tip,
+.landing-copy-btn[data-failed] + .landing-copy-tip {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-copy-tip {
+    transition-duration: 0.01ms;
+  }
+}

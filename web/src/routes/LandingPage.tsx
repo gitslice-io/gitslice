@@ -1,33 +1,50 @@
+import { useEffect, useId } from "react";
 import { Link } from "@tanstack/react-router";
 
 import { BrandMark } from "../components/BrandMark";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { ensureCopyCommandListener } from "../lib/copyCommand";
+import { LandingHeroTerminal } from "./LandingHeroTerminal";
 import {
   LANDING_SOURCE_SLICE,
+  LandingArchitectureSection,
   LandingBenchmarksSection,
+  LandingCtaSection,
   LandingFeaturesSection,
   LandingPillarsSection
 } from "./LandingSections";
 
 const contactEmail = "contact@gitslice.io";
 
+const navLinkClass =
+  "rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:px-3.5";
+
 // Padding and an equal negative margin: a 32px target in a line of text.
 const footerLinkClass =
   "-my-1.5 inline-block rounded-md py-1.5 text-slate-600 outline-none transition hover:text-zinc-950 focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-400 dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950";
 
 export function LandingPage() {
+  const installId = useId();
+
+  useEffect(() => {
+    ensureCopyCommandListener();
+  }, []);
+
+  const installCopyAttrs = {
+    command: "--copy",
+    commandfor: installId
+  } as Record<string, string>;
+
   return (
-    <div className="relative min-h-[100dvh] overflow-hidden bg-slate-50 font-sans text-zinc-900 transition-colors duration-200 dark:bg-zinc-950 dark:text-zinc-100">
+    <div className="relative min-h-[100dvh] overflow-x-clip bg-slate-50 font-sans text-zinc-900 transition-colors duration-200 dark:bg-zinc-950 dark:text-zinc-100">
       <div
         aria-hidden="true"
-        className="landing-grid pointer-events-none absolute inset-0 opacity-70 dark:opacity-40"
-        style={{
-          backgroundSize: "56px 56px"
-        }}
+        className="landing-grid pointer-events-none absolute inset-0 opacity-60 dark:opacity-35"
+        style={{ backgroundSize: "56px 56px" }}
       />
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute left-1/2 top-0 h-[34rem] w-[46rem] -translate-x-1/2 animate-pulse rounded-full bg-sky-500/[0.08] blur-3xl"
+        className="landing-sheen pointer-events-none absolute inset-x-0 top-0 h-[38rem]"
       />
 
       <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-slate-50/85 backdrop-blur-xl dark:border-white/10 dark:bg-zinc-950/85">
@@ -40,13 +57,17 @@ export function LandingPage() {
             <BrandMark className="h-7 w-7" />
             <span>Gitslice</span>
           </Link>
+
           <nav
             aria-label="Landing page"
-            className="flex items-center gap-1 sm:gap-2"
+            className="flex items-center gap-1 sm:gap-1.5"
           >
             <ThemeToggle inverted />
+            <Link className={`hidden sm:inline-flex ${navLinkClass}`} to="/doc">
+              Docs
+            </Link>
             <Link
-              className="hidden rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 min-[420px]:inline-flex sm:px-4"
+              className={`hidden min-[420px]:inline-flex ${navLinkClass}`}
               hash="agent-signup"
               params={{ section: "agents" }}
               to="/doc/$section"
@@ -54,23 +75,16 @@ export function LandingPage() {
               For agents
             </Link>
             <Link
-              className="hidden rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:inline-flex sm:px-4"
+              className={`hidden md:inline-flex ${navLinkClass}`}
               params={LANDING_SOURCE_SLICE}
               to="/slices/$account/$slice"
             >
               Source
             </Link>
-            <Link
-              className="hidden rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:inline-flex sm:px-4"
-              to="/blogs"
-            >
+            <Link className={`hidden sm:inline-flex ${navLinkClass}`} to="/blogs">
               Blog
             </Link>
-            <Link
-              className="rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:px-4"
-              reloadDocument
-              to="/login"
-            >
+            <Link className={navLinkClass} reloadDocument to="/login">
               Sign in
             </Link>
             <Link
@@ -85,27 +99,29 @@ export function LandingPage() {
       </header>
 
       <main className="relative">
-        <section className="mx-auto grid w-full max-w-7xl items-center gap-12 px-4 pb-20 pt-16 sm:px-6 sm:pb-24 sm:pt-24 lg:grid-cols-[minmax(0,1.05fr)_minmax(25rem,0.95fr)] lg:gap-16 lg:px-8 lg:pb-32 lg:pt-28">
+        <section className="mx-auto grid w-full max-w-7xl items-center gap-12 px-4 pb-20 pt-14 sm:px-6 sm:pb-24 sm:pt-20 lg:grid-cols-[minmax(0,1.02fr)_minmax(26rem,0.98fr)] lg:gap-14 lg:px-8 lg:pb-28 lg:pt-24">
           <div>
-            <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/80 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-              <span className="h-1.5 w-1.5 rounded-full bg-sky-400" />
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400" />
               Source infrastructure for fleets of agents
             </div>
-            <h1 className="max-w-3xl text-4xl font-semibold leading-[1.02] tracking-[-0.045em] text-zinc-950 dark:text-white sm:text-5xl md:text-6xl">
+
+            <h1 className="max-w-2xl text-balance text-4xl font-semibold leading-[1.03] tracking-[-0.045em] text-zinc-950 dark:text-white sm:text-5xl md:text-[3.5rem]">
               Many agents. One codebase. Land in parallel.
             </h1>
-            <p className="mt-7 max-w-2xl text-base leading-7 text-slate-600 dark:text-zinc-400 sm:text-lg sm:leading-8">
-              Gitslice is Git-compatible source infrastructure where agents get a
+
+            <p className="mt-6 max-w-xl text-pretty text-base leading-7 text-slate-600 dark:text-zinc-400 sm:text-lg sm:leading-8">
+              Gitslice is Git-compatible source infrastructure where every agent gets a focused
               workspace for the task,{" "}
-              <strong className="font-medium text-zinc-800 dark:text-zinc-200">
-                land changes without stepping on each other
+              <strong className="font-medium text-zinc-900 dark:text-zinc-100">
+                lands changes without stepping on each other
               </strong>
-              , and the server, not the agent, decides what merges. Slices give
-              each one its part of the codebase.
+              , and the server — not the agent — enforces checks and approvals.
             </p>
-            <div className="mt-9 grid grid-cols-2 gap-3 sm:flex">
+
+            <div className="mt-8 grid grid-cols-2 gap-3 sm:flex sm:flex-wrap">
               <Link
-                className="col-span-2 inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full bg-zinc-950 px-4 py-2.5 sm:px-5 text-sm font-semibold text-white outline-none transition hover:bg-zinc-800 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
+                className="col-span-2 inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full bg-zinc-950 px-5 py-2.5 text-sm font-semibold text-white outline-none transition hover:bg-zinc-800 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:bg-white dark:text-zinc-950 dark:hover:bg-zinc-200 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
                 reloadDocument
                 to="/signup"
               >
@@ -125,13 +141,13 @@ export function LandingPage() {
                 </svg>
               </Link>
               <Link
-                className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full border border-slate-300 bg-white/70 px-4 py-2.5 sm:px-5 text-sm font-semibold text-zinc-700 outline-none transition hover:border-slate-400 hover:bg-white active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:border-white/20 dark:hover:bg-white/[0.08] dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
+                className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full border border-slate-300 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-800 outline-none transition hover:border-slate-400 hover:bg-slate-50 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:border-white/15 dark:bg-white/[0.04] dark:text-zinc-200 dark:hover:border-white/25 dark:hover:bg-white/[0.08] dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
                 to="/doc"
               >
                 Read the docs
               </Link>
               <Link
-                className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full border border-sky-300 bg-sky-50 px-4 py-2.5 sm:px-5 text-sm font-semibold text-sky-900 outline-none transition hover:border-sky-400 hover:bg-sky-100 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:border-sky-900/70 dark:bg-sky-950/40 dark:text-sky-200 dark:hover:border-sky-700 dark:hover:bg-sky-950/70 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
+                className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-full border border-sky-300/90 bg-sky-50 px-5 py-2.5 text-sm font-semibold text-sky-900 outline-none transition hover:border-sky-400 hover:bg-sky-100 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-200 dark:hover:border-sky-400/50 dark:hover:bg-sky-500/20 dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950"
                 hash="agent-signup"
                 params={{ section: "agents" }}
                 to="/doc/$section"
@@ -139,134 +155,112 @@ export function LandingPage() {
                 For agents
               </Link>
             </div>
-            <p className="mt-6 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
-              <span className="font-medium text-zinc-700 dark:text-zinc-200">
-                Install the CLI:
-              </span>{" "}
-              <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-zinc-800 dark:bg-white/[0.06] dark:text-zinc-200">
-                curl -fsSL https://gitslice.io/install.sh | sh
-              </code>
-            </p>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
-              <span className="font-medium text-zinc-700 dark:text-zinc-200">
-                Are you an agent?
-              </span>{" "}
-              Sign yourself up with no browser:{" "}
-              <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-zinc-800 dark:bg-white/[0.06] dark:text-zinc-200">
-                gs auth register-agent
-              </code>
-              . Read{" "}
-              <a
-                className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-200"
-                href="/llms.txt"
-              >
-                /llms.txt
-              </a>{" "}
-              or the{" "}
-              <Link
-                className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-200"
-                params={{ section: "agents" }}
-                to="/doc/$section"
-              >
-                agents guide
-              </Link>
-              .
-            </p>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500 dark:text-zinc-400">
-              <span className="font-medium text-zinc-700 dark:text-zinc-200">
-                Open source:
-              </span>{" "}
-              Gitslice is built on Gitslice. Browse{" "}
-              <Link
-                className="font-medium text-zinc-800 underline underline-offset-2 dark:text-zinc-200"
-                params={LANDING_SOURCE_SLICE}
-                to="/slices/$account/$slice"
-              >
-                gitslice/gitslice
-              </Link>
-              .
-            </p>
-          </div>
 
-          <figure className="relative lg:translate-y-8">
-            <div
-              aria-hidden="true"
-              className="absolute -inset-5 -z-10 rounded-[2rem] bg-sky-500/[0.06] blur-2xl"
-            />
-            <div className="overflow-hidden rounded-2xl border border-white/10 bg-zinc-900/90 shadow-2xl shadow-zinc-950/60 ring-1 ring-white/[0.04]">
-              <div className="flex h-11 items-center border-b border-white/10 bg-white/[0.025] px-4">
-                <div aria-hidden="true" className="flex gap-1.5">
-                  <span className="h-2.5 w-2.5 rounded-full bg-zinc-600" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-zinc-600" />
-                  <span className="h-2.5 w-2.5 rounded-full bg-zinc-600" />
-                </div>
-                <span className="mx-auto -translate-x-5 font-mono text-[11px] text-zinc-500">
-                  ~/work/checkout
+            <div className="mt-7 max-w-xl">
+              <div className="flex items-center gap-2 rounded-xl border border-slate-200/90 bg-white px-3.5 py-2.5 shadow-sm dark:border-white/10 dark:bg-zinc-900/80">
+                <span aria-hidden="true" className="select-none font-mono text-xs text-sky-600 dark:text-sky-400">
+                  $
+                </span>
+                <code
+                  className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap font-mono text-xs text-zinc-800 dark:text-zinc-200"
+                  id={installId}
+                >
+                  curl -fsSL https://gitslice.io/install.sh | sh
+                </code>
+                <span className="relative inline-flex shrink-0 items-center">
+                  <button
+                    aria-label="Copy install command"
+                    className="landing-copy-btn group inline-flex min-h-7 min-w-7 items-center justify-center rounded-md border border-slate-200 bg-slate-50 px-1.5 py-1 text-slate-600 transition hover:border-slate-300 hover:bg-slate-100 hover:text-zinc-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-500 dark:border-white/10 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:border-white/20 dark:hover:text-white"
+                    type="button"
+                    {...installCopyAttrs}
+                  >
+                    <svg
+                      aria-hidden="true"
+                      className="h-3.5 w-3.5 group-data-[copied]:hidden"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="1.75"
+                      viewBox="0 0 24 24"
+                    >
+                      <rect height="14" rx="2" width="14" x="8" y="8" />
+                      <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+                    </svg>
+                    <svg
+                      aria-hidden="true"
+                      className="hidden h-3.5 w-3.5 text-emerald-600 group-data-[copied]:block dark:text-emerald-400"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      viewBox="0 0 24 24"
+                    >
+                      <polyline points="20 6 9 17 4 12" />
+                    </svg>
+                  </button>
+                  <span
+                    className="landing-copy-tip absolute right-0 top-full z-10 mt-1 whitespace-nowrap rounded bg-zinc-950 px-2 py-0.5 text-[11px] font-medium text-white shadow dark:bg-zinc-100 dark:text-zinc-950"
+                    role="status"
+                  />
                 </span>
               </div>
-              <div className="min-h-[23rem] overflow-x-auto p-5 font-mono text-[12px] leading-6 sm:p-6 sm:text-[13px]">
-                <p>
-                  <span className="text-sky-400">$</span>{" "}
-                  <span className="text-zinc-200">
-                    gs auth register-agent --username build-bot \
-                  </span>
-                </p>
-                <p className="pl-4 text-zinc-200">--email mira@orbit.dev</p>
-                <p className="text-zinc-500">
-                  Registered build-bot; claim link sent for mira@orbit.dev
-                </p>
-                <p className="mt-4">
-                  <span className="text-sky-400">$</span>{" "}
-                  <span className="text-zinc-200">
-                    gs init --lazy orbit/checkout work
-                  </span>
-                </p>
-                <p className="text-zinc-500">
-                  mounted orbit:checkout at ~/work (318 files, fetched on
-                  first read; edits stay on this machine until gs create)
-                </p>
-                <p className="mt-4">
-                  <span className="text-sky-400">$</span>{" "}
-                  <span className="text-zinc-200">
-                    gs create --all --submit \
-                  </span>
-                </p>
-                <p className="pl-4 text-zinc-200">
-                  --message &quot;Tighten authorization&quot;
-                </p>
-                <p className="text-zinc-500">created 8b4ee46085 patchset 1</p>
-                <p className="text-zinc-500">
-                  view: https://gitslice.io/cs/8b4ee46085
-                </p>
-                <p className="text-zinc-500">
-                  waiting for required check &quot;orbit/unit&quot; to pass...
-                </p>
-                <p className="text-emerald-300">submitted 8b4ee46085</p>
+
+              <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-500 dark:text-zinc-400">
+                <span>
+                  Agent? Sign up via{" "}
+                  <code className="rounded bg-slate-200/70 px-1 py-0.5 font-mono text-[11px] text-zinc-800 dark:bg-white/[0.08] dark:text-zinc-200">
+                    gs auth register-agent
+                  </code>{" "}
+                  or{" "}
+                  <a
+                    className="font-medium text-zinc-800 underline decoration-slate-300 underline-offset-4 hover:decoration-zinc-800 dark:text-zinc-200 dark:decoration-zinc-600 dark:hover:decoration-zinc-200"
+                    href="/llms.txt"
+                  >
+                    /llms.txt
+                  </a>
+                </span>
+                <span aria-hidden="true" className="hidden text-slate-300 dark:text-zinc-700 sm:inline">
+                  ·
+                </span>
+                <span>
+                  Open source:{" "}
+                  <Link
+                    className="font-medium text-zinc-800 underline decoration-slate-300 underline-offset-4 hover:decoration-zinc-800 dark:text-zinc-200 dark:decoration-zinc-600 dark:hover:decoration-zinc-200"
+                    params={LANDING_SOURCE_SLICE}
+                    to="/slices/$account/$slice"
+                  >
+                    gitslice/gitslice
+                  </Link>
+                </span>
               </div>
             </div>
-            <figcaption className="sr-only">
-              An example Gitslice CLI session: an agent registers itself, mounts
-              a slice, and submits a changeset that lands once its required
-              check passes.
-            </figcaption>
-          </figure>
+          </div>
+
+          <LandingHeroTerminal />
         </section>
 
         <LandingPillarsSection />
+        <LandingArchitectureSection />
         <LandingBenchmarksSection />
         <LandingFeaturesSection />
+        <LandingCtaSection />
       </main>
 
-      <footer className="relative border-t border-slate-200 dark:border-white/10">
-        <div className="mx-auto flex min-h-20 w-full max-w-7xl flex-col items-start justify-between gap-4 px-4 py-6 text-sm text-zinc-500 min-[380px]:flex-row min-[380px]:items-center sm:px-6 lg:px-8">
+      <footer className="relative border-t border-slate-200/90 dark:border-white/10">
+        <div className="mx-auto flex min-h-20 w-full max-w-7xl flex-col items-start justify-between gap-4 px-4 py-6 text-sm text-zinc-500 min-[420px]:flex-row min-[420px]:items-center sm:px-6 lg:px-8">
           <div className="flex items-center gap-2.5">
             <BrandMark className="h-5 w-5 opacity-80" />
-            <span>© 2026 Gitslice</span>
+            <span>© 2026 Gitslice · Built on Gitslice</span>
           </div>
           <nav
             aria-label="Footer"
             className="flex flex-wrap items-center gap-x-5 gap-y-2"
           >
+            <Link className={footerLinkClass} to="/doc">
+              Docs
+            </Link>
             <Link
               className={footerLinkClass}
               params={LANDING_SOURCE_SLICE}
@@ -277,6 +271,9 @@ export function LandingPage() {
             <Link className={footerLinkClass} to="/blogs">
               Blog
             </Link>
+            <a className={footerLinkClass} href="/llms.txt">
+              llms.txt
+            </a>
             <a className={footerLinkClass} href={`mailto:${contactEmail}`}>
               {contactEmail}
             </a>
