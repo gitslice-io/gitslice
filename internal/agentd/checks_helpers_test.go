@@ -1,4 +1,4 @@
-package cli
+package agentd
 
 import (
 	"os"
@@ -32,7 +32,7 @@ func collectCheckRunSeqs(ch <-chan *corev1.DaemonMessage, runID string) []int64 
 	return seqs
 }
 
-func pendingCheckRunSeqs(t *testing.T, d *agentDaemon, runID string) []int64 {
+func pendingCheckRunSeqs(t *testing.T, d *Daemon, runID string) []int64 {
 	t.Helper()
 	outbox := checkRunOutboxForTest(t, d, runID)
 	outbox.OutMu.Lock()
@@ -44,7 +44,7 @@ func pendingCheckRunSeqs(t *testing.T, d *agentDaemon, runID string) []int64 {
 	return seqs
 }
 
-func checkRunOutboxForTest(t *testing.T, d *agentDaemon, runID string) *checkRunOutbox {
+func checkRunOutboxForTest(t *testing.T, d *Daemon, runID string) *CheckRunOutbox {
 	t.Helper()
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -55,14 +55,14 @@ func checkRunOutboxForTest(t *testing.T, d *agentDaemon, runID string) *checkRun
 	return outbox
 }
 
-func checkRunOutboxExists(d *agentDaemon, runID string) bool {
+func checkRunOutboxExists(d *Daemon, runID string) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.checkRunOutboxes[runID] != nil
 }
 
-func newTestAgentSendQueue(buffer int) *agentSendQueue {
-	return &agentSendQueue{
+func newTestAgentSendQueue(buffer int) *SendQueue {
+	return &SendQueue{
 		Ch:   make(chan *corev1.DaemonMessage, buffer),
 		Done: make(chan struct{}),
 	}
@@ -80,11 +80,11 @@ func sameInt64s(left, right []int64) bool {
 	return true
 }
 
-func newTestCheckDaemon(t *testing.T) *agentDaemon {
+func newTestCheckDaemon(t *testing.T) *Daemon {
 	t.Helper()
 	t.Setenv("GS_CLIENT_CACHE_DIR", filepath.Join(t.TempDir(), "cache"))
 	t.Setenv("GITSLICE_CLIENT_CACHE_DIR", "")
-	return &agentDaemon{runner: Runner{Home: t.TempDir()}}
+	return &Daemon{Host: HostCallbacks{Home: t.TempDir()}}
 }
 
 func assertFileContent(t *testing.T, target, want string) {
@@ -106,5 +106,19 @@ func assertFileMode(t *testing.T, target string, want os.FileMode) {
 	}
 	if got := info.Mode().Perm(); got != want {
 		t.Fatalf("%s mode = %#o, want %#o", target, got, want)
+	}
+}
+
+func TestCheckSecretMaskerHidesOnlySecretEnv(t *testing.T) {
+	spec := &corev1.CheckRunSpec{
+		Env:       map[string]string{"CI_TOKEN": "super-secret", "PLAIN_ENV": "plainvalue"},
+		SecretEnv: []string{"CI_TOKEN", "MISSING"},
+	}
+	got := CheckSecretMasker(spec).Mask("super-secret plainvalue")
+	if got != "*** plainvalue" {
+		t.Fatalf("masked = %q, want only the secret hidden", got)
+	}
+	if got := CheckSecretMasker(&corev1.CheckRunSpec{}).Mask("plain"); got != "plain" {
+		t.Fatalf("masked without secrets = %q", got)
 	}
 }

@@ -1,4 +1,4 @@
-package cli
+package agentd
 
 import (
 	"context"
@@ -17,14 +17,14 @@ func TestHandleRunChecksDedupsRecentlyCompletedRunID(t *testing.T) {
 	addr, stop := startFakeCheckRepoServer(t, repo)
 	defer stop()
 
-	sendQueue := &agentSendQueue{
+	sendQueue := &SendQueue{
 		Ch:   make(chan *corev1.DaemonMessage, 16),
 		Done: make(chan struct{}),
 	}
 	d := newTestCheckDaemon(t)
-	d.cfg = UserConfig{ServerAddr: addr}
-	d.baseCtx = context.Background()
-	d.sendQueue = sendQueue
+	d.Host.ServerAddr = addr
+	d.BaseCtx = context.Background()
+	d.SendQueue = sendQueue
 	d.checkRuns = map[string]context.CancelFunc{}
 	req := &corev1.RunChecks{
 		ResultTreeId: "tree-1",
@@ -37,8 +37,8 @@ func TestHandleRunChecksDedupsRecentlyCompletedRunID(t *testing.T) {
 		}},
 	}
 
-	d.handleRunChecks(req)
-	d.handleRunChecks(req)
+	d.HandleRunChecks(req)
+	d.HandleRunChecks(req)
 
 	terminal := 0
 	for {
@@ -62,14 +62,14 @@ func TestHandleRunChecksEmitsRunningBeforeTerminal(t *testing.T) {
 	addr, stop := startFakeCheckRepoServer(t, repo)
 	defer stop()
 
-	sendQueue := &agentSendQueue{
+	sendQueue := &SendQueue{
 		Ch:   make(chan *corev1.DaemonMessage, 16),
 		Done: make(chan struct{}),
 	}
 	d := newTestCheckDaemon(t)
-	d.cfg = UserConfig{ServerAddr: addr}
-	d.baseCtx = context.Background()
-	d.sendQueue = sendQueue
+	d.Host.ServerAddr = addr
+	d.BaseCtx = context.Background()
+	d.SendQueue = sendQueue
 	d.checkRuns = map[string]context.CancelFunc{}
 	req := &corev1.RunChecks{
 		ResultTreeId: "tree-1",
@@ -82,7 +82,7 @@ func TestHandleRunChecksEmitsRunningBeforeTerminal(t *testing.T) {
 		}},
 	}
 
-	d.handleRunChecks(req)
+	d.HandleRunChecks(req)
 
 	updates := collectCheckRunUpdates(sendQueue.Ch, "run-running")
 	if len(updates) < 2 {
@@ -115,7 +115,7 @@ func TestHandleRunChecksEmitsRunningBeforeTerminal(t *testing.T) {
 func TestCheckRunUpdatesResentAfterQueueSwap(t *testing.T) {
 	d := newTestCheckDaemon(t)
 	firstQueue := newTestAgentSendQueue(8)
-	d.sendQueue = firstQueue
+	d.SendQueue = firstQueue
 
 	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: "run-resend", Status: "running", ClientSeq: 1})
 	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: "run-resend", LogChunk: "hello\n", Stream: "stdout", ClientSeq: 2})
@@ -125,7 +125,7 @@ func TestCheckRunUpdatesResentAfterQueueSwap(t *testing.T) {
 	}
 
 	secondQueue := newTestAgentSendQueue(8)
-	d.sendQueue = secondQueue
+	d.SendQueue = secondQueue
 	d.resendPendingAll()
 
 	if got := collectCheckRunSeqs(secondQueue.Ch, "run-resend"); !sameInt64s(got, []int64{1, 2}) {
@@ -139,7 +139,7 @@ func TestCheckRunAckPrunesPendingBuffer(t *testing.T) {
 		d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: "run-ack", LogChunk: fmt.Sprintf("line %d\n", seq), Stream: "stdout", ClientSeq: seq})
 	}
 
-	d.handleCheckRunAck(&corev1.CheckRunAck{RunId: "run-ack", AckedClientSeq: 2})
+	d.HandleCheckRunAck(&corev1.CheckRunAck{RunId: "run-ack", AckedClientSeq: 2})
 
 	pending := pendingCheckRunSeqs(t, d, "run-ack")
 	if !sameInt64s(pending, []int64{3}) {
@@ -152,12 +152,12 @@ func TestCheckRunTerminalAckRemovesOutbox(t *testing.T) {
 	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: "run-terminal", Status: "running", ClientSeq: 1})
 	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: "run-terminal", Status: "passed", ClientSeq: 2, Final: true})
 
-	d.handleCheckRunAck(&corev1.CheckRunAck{RunId: "run-terminal", AckedClientSeq: 1})
+	d.HandleCheckRunAck(&corev1.CheckRunAck{RunId: "run-terminal", AckedClientSeq: 1})
 	if !checkRunOutboxExists(d, "run-terminal") {
 		t.Fatal("outbox removed before terminal update was acked")
 	}
 
-	d.handleCheckRunAck(&corev1.CheckRunAck{RunId: "run-terminal", AckedClientSeq: 2})
+	d.HandleCheckRunAck(&corev1.CheckRunAck{RunId: "run-terminal", AckedClientSeq: 2})
 	if checkRunOutboxExists(d, "run-terminal") {
 		t.Fatal("outbox still exists after terminal update was acked")
 	}
@@ -167,17 +167,17 @@ func TestCheckRunPendingCapDropsLogOnlyUpdatesFirst(t *testing.T) {
 	d := newTestCheckDaemon(t)
 	runID := "run-cap"
 	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: runID, Status: "running", ClientSeq: 1})
-	for seq := int64(2); seq <= int64(agentMaxPendingCheckRunUpdates+5); seq++ {
+	for seq := int64(2); seq <= int64(MaxPendingCheckRunUpdates+5); seq++ {
 		d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: runID, LogChunk: fmt.Sprintf("line %d\n", seq), Stream: "stdout", ClientSeq: seq})
 	}
-	terminalSeq := int64(agentMaxPendingCheckRunUpdates + 6)
+	terminalSeq := int64(MaxPendingCheckRunUpdates + 6)
 	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: runID, Status: "passed", ClientSeq: terminalSeq, Final: true})
 
 	outbox := checkRunOutboxForTest(t, d, runID)
 	outbox.OutMu.Lock()
 	defer outbox.OutMu.Unlock()
-	if got := len(outbox.Pending); got != agentMaxPendingCheckRunUpdates {
-		t.Fatalf("pending len = %d, want %d", got, agentMaxPendingCheckRunUpdates)
+	if got := len(outbox.Pending); got != MaxPendingCheckRunUpdates {
+		t.Fatalf("pending len = %d, want %d", got, MaxPendingCheckRunUpdates)
 	}
 	if first := outbox.Pending[0]; first.GetClientSeq() != 1 || first.GetStatus() != "running" {
 		t.Fatalf("first pending update = seq %d status %q, want running seq 1", first.GetClientSeq(), first.GetStatus())
@@ -198,21 +198,19 @@ func TestHandleRunChecksHonorsCheckConcurrency(t *testing.T) {
 	addr, stop := startFakeCheckRepoServer(t, repo)
 	defer stop()
 
-	sendQueue := &agentSendQueue{
+	sendQueue := &SendQueue{
 		Ch:   make(chan *corev1.DaemonMessage, 64),
 		Done: make(chan struct{}),
 	}
 	d := newTestCheckDaemon(t)
-	d.cfg = UserConfig{ServerAddr: addr}
-	d.baseCtx = context.Background()
-	d.sendQueue = sendQueue
+	d.Host.ServerAddr = addr
+	d.BaseCtx = context.Background()
+	d.SendQueue = sendQueue
 	d.checkRuns = map[string]context.CancelFunc{}
-	d.checkSlots = make(chan struct{}, 1)
+	d.CheckSlots = make(chan struct{}, 1)
 
 	marks := t.TempDir()
 	request := func(name string) *corev1.RunChecks {
-		// Each check appends start and end marks; with one slot they must
-		// never interleave.
 		return &corev1.RunChecks{
 			ResultTreeId: "tree-1",
 			ServerAddr:   addr,
@@ -229,7 +227,7 @@ func TestHandleRunChecksHonorsCheckConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func(req *corev1.RunChecks) {
 			defer wg.Done()
-			d.handleRunChecks(req)
+			d.HandleRunChecks(req)
 		}(request(name))
 	}
 	wg.Wait()
@@ -243,36 +241,32 @@ func TestHandleRunChecksHonorsCheckConcurrency(t *testing.T) {
 	}
 }
 
-// TestHandleRunChecksRunsOneRequestsChecksSideBySide: with two slots, the two
-// checks of one request run at once. Each waits for the other to start, so run
-// one after the other they would both time out.
 func TestHandleRunChecksRunsOneRequestsChecksSideBySide(t *testing.T) {
 	repo := newFakeCheckRepo(map[string][]*corev1.TreeEntry{"/": nil}, nil)
 	addr, stop := startFakeCheckRepoServer(t, repo)
 	defer stop()
 
-	sendQueue := &agentSendQueue{
+	sendQueue := &SendQueue{
 		Ch:   make(chan *corev1.DaemonMessage, 64),
 		Done: make(chan struct{}),
 	}
 	d := newTestCheckDaemon(t)
-	d.cfg = UserConfig{ServerAddr: addr}
-	d.baseCtx = context.Background()
-	d.sendQueue = sendQueue
+	d.Host.ServerAddr = addr
+	d.BaseCtx = context.Background()
+	d.SendQueue = sendQueue
 	d.checkRuns = map[string]context.CancelFunc{}
-	d.checkSlots = make(chan struct{}, 2)
+	d.CheckSlots = make(chan struct{}, 2)
 
 	marks := t.TempDir()
 	spec := func(name, other string) *corev1.CheckRunSpec {
 		return &corev1.CheckRunSpec{
-			RunId: "run-" + name,
-			Name:  name,
-			// Mark the start, then wait up to 5 s for the other check's mark.
+			RunId:            "run-" + name,
+			Name:             name,
 			Command:          fmt.Sprintf("touch %[1]s/%[2]s; for i in $(seq 50); do [ -e %[1]s/%[3]s ] && echo met > %[1]s/%[2]s.ok && exit 0; sleep 0.1; done; exit 1", marks, name, other),
 			MaterializePaths: []string{"/"},
 		}
 	}
-	d.handleRunChecks(&corev1.RunChecks{
+	d.HandleRunChecks(&corev1.RunChecks{
 		ResultTreeId: "tree-1",
 		ServerAddr:   addr,
 		Checks:       []*corev1.CheckRunSpec{spec("one", "two"), spec("two", "one")},
@@ -281,5 +275,59 @@ func TestHandleRunChecksRunsOneRequestsChecksSideBySide(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(marks, name+".ok")); err != nil {
 			t.Fatalf("check %s never saw the other one running: the checks ran one after the other", name)
 		}
+	}
+}
+
+func TestHostCheckIsolatesHomeWithoutConfig(t *testing.T) {
+	origHome := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(origHome, ".gitslice"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(origHome, ".gitslice", "config.json"), []byte(`{"token":"host-secret"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", origHome)
+
+	repo := newFakeCheckRepo(map[string][]*corev1.TreeEntry{"/": nil}, nil)
+	addr, stop := startFakeCheckRepoServer(t, repo)
+	defer stop()
+
+	sendQueue := &SendQueue{
+		Ch:   make(chan *corev1.DaemonMessage, 16),
+		Done: make(chan struct{}),
+	}
+	d := newTestCheckDaemon(t)
+	d.Host.ServerAddr = addr
+	d.BaseCtx = context.Background()
+	d.SendQueue = sendQueue
+
+	req := &corev1.RunChecks{
+		ResultTreeId: "tree-1",
+		ServerAddr:   addr,
+		Checks: []*corev1.CheckRunSpec{{
+			RunId:            "run-isolated-home",
+			Name:             "host-home",
+			Command:          `test ! -e "$HOME/.gitslice/config.json" && printf 'isolated=%s' "$HOME"`,
+			MaterializePaths: []string{"/"},
+		}},
+	}
+	d.HandleRunChecks(req)
+
+	var logs strings.Builder
+	var terminal *corev1.CheckRunUpdate
+	for _, u := range collectCheckRunUpdates(sendQueue.Ch, "run-isolated-home") {
+		logs.WriteString(u.GetLogChunk())
+		if u.GetFinal() {
+			terminal = u
+		}
+	}
+	if terminal == nil {
+		t.Fatal("missing terminal check update")
+	}
+	if terminal.GetStatus() != "passed" || terminal.GetExitCode() != 0 {
+		t.Fatalf("check failed: status=%s exit=%d log=%q", terminal.GetStatus(), terminal.GetExitCode(), logs.String())
+	}
+	if !strings.Contains(logs.String(), "isolated=") || strings.Contains(logs.String(), origHome) {
+		t.Fatalf("expected isolated HOME != %q, got logs %q", origHome, logs.String())
 	}
 }

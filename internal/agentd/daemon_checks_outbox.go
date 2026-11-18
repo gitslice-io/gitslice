@@ -1,23 +1,20 @@
-package cli
+package agentd
 
 import (
 	"strings"
 
-	"gitslice.io/gitslice/internal/agentd"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-type checkRunOutbox = agentd.CheckRunOutbox
-
-func (d *agentDaemon) emitCheckRunError(runID string, seq int64, err error) {
+func (d *Daemon) emitCheckRunError(runID string, seq int64, err error) {
 	if err == nil {
 		return
 	}
 	d.emitCheckRunLog(runID, &seq, err.Error())
-	d.emitCheckRunTerminal(runID, &seq, "errored", -1, oneLineSummary(err.Error()))
+	d.emitCheckRunTerminal(runID, &seq, "errored", -1, OneLineSummary(err.Error()))
 }
 
-func (d *agentDaemon) emitCheckRunRunning(runID string, seq *int64) {
+func (d *Daemon) emitCheckRunRunning(runID string, seq *int64) {
 	if strings.TrimSpace(runID) == "" {
 		return
 	}
@@ -29,7 +26,7 @@ func (d *agentDaemon) emitCheckRunRunning(runID string, seq *int64) {
 	})
 }
 
-func (d *agentDaemon) emitCheckRunLog(runID string, seq *int64, log string) {
+func (d *Daemon) emitCheckRunLog(runID string, seq *int64, log string) {
 	if strings.TrimSpace(runID) == "" || log == "" {
 		return
 	}
@@ -42,7 +39,7 @@ func (d *agentDaemon) emitCheckRunLog(runID string, seq *int64, log string) {
 	})
 }
 
-func (d *agentDaemon) emitCheckRunTerminal(runID string, seq *int64, status string, exitCode int32, summary string) {
+func (d *Daemon) emitCheckRunTerminal(runID string, seq *int64, status string, exitCode int32, summary string) {
 	if strings.TrimSpace(runID) == "" {
 		return
 	}
@@ -57,7 +54,7 @@ func (d *agentDaemon) emitCheckRunTerminal(runID string, seq *int64, status stri
 	})
 }
 
-func (d *agentDaemon) sendCheckRunUpdate(update *corev1.CheckRunUpdate) {
+func (d *Daemon) sendCheckRunUpdate(update *corev1.CheckRunUpdate) {
 	if update == nil {
 		return
 	}
@@ -75,7 +72,7 @@ func (d *agentDaemon) sendCheckRunUpdate(update *corev1.CheckRunUpdate) {
 	d.enforceCheckRunOutboxLimit()
 }
 
-func (d *agentDaemon) lockCurrentCheckRunOutboxForSend(runID string) *checkRunOutbox {
+func (d *Daemon) lockCurrentCheckRunOutboxForSend(runID string) *CheckRunOutbox {
 	for {
 		outbox := d.ensureCheckRunOutbox(runID)
 		outbox.OutMu.Lock()
@@ -87,38 +84,38 @@ func (d *agentDaemon) lockCurrentCheckRunOutboxForSend(runID string) *checkRunOu
 	}
 }
 
-func (d *agentDaemon) ensureCheckRunOutbox(runID string) *checkRunOutbox {
+func (d *Daemon) ensureCheckRunOutbox(runID string) *CheckRunOutbox {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.checkRunOutboxes == nil {
-		d.checkRunOutboxes = map[string]*checkRunOutbox{}
+		d.checkRunOutboxes = map[string]*CheckRunOutbox{}
 	}
 	if outbox := d.checkRunOutboxes[runID]; outbox != nil {
 		return outbox
 	}
-	outbox := &checkRunOutbox{}
+	outbox := &CheckRunOutbox{}
 	d.checkRunOutboxes[runID] = outbox
 	d.checkRunOutboxOrder = append(d.checkRunOutboxOrder, runID)
 	return outbox
 }
 
-func (d *agentDaemon) isCurrentCheckRunOutbox(runID string, outbox *checkRunOutbox) bool {
+func (d *Daemon) isCurrentCheckRunOutbox(runID string, outbox *CheckRunOutbox) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.checkRunOutboxes[runID] == outbox
 }
 
-func (d *agentDaemon) flushCheckRunPendingLocked(outbox *checkRunOutbox) {
+func (d *Daemon) flushCheckRunPendingLocked(outbox *CheckRunOutbox) {
 	d.mu.Lock()
-	sq := d.sendQueue
+	sq := d.SendQueue
 	d.mu.Unlock()
 	outbox.FlushLocked(sq)
 }
 
-func (d *agentDaemon) enforceCheckRunOutboxLimit() {
+func (d *Daemon) enforceCheckRunOutboxLimit() {
 	for {
 		d.mu.Lock()
-		if len(d.checkRunOutboxes) <= agentMaxCheckRunOutboxes {
+		if len(d.checkRunOutboxes) <= MaxCheckRunOutboxes {
 			d.mu.Unlock()
 			return
 		}
@@ -138,7 +135,7 @@ func (d *agentDaemon) enforceCheckRunOutboxLimit() {
 	}
 }
 
-func (d *agentDaemon) oldestEvictableCheckRunOutbox(order []string) string {
+func (d *Daemon) oldestEvictableCheckRunOutbox(order []string) string {
 	oldestTerminal := ""
 	for _, runID := range order {
 		d.mu.Lock()
@@ -161,7 +158,7 @@ func (d *agentDaemon) oldestEvictableCheckRunOutbox(order []string) string {
 	return oldestTerminal
 }
 
-func (d *agentDaemon) removeCheckRunOutboxOrderLocked(runID string) {
+func (d *Daemon) removeCheckRunOutboxOrderLocked(runID string) {
 	for i, existing := range d.checkRunOutboxOrder {
 		if existing == runID {
 			copy(d.checkRunOutboxOrder[i:], d.checkRunOutboxOrder[i+1:])
@@ -172,7 +169,7 @@ func (d *agentDaemon) removeCheckRunOutboxOrderLocked(runID string) {
 	}
 }
 
-func (d *agentDaemon) handleCheckRunAck(ack *corev1.CheckRunAck) {
+func (d *Daemon) HandleCheckRunAck(ack *corev1.CheckRunAck) {
 	if ack == nil {
 		return
 	}

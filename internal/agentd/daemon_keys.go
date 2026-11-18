@@ -1,4 +1,4 @@
-package cli
+package agentd
 
 import (
 	"context"
@@ -11,28 +11,28 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-func (d *agentDaemon) authServiceClient(ctx context.Context) (agentAuthClient, func(), context.Context, error) {
-	if d.auth != nil {
-		return d.auth, func() {}, ctx, nil
+func (d *Daemon) authServiceClient(ctx context.Context) (AuthClient, func(), context.Context, error) {
+	if d.Auth != nil {
+		return d.Auth, func() {}, ctx, nil
 	}
-	if strings.TrimSpace(d.cfg.ServerAddr) == "" || strings.TrimSpace(d.cfg.Token) == "" {
+	if strings.TrimSpace(d.Host.ServerAddr) == "" || strings.TrimSpace(d.Host.Token) == "" {
 		return nil, nil, nil, fmt.Errorf("agent daemon has no auth credentials to manage scoped keys")
 	}
-	conn, err := dial(ctx, d.cfg.ServerAddr)
+	conn, err := d.Host.dial(ctx, d.Host.ServerAddr)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	return corev1.NewAuthServiceClient(conn), func() { _ = conn.Close() }, authContext(ctx, d.cfg), nil
+	return corev1.NewAuthServiceClient(conn), func() { _ = conn.Close() }, d.Host.authContext(ctx), nil
 }
 
-func (d *agentDaemon) ensureConversationRunHome(conv *agentConversation) (string, error) {
-	if strings.TrimSpace(d.workingDir) == "" {
+func (d *Daemon) ensureConversationRunHome(conv *Conversation) (string, error) {
+	if strings.TrimSpace(d.WorkingDir) == "" {
 		return "", fmt.Errorf("agent daemon working directory is not set")
 	}
-	if _, _, err := agentConversationPaths(d.workingDir, conv.id); err != nil {
+	if _, _, err := ConversationPaths(d.WorkingDir, conv.id); err != nil {
 		return "", err
 	}
-	runHomesRoot := filepath.Join(d.workingDir, "run-homes")
+	runHomesRoot := filepath.Join(d.WorkingDir, "run-homes")
 	if err := os.MkdirAll(runHomesRoot, 0o700); err != nil {
 		return "", err
 	}
@@ -42,7 +42,6 @@ func (d *agentDaemon) ensureConversationRunHome(conv *agentConversation) (string
 		return "", err
 	}
 	_ = os.Chmod(runHome, 0o700)
-	// Per-run home must never carry a daemon-wide .gitslice/config.json.
 	_ = os.Remove(filepath.Join(runHome, ".gitslice", "config.json"))
 	conv.stateMu.Lock()
 	conv.runHome = runHome
@@ -50,22 +49,22 @@ func (d *agentDaemon) ensureConversationRunHome(conv *agentConversation) (string
 	return runHome, nil
 }
 
-func (d *agentDaemon) conversationEnvMap(secret, runHome string) map[string]string {
+func (d *Daemon) conversationEnvMap(secret, runHome string) map[string]string {
 	env := map[string]string{
 		"HOME":          runHome,
 		"XDG_DATA_HOME": filepath.Join(runHome, ".local", "share"),
 		"GS_TOKEN":      secret,
 	}
-	serverAddr := strings.TrimSpace(d.cfg.ServerAddr)
+	serverAddr := strings.TrimSpace(d.Host.ServerAddr)
 	if serverAddr == "" {
-		serverAddr = envServerAddrOverride()
+		serverAddr = d.Host.envServerAddr()
 	}
 	if serverAddr != "" {
 		env["GS_SERVER_ADDR"] = serverAddr
 		env["GITSLICE_SERVER_ADDR"] = serverAddr
 	}
 	if strings.TrimSpace(os.Getenv("CODEX_HOME")) == "" {
-		origHome := strings.TrimSpace(d.runner.Home)
+		origHome := strings.TrimSpace(d.Host.Home)
 		if origHome == "" {
 			origHome = strings.TrimSpace(os.Getenv("HOME"))
 		}
@@ -82,7 +81,7 @@ func (d *agentDaemon) conversationEnvMap(secret, runHome string) map[string]stri
 	return env
 }
 
-func (d *agentDaemon) mintConversationChildKey(ctx context.Context, conversationID, sliceAccount, sliceName, role string) (keyID, secret string, expiresAt time.Time, err error) {
+func (d *Daemon) mintConversationChildKey(ctx context.Context, conversationID, sliceAccount, sliceName, role string) (keyID, secret string, expiresAt time.Time, err error) {
 	authClient, closeFn, callCtx, err := d.authServiceClient(ctx)
 	if err != nil {
 		return "", "", time.Time{}, err
@@ -93,14 +92,14 @@ func (d *agentDaemon) mintConversationChildKey(ctx context.Context, conversation
 	if len(keyName) > 64 {
 		keyName = keyName[:64]
 	}
-	sliceRef := canonicalSliceKey(sliceAccount, sliceName)
+	sliceRef := CanonicalSliceKey(sliceAccount, sliceName)
 	resp, err := authClient.CreateApiKey(callCtx, &corev1.CreateApiKeyRequest{
 		Name:             keyName,
 		Slices:           []string{sliceRef},
 		MaxRole:          role,
-		ExpiresInSeconds: conversationChildKeyTTLSeconds,
+		ExpiresInSeconds: ChildKeyTTLSeconds,
 		Purpose:          "conversation " + conversationID,
-		DaemonId:         d.currentDaemonID(),
+		DaemonId:         d.CurrentDaemonID(),
 		ConversationId:   conversationID,
 	})
 	if err != nil {
@@ -120,7 +119,7 @@ func (d *agentDaemon) mintConversationChildKey(ctx context.Context, conversation
 	return newKeyID, newSecret, newExpiresAt, nil
 }
 
-func (d *agentDaemon) ensureConversationChildKey(ctx context.Context, conv *agentConversation) (map[string]string, error) {
+func (d *Daemon) ensureConversationChildKey(ctx context.Context, conv *Conversation) (map[string]string, error) {
 	conv.keyMu.Lock()
 	defer conv.keyMu.Unlock()
 
@@ -139,7 +138,7 @@ func (d *agentDaemon) ensureConversationChildKey(ctx context.Context, conv *agen
 	if role == "" {
 		role = "contributor"
 	}
-	if secret != "" && (expiresAt.IsZero() || time.Until(expiresAt) > conversationChildKeyRenewWindow) {
+	if secret != "" && (expiresAt.IsZero() || time.Until(expiresAt) > ChildKeyRenewWindow) {
 		runHome, err := d.ensureConversationRunHome(conv)
 		if err != nil {
 			return nil, err
@@ -160,11 +159,8 @@ func (d *agentDaemon) ensureConversationChildKey(ctx context.Context, conv *agen
 	newEnv := d.conversationEnvMap(newSecret, runHome)
 
 	if oldKeyID != "" && oldKeyID != newKeyID {
-		// Force runtime subprocess restart on rotation so it picks up the fresh token.
 		conv.closeSession()
-		if rec, _, lazy := d.lazyWorkspaceForConversation(conv.id, conv.workdir); lazy && d.workspaceMounted(conv.workdir) {
-			// A running mountd freezes GS_TOKEN at startup; shut it down cleanly
-			// before revoking oldKeyID and remount with newEnv.
+		if rec, _, _, lazy := d.lazyWorkspaceForConversation(conv.id, conv.workdir); lazy && d.workspaceMounted(conv.workdir) {
 			if err := d.unmountConversationLazyWorkspace(ctx, conv.id, rec); err != nil {
 				d.revokeConversationChildKey(context.Background(), newKeyID)
 				return nil, fmt.Errorf("unmounting lazy workspace before key rotation failed: %w", err)
@@ -189,7 +185,7 @@ func (d *agentDaemon) ensureConversationChildKey(ctx context.Context, conv *agen
 	return newEnv, nil
 }
 
-func (d *agentDaemon) revokeConversationChildKey(ctx context.Context, keyID string) {
+func (d *Daemon) revokeConversationChildKey(ctx context.Context, keyID string) {
 	keyID = strings.TrimSpace(keyID)
 	if keyID == "" {
 		return
@@ -207,10 +203,10 @@ func (d *agentDaemon) revokeConversationChildKey(ctx context.Context, keyID stri
 	_, _ = authClient.RevokeApiKey(callCtx, &corev1.RevokeApiKeyRequest{KeyId: keyID})
 }
 
-func (d *agentDaemon) cleanupConversationRunHome(conversationID, runHome string) {
-	if strings.TrimSpace(runHome) == "" && strings.TrimSpace(d.workingDir) != "" && strings.TrimSpace(conversationID) != "" {
-		if _, _, err := agentConversationPaths(d.workingDir, conversationID); err == nil {
-			runHome = filepath.Join(d.workingDir, "run-homes", conversationID)
+func (d *Daemon) cleanupConversationRunHome(conversationID, runHome string) {
+	if strings.TrimSpace(runHome) == "" && strings.TrimSpace(d.WorkingDir) != "" && strings.TrimSpace(conversationID) != "" {
+		if _, _, err := ConversationPaths(d.WorkingDir, conversationID); err == nil {
+			runHome = filepath.Join(d.WorkingDir, "run-homes", conversationID)
 		}
 	}
 	if strings.TrimSpace(runHome) != "" {

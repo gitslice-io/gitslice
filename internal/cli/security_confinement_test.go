@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"gitslice.io/gitslice/internal/agentd"
 	"gitslice.io/gitslice/internal/clientcache"
 	"gitslice.io/gitslice/internal/objectid"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -48,8 +49,8 @@ func TestWorkspaceConfinementRejectsReservedGsPaths(t *testing.T) {
 	}
 
 	for _, badCheckRel := range []string{".gs", ".gs/slice.json", "sub/.gs/state.json"} {
-		if _, err := checkTreeTarget(root, badCheckRel); err == nil {
-			t.Fatalf("checkTreeTarget(%q) unexpectedly succeeded", badCheckRel)
+		if _, err := agentd.CheckTreeTarget(root, badCheckRel); err == nil {
+			t.Fatalf("CheckTreeTarget(%q) unexpectedly succeeded", badCheckRel)
 		}
 	}
 }

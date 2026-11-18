@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitslice.io/gitslice/internal/agentd"
 	"gitslice.io/gitslice/internal/checkexec"
-	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 func TestAgentStartCIFlagsAreExclusive(t *testing.T) {
@@ -27,44 +27,13 @@ func TestAgentStartCIFlagsAreExclusive(t *testing.T) {
 	}
 }
 
-func TestRegisterCIDaemonUsesCIRuntime(t *testing.T) {
-	msg := registerDaemonMessage("ci-host", ciAgentRuntime, "", 0)
-	if got := msg.GetRegister().GetRuntime(); got != "ci" {
-		t.Fatalf("runtime = %q, want ci", got)
-	}
-}
-
-func TestCIDaemonRefusesConversationStart(t *testing.T) {
-	conv := &agentConversation{id: "conversation-1"}
-	d := &agentDaemon{
-		conversations: map[string]*agentConversation{conv.id: conv},
-		// A checks-only daemon intentionally has no runtime.
-		runtime: nil,
-	}
-	d.handleStartConversation(context.Background(), &corev1.StartConversation{ConversationId: conv.id})
-
-	conv.outMu.Lock()
-	defer conv.outMu.Unlock()
-	if len(conv.pending) != 1 {
-		t.Fatalf("events = %d, want 1", len(conv.pending))
-	}
-	event := conv.pending[0]
-	if event.GetRole() != "system" || event.GetType() != "error" || !event.GetFinal() {
-		t.Fatalf("event = %#v", event)
-	}
-	const want = "this daemon runs checks only (gs agent start --ci); start a conversation on another daemon"
-	if event.GetText() != want {
-		t.Fatalf("event text = %q, want %q", event.GetText(), want)
-	}
-}
-
 func TestAgentDoctorInjectedChecksAndFailure(t *testing.T) {
 	home := t.TempDir()
 	var stdout bytes.Buffer
 	r := Runner{
 		Home:   home,
 		Stdout: &stdout,
-		AgentDoctorProbes: &agentDoctorProbes{
+		AgentDoctorProbes: &agentd.DoctorProbes{
 			DetectRuntime: func(context.Context) checkexec.RuntimeInfo {
 				return checkexec.RuntimeInfo{Err: errors.New("docker is stopped")}
 			},
@@ -106,7 +75,7 @@ func TestAgentDoctorCIJSONOmitsRuntimeAndUsesInjectedStatuses(t *testing.T) {
 	home := t.TempDir()
 	r := Runner{
 		Home: home,
-		AgentDoctorProbes: &agentDoctorProbes{
+		AgentDoctorProbes: &agentd.DoctorProbes{
 			DetectRuntime: func(context.Context) checkexec.RuntimeInfo {
 				return checkexec.RuntimeInfo{Name: "podman", Path: "/bin/podman", Rootless: true}
 			},
@@ -126,7 +95,7 @@ func TestAgentDoctorCIJSONOmitsRuntimeAndUsesInjectedStatuses(t *testing.T) {
 	if err := r.runAgentDoctor(context.Background(), commandOptions{Format: "json"}, true); err != nil {
 		t.Fatal(err)
 	}
-	var out agentDoctorOutput
+	var out agentd.DoctorOutput
 	if err := json.Unmarshal(stdout.Bytes(), &out); err != nil {
 		t.Fatalf("JSON = %q: %v", stdout.String(), err)
 	}
@@ -144,7 +113,7 @@ func TestAgentServiceRenderGolden(t *testing.T) {
 		"PATH":             "/bin:/usr/bin",
 		"GITSLICE_FEATURE": "a&b",
 	}
-	if got, want := renderSystemdAgentService("ci.1", "/Applications/gs tool", `/work/a%"b\\c`, true, env), `[Unit]
+	if got, want := agentd.RenderSystemdService("ci.1", "/Applications/gs tool", `/work/a%"b\\c`, true, env), `[Unit]
 Description=Gitslice agent daemon ci.1
 Wants=network-online.target
 After=network-online.target
@@ -164,7 +133,7 @@ WantedBy=default.target
 		t.Fatalf("systemd unit =\n%s\nwant:\n%s", got, want)
 	}
 
-	if got, want := renderLaunchdAgentService("ci.1", "/Applications/gs&tool", "/work/a", true, env, "/logs/a&b.log"), `<?xml version="1.0" encoding="UTF-8"?>
+	if got, want := agentd.RenderLaunchdService("ci.1", "/Applications/gs&tool", "/work/a", true, env, "/logs/a&b.log"), `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -205,15 +174,12 @@ WantedBy=default.target
 	}
 }
 
-// The unit goes where the systemd user manager reads it, under the account's
-// home, while the daemon keeps the HOME it was installed with: operators run a
-// daemon's gs identity from a separate HOME.
 func TestAgentInstallAndUninstallLinux(t *testing.T) {
-	home := t.TempDir()                   // the gs identity's HOME
-	accountHome := t.TempDir()            // the account's own home
-	t.Setenv("XDG_CONFIG_HOME", "config") // relative: ignored, as systemd does
+	home := t.TempDir()
+	accountHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", "config")
 	var calls [][]string
-	p := &agentServiceProbes{
+	p := &agentd.ServiceProbes{
 		OSName:     "linux",
 		Executable: func() (string, error) { return "/opt/gs-real", nil },
 		EvalSymlinks: func(path string) (string, error) {
@@ -233,7 +199,7 @@ func TestAgentInstallAndUninstallLinux(t *testing.T) {
 	}
 	var stdout bytes.Buffer
 	r := Runner{Home: home, Dir: t.TempDir(), Stdout: &stdout, AgentService: p}
-	if err := r.runAgentInstall(context.Background(), commandOptions{}, agentInstallOptions{Name: "ci-1", CI: true}); err != nil {
+	if err := r.runAgentInstall(context.Background(), commandOptions{}, agentd.InstallOptions{Name: "ci-1", CI: true}); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(accountHome, ".config", "systemd", "user", "gs-agent-ci-1.service")
@@ -267,7 +233,7 @@ func TestAgentInstallAndUninstallLinux(t *testing.T) {
 func TestAgentInstallAndUninstallLaunchd(t *testing.T) {
 	home := t.TempDir()
 	var calls [][]string
-	p := &agentServiceProbes{
+	p := &agentd.ServiceProbes{
 		OSName:       "darwin",
 		Executable:   func() (string, error) { return "/opt/gs", nil },
 		EvalSymlinks: func(path string) (string, error) { return path, nil },
@@ -281,7 +247,7 @@ func TestAgentInstallAndUninstallLaunchd(t *testing.T) {
 		},
 	}
 	r := Runner{Home: home, Dir: t.TempDir(), AgentService: p}
-	if err := r.runAgentInstall(context.Background(), commandOptions{Quiet: true}, agentInstallOptions{Name: "mac-ci", CI: true}); err != nil {
+	if err := r.runAgentInstall(context.Background(), commandOptions{Quiet: true}, agentd.InstallOptions{Name: "mac-ci", CI: true}); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(home, "Library", "LaunchAgents", "io.gitslice.agent.mac-ci.plist")
@@ -310,7 +276,7 @@ func TestAgentInstallPrintAndInvalidName(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", "config")
 	called := false
-	p := &agentServiceProbes{
+	p := &agentd.ServiceProbes{
 		OSName:       "linux",
 		Executable:   func() (string, error) { return "/opt/gs", nil },
 		EvalSymlinks: func(path string) (string, error) { return path, nil },
@@ -320,7 +286,7 @@ func TestAgentInstallPrintAndInvalidName(t *testing.T) {
 	}
 	var stdout bytes.Buffer
 	r := Runner{Home: home, Dir: t.TempDir(), Stdout: &stdout, AgentService: p}
-	if err := r.runAgentInstall(context.Background(), commandOptions{}, agentInstallOptions{Name: "ci", CI: true, Print: true}); err != nil {
+	if err := r.runAgentInstall(context.Background(), commandOptions{}, agentd.InstallOptions{Name: "ci", CI: true, Print: true}); err != nil {
 		t.Fatal(err)
 	}
 	if called || stdout.Len() == 0 {
@@ -330,17 +296,15 @@ func TestAgentInstallPrintAndInvalidName(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("--print wrote %s: %v", path, err)
 	}
-	if err := r.runAgentInstall(context.Background(), commandOptions{}, agentInstallOptions{Name: "bad/name", CI: true}); !isUserErrorCode(err, "invalid_args") {
+	if err := r.runAgentInstall(context.Background(), commandOptions{}, agentd.InstallOptions{Name: "bad/name", CI: true}); !isUserErrorCode(err, "invalid_args") {
 		t.Fatalf("invalid name error = %v", err)
 	}
 }
 
-// Injected probes that leave out the account's home write under HOME, so a
-// test cannot reach the real account's systemd folder.
 func TestAgentInstallWithoutAccountHomeProbeStaysUnderHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", "")
-	p := &agentServiceProbes{
+	p := &agentd.ServiceProbes{
 		OSName:       "linux",
 		Executable:   func() (string, error) { return "/opt/gs", nil },
 		EvalSymlinks: func(path string) (string, error) { return path, nil },
@@ -350,7 +314,7 @@ func TestAgentInstallWithoutAccountHomeProbeStaysUnderHome(t *testing.T) {
 		Command:      func(context.Context, string, ...string) ([]byte, error) { return nil, nil },
 	}
 	r := Runner{Home: home, Dir: t.TempDir(), AgentService: p}
-	if err := r.runAgentInstall(context.Background(), commandOptions{Quiet: true}, agentInstallOptions{Name: "guarded", CI: true}); err != nil {
+	if err := r.runAgentInstall(context.Background(), commandOptions{Quiet: true}, agentd.InstallOptions{Name: "guarded", CI: true}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".config", "systemd", "user", "gs-agent-guarded.service")); err != nil {

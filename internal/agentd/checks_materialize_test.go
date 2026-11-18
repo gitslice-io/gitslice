@@ -1,4 +1,4 @@
-package cli
+package agentd
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 )
 
 func TestMaterializeCheckTreeFetchesNestedPrefix(t *testing.T) {
-	repo := checkTreeRepoClient{
+	repo := CheckTreeRepoClient{
 		Account: "acme",
 		Inner: newFakeCheckRepo(map[string][]*corev1.TreeEntry{
 			"/acme": {
@@ -120,14 +120,10 @@ func TestMaterializeCheckTreeFetchesNestedFilesConcurrently(t *testing.T) {
 func TestMaterializeCheckTreeWalksDirectoriesConcurrently(t *testing.T) {
 	const branchCount = 18
 
-	dirs := map[string][]*corev1.TreeEntry{
-		"/": {},
-	}
+	dirs := map[string][]*corev1.TreeEntry{"/": {}}
 	files := map[string][]byte{}
 	blockedListPaths := map[string]struct{}{}
-	expectedDirs := map[string]struct{}{
-		"/": {},
-	}
+	expectedDirs := map[string]struct{}{"/": {}}
 	expectedFiles := map[string]string{}
 
 	addFile := func(p, content string) {
@@ -201,7 +197,7 @@ func TestMaterializeCheckTreeWalksDirectoriesConcurrently(t *testing.T) {
 	}
 
 	for dir := range expectedDirs {
-		target, err := checkTreeLocalPath(dest, dir)
+		target, err := CheckTreeLocalPath(dest, dir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -214,7 +210,7 @@ func TestMaterializeCheckTreeWalksDirectoriesConcurrently(t *testing.T) {
 		}
 	}
 	for filePath, want := range expectedFiles {
-		target, err := checkTreeLocalPath(dest, filePath)
+		target, err := CheckTreeLocalPath(dest, filePath)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -242,13 +238,8 @@ func TestMaterializeCheckTreeReusesObjectCacheAcrossRuns(t *testing.T) {
 	mainEntry := checkFileEntry("/app/main.sh", 0o100755)
 	mainEntry.ContentHash = objectid.RawContentHash(main)
 	repo := newFakeCheckRepo(map[string][]*corev1.TreeEntry{
-		"/": {
-			checkDirEntry("/app"),
-			readmeEntry,
-		},
-		"/app": {
-			mainEntry,
-		},
+		"/":    {checkDirEntry("/app"), readmeEntry},
+		"/app": {mainEntry},
 	}, map[string][]byte{
 		"/README.md":   readme,
 		"/app/main.sh": main,
@@ -278,15 +269,11 @@ func TestMaterializeCheckTreeReusesObjectCacheAcrossRuns(t *testing.T) {
 }
 
 func TestCheckRunSpecMaterializedHostExecution(t *testing.T) {
-	repo := checkTreeRepoClient{
+	repo := CheckTreeRepoClient{
 		Account: "acme",
 		Inner: newFakeCheckRepo(map[string][]*corev1.TreeEntry{
-			"/acme": {
-				checkDirEntry("/acme/backend"),
-			},
-			"/acme/backend": {
-				checkFileEntry("/acme/backend/message.txt", 0o100644),
-			},
+			"/acme":         {checkDirEntry("/acme/backend")},
+			"/acme/backend": {checkFileEntry("/acme/backend/message.txt", 0o100644)},
 		}, map[string][]byte{
 			"/acme/backend/message.txt": []byte("hello from result tree\n"),
 		}),
@@ -303,7 +290,7 @@ func TestCheckRunSpecMaterializedHostExecution(t *testing.T) {
 	if err := d.materializeCheckTree(context.Background(), repo, "tree-1", spec.GetMaterializePaths(), dest); err != nil {
 		t.Fatalf("materializeCheckTree() error = %v", err)
 	}
-	result, err := checkexec.Run(context.Background(), dest, checkSpecFromProto(spec))
+	result, err := checkexec.Run(context.Background(), dest, CheckSpecFromProto(spec))
 	if err != nil {
 		t.Fatalf("checkexec.Run() error = %v", err)
 	}
@@ -316,7 +303,7 @@ func TestCheckRunSpecMaterializedHostExecution(t *testing.T) {
 }
 
 func TestCheckRunSpecMapsSetup(t *testing.T) {
-	spec := checkSpecFromProto(&corev1.CheckRunSpec{
+	spec := CheckSpecFromProto(&corev1.CheckRunSpec{
 		Setup:  []string{"true"},
 		Cache:  []string{"/go/pkg/mod"},
 		Memory: "8g",
@@ -334,4 +321,60 @@ func TestCheckRunSpecMapsSetup(t *testing.T) {
 	if spec.CPUs != "4" {
 		t.Fatalf("CPUs = %q, want 4", spec.CPUs)
 	}
+}
+
+func TestMaterializeCheckTreeInOneCheckout(t *testing.T) {
+	script := []byte("echo streamed\n")
+	big := []byte("not sent inline\n")
+	file := func(p string, data []byte) *corev1.TreeEntry {
+		e := checkFileEntry(p, 0o100755)
+		e.ContentHash = objectid.RawContentHash(data)
+		e.Size = int64(len(data))
+		return e
+	}
+	inner := &streamingCheckRepo{
+		fakeCheckRepo: newFakeCheckRepo(nil, map[string][]byte{"/acme/backend/big.bin": big}),
+		msgs: []*corev1.CheckoutResponse{
+			{Part: &corev1.CheckoutResponse_Header{Header: &corev1.CheckoutHeader{}}},
+			{Part: &corev1.CheckoutResponse_Entries{Entries: &corev1.CheckoutEntries{Entries: []*corev1.TreeEntry{
+				checkDirEntry("/acme/backend/empty"),
+				file("/acme/backend/run.sh", script),
+				file("/acme/backend/big.bin", big),
+			}}}},
+			{Part: &corev1.CheckoutResponse_Contents{Contents: &corev1.CheckoutContents{Contents: []*corev1.CheckoutContent{
+				{ContentHash: objectid.RawContentHash(script), Data: script},
+			}}}},
+		},
+	}
+	dest := t.TempDir()
+	d := newTestCheckDaemon(t)
+	if err := d.materializeCheckTree(context.Background(), CheckTreeRepoClient{Account: "acme", Inner: inner}, "tree-1", []string{"backend"}, dest); err != nil {
+		t.Fatal(err)
+	}
+	if len(inner.gotPaths) != 1 || inner.gotPaths[0] != "/acme/backend" {
+		t.Fatalf("checkout paths = %v, want the account path", inner.gotPaths)
+	}
+	assertFileContent(t, filepath.Join(dest, "backend", "run.sh"), "echo streamed\n")
+	assertFileContent(t, filepath.Join(dest, "backend", "big.bin"), "not sent inline\n")
+	if inner.readCalls != 1 {
+		t.Fatalf("%d ReadFile calls, want 1 (only the file not sent)", inner.readCalls)
+	}
+	if len(inner.listCalls) != 0 {
+		t.Fatalf("listed %v; a checkout needs no listing", inner.listCalls)
+	}
+}
+
+func TestMaterializeCheckTreeWalksOnAnOlderServer(t *testing.T) {
+	inner := &streamingCheckRepo{
+		unsupport: true,
+		fakeCheckRepo: newFakeCheckRepo(map[string][]*corev1.TreeEntry{
+			"/acme":         {checkDirEntry("/acme/backend")},
+			"/acme/backend": {checkFileEntry("/acme/backend/run.sh", 0o100644)},
+		}, map[string][]byte{"/acme/backend/run.sh": []byte("walked\n")}),
+	}
+	dest := t.TempDir()
+	if err := newTestCheckDaemon(t).materializeCheckTree(context.Background(), CheckTreeRepoClient{Account: "acme", Inner: inner}, "tree-1", []string{"backend"}, dest); err != nil {
+		t.Fatal(err)
+	}
+	assertFileContent(t, filepath.Join(dest, "backend", "run.sh"), "walked\n")
 }

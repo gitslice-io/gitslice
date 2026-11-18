@@ -6,26 +6,25 @@ import (
 	"strings"
 	"testing"
 
-	corev1 "gitslice.io/gitslice/proto/core/v1"
+	"gitslice.io/gitslice/internal/agentd"
 )
 
 func TestAgentWorkspaceInstructionsIncludesEditableScope(t *testing.T) {
-	got := agentWorkspaceInstructions([]string{"/nic/File"})
+	got := agentd.WorkspaceInstructions([]string{"/nic/File"})
 	for _, want := range []string{"/nic/File/", "only edit files", "canonical account-rooted", "gsfile:nic/File/Lol.txt", "not\n  `gsfile:Lol.txt`"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("instructions missing %q:\n%s", want, got)
 		}
 	}
 
-	// No included paths falls back to generic scope guidance, not an empty list.
-	fallback := agentWorkspaceInstructions(nil)
+	fallback := agentd.WorkspaceInstructions(nil)
 	if !strings.Contains(fallback, "included paths") {
 		t.Fatalf("fallback instructions missing scope guidance:\n%s", fallback)
 	}
 }
 
 func TestAgentWorkspaceInstructionsExplainGitsliceSideEffects(t *testing.T) {
-	got := agentWorkspaceInstructions([]string{"/slices"})
+	got := agentd.WorkspaceInstructions([]string{"/slices"})
 	for _, want := range []string{
 		"complete workspace result",
 		"only after your turn completes",
@@ -63,14 +62,13 @@ func TestConversationIncludedPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := conversationIncludedPaths(workdir)
+	got := agentd.ConversationIncludedPaths(workdir)
 	if len(got) != 2 || got[0] != "src/" || got[1] != "lib/" {
-		t.Fatalf("conversationIncludedPaths = %v, want [src/ lib/]", got)
+		t.Fatalf("ConversationIncludedPaths = %v, want [src/ lib/]", got)
 	}
 
-	// Missing config is best-effort: nil, no panic.
-	if got := conversationIncludedPaths(t.TempDir()); got != nil {
-		t.Fatalf("conversationIncludedPaths(empty) = %v, want nil", got)
+	if got := agentd.ConversationIncludedPaths(t.TempDir()); got != nil {
+		t.Fatalf("ConversationIncludedPaths(empty) = %v, want nil", got)
 	}
 }
 
@@ -95,9 +93,10 @@ func TestRequireAgentWorkspaceDir(t *testing.T) {
 		}
 	})
 
-	t.Run("prior conversations dir is allowed", func(t *testing.T) {
+	t.Run("prior conversations and run-homes dirs are allowed", func(t *testing.T) {
 		dir := t.TempDir()
 		mkdirAll(t, filepath.Join(dir, "conversations", "conv_1"))
+		mkdirAll(t, filepath.Join(dir, "run-homes", "conv_1"))
 		writeFile(t, filepath.Join(dir, ".DS_Store"))
 		if err := (Runner{Dir: dir}).requireAgentWorkspaceDir(); err != nil {
 			t.Fatalf("conversations dir: unexpected error: %v", err)
@@ -122,53 +121,4 @@ func TestRequireAgentWorkspaceDir(t *testing.T) {
 			t.Fatalf("expected already_in_workspace, got %v", err)
 		}
 	})
-}
-
-func TestHandleReconcileWorkspacesReapsInactiveOnly(t *testing.T) {
-	root := t.TempDir()
-	d := &agentDaemon{workingDir: root, conversations: map[string]*agentConversation{}}
-
-	makeConv := func(id string, ready bool) *agentConversation {
-		subdir, workdir, err := agentConversationPaths(root, id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.MkdirAll(workdir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		conv := &agentConversation{id: id, workdir: workdir, workspaceSubdir: subdir, ready: make(chan struct{})}
-		if ready {
-			conv.setReady(nil)
-		}
-		d.conversations[id] = conv
-		return conv
-	}
-
-	keep := makeConv("conv_keep", true)        // active + ready -> kept
-	reap := makeConv("conv_reap", true)        // inactive + ready -> reaped
-	pending := makeConv("conv_pending", false) // not in set but mid-hydration -> left alone
-
-	d.handleReconcileWorkspaces(&corev1.ReconcileWorkspaces{ActiveConversationIds: []string{"conv_keep"}})
-
-	if !workspaceDirExists(keep.workdir) {
-		t.Fatalf("active workspace should be kept")
-	}
-	if workspaceDirExists(reap.workdir) {
-		t.Fatalf("inactive workspace should be removed")
-	}
-	if !workspaceDirExists(pending.workdir) {
-		t.Fatalf("mid-hydration workspace should be left alone")
-	}
-
-	d.mu.Lock()
-	_, keepMapped := d.conversations["conv_keep"]
-	_, reapMapped := d.conversations["conv_reap"]
-	_, pendingMapped := d.conversations["conv_pending"]
-	d.mu.Unlock()
-	if !keepMapped || pendingMapped == false {
-		t.Fatalf("kept/pending convs should remain mapped (keep=%v pending=%v)", keepMapped, pendingMapped)
-	}
-	if reapMapped {
-		t.Fatalf("reaped conversation should be dropped from the map")
-	}
 }

@@ -1,45 +1,21 @@
 package cli
 
 import (
+	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/spf13/cobra"
 	"gitslice.io/gitslice/internal/agentd"
+	"gitslice.io/gitslice/internal/clientcache"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
-	"google.golang.org/grpc"
-)
-
-const (
-	defaultAgentRuntime            = agentd.DefaultRuntimeName
-	ciAgentRuntime                 = agentd.CIRuntimeName
-	agentSendBuffer                = agentd.SendBuffer
-	agentHeartbeat                 = agentd.HeartbeatInterval
-	agentInboundStaleTimeout       = agentd.InboundStaleTimeout
-	agentInboundStaleCheckInterval = agentd.InboundStaleCheckEvery
-	agentMetaFilename              = agentd.MetaFilename
-	agentRecentCheckRunLimit       = agentd.RecentCheckRunLimit
-	agentMaxPendingEvents          = agentd.MaxPendingEvents
-	agentTurnCompleteType          = agentd.TurnCompleteType
-)
-
-var (
-	checkSlotsFromEnv      = agentd.CheckSlotsFromEnv
-	newAgentInstanceID     = agentd.NewInstanceID
-	defaultAgentName       = agentd.DefaultAgentName
-	agentConversationPaths = agentd.ConversationPaths
-	canonicalSliceKey      = agentd.CanonicalSliceKey
 )
 
 type agentStartOptions struct {
@@ -49,38 +25,25 @@ type agentStartOptions struct {
 	CI          bool
 	Slices      []string
 	IdleTimeout time.Duration
-	// Lazy mounts each conversation's workspace (gs mount) instead of
-	// checking it out, where FUSE is available.
-	Lazy bool
-	// DetachAfter is how long a checks-only daemon stays connected with
-	// nothing to run before it detaches and polls; DetachSet says it was
-	// given. See agent_standby.go.
+	Lazy        bool
 	DetachAfter time.Duration
 	DetachSet   bool
 }
 
 type agentDaemonOutput struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Runtime    string `json:"runtime"`
-	Status     string `json:"status"`
-	LastSeenAt string `json:"last_seen_at"`
-	// DisplayName is the name gs agent rename gave the daemon, if any. Name
-	// stays the one it registers with (gs agent start --name).
-	DisplayName string `json:"display_name,omitempty"`
-	Account     string `json:"account,omitempty"`
-	// Mine is true for the daemons this identity registered. The others
-	// belong to agents whose account it administers.
-	Mine bool `json:"mine"`
-	// CISlices are the slices that use the daemon as their CI daemon.
-	CISlices []string `json:"ci_slices,omitempty"`
-	// Manageable is true when you may rename the daemon and choose which
-	// slices it is exposed to; ExposedTo lists those slices.
-	Manageable bool     `json:"manageable"`
-	ExposedTo  []string `json:"exposed_to,omitempty"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Runtime     string   `json:"runtime"`
+	Status      string   `json:"status"`
+	LastSeenAt  string   `json:"last_seen_at"`
+	DisplayName string   `json:"display_name,omitempty"`
+	Account     string   `json:"account,omitempty"`
+	Mine        bool     `json:"mine"`
+	CISlices    []string `json:"ci_slices,omitempty"`
+	Manageable  bool     `json:"manageable"`
+	ExposedTo   []string `json:"exposed_to,omitempty"`
 }
 
-// shownName is the name a daemon is shown by.
 func (d agentDaemonOutput) shownName() string { return firstNonEmpty(d.DisplayName, d.Name) }
 
 func agentDaemonToOutput(daemon *corev1.AgentDaemon) agentDaemonOutput {
@@ -109,7 +72,7 @@ type agentStatusOutput struct {
 }
 
 func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
-	start := agentStartOptions{Runtime: defaultAgentRuntime}
+	start := agentStartOptions{Runtime: agentd.DefaultRuntimeName}
 	agentCmd := &cobra.Command{
 		Use:   "agent",
 		Short: "Run and inspect local BYOA agent daemons",
@@ -131,10 +94,8 @@ func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
 	startCmd.Flags().StringArrayVar(&start.Slices, "slice", nil, "limit agent conversations to a slice (<account>/<slice>); repeatable")
 	startCmd.Flags().DurationVar(&start.IdleTimeout, "idle-timeout", start.IdleTimeout, "disconnect and exit after this much conversation inactivity (0 = never)")
 	startCmd.Flags().BoolVar(&start.Lazy, "lazy", start.Lazy, "mount each conversation's workspace lazily (gs mount) instead of checking it out; falls back to a checkout without FUSE")
-	startCmd.Flags().DurationVar(&start.DetachAfter, "detach-after", defaultDetachAfter, "checks-only daemons (--ci): detach from the server after this long with nothing to run, and poll for queued checks (0 = stay connected; env GITSLICE_AGENT_DETACH_AFTER). The server then has no stream to hold open and can scale to zero")
+	startCmd.Flags().DurationVar(&start.DetachAfter, "detach-after", agentd.DefaultDetachAfter, "checks-only daemons (--ci): detach from the server after this long with nothing to run, and poll for queued checks (0 = stay connected; env GITSLICE_AGENT_DETACH_AFTER). The server then has no stream to hold open and can scale to zero")
 	startCmd.Flags().BoolVar(&start.CI, "ci", false, "run checks only: no agent runtime, any directory")
-	// Flags for hosting agent conversations, which are not offered for now:
-	// they keep working, but help does not list them.
 	_ = startCmd.Flags().MarkHidden("idle-timeout")
 	_ = startCmd.Flags().MarkHidden("lazy")
 
@@ -256,14 +217,14 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 		}
 	}
 
-	runtimeName := ciAgentRuntime
-	var runtime agentRuntime
+	runtimeName := agentd.CIRuntimeName
+	var runtime agentd.Runtime
 	if !in.CI {
 		runtimeName = strings.TrimSpace(in.Runtime)
 		if runtimeName == "" {
-			runtimeName = defaultAgentRuntime
+			runtimeName = agentd.DefaultRuntimeName
 		}
-		runtime, err = agentRuntimeForName(runtimeName)
+		runtime, err = agentd.RuntimeForName(runtimeName, cliVersionInfo().Version)
 		if err != nil {
 			return err
 		}
@@ -274,256 +235,114 @@ func (r Runner) runAgentStart(ctx context.Context, opts commandOptions, in agent
 		root = abs
 	}
 
-	detachAfter, err := detachAfterFor(in)
+	detachAfter, err := agentd.DetachAfterFor(in.CI, in.DetachSet, in.DetachAfter)
 	if err != nil {
 		return err
 	}
 
 	signalCtx, stopSignals := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stopSignals()
-	agentCtx, cancel := context.WithCancel(signalCtx)
-	defer cancel()
 
-	daemon := &agentDaemon{
-		runner:          r,
-		cfg:             cfg,
-		runtime:         runtime,
-		baseCtx:         agentCtx,
-		workingDir:      root,
-		conversations:   map[string]*agentConversation{},
-		checkRuns:       map[string]context.CancelFunc{},
-		recentCheckRuns: map[string]struct{}{},
-		checkSlots:      checkSlotsFromEnv(),
-		lazy:            in.Lazy,
-		name:            in.Name,
-		allowedSlices:   allowedSlices,
-		instanceID:      newAgentInstanceID(),
-		detachAfter:     detachAfter,
-		quiet:           opts.Quiet,
-	}
-	defer daemon.closePollConnection()
-	if !in.CI {
-		daemon.reattachLazyWorkspaces(agentCtx)
-		daemon.loadExistingConversations()
-	}
-	daemon.lastActivity = time.Now()
-	if idleTimeout > 0 {
-		go daemon.runIdleMonitor(agentCtx, cancel, idleTimeout)
-	}
-	defer func() {
-		daemon.cancelAll()
-		cancel()
-	}()
-	reportIdleExit := func() {
-		if daemon.idleShutdownRequested() && !opts.Quiet {
-			fmt.Fprintln(r.stderr(), "agent daemon exited after idle timeout")
-		}
-	}
-
-	reportedOnline := false
-	for {
-		err := daemon.serveAgentConnection(agentCtx, opts, in.Name, runtimeName, !reportedOnline)
-		if errors.Is(err, errAgentDetached) {
-			reportedOnline = true
-			// Work that arrived as the stream closed stays here to be done:
-			// reconnect instead of waiting.
-			if daemon.checksIdle() {
-				if standbyErr := daemon.standby(agentCtx); standbyErr != nil {
-					reportIdleExit()
-					return nil
-				}
-			}
-			continue
-		}
-		if err == nil {
-			if agentCtx.Err() != nil {
-				reportIdleExit()
-			}
-			return nil
-		}
-		if agentCtx.Err() != nil {
-			reportIdleExit()
-			return nil
-		}
-		reportedOnline = true
-		if !opts.Quiet {
-			fmt.Fprintf(r.stderr(), "agent stream disconnected: %v; reconnecting...\n", err)
-		}
-		select {
-		case <-agentCtx.Done():
-			reportIdleExit()
-			return nil
-		case <-time.After(2 * time.Second):
-		}
-	}
+	daemon := agentd.NewDaemon(signalCtx, r.agentHost(cfg, opts))
+	daemon.Runtime = runtime
+	daemon.WorkingDir = root
+	daemon.Lazy = in.Lazy
+	daemon.Name = in.Name
+	daemon.AllowedSlices = allowedSlices
+	daemon.DetachAfter = detachAfter
+	daemon.Quiet = opts.Quiet
+	return daemon.Run(signalCtx, runtimeName, idleTimeout, in.CI)
 }
 
-func (d *agentDaemon) serveAgentConnection(ctx context.Context, opts commandOptions, name, runtimeName string, reportOnline bool) error {
-	conn, err := dialAgentStream(ctx, d.cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	connCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	client := corev1.NewAgentServiceClient(conn)
-	stream, err := client.Connect(authContext(connCtx, d.cfg))
-	if err != nil {
-		return err
-	}
-
-	sendQueue := newAgentSendQueue(connCtx, stream, agentSendBuffer)
-	d.mu.Lock()
-	d.sendQueue = sendQueue
-	d.mu.Unlock()
-	defer func() {
-		cancel()
-		_ = sendQueue.Wait()
-		d.mu.Lock()
-		if d.sendQueue == sendQueue {
-			d.sendQueue = nil
-		}
-		d.mu.Unlock()
-	}()
-
-	if err := sendQueue.Send(connCtx, registerDaemonMessage(name, runtimeName, d.instanceID, cap(d.checkSlots))); err != nil {
-		return err
-	}
-	registered, err := stream.Recv()
-	if err != nil {
-		return err
-	}
-	ack := registered.GetRegistered()
-	if ack == nil || strings.TrimSpace(ack.GetDaemonId()) == "" {
-		return userError("agent_protocol_error", "server did not acknowledge agent daemon registration", "Try restarting the daemon.")
-	}
-	d.setDaemonID(ack.GetDaemonId())
-	lastInbound := newAgentInboundState(time.Now())
-	if reportOnline && opts.jsonOutput() {
-		if err := d.runner.writeJSONOutput(opts, map[string]string{
-			"daemon_id": ack.GetDaemonId(),
-			"status":    "online",
-		}); err != nil {
+func (r Runner) agentHost(cfg UserConfig, opts commandOptions) agentd.HostCallbacks {
+	return agentd.HostCallbacks{
+		ServerAddr:          cfg.ServerAddr,
+		Token:               cfg.Token,
+		Home:                r.Home,
+		Insecure:            r.Insecure,
+		Version:             cliVersionInfo().Version,
+		Stdout:              r.Stdout,
+		Stderr:              r.stderr(),
+		Dial:                dial,
+		DialStream:          dialAgentStream,
+		DialLazy:            dialLazy,
+		AuthContext:         func(ctx context.Context) context.Context { return authContext(ctx, cfg) },
+		UsesNonLoopbackTLS:  serverUsesNonLoopbackTLS,
+		InsecureFromContext: insecureFromContext,
+		EnvServerAddr:       envServerAddrOverride,
+		WorkspaceInit: func(ctx context.Context, workdir, conversationID, sliceRef string, envOverrides map[string]string) (string, error) {
+			var stderr bytes.Buffer
+			child := r.agentChildRunner(cfg, workdir, envOverrides, io.Discard)
+			child.Stderr = io.MultiWriter(&stderr, r.stderr())
+			err := child.runWorkspaceInit(ctx, commandOptions{Format: "text", Quiet: true, AgentConversationID: conversationID}, sliceRef)
+			return strings.TrimSpace(stderr.String()), err
+		},
+		CaptureChangeset: func(ctx context.Context, workdir string, envOverrides map[string]string, title string) (bool, string, error) {
+			child := r.agentChildRunner(cfg, workdir, envOverrides, io.Discard)
+			res, err := child.captureChangeset(ctx, commandOptions{Format: "text", Verbose: true}, title, false)
+			if err != nil {
+				return false, "", err
+			}
+			return res.Outcome == captureCaptured, res.Summary(), nil
+		},
+		ObjectCache: r.objectCache,
+		FetchCheckBatch: func(ctx context.Context, rf agentd.BatchReadClient, cache *clientcache.ObjectCache, rootTreeID string, targets []agentd.BatchReadTarget, workers int) error {
+			readTargets := make([]remoteReadTarget, len(targets))
+			for i, t := range targets {
+				readTargets[i] = remoteReadTarget{Path: t.Path, ContentHash: t.ContentHash, Size: t.Size}
+			}
+			_, err := NewTransferManager(rf, nil, nil, cache).FetchFilesToCache(ctx, TransferFetchRequest{
+				RootTreeID: rootTreeID,
+				Targets:    readTargets,
+				Workers:    workers,
+			})
 			return err
+		},
+		CheckTreeWriter: agentd.CheckTreeWriter{
+			EnsureDir: ensureConfinedDir,
+			WriteFile: writeConfinedWorkspaceFile,
+		},
+		ReportOnline: func(daemonID string) error {
+			if opts.jsonOutput() {
+				return r.writeJSONOutput(opts, map[string]string{
+					"daemon_id": daemonID,
+					"status":    "online",
+				})
+			}
+			if !opts.Quiet {
+				fmt.Fprintf(r.Stdout, "agent daemon %s online\n", daemonID)
+			}
+			return nil
+		},
+	}
+}
+
+// agentChildRunner scopes a Runner to a conversation's directory and identity
+// while hiding the host's own credentials.
+func (r Runner) agentChildRunner(cfg UserConfig, dir string, envOverrides map[string]string, stdout io.Writer) Runner {
+	env := map[string]string{}
+	if addr := strings.TrimSpace(cfg.ServerAddr); addr != "" {
+		env["GS_SERVER_ADDR"] = addr
+		env["GITSLICE_SERVER_ADDR"] = addr
+	}
+	if len(envOverrides) == 0 {
+		if token := strings.TrimSpace(cfg.Token); token != "" {
+			env["GS_TOKEN"] = token
 		}
-	} else if reportOnline && !opts.Quiet {
-		fmt.Fprintf(d.runner.Stdout, "agent daemon %s online\n", ack.GetDaemonId())
 	}
-
-	// Resend any events buffered while disconnected over the fresh stream. The
-	// server dedups by (conversation_id, client_seq), so replaying already-
-	// persisted events is idempotent.
-	go d.resendPendingAll()
-	go d.runHeartbeat(connCtx, cancel)
-	if d.detachAfter > 0 && !d.standbyUnsupported.Load() {
-		go d.runDetachWatch(connCtx)
+	for key, value := range envOverrides {
+		env[key] = value
 	}
-	go d.runInboundWatchdog(connCtx, cancel, lastInbound)
-
-	for {
-		msg, err := stream.Recv()
-		if err != nil {
-			cancel()
-			if d.detaching.Swap(false) && errors.Is(err, io.EOF) {
-				return errAgentDetached
-			}
-			if agentStreamEndedCleanly(ctx, err) {
-				return nil
-			}
-			if queueErr := sendQueue.Err(); queueErr != nil && !errors.Is(queueErr, context.Canceled) {
-				return queueErr
-			}
-			return err
-		}
-		lastInbound.Mark(time.Now())
-		d.handleServerMessage(connCtx, cancel, msg)
+	child := r
+	child.Dir = dir
+	child.Stdout = stdout
+	child.Stderr = r.stderr()
+	child.Stdin = strings.NewReader("")
+	child.Env = env
+	if home := strings.TrimSpace(env["HOME"]); home != "" {
+		child.Home = home
 	}
-}
-
-type agentAuthClient interface {
-	CreateApiKey(ctx context.Context, in *corev1.CreateApiKeyRequest, opts ...grpc.CallOption) (*corev1.CreateApiKeyResponse, error)
-	RevokeApiKey(ctx context.Context, in *corev1.RevokeApiKeyRequest, opts ...grpc.CallOption) (*corev1.RevokeApiKeyResponse, error)
-}
-
-type agentDaemon struct {
-	runner        Runner
-	cfg           UserConfig
-	auth          agentAuthClient // optional override for tests; nil dials cfg.ServerAddr
-	runtime       agentRuntime
-	baseCtx       context.Context
-	workingDir    string
-	sendQueue     *agentSendQueue
-	name          string   // the name it registers with, as given
-	daemonID      string   // registered daemon id from server ack; guarded by mu
-	allowedSlices []string // optional canonical <account>/<slice> allowlist from --slice
-	// instanceID names this process to the server, which sends each check
-	// run to one process of a daemon (design/32 layer 3).
-	instanceID string
-
-	// Detaching (agent_standby.go): a checks-only daemon with nothing to run
-	// closes its stream and polls instead.
-	detachAfter        time.Duration
-	detaching          atomic.Bool // a detach was sent; the stream is about to end
-	standbyUnsupported atomic.Bool // the server cannot take a detached daemon
-	doorbellOpen       atomic.Bool // its next standby poll says the doorbell socket is open
-	standbyPollFn      func(context.Context) (*corev1.StandbyPollResponse, error)
-	pollMu             sync.Mutex
-	pollConn           *grpc.ClientConn
-	quiet              bool
-
-	idleMu       sync.Mutex
-	lastActivity time.Time
-	activeWork   int
-	idleShutdown bool
-
-	// checkSlots bounds how many checks run at once
-	// (GITSLICE_CHECK_CONCURRENCY); nil runs every dispatched check at once.
-	checkSlots chan struct{}
-
-	// lazy mounts new conversation workspaces instead of checking them out.
-	lazy bool
-
-	// Optional hooks for isolated lazy-workspace tests.
-	isMountedFn func(dir string) bool
-	runGSFn     func(ctx context.Context, dir string, envOverrides map[string]string, args ...string) (string, error)
-	unmountFn   func(ctx context.Context, conversationID string, rec mountRecord) error
-
-	mu                  sync.Mutex
-	conversations       map[string]*agentConversation
-	reattachedKeys      map[string]reattachedConversationKey
-	checkRuns           map[string]context.CancelFunc
-	checkRunOutboxes    map[string]*checkRunOutbox
-	checkRunOutboxOrder []string
-	recentCheckRuns     map[string]struct{}
-	recentCheckRunOrder []string
-}
-
-func (d *agentDaemon) cancelAll() {
-	d.mu.Lock()
-	conversations := make([]*agentConversation, 0, len(d.conversations))
-	for _, conv := range d.conversations {
-		conversations = append(conversations, conv)
-	}
-	d.mu.Unlock()
-	for _, conv := range conversations {
-		conv.cancelRun()
-		conv.closeSession()
-	}
-}
-
-func (d *agentDaemon) setDaemonID(id string) {
-	id = strings.TrimSpace(id)
-	d.mu.Lock()
-	d.daemonID = id
-	d.mu.Unlock()
-}
-
-func (d *agentDaemon) currentDaemonID() string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.daemonID
+	return child
 }
 
 func normalizeDaemonAllowedSlices(values []string) ([]string, error) {
@@ -537,7 +356,7 @@ func normalizeDaemonAllowedSlices(values []string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		key := canonicalSliceKey(ref.GetAccount(), ref.GetSlice())
+		key := agentd.CanonicalSliceKey(ref.GetAccount(), ref.GetSlice())
 		if _, ok := seen[key]; ok {
 			continue
 		}
@@ -547,34 +366,102 @@ func normalizeDaemonAllowedSlices(values []string) ([]string, error) {
 	return out, nil
 }
 
-func (d *agentDaemon) allowsSlice(ref *corev1.SliceRef) bool {
-	if len(d.allowedSlices) == 0 {
-		return true
+func (r Runner) agentDoctorCommand(opts *commandOptions) *cobra.Command {
+	ci := false
+	cmd := &cobra.Command{
+		Use:   "doctor",
+		Short: "Check whether this machine can run an agent daemon",
+		Args:  noArgs("gs agent doctor [--ci] [--json]"),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return r.runAgentDoctor(cmd.Context(), *opts, ci)
+		},
 	}
-	key := canonicalSliceKey(ref.GetAccount(), ref.GetSlice())
-	return key != "" && slices.Contains(d.allowedSlices, key)
+	cmd.Flags().BoolVar(&ci, "ci", false, "check a checks-only CI daemon")
+	return cmd
 }
 
-func agentWorkspaceInitEnv(r Runner, cfg UserConfig) []string {
-	env := append([]string{}, os.Environ()...)
-	env = append(env, "GS_SERVER_ADDR="+cfg.ServerAddr)
-	env = append(env, "GITSLICE_SERVER_ADDR="+cfg.ServerAddr)
-	if r.Home != "" {
-		env = append(env, "HOME="+r.Home)
+func (r Runner) runAgentDoctor(ctx context.Context, opts commandOptions, ci bool) error {
+	checks := r.agentDoctorChecks(ctx, ci)
+	if opts.jsonOutput() {
+		if err := r.writeJSONOutput(opts, agentd.DoctorOutput{Checks: checks}); err != nil {
+			return err
+		}
+	} else if !opts.Quiet {
+		for _, check := range checks {
+			fmt.Fprintf(r.stdout(), "%s  %s  %s\n", check.Status, check.Name, check.Detail)
+		}
 	}
-	return env
+	return agentd.DoctorFailure(checks)
 }
 
-func agentWorkspaceInitEnvWithOverrides(r Runner, cfg UserConfig, overrides map[string]string) []string {
-	if len(overrides) == 0 {
-		return agentWorkspaceInitEnv(r, cfg)
-	}
-	return mergeAgentEnv(sanitizedAgentRuntimeEnv(agentWorkspaceInitEnv(r, cfg)), overrides)
+func (r Runner) agentDoctorChecks(ctx context.Context, ci bool) []agentd.DoctorCheck {
+	cfg, cfgErr := r.readPartialUserConfig()
+	return agentd.RunDoctorChecks(ctx, ci, agentd.DoctorConfig{
+		Token:         cfg.Token,
+		SubjectID:     cfg.SubjectID,
+		ConfigPath:    r.userConfigPath(),
+		ConfigErr:     cfgErr,
+		DescribeToken: describeToken,
+	}, agentd.MergeDoctorProbes(r.AgentDoctorProbes))
 }
 
-func agentStreamEndedCleanly(ctx context.Context, err error) bool {
-	if errors.Is(err, io.EOF) {
-		return true
+func (r Runner) agentInstallCommand(opts *commandOptions) *cobra.Command {
+	in := agentd.InstallOptions{}
+	cmd := &cobra.Command{
+		Use:   "install",
+		Short: "Install an agent daemon as a user service",
+		Args:  noArgs("gs agent install [--ci] [--name NAME] [--slice account/slice]... [--print]"),
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return r.runAgentInstall(cmd.Context(), *opts, in)
+		},
 	}
-	return ctx.Err() != nil
+	cmd.Flags().BoolVar(&in.CI, "ci", false, "install a checks-only daemon")
+	cmd.Flags().StringVar(&in.Name, "name", "", "daemon name (defaults to this machine name)")
+	cmd.Flags().StringArrayVar(&in.Slices, "slice", nil, "limit agent conversations to a slice (<account>/<slice>); repeatable")
+	cmd.Flags().BoolVar(&in.Print, "print", false, "print the service definition without installing it")
+	return cmd
+}
+
+func (r Runner) agentUninstallCommand(opts *commandOptions) *cobra.Command {
+	return &cobra.Command{
+		Use:   "uninstall [NAME]",
+		Short: "Stop and remove an installed agent daemon",
+		Args:  maxArgs(1, "gs agent uninstall [NAME]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := ""
+			if len(args) == 1 {
+				name = args[0]
+			}
+			return r.runAgentUninstall(cmd.Context(), *opts, name)
+		},
+	}
+}
+
+func (r Runner) runAgentInstall(ctx context.Context, opts commandOptions, in agentd.InstallOptions) error {
+	if in.CI && len(in.Slices) > 0 {
+		return userError("invalid_args", "--ci cannot be used with --slice", "Checks-only daemons select slices via gs agent expose / gs slice set-ci-daemon.")
+	}
+	allowedSlices, err := normalizeDaemonAllowedSlices(in.Slices)
+	if err != nil {
+		return err
+	}
+	workingDir, err := r.agentServiceWorkingDir(in.CI)
+	if err != nil {
+		return err
+	}
+	return agentd.InstallService(ctx, agentd.MergeServiceProbes(r.AgentService), r.homeDir(), workingDir, in, allowedSlices, opts.Quiet, r.stdout())
+}
+
+func (r Runner) runAgentUninstall(ctx context.Context, opts commandOptions, requestedName string) error {
+	return agentd.UninstallService(ctx, agentd.MergeServiceProbes(r.AgentService), r.homeDir(), requestedName, opts.Quiet, r.stdout())
+}
+
+func (r Runner) agentServiceWorkingDir(ci bool) (string, error) {
+	if ci {
+		return filepath.Abs(r.homeDir())
+	}
+	if err := r.requireAgentWorkspaceDir(); err != nil {
+		return "", err
+	}
+	return filepath.Abs(r.cwd())
 }

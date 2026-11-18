@@ -1,4 +1,4 @@
-package cli
+package agentd
 
 import (
 	"encoding/json"
@@ -37,8 +37,8 @@ func TestCodexTurnCategorizesCompletedItems(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var got []agentRuntimeEvent
-			turn := &codexTurn{Emit: func(e agentRuntimeEvent) { got = append(got, e) }, Accum: map[string]*deltaAccum{}, Done: make(chan error, 1)}
+			var got []RuntimeEvent
+			turn := &CodexTurn{Emit: func(e RuntimeEvent) { got = append(got, e) }, Accum: map[string]*DeltaAccum{}, Done: make(chan error, 1)}
 			turn.HandleNotification("item/completed", json.RawMessage(tc.params))
 			if tc.wantSkip {
 				if len(got) != 0 {
@@ -58,10 +58,8 @@ func TestCodexTurnCategorizesCompletedItems(t *testing.T) {
 }
 
 func TestCodexTurnStreamsThrottledDeltas(t *testing.T) {
-	var got []agentRuntimeEvent
-	turn := &codexTurn{Emit: func(e agentRuntimeEvent) { got = append(got, e) }, Accum: map[string]*deltaAccum{}, Done: make(chan error, 1)}
-	// First delta flushes immediately (zero lastFlush); subsequent within the
-	// throttle window are buffered, so accumulated text grows when it does flush.
+	var got []RuntimeEvent
+	turn := &CodexTurn{Emit: func(e RuntimeEvent) { got = append(got, e) }, Accum: map[string]*DeltaAccum{}, Done: make(chan error, 1)}
 	turn.HandleNotification("item/agentMessage/delta", json.RawMessage(`{"itemId":"msg_0","delta":"Hel"}`))
 	turn.HandleNotification("item/agentMessage/delta", json.RawMessage(`{"itemId":"msg_0","delta":"lo"}`))
 	if len(got) < 1 {
@@ -71,7 +69,6 @@ func TestCodexTurnStreamsThrottledDeltas(t *testing.T) {
 	if !first.Ephemeral || first.Type != "message_delta" || first.ItemID != "msg_0" || first.Text != "Hel" {
 		t.Fatalf("first delta = %+v, want ephemeral message_delta msg_0 text=Hel", first)
 	}
-	// Completion emits the persisted final and clears accumulation.
 	turn.HandleNotification("item/completed", json.RawMessage(`{"item":{"id":"msg_0","type":"agentMessage","text":"Hello"}}`))
 	last := got[len(got)-1]
 	if last.Ephemeral || last.Type != "message" || last.Text != "Hello" {
@@ -83,7 +80,7 @@ func TestCodexTurnStreamsThrottledDeltas(t *testing.T) {
 }
 
 func TestCodexTurnCompletionSignalsDone(t *testing.T) {
-	turn := &codexTurn{Emit: func(agentRuntimeEvent) {}, Accum: map[string]*deltaAccum{}, Done: make(chan error, 1)}
+	turn := &CodexTurn{Emit: func(RuntimeEvent) {}, Accum: map[string]*DeltaAccum{}, Done: make(chan error, 1)}
 	turn.HandleNotification("turn/completed", nil)
 	select {
 	case err := <-turn.Done:

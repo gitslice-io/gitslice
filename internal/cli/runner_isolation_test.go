@@ -85,11 +85,9 @@ func TestAgentDaemonChildRunnerIsScopedToConversation(t *testing.T) {
 	hostHome := t.TempDir()
 	runHome := t.TempDir()
 	workdir := filepath.Join(t.TempDir(), "conversations", "conv-1")
-	d := &agentDaemon{
-		runner: Runner{Home: hostHome, Insecure: true},
-		cfg:    UserConfig{ServerAddr: "127.0.0.1:9090", Token: "host-daemon-token"},
-	}
-	child := d.childRunner(workdir, map[string]string{"HOME": runHome, "GS_TOKEN": "child-token"}, nil)
+	r := Runner{Home: hostHome, Insecure: true}
+	cfg := UserConfig{ServerAddr: "127.0.0.1:9090", Token: "host-daemon-token"}
+	child := r.agentChildRunner(cfg, workdir, map[string]string{"HOME": runHome, "GS_TOKEN": "child-token"}, nil)
 	if child.Dir != workdir || child.Home != runHome {
 		t.Fatalf("child Dir/Home = %q/%q, want %q/%q", child.Dir, child.Home, workdir, runHome)
 	}
@@ -102,16 +100,14 @@ func TestAgentDaemonChildRunnerIsScopedToConversation(t *testing.T) {
 	if got := child.envServerAddrOverride(); got != "127.0.0.1:9090" {
 		t.Fatalf("child server address = %q, want the daemon's", got)
 	}
-	cfg, ok, err := child.readEnvUserConfig()
-	if err != nil || !ok || cfg.Token != "child-token" || cfg.ServerAddr != "127.0.0.1:9090" {
-		t.Fatalf("child readEnvUserConfig = %+v ok=%v err=%v", cfg, ok, err)
+	gotCfg, ok, err := child.readEnvUserConfig()
+	if err != nil || !ok || gotCfg.Token != "child-token" || gotCfg.ServerAddr != "127.0.0.1:9090" {
+		t.Fatalf("child readEnvUserConfig = %+v ok=%v err=%v", gotCfg, ok, err)
 	}
-	// The daemon's own Runner is untouched.
-	if d.runner.Home != hostHome || d.runner.Env != nil {
-		t.Fatalf("daemon Runner was modified: %+v", d.runner)
+	if r.Home != hostHome || r.Env != nil {
+		t.Fatalf("daemon Runner was modified: %+v", r)
 	}
-	// Without overrides, the child keeps the daemon's identity.
-	plain := d.childRunner(workdir, nil, nil)
+	plain := r.agentChildRunner(cfg, workdir, nil, nil)
 	if got := plain.Getenv("GS_TOKEN"); got != "host-daemon-token" {
 		t.Fatalf("child without overrides GS_TOKEN = %q, want the daemon's", got)
 	}

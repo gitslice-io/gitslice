@@ -1,4 +1,4 @@
-package cli
+package agentd
 
 import (
 	"context"
@@ -8,35 +8,21 @@ import (
 	"strings"
 	"sync"
 
-	"gitslice.io/gitslice/internal/agentd"
 	"gitslice.io/gitslice/internal/checkexec"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-const (
-	agentMaxPendingCheckRunUpdates = agentd.MaxPendingCheckRunUpdates
-	agentMaxCheckRunOutboxes       = agentd.MaxCheckRunOutboxes
-)
-
-var (
-	resolveRunChecksServerAddr = agentd.ResolveRunChecksServerAddr
-	checkSpecFromProto         = agentd.CheckSpecFromProto
-	detectContainerRuntimes    = agentd.DetectContainerRuntimes
-	checkSecretMasker          = agentd.CheckSecretMasker
-	runCheckIDs                = agentd.RunCheckIDs
-)
-
-func (d *agentDaemon) handleRunChecks(req *corev1.RunChecks) {
+func (d *Daemon) HandleRunChecks(req *corev1.RunChecks) {
 	if req == nil {
 		return
 	}
 	baseCtx := d.checkBaseContext()
-	serverAddr, err := resolveRunChecksServerAddr(d.cfg.ServerAddr, req.GetServerAddr())
+	serverAddr, err := ResolveRunChecksServerAddr(d.Host.ServerAddr, req.GetServerAddr())
 	if err != nil {
 		d.emitSetupFailureForRunChecks(req, err)
 		return
 	}
-	conn, err := dial(baseCtx, serverAddr)
+	conn, err := d.Host.dial(baseCtx, serverAddr)
 	if err != nil {
 		d.emitSetupFailureForRunChecks(req, fmt.Errorf("dial repository service: %w", err))
 		return
@@ -45,12 +31,12 @@ func (d *agentDaemon) handleRunChecks(req *corev1.RunChecks) {
 
 	repo := RepoClient(corev1.NewRepositoryServiceClient(conn))
 	if account := strings.TrimSpace(req.GetSlice().GetAccount()); account != "" {
-		repo = checkTreeRepoClient{Inner: repo, Account: account}
+		repo = CheckTreeRepoClient{Inner: repo, Account: account}
 	}
 	specs := req.GetChecks()
 	workers := len(specs)
-	if d.checkSlots != nil && cap(d.checkSlots) < workers {
-		workers = cap(d.checkSlots)
+	if d.CheckSlots != nil && cap(d.CheckSlots) < workers {
+		workers = cap(d.CheckSlots)
 	}
 	next := make(chan *corev1.CheckRunSpec)
 	var wg sync.WaitGroup
@@ -70,7 +56,7 @@ func (d *agentDaemon) handleRunChecks(req *corev1.RunChecks) {
 	wg.Wait()
 }
 
-func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient, spec *corev1.CheckRunSpec) {
+func (d *Daemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient, spec *corev1.CheckRunSpec) {
 	if spec == nil || strings.TrimSpace(spec.GetRunId()) == "" {
 		return
 	}
@@ -83,17 +69,17 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 	defer d.clearCheckRun(spec.GetRunId(), cancel)
 	defer cancel()
 
-	masker := checkSecretMasker(spec)
+	masker := CheckSecretMasker(spec)
 	emitLog := func(seq *int64, log string) { d.emitCheckRunLog(spec.GetRunId(), seq, masker.Mask(log)) }
 	emitTerminal := func(seq *int64, status string, exitCode int32, summary string) {
 		d.emitCheckRunTerminal(spec.GetRunId(), seq, status, exitCode, masker.Mask(summary))
 	}
 
 	seq := int64(0)
-	if d.checkSlots != nil {
+	if d.CheckSlots != nil {
 		select {
-		case d.checkSlots <- struct{}{}:
-			defer func() { <-d.checkSlots }()
+		case d.CheckSlots <- struct{}{}:
+			defer func() { <-d.CheckSlots }()
 		case <-runCtx.Done():
 			emitTerminal(&seq, "canceled", -1, "canceled")
 			return
@@ -104,39 +90,39 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 	tempDir, err := os.MkdirTemp("", "gitslice-check-*")
 	if err != nil {
 		emitLog(&seq, err.Error())
-		emitTerminal(&seq, "errored", -1, oneLineSummary(err.Error()))
+		emitTerminal(&seq, "errored", -1, OneLineSummary(err.Error()))
 		return
 	}
 	_ = os.Chmod(tempDir, 0o700)
 	defer func() {
 		if err := os.RemoveAll(tempDir); err != nil {
-			fmt.Fprintf(d.runner.stderr(), "check workspace remove failed for %s: %v\n", tempDir, err)
+			fmt.Fprintf(d.Host.stderr(), "check workspace remove failed for %s: %v\n", tempDir, err)
 		}
 	}()
 
-	if err := d.materializeCheckTree(authContext(runCtx, d.cfg), repo, req.GetResultTreeId(), spec.GetMaterializePaths(), tempDir); err != nil {
+	if err := d.materializeCheckTree(d.Host.authContext(runCtx), repo, req.GetResultTreeId(), spec.GetMaterializePaths(), tempDir); err != nil {
 		if errors.Is(err, context.Canceled) && baseCtx.Err() == nil {
 			emitTerminal(&seq, "canceled", -1, "canceled")
 			return
 		}
 		emitLog(&seq, err.Error())
-		emitTerminal(&seq, "errored", -1, oneLineSummary(err.Error()))
+		emitTerminal(&seq, "errored", -1, OneLineSummary(err.Error()))
 		return
 	}
 
-	checkSpec := checkSpecFromProto(spec)
+	checkSpec := CheckSpecFromProto(spec)
 	checkSpec.Scope = req.GetSliceId()
 	if checkSpec.Image == "" && checkSpec.Build == nil && len(checkSpec.Setup) == 0 {
 		checkHome, err := os.MkdirTemp("", "gs-check-home-*")
 		if err != nil {
 			emitLog(&seq, err.Error())
-			emitTerminal(&seq, "errored", -1, oneLineSummary(err.Error()))
+			emitTerminal(&seq, "errored", -1, OneLineSummary(err.Error()))
 			return
 		}
 		_ = os.Chmod(checkHome, 0o700)
 		defer func() {
 			if rmErr := os.RemoveAll(checkHome); rmErr != nil {
-				fmt.Fprintf(d.runner.stderr(), "check home remove failed for %s: %v\n", checkHome, rmErr)
+				fmt.Fprintf(d.Host.stderr(), "check home remove failed for %s: %v\n", checkHome, rmErr)
 			}
 		}()
 		if checkSpec.Env == nil {
@@ -149,7 +135,7 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 		result = checkexec.Result{
 			Status:   "errored",
 			ExitCode: -1,
-			Summary:  oneLineSummary(err.Error()),
+			Summary:  OneLineSummary(err.Error()),
 			Log:      err.Error(),
 		}
 	}
@@ -161,10 +147,18 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 	if result.Log != "" {
 		emitLog(&seq, result.Log)
 	}
-	emitTerminal(&seq, result.Status, result.ExitCode, oneLineSummary(result.Summary))
+	emitTerminal(&seq, result.Status, result.ExitCode, OneLineSummary(result.Summary))
 }
 
-func (d *agentDaemon) emitSetupFailureForRunChecks(req *corev1.RunChecks, err error) {
+func (d *Daemon) materializeCheckTree(ctx context.Context, repo RepoClient, rootTreeID string, paths []string, destRoot string) error {
+	cache, err := d.Host.objectCache()
+	if err != nil {
+		return err
+	}
+	return MaterializeCheckTree(ctx, repo, cache, d.Host.FetchCheckBatch, d.Host.CheckTreeWriter, rootTreeID, paths, destRoot)
+}
+
+func (d *Daemon) emitSetupFailureForRunChecks(req *corev1.RunChecks, err error) {
 	for _, spec := range req.GetChecks() {
 		if spec == nil || strings.TrimSpace(spec.GetRunId()) == "" {
 			continue
@@ -177,7 +171,7 @@ func (d *agentDaemon) emitSetupFailureForRunChecks(req *corev1.RunChecks, err er
 	}
 }
 
-func (d *agentDaemon) startCheckRun(runID string, cancel context.CancelFunc) bool {
+func (d *Daemon) startCheckRun(runID string, cancel context.CancelFunc) bool {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return false
@@ -197,7 +191,7 @@ func (d *agentDaemon) startCheckRun(runID string, cancel context.CancelFunc) boo
 	return true
 }
 
-func (d *agentDaemon) clearCheckRun(runID string, cancel context.CancelFunc) {
+func (d *Daemon) clearCheckRun(runID string, cancel context.CancelFunc) {
 	runID = strings.TrimSpace(runID)
 	if runID == "" {
 		return
@@ -208,7 +202,7 @@ func (d *agentDaemon) clearCheckRun(runID string, cancel context.CancelFunc) {
 	d.rememberRecentCheckRunLocked(runID)
 }
 
-func (d *agentDaemon) rememberRecentCheckRunLocked(runID string) {
+func (d *Daemon) rememberRecentCheckRunLocked(runID string) {
 	if d.recentCheckRuns == nil {
 		d.recentCheckRuns = map[string]struct{}{}
 	}
@@ -223,7 +217,7 @@ func (d *agentDaemon) rememberRecentCheckRunLocked(runID string) {
 	}
 	d.recentCheckRuns[runID] = struct{}{}
 	d.recentCheckRunOrder = append(d.recentCheckRunOrder, runID)
-	for len(d.recentCheckRunOrder) > agentRecentCheckRunLimit {
+	for len(d.recentCheckRunOrder) > RecentCheckRunLimit {
 		oldest := d.recentCheckRunOrder[0]
 		copy(d.recentCheckRunOrder, d.recentCheckRunOrder[1:])
 		d.recentCheckRunOrder = d.recentCheckRunOrder[:len(d.recentCheckRunOrder)-1]
@@ -231,7 +225,7 @@ func (d *agentDaemon) rememberRecentCheckRunLocked(runID string) {
 	}
 }
 
-func (d *agentDaemon) handleCancelCheckRun(cancel *corev1.CancelCheckRun) {
+func (d *Daemon) HandleCancelCheckRun(cancel *corev1.CancelCheckRun) {
 	if cancel == nil {
 		return
 	}
@@ -247,9 +241,9 @@ func (d *agentDaemon) handleCancelCheckRun(cancel *corev1.CancelCheckRun) {
 	}
 }
 
-func (d *agentDaemon) checkBaseContext() context.Context {
-	if d.baseCtx != nil {
-		return d.baseCtx
+func (d *Daemon) checkBaseContext() context.Context {
+	if d.BaseCtx != nil {
+		return d.BaseCtx
 	}
 	return context.Background()
 }

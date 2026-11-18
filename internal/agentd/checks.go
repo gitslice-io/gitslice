@@ -135,16 +135,12 @@ func CheckSecretMasker(spec *corev1.CheckRunSpec) *secretmask.Masker {
 	return secretmask.New(values)
 }
 
-func OneLineSummary(text string) string {
-	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
-		if trimmed := strings.TrimSpace(line); trimmed != "" {
-			if len(trimmed) > 200 {
-				return trimmed[:200]
-			}
-			return trimmed
-		}
+func OneLineSummary(value string) string {
+	value = strings.TrimSpace(strings.ReplaceAll(value, "\n", " "))
+	if len(value) <= 200 {
+		return value
 	}
-	return ""
+	return value[:197] + "..."
 }
 
 func RunCheckIDs(req *corev1.RunChecks) []string {

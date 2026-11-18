@@ -1,82 +1,75 @@
-package cli
+package agentd
 
 import (
 	"context"
 	"fmt"
 	"strings"
 
-	"gitslice.io/gitslice/internal/agentd"
+	"gitslice.io/gitslice/internal/checkexec"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-type agentSendQueue = agentd.SendQueue
-
-var (
-	newAgentSendQueue = agentd.NewSendQueue
-	forwardAgentTurn  = agentd.ForwardTurn
-)
-
-func (d *agentDaemon) handleServerMessage(ctx context.Context, cancel context.CancelFunc, msg *corev1.ServerMessage) {
+func (d *Daemon) HandleServerMessage(ctx context.Context, cancel context.CancelFunc, msg *corev1.ServerMessage) {
 	switch payload := msg.GetPayload().(type) {
 	case *corev1.ServerMessage_Start:
 		d.beginWork()
 		go func() {
 			defer d.endWork()
-			d.handleStartConversation(ctx, payload.Start)
+			d.HandleStartConversation(ctx, payload.Start)
 		}()
 	case *corev1.ServerMessage_UserMessage:
 		d.beginWork()
 		go func() {
 			defer d.endWork()
-			d.handleUserMessage(ctx, payload.UserMessage)
+			d.HandleUserMessage(ctx, payload.UserMessage)
 		}()
 	case *corev1.ServerMessage_Cancel:
 		d.markActivity()
-		d.handleCancelConversation(payload.Cancel)
+		d.HandleCancelConversation(payload.Cancel)
 	case *corev1.ServerMessage_Close:
 		d.markActivity()
-		go d.handleCloseWorkspace(payload.Close)
+		go d.HandleCloseWorkspace(payload.Close)
 	case *corev1.ServerMessage_Reconcile:
 		d.markActivity()
-		go d.handleReconcileWorkspaces(payload.Reconcile)
+		go d.HandleReconcileWorkspaces(payload.Reconcile)
 	case *corev1.ServerMessage_Ping:
-		if err := d.sendDaemonMessage(ctx, heartbeatDaemonMessage()); err != nil {
+		if err := d.sendDaemonMessage(ctx, HeartbeatDaemonMessage()); err != nil {
 			cancel()
 		}
 	case *corev1.ServerMessage_Ack:
-		d.handleEventAck(payload.Ack)
+		d.HandleEventAck(payload.Ack)
 	case *corev1.ServerMessage_RunChecks:
-		fmt.Fprintf(d.runner.stderr(), "agent received RunChecks: checks=%d run_ids=%v\n", len(payload.RunChecks.GetChecks()), runCheckIDs(payload.RunChecks))
+		fmt.Fprintf(d.Host.stderr(), "agent received RunChecks: checks=%d run_ids=%v\n", len(payload.RunChecks.GetChecks()), RunCheckIDs(payload.RunChecks))
 		d.beginWork()
 		go func() {
 			defer d.endWork()
-			d.handleRunChecks(payload.RunChecks)
+			d.HandleRunChecks(payload.RunChecks)
 		}()
 	case *corev1.ServerMessage_CancelCheck:
 		d.markActivity()
-		d.handleCancelCheckRun(payload.CancelCheck)
+		d.HandleCancelCheckRun(payload.CancelCheck)
 	case *corev1.ServerMessage_CheckAck:
 		d.markActivity()
-		d.handleCheckRunAck(payload.CheckAck)
+		d.HandleCheckRunAck(payload.CheckAck)
 	}
 }
 
-func (d *agentDaemon) emitConversationEvent(conv *agentConversation, event *corev1.AgentEvent) {
+func (d *Daemon) emitConversationEvent(conv *Conversation, event *corev1.AgentEvent) {
 	conv.outMu.Lock()
 	defer conv.outMu.Unlock()
 	conv.nextClientSeq++
 	event.ClientSeq = conv.nextClientSeq
 	conv.pending = append(conv.pending, event)
-	if len(conv.pending) > agentMaxPendingEvents {
-		fmt.Fprintf(d.runner.stderr(), "agent outbound buffer overflow for %s; dropping oldest event\n", conv.id)
+	if len(conv.pending) > MaxPendingEvents {
+		fmt.Fprintf(d.Host.stderr(), "agent outbound buffer overflow for %s; dropping oldest event\n", conv.id)
 		conv.pending = conv.pending[1:]
 	}
 	d.flushPendingLocked(conv)
 }
 
-func (d *agentDaemon) flushPendingLocked(conv *agentConversation) {
+func (d *Daemon) flushPendingLocked(conv *Conversation) {
 	d.mu.Lock()
-	sq := d.sendQueue
+	sq := d.SendQueue
 	d.mu.Unlock()
 	if sq == nil {
 		return
@@ -97,7 +90,7 @@ func (d *agentDaemon) flushPendingLocked(conv *agentConversation) {
 	}
 }
 
-func (d *agentDaemon) handleEventAck(ack *corev1.EventAck) {
+func (d *Daemon) HandleEventAck(ack *corev1.EventAck) {
 	if ack == nil {
 		return
 	}
@@ -119,13 +112,13 @@ func (d *agentDaemon) handleEventAck(ack *corev1.EventAck) {
 	conv.pending = kept
 }
 
-func (d *agentDaemon) resendPendingAll() {
+func (d *Daemon) resendPendingAll() {
 	d.mu.Lock()
-	convs := make([]*agentConversation, 0, len(d.conversations))
+	convs := make([]*Conversation, 0, len(d.conversations))
 	for _, conv := range d.conversations {
 		convs = append(convs, conv)
 	}
-	checkOutboxes := make([]*checkRunOutbox, 0, len(d.checkRunOutboxes))
+	checkOutboxes := make([]*CheckRunOutbox, 0, len(d.checkRunOutboxes))
 	for _, outbox := range d.checkRunOutboxes {
 		checkOutboxes = append(checkOutboxes, outbox)
 	}
@@ -142,15 +135,15 @@ func (d *agentDaemon) resendPendingAll() {
 	}
 }
 
-func (d *agentDaemon) sendAgentEvent(ctx context.Context, event *corev1.AgentEvent) error {
+func (d *Daemon) sendAgentEvent(ctx context.Context, event *corev1.AgentEvent) error {
 	return d.sendDaemonMessage(ctx, &corev1.DaemonMessage{
 		Payload: &corev1.DaemonMessage_Event{Event: event},
 	})
 }
 
-func (d *agentDaemon) sendDaemonMessage(ctx context.Context, msg *corev1.DaemonMessage) error {
+func (d *Daemon) sendDaemonMessage(ctx context.Context, msg *corev1.DaemonMessage) error {
 	d.mu.Lock()
-	sendQueue := d.sendQueue
+	sendQueue := d.SendQueue
 	d.mu.Unlock()
 	if sendQueue == nil {
 		return context.Canceled
@@ -158,7 +151,7 @@ func (d *agentDaemon) sendDaemonMessage(ctx context.Context, msg *corev1.DaemonM
 	return sendQueue.Send(ctx, msg)
 }
 
-func (d *agentDaemon) sendSystemError(ctx context.Context, conversationID string, err error) {
+func (d *Daemon) sendSystemError(ctx context.Context, conversationID string, err error) {
 	if strings.TrimSpace(conversationID) == "" {
 		return
 	}
@@ -176,14 +169,6 @@ func (d *agentDaemon) sendSystemError(ctx context.Context, conversationID string
 	_ = d.sendAgentEvent(ctx, event)
 }
 
-func resolvedAgentName(name string) string {
-	return agentd.ResolvedAgentName(name)
-}
-
-func registerDaemonMessage(name, runtimeName, instanceID string, concurrency int) *corev1.DaemonMessage {
-	return agentd.RegisterDaemonMessage(name, runtimeName, cliVersionInfo().Version, instanceID, concurrency, !requireContainerChecks())
-}
-
-func heartbeatDaemonMessage() *corev1.DaemonMessage {
-	return agentd.HeartbeatDaemonMessage()
+func (d *Daemon) registerDaemonMessage(name, runtimeName, instanceID string, concurrency int) *corev1.DaemonMessage {
+	return RegisterDaemonMessage(name, runtimeName, d.Host.Version, instanceID, concurrency, !checkexec.RequireContainerChecks())
 }

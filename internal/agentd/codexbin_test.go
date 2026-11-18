@@ -1,4 +1,4 @@
-package cli
+package agentd
 
 import (
 	"bufio"
@@ -35,6 +35,27 @@ func TestCodexRuntimeOpenSessionStartsThread(t *testing.T) {
 	session.Close()
 }
 
+func TestCodexRuntimeDefaultsToWorkspaceWriteSandboxAndScrubsToken(t *testing.T) {
+	t.Setenv("GITSLICE_CODEX_SANDBOX", "")
+	t.Setenv("GS_CODEX_DANGER_FULL_ACCESS", "")
+	t.Setenv("GS_TOKEN", "gs_sensitive_daemon_token")
+	t.Setenv("GITSLICE_SECRETS_KEY", "super_secret_key")
+	t.Setenv("GS_FAKE_CODEX_EXPECT_SANDBOX", "workspace-write")
+	t.Setenv("GS_FAKE_CODEX_FORBID_ENV", "GS_TOKEN")
+
+	session := openFakeCodexSession(t, "")
+	if got := session.ThreadID(); got != "thread-fake-1" {
+		t.Fatalf("ThreadID() = %q, want thread-fake-1", got)
+	}
+
+	t.Setenv("GS_CODEX_DANGER_FULL_ACCESS", "1")
+	t.Setenv("GS_FAKE_CODEX_EXPECT_SANDBOX", "danger-full-access")
+	fullSession := openFakeCodexSession(t, "")
+	if got := fullSession.ThreadID(); got != "thread-fake-1" {
+		t.Fatalf("ThreadID() = %q, want thread-fake-1", got)
+	}
+}
+
 func TestCodexRuntimeRunTurnStreamsAndCompletes(t *testing.T) {
 	t.Setenv("GS_FAKE_CODEX_SCRIPT", "message")
 	session := openFakeCodexSession(t, "")
@@ -42,8 +63,8 @@ func TestCodexRuntimeRunTurnStreamsAndCompletes(t *testing.T) {
 	ctx, done := context.WithTimeout(context.Background(), 10*time.Second)
 	defer done()
 
-	var events []agentRuntimeEvent
-	if err := session.RunTurn(ctx, "write the status update", func(event agentRuntimeEvent) {
+	var events []RuntimeEvent
+	if err := session.RunTurn(ctx, "write the status update", func(event RuntimeEvent) {
 		events = append(events, event)
 	}); err != nil {
 		t.Fatalf("RunTurn returned error: %v", err)
@@ -75,15 +96,15 @@ func TestCodexRuntimeWorkspaceLinksNormalizeStreamAndFinal(t *testing.T) {
 	ctx, done := context.WithTimeout(context.Background(), 10*time.Second)
 	defer done()
 
-	daemon := &agentDaemon{}
-	conv := &agentConversation{id: "conv_fake_1", workdir: workdir}
+	daemon := &Daemon{}
+	conv := &Conversation{id: "conv_fake_1", workdir: workdir}
 	var events []*corev1.AgentEvent
-	err := forwardAgentTurn(ctx, session, "link the changed file", "conv_fake_1", func(event *corev1.AgentEvent) {
-		daemon.emitAgentTurnEvent(ctx, conv, event)
+	err := ForwardTurn(ctx, session, "link the changed file", "conv_fake_1", func(event *corev1.AgentEvent) {
+		daemon.EmitAgentTurnEvent(ctx, conv, event)
 		events = append(events, event)
 	})
 	if err != nil {
-		t.Fatalf("forwardAgentTurn returned error: %v", err)
+		t.Fatalf("ForwardTurn returned error: %v", err)
 	}
 
 	delta := findAgentEvent(events, "agent", "message_delta")
@@ -111,8 +132,8 @@ func TestCodexRuntimeRunTurnPropagatesError(t *testing.T) {
 	ctx, done := context.WithTimeout(context.Background(), 10*time.Second)
 	defer done()
 
-	var events []agentRuntimeEvent
-	err := session.RunTurn(ctx, "trigger an error", func(event agentRuntimeEvent) {
+	var events []RuntimeEvent
+	err := session.RunTurn(ctx, "trigger an error", func(event RuntimeEvent) {
 		events = append(events, event)
 	})
 	if err == nil {
@@ -132,8 +153,6 @@ func TestCodexRuntimeForwardsDeveloperInstructions(t *testing.T) {
 	const instructions = "gitslice workspace: do not use git"
 	t.Setenv("GS_FAKE_CODEX_EXPECT_INSTRUCTIONS", instructions)
 
-	// The fake app-server rejects thread/start unless developerInstructions
-	// matches, so a successful session proves the instructions were forwarded.
 	session := openFakeCodexSessionWithInstructions(t, "", instructions)
 	if got := session.ThreadID(); got != "thread-fake-1" {
 		t.Fatalf("ThreadID() = %q, want thread-fake-1", got)
@@ -155,8 +174,8 @@ func TestCodexRuntimeRunTurnEmitsToolCall(t *testing.T) {
 	ctx, done := context.WithTimeout(context.Background(), 10*time.Second)
 	defer done()
 
-	var events []agentRuntimeEvent
-	if err := session.RunTurn(ctx, "run a command", func(event agentRuntimeEvent) {
+	var events []RuntimeEvent
+	if err := session.RunTurn(ctx, "run a command", func(event RuntimeEvent) {
 		events = append(events, event)
 	}); err != nil {
 		t.Fatalf("RunTurn returned error: %v", err)
@@ -171,22 +190,22 @@ func TestCodexRuntimeRunTurnEmitsToolCall(t *testing.T) {
 	}
 }
 
-func openFakeCodexSession(t *testing.T, resumeThreadID string) agentSession {
+func openFakeCodexSession(t *testing.T, resumeThreadID string) Session {
 	t.Helper()
 	return openFakeCodexSessionWithInstructions(t, resumeThreadID, "")
 }
 
-func openFakeCodexSessionWithInstructions(t *testing.T, resumeThreadID, instructions string) agentSession {
+func openFakeCodexSessionWithInstructions(t *testing.T, resumeThreadID, instructions string) Session {
 	t.Helper()
 	return openFakeCodexSessionInWorkdir(t, t.TempDir(), resumeThreadID, instructions)
 }
 
-func openFakeCodexSessionInWorkdir(t *testing.T, workdir, resumeThreadID, instructions string) agentSession {
+func openFakeCodexSessionInWorkdir(t *testing.T, workdir, resumeThreadID, instructions string) Session {
 	t.Helper()
 	t.Setenv("GS_FAKE_CODEX", "1")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	session, err := (codexRuntime{Binary: os.Args[0]}).OpenSession(ctx, workdir, resumeThreadID, instructions, nil)
+	session, err := (CodexRuntime{Binary: os.Args[0]}).OpenSession(ctx, workdir, resumeThreadID, instructions, nil)
 	if err != nil {
 		cancel()
 		t.Fatalf("OpenSession returned error: %v", err)
@@ -196,7 +215,7 @@ func openFakeCodexSessionInWorkdir(t *testing.T, workdir, resumeThreadID, instru
 	return session
 }
 
-func findRuntimeEvent(events []agentRuntimeEvent, role, typ string) *agentRuntimeEvent {
+func findRuntimeEvent(events []RuntimeEvent, role, typ string) *RuntimeEvent {
 	for i := range events {
 		if events[i].Role == role && events[i].Type == typ {
 			return &events[i]

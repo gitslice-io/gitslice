@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"gitslice.io/gitslice/internal/agentd"
 )
 
 type Runner struct {
@@ -26,8 +27,8 @@ type Runner struct {
 	// AgentDoctorProbes and AgentService are optional host-operation seams for
 	// the agent preflight and user-service commands. They are primarily useful
 	// to unit tests; nil uses the real machine.
-	AgentDoctorProbes *agentDoctorProbes
-	AgentService      *agentServiceProbes
+	AgentDoctorProbes *agentd.DoctorProbes
+	AgentService      *agentd.ServiceProbes
 	changesetWait     *changesetWaitConfig
 }
 

@@ -1,4 +1,4 @@
-package cli
+package agentd
 
 import (
 	"context"
@@ -77,12 +77,12 @@ type fakeAgentRuntime struct {
 	skipHistory     bool
 }
 
-func (r *fakeAgentRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID, instructions string, freshThreadHistory func(context.Context) (string, error)) (agentSession, error) {
+func (r *fakeAgentRuntime) OpenSession(ctx context.Context, workdir, resumeThreadID, instructions string, freshThreadHistory func(context.Context) (string, error)) (Session, error) {
 	r.openCount++
 	r.gotWorkdir = workdir
 	r.gotResume = resumeThreadID
 	r.gotInstructions = instructions
-	r.gotEnv = agentRuntimeEnvFrom(ctx)
+	r.gotEnv = RuntimeEnvFrom(ctx)
 	if freshThreadHistory != nil && !r.skipHistory {
 		if history, err := freshThreadHistory(ctx); err == nil {
 			r.gotHistory = history
@@ -98,7 +98,7 @@ func (r *fakeAgentRuntime) OpenSession(ctx context.Context, workdir, resumeThrea
 }
 
 type fakeAgentSession struct {
-	emits     []agentRuntimeEvent
+	emits     []RuntimeEvent
 	threadID  string
 	err       error
 	gotPrompt string
@@ -107,7 +107,7 @@ type fakeAgentSession struct {
 	runCount  int
 }
 
-func (s *fakeAgentSession) RunTurn(ctx context.Context, prompt string, emit func(agentRuntimeEvent)) error {
+func (s *fakeAgentSession) RunTurn(ctx context.Context, prompt string, emit func(RuntimeEvent)) error {
 	s.runCount++
 	s.gotPrompt = prompt
 	for _, e := range s.emits {

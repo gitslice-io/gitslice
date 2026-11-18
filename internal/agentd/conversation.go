@@ -1,4 +1,4 @@
-package cli
+package agentd
 
 import (
 	"context"
@@ -10,16 +10,10 @@ import (
 	"sync"
 	"time"
 
-	"gitslice.io/gitslice/internal/agentd"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-const (
-	conversationChildKeyTTLSeconds  = agentd.ChildKeyTTLSeconds
-	conversationChildKeyRenewWindow = agentd.ChildKeyRenewWindow
-)
-
-type agentConversation struct {
+type Conversation struct {
 	id              string
 	workdir         string
 	workspaceSubdir string
@@ -31,20 +25,12 @@ type agentConversation struct {
 	keyMu   sync.Mutex
 	stateMu sync.Mutex
 
-	// outMu guards the outbound event buffer. Turn output is assigned a
-	// per-conversation client_seq and buffered here until the server acks it, so
-	// the events survive a Connect reconnect and are resent (the server dedups by
-	// client_seq). All sends for a conversation go through flushPendingLocked
-	// under outMu, which keeps them strictly ordered even across a reconnect.
 	outMu          sync.Mutex
 	nextClientSeq  int64
-	pending        []*corev1.AgentEvent // emitted, not yet acked; ascending client_seq
+	pending        []*corev1.AgentEvent
 	ackedClientSeq int64
-	// flushedSeq is the highest client_seq already handed to flushQueue, so steady
-	// state sends each event once. When the live send queue changes (reconnect),
-	// flushPendingLocked resets flushedSeq to ackedClientSeq and resends the rest.
-	flushedSeq int64
-	flushQueue *agentSendQueue
+	flushedSeq     int64
+	flushQueue     *SendQueue
 
 	title             string
 	sliceAccount      string
@@ -55,13 +41,13 @@ type agentConversation struct {
 	childSecret       string
 	childExpiresAt    time.Time
 	runHome           string
-	processedUserSeqs map[int64]struct{} // user-message seqs already run; guarded by stateMu
+	processedUserSeqs map[int64]struct{}
 	cancel            context.CancelFunc
-	codexThreadID     string // runtime session to resume across turns; guarded by stateMu
-	session           agentSession
+	codexThreadID     string
+	session           Session
 }
 
-type conversationMeta struct {
+type ConversationMeta struct {
 	ConversationID string `json:"conversation_id"`
 	Title          string `json:"title"`
 	ThreadID       string `json:"thread_id"`
@@ -72,8 +58,8 @@ type conversationMeta struct {
 	ChildKeyID     string `json:"child_key_id,omitempty"`
 }
 
-func (d *agentDaemon) createConversation(conversationID string) (*agentConversation, error) {
-	subdir, workdir, err := agentConversationPaths(d.workingDir, conversationID)
+func (d *Daemon) createConversation(conversationID string) (*Conversation, error) {
+	subdir, workdir, err := ConversationPaths(d.WorkingDir, conversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +68,10 @@ func (d *agentDaemon) createConversation(conversationID string) (*agentConversat
 	if existing := d.conversations[conversationID]; existing != nil {
 		return existing, nil
 	}
-	conv := &agentConversation{
+	if d.conversations == nil {
+		d.conversations = map[string]*Conversation{}
+	}
+	conv := &Conversation{
 		id:              conversationID,
 		workdir:         workdir,
 		workspaceSubdir: subdir,
@@ -92,14 +81,14 @@ func (d *agentDaemon) createConversation(conversationID string) (*agentConversat
 	return conv, nil
 }
 
-func (d *agentDaemon) getConversation(conversationID string) *agentConversation {
+func (d *Daemon) getConversation(conversationID string) *Conversation {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.conversations[conversationID]
 }
 
-func (d *agentDaemon) loadExistingConversations() {
-	conversationsDir := filepath.Join(d.workingDir, "conversations")
+func (d *Daemon) LoadExistingConversations() {
+	conversationsDir := filepath.Join(d.WorkingDir, "conversations")
 	entries, err := os.ReadDir(conversationsDir)
 	if err != nil {
 		return
@@ -108,7 +97,7 @@ func (d *agentDaemon) loadExistingConversations() {
 		if !entry.IsDir() {
 			continue
 		}
-		meta, err := readConversationMeta(filepath.Join(conversationsDir, entry.Name(), agentMetaFilename))
+		meta, err := readConversationMeta(filepath.Join(conversationsDir, entry.Name(), MetaFilename))
 		if err != nil {
 			continue
 		}
@@ -116,11 +105,11 @@ func (d *agentDaemon) loadExistingConversations() {
 		if meta.ConversationID == "" || meta.ConversationID != entry.Name() {
 			continue
 		}
-		subdir, workdir, err := agentConversationPaths(d.workingDir, meta.ConversationID)
+		subdir, workdir, err := ConversationPaths(d.WorkingDir, meta.ConversationID)
 		if err != nil {
 			continue
 		}
-		conv := &agentConversation{
+		conv := &Conversation{
 			id:              meta.ConversationID,
 			workdir:         workdir,
 			workspaceSubdir: subdir,
@@ -152,6 +141,9 @@ func (d *agentDaemon) loadExistingConversations() {
 		conv.setReady(nil)
 
 		d.mu.Lock()
+		if d.conversations == nil {
+			d.conversations = map[string]*Conversation{}
+		}
 		if d.conversations[conv.id] == nil {
 			d.conversations[conv.id] = conv
 		}
@@ -159,13 +151,13 @@ func (d *agentDaemon) loadExistingConversations() {
 	}
 }
 
-func (d *agentDaemon) persistConversationMeta(conv *agentConversation) {
+func (d *Daemon) persistConversationMeta(conv *Conversation) {
 	if err := writeConversationMeta(conv); err != nil {
-		fmt.Fprintf(d.runner.stderr(), "agent metadata persist failed for conversation %s: %v\n", conv.id, err)
+		fmt.Fprintf(d.Host.stderr(), "agent metadata persist failed for conversation %s: %v\n", conv.id, err)
 	}
 }
 
-func writeConversationMeta(conv *agentConversation) error {
+func writeConversationMeta(conv *Conversation) error {
 	meta := conv.meta()
 	data, err := json.MarshalIndent(meta, "", "  ")
 	if err != nil {
@@ -195,15 +187,15 @@ func writeConversationMeta(conv *agentConversation) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpPath, filepath.Join(conv.workdir, agentMetaFilename)); err != nil {
+	if err := os.Rename(tmpPath, filepath.Join(conv.workdir, MetaFilename)); err != nil {
 		return err
 	}
 	removeTmp = false
 	return nil
 }
 
-func readConversationMeta(path string) (conversationMeta, error) {
-	var meta conversationMeta
+func readConversationMeta(path string) (ConversationMeta, error) {
+	var meta ConversationMeta
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return meta, err
@@ -214,7 +206,7 @@ func readConversationMeta(path string) (conversationMeta, error) {
 	return meta, nil
 }
 
-func (c *agentConversation) waitReady(ctx context.Context) error {
+func (c *Conversation) waitReady(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -225,7 +217,7 @@ func (c *agentConversation) waitReady(ctx context.Context) error {
 	}
 }
 
-func (c *agentConversation) isReady() bool {
+func (c *Conversation) isReady() bool {
 	select {
 	case <-c.ready:
 		c.stateMu.Lock()
@@ -236,7 +228,7 @@ func (c *agentConversation) isReady() bool {
 	}
 }
 
-func (c *agentConversation) setReady(err error) {
+func (c *Conversation) setReady(err error) {
 	c.readyOnce.Do(func() {
 		c.stateMu.Lock()
 		c.readyErr = err
@@ -245,7 +237,7 @@ func (c *agentConversation) setReady(err error) {
 	})
 }
 
-func (c *agentConversation) setConversationInfo(title, sliceAccount, sliceName, sliceID, role string) {
+func (c *Conversation) setConversationInfo(title, sliceAccount, sliceName, sliceID, role string) {
 	role = strings.ToLower(strings.TrimSpace(role))
 	if role == "" {
 		role = "contributor"
@@ -264,29 +256,29 @@ func (c *agentConversation) setConversationInfo(title, sliceAccount, sliceName, 
 	c.role = role
 }
 
-func (c *agentConversation) getTitle() string {
+func (c *Conversation) getTitle() string {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	return c.title
 }
 
-func (c *agentConversation) getChildKeyID() string {
+func (c *Conversation) getChildKeyID() string {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	return c.childKeyID
 }
 
-func (c *agentConversation) getRunHome() string {
+func (c *Conversation) getRunHome() string {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	return c.runHome
 }
 
-func (c *agentConversation) meta() conversationMeta {
+func (c *Conversation) meta() ConversationMeta {
 	threadID := c.getThreadID()
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
-	return conversationMeta{
+	return ConversationMeta{
 		ConversationID: c.id,
 		Title:          c.title,
 		ThreadID:       threadID,
@@ -298,38 +290,31 @@ func (c *agentConversation) meta() conversationMeta {
 	}
 }
 
-func (c *agentConversation) setCancel(cancel context.CancelFunc) {
+func (c *Conversation) setCancel(cancel context.CancelFunc) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	c.cancel = cancel
 }
 
-func (c *agentConversation) clearCancel(cancel context.CancelFunc) {
+func (c *Conversation) clearCancel(cancel context.CancelFunc) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	c.cancel = nil
 }
 
-func (c *agentConversation) getThreadID() string {
+func (c *Conversation) getThreadID() string {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	return c.codexThreadID
 }
 
-func (c *agentConversation) setThreadID(id string) {
+func (c *Conversation) setThreadID(id string) {
 	c.stateMu.Lock()
 	defer c.stateMu.Unlock()
 	c.codexThreadID = id
 }
 
-// markUserSeq records that the user message with this persisted seq is being
-// run and reports whether the caller should proceed. A repeat seq is a
-// redelivered duplicate (the server resends unanswered user messages after
-// ConversationStarted) and returns false. Dedup is a seen-set rather than a
-// high-water mark so that two in-flight messages whose goroutines acquire
-// runMu out of seq order both still run — a lower seq must never be silently
-// dropped. seq 0 (legacy server) always runs.
-func (c *agentConversation) markUserSeq(seq int64) bool {
+func (c *Conversation) markUserSeq(seq int64) bool {
 	if seq <= 0 {
 		return true
 	}
@@ -345,16 +330,13 @@ func (c *agentConversation) markUserSeq(seq int64) bool {
 	return true
 }
 
-func (c *agentConversation) ensureSession(ctx context.Context, runtime agentRuntime, freshThreadHistory func(context.Context) (string, error)) (agentSession, error) {
+func (c *Conversation) ensureSession(ctx context.Context, runtime Runtime, freshThreadHistory func(context.Context) (string, error)) (Session, error) {
 	c.stateMu.Lock()
 	if c.session != nil && c.session.Alive() {
 		session := c.session
 		c.stateMu.Unlock()
 		return session, nil
 	}
-	// A session that died between turns (e.g. the app-server crashed) is stale;
-	// drop and tear it down so this turn transparently opens a fresh one and
-	// resumes via the persisted thread id.
 	stale := c.session
 	c.session = nil
 	resume := c.codexThreadID
@@ -363,12 +345,7 @@ func (c *agentConversation) ensureSession(ctx context.Context, runtime agentRunt
 		stale.Close()
 	}
 
-	// freshThreadHistory seeds a *cold* thread (no resume id, or resume failed)
-	// with the persisted transcript so the agent keeps its conversational context
-	// even after losing its workspace/.agent-meta (fresh-dir restart, new machine).
-	// The runtime invokes it only on the thread/start path, so a successful resume
-	// pays no fetch cost.
-	session, err := runtime.OpenSession(ctx, c.workdir, resume, agentWorkspaceInstructions(conversationIncludedPaths(c.workdir)), freshThreadHistory)
+	session, err := runtime.OpenSession(ctx, c.workdir, resume, WorkspaceInstructions(ConversationIncludedPaths(c.workdir)), freshThreadHistory)
 	if err != nil {
 		return nil, err
 	}
@@ -378,7 +355,7 @@ func (c *agentConversation) ensureSession(ctx context.Context, runtime agentRunt
 	return session, nil
 }
 
-func (c *agentConversation) closeSession() {
+func (c *Conversation) closeSession() {
 	c.stateMu.Lock()
 	session := c.session
 	c.session = nil
@@ -388,7 +365,7 @@ func (c *agentConversation) closeSession() {
 	}
 }
 
-func (c *agentConversation) cancelRun() {
+func (c *Conversation) cancelRun() {
 	c.stateMu.Lock()
 	cancel := c.cancel
 	c.stateMu.Unlock()

@@ -7,29 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gitslice.io/gitslice/internal/agentd"
 )
-
-func TestCodexRuntimeDefaultsToWorkspaceWriteSandboxAndScrubsToken(t *testing.T) {
-	t.Setenv("GITSLICE_CODEX_SANDBOX", "")
-	t.Setenv("GS_CODEX_DANGER_FULL_ACCESS", "")
-	t.Setenv("GS_TOKEN", "gs_sensitive_daemon_token")
-	t.Setenv("GITSLICE_SECRETS_KEY", "super_secret_key")
-	t.Setenv("GS_FAKE_CODEX_EXPECT_SANDBOX", "workspace-write")
-	t.Setenv("GS_FAKE_CODEX_FORBID_ENV", "GS_TOKEN")
-
-	session := openFakeCodexSession(t, "")
-	if got := session.ThreadID(); got != "thread-fake-1" {
-		t.Fatalf("ThreadID() = %q, want thread-fake-1", got)
-	}
-
-	// Explicit opt-in switches to danger-full-access when requested.
-	t.Setenv("GS_CODEX_DANGER_FULL_ACCESS", "1")
-	t.Setenv("GS_FAKE_CODEX_EXPECT_SANDBOX", "danger-full-access")
-	fullSession := openFakeCodexSession(t, "")
-	if got := fullSession.ThreadID(); got != "thread-fake-1" {
-		t.Fatalf("ThreadID() = %q, want thread-fake-1", got)
-	}
-}
 
 func TestSanitizedAgentRuntimeEnvScrubsSecrets(t *testing.T) {
 	t.Setenv("GS_AGENT_ALLOW_GS_TOKEN", "")
@@ -43,7 +23,7 @@ func TestSanitizedAgentRuntimeEnvScrubsSecrets(t *testing.T) {
 		"CLERK_SECRET_KEY=sk_live_clerk",
 		"GS_SERVICE_PRIVATE_KEY=pem",
 	}
-	got := sanitizedAgentRuntimeEnv(in)
+	got := agentd.SanitizedRuntimeEnv(in)
 	joined := "\n" + strings.Join(got, "\n") + "\n"
 	for _, forbidden := range []string{
 		"GS_TOKEN=",
@@ -68,7 +48,7 @@ func TestRequireContainerChecksDisablesHostExecAndHostWorkspaceChecks(t *testing
 	if requireContainerChecks() {
 		t.Fatal("expected requireContainerChecks() == false by default")
 	}
-	msgDefault := registerDaemonMessage("d1", "ci", "inst1", 2)
+	msgDefault := agentd.RegisterDaemonMessage("d1", "ci", "dev", "inst1", 2, !requireContainerChecks())
 	if !msgDefault.GetRegister().GetAllowHostExec() {
 		t.Fatal("expected AllowHostExec == true when GITSLICE_CHECKS_REQUIRE_CONTAINER is unset")
 	}
@@ -77,12 +57,11 @@ func TestRequireContainerChecksDisablesHostExecAndHostWorkspaceChecks(t *testing
 	if !requireContainerChecks() {
 		t.Fatal("expected requireContainerChecks() == true when GITSLICE_CHECKS_REQUIRE_CONTAINER=1")
 	}
-	msgContainerOnly := registerDaemonMessage("d1", "ci", "inst1", 2)
+	msgContainerOnly := agentd.RegisterDaemonMessage("d1", "ci", "dev", "inst1", 2, !requireContainerChecks())
 	if msgContainerOnly.GetRegister().GetAllowHostExec() {
 		t.Fatal("expected AllowHostExec == false when GITSLICE_CHECKS_REQUIRE_CONTAINER=1")
 	}
 
-	// Host-mode workspace check (no image/build/setup) must error instead of running sh -c on host.
 	workspace := t.TempDir()
 	marker := filepath.Join(t.TempDir(), "host-ran")
 	writeCIWorkspaceForTest(t, workspace, "touch "+marker)

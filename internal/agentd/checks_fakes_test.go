@@ -1,7 +1,8 @@
-package cli
+package agentd
 
 import (
 	"context"
+	"io"
 	"net"
 	"path"
 	"sync"
@@ -223,4 +224,33 @@ func (s *fakeCheckRepoServer) ListDirectory(ctx context.Context, req *corev1.Lis
 
 func (s *fakeCheckRepoServer) ReadFile(ctx context.Context, req *corev1.ReadFileRequest) (*corev1.ReadFileResponse, error) {
 	return s.repo.ReadFile(ctx, req)
+}
+
+type streamingCheckRepo struct {
+	*fakeCheckRepo
+	msgs      []*corev1.CheckoutResponse
+	gotPaths  []string
+	unsupport bool
+}
+
+type cannedCheckout struct {
+	grpc.ClientStream
+	msgs []*corev1.CheckoutResponse
+}
+
+func (c *cannedCheckout) Recv() (*corev1.CheckoutResponse, error) {
+	if len(c.msgs) == 0 {
+		return nil, io.EOF
+	}
+	msg := c.msgs[0]
+	c.msgs = c.msgs[1:]
+	return msg, nil
+}
+
+func (s *streamingCheckRepo) Checkout(ctx context.Context, in *corev1.CheckoutRequest, opts ...grpc.CallOption) (corev1.RepositoryService_CheckoutClient, error) {
+	if s.unsupport {
+		return nil, status.Error(codes.InvalidArgument, "slice is required")
+	}
+	s.gotPaths = in.GetPaths()
+	return &cannedCheckout{msgs: s.msgs}, nil
 }

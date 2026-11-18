@@ -1,4 +1,4 @@
-package cli
+package agentd
 
 import (
 	"context"
@@ -24,7 +24,7 @@ func TestHandleUserMessageDeduplicatesPositiveSeq(t *testing.T) {
 			session := &fakeAgentSession{err: errors.New("stop after runtime invocation")}
 			runtime := &fakeAgentRuntime{session: session, skipHistory: true}
 			root := t.TempDir()
-			conv := &agentConversation{
+			conv := &Conversation{
 				id:           "conv-1",
 				workdir:      filepath.Join(root, "conversations", "conv-1"),
 				sliceAccount: "acme",
@@ -34,17 +34,17 @@ func TestHandleUserMessageDeduplicatesPositiveSeq(t *testing.T) {
 				session:      session,
 			}
 			conv.setReady(nil)
-			d := &agentDaemon{
-				auth:          &fakeAgentAuthClient{},
-				runtime:       runtime,
-				baseCtx:       context.Background(),
-				workingDir:    root,
-				conversations: map[string]*agentConversation{conv.id: conv},
+			d := &Daemon{
+				Auth:          &fakeAgentAuthClient{},
+				Runtime:       runtime,
+				BaseCtx:       context.Background(),
+				WorkingDir:    root,
+				conversations: map[string]*Conversation{conv.id: conv},
 			}
 			msg := &corev1.DeliverUserMessage{ConversationId: conv.id, Text: "hello", Seq: tc.seq}
 
-			d.handleUserMessage(context.Background(), msg)
-			d.handleUserMessage(context.Background(), msg)
+			d.HandleUserMessage(context.Background(), msg)
+			d.HandleUserMessage(context.Background(), msg)
 
 			if session.runCount != tc.wantRuns {
 				t.Fatalf("runtime turns = %d, want %d", session.runCount, tc.wantRuns)
@@ -54,8 +54,8 @@ func TestHandleUserMessageDeduplicatesPositiveSeq(t *testing.T) {
 }
 
 func TestSendSystemErrorBuffersKnownConversation(t *testing.T) {
-	conv := &agentConversation{id: "conv-1"}
-	d := &agentDaemon{conversations: map[string]*agentConversation{conv.id: conv}}
+	conv := &Conversation{id: "conv-1"}
+	d := &Daemon{conversations: map[string]*Conversation{conv.id: conv}}
 
 	d.sendSystemError(context.Background(), conv.id, errors.New("runtime disconnected"))
 
@@ -71,17 +71,17 @@ func TestSendSystemErrorBuffersKnownConversation(t *testing.T) {
 }
 
 func TestForwardAgentTurnForwardsCategorizedEvents(t *testing.T) {
-	session := &fakeAgentSession{emits: []agentRuntimeEvent{
+	session := &fakeAgentSession{emits: []RuntimeEvent{
 		{Role: "tool", Type: "tool_call", Text: "echo hi", Data: `{"command":"echo hi"}`},
 		{Role: "agent", Type: "reasoning", Text: "thinking"},
 		{Role: "agent", Type: "message", Text: "done"},
 	}}
 	var events []*corev1.AgentEvent
-	err := forwardAgentTurn(context.Background(), session, "prompt", "conv-1", func(event *corev1.AgentEvent) {
+	err := ForwardTurn(context.Background(), session, "prompt", "conv-1", func(event *corev1.AgentEvent) {
 		events = append(events, event)
 	})
 	if err != nil {
-		t.Fatalf("forwardAgentTurn returned error: %v", err)
+		t.Fatalf("ForwardTurn returned error: %v", err)
 	}
 	if session.gotPrompt != "prompt" {
 		t.Fatalf("session prompt = %q, want prompt", session.gotPrompt)
@@ -98,13 +98,13 @@ func TestForwardAgentTurnForwardsCategorizedEvents(t *testing.T) {
 }
 
 func TestForwardAgentTurnDefaultsRoleAndType(t *testing.T) {
-	session := &fakeAgentSession{emits: []agentRuntimeEvent{{Text: "bare"}}}
+	session := &fakeAgentSession{emits: []RuntimeEvent{{Text: "bare"}}}
 	var events []*corev1.AgentEvent
-	err := forwardAgentTurn(context.Background(), session, "prompt", "conv-1", func(event *corev1.AgentEvent) {
+	err := ForwardTurn(context.Background(), session, "prompt", "conv-1", func(event *corev1.AgentEvent) {
 		events = append(events, event)
 	})
 	if err != nil {
-		t.Fatalf("forwardAgentTurn returned error: %v", err)
+		t.Fatalf("ForwardTurn returned error: %v", err)
 	}
 	if len(events) != 1 {
 		t.Fatalf("event count = %d, want 1", len(events))
@@ -115,11 +115,11 @@ func TestForwardAgentTurnDefaultsRoleAndType(t *testing.T) {
 func TestForwardAgentTurnPropagatesError(t *testing.T) {
 	wantErr := errors.New("boom")
 	session := &fakeAgentSession{
-		emits: []agentRuntimeEvent{{Role: "agent", Type: "message", Text: "partial"}},
+		emits: []RuntimeEvent{{Role: "agent", Type: "message", Text: "partial"}},
 		err:   wantErr,
 	}
 	var events []*corev1.AgentEvent
-	err := forwardAgentTurn(context.Background(), session, "prompt", "conv-1", func(event *corev1.AgentEvent) {
+	err := ForwardTurn(context.Background(), session, "prompt", "conv-1", func(event *corev1.AgentEvent) {
 		events = append(events, event)
 	})
 	if !errors.Is(err, wantErr) {
@@ -132,16 +132,16 @@ func TestForwardAgentTurnPropagatesError(t *testing.T) {
 }
 
 func TestForwardAgentTurnPropagatesItemIDAndEphemeral(t *testing.T) {
-	session := &fakeAgentSession{emits: []agentRuntimeEvent{
+	session := &fakeAgentSession{emits: []RuntimeEvent{
 		{Role: "agent", Type: "message_delta", Text: "hel", ItemID: "msg_1", Ephemeral: true},
 		{Role: "agent", Type: "message", Text: "hello", ItemID: "msg_1"},
 	}}
 	var events []*corev1.AgentEvent
-	err := forwardAgentTurn(context.Background(), session, "prompt", "conv-1", func(event *corev1.AgentEvent) {
+	err := ForwardTurn(context.Background(), session, "prompt", "conv-1", func(event *corev1.AgentEvent) {
 		events = append(events, event)
 	})
 	if err != nil {
-		t.Fatalf("forwardAgentTurn returned error: %v", err)
+		t.Fatalf("ForwardTurn returned error: %v", err)
 	}
 	if len(events) != 2 {
 		t.Fatalf("event count = %d, want 2", len(events))
@@ -164,7 +164,7 @@ func TestNormalizeAgentWorkspaceEventLinks(t *testing.T) {
 		Text: "Open [README.md](" + readme + "#L3) and [outside](" + outside + ").",
 	}
 
-	normalizeAgentWorkspaceEventLinks(event, workdir)
+	NormalizeWorkspaceEventLinks(event, workdir)
 
 	want := "Open [README.md](gsfile:nic/realtime/README.md#L3) and [outside](" + outside + ")."
 	if event.GetText() != want {
@@ -172,7 +172,7 @@ func TestNormalizeAgentWorkspaceEventLinks(t *testing.T) {
 	}
 
 	reasoning := &corev1.AgentEvent{Role: "agent", Type: "reasoning_delta", Text: "Open [README.md](" + readme + ")."}
-	normalizeAgentWorkspaceEventLinks(reasoning, workdir)
+	NormalizeWorkspaceEventLinks(reasoning, workdir)
 	if reasoning.GetText() != "Open [README.md]("+readme+")." {
 		t.Fatalf("reasoning text was normalized: %q", reasoning.GetText())
 	}
@@ -181,7 +181,7 @@ func TestNormalizeAgentWorkspaceEventLinks(t *testing.T) {
 func TestEnsureSessionResumesThreadID(t *testing.T) {
 	session := &fakeAgentSession{threadID: "thread-new"}
 	runtime := &fakeAgentRuntime{session: session}
-	conv := &agentConversation{
+	conv := &Conversation{
 		workdir:       "/tmp/work",
 		codexThreadID: "thread-prev",
 	}
@@ -207,7 +207,7 @@ func TestEnsureSessionResumesThreadID(t *testing.T) {
 func TestEnsureSessionCaches(t *testing.T) {
 	session := &fakeAgentSession{threadID: "thread-1"}
 	runtime := &fakeAgentRuntime{session: session}
-	conv := &agentConversation{workdir: "/tmp/work"}
+	conv := &Conversation{workdir: "/tmp/work"}
 
 	first, err := conv.ensureSession(context.Background(), runtime, nil)
 	if err != nil {
@@ -229,7 +229,7 @@ func TestEnsureSessionCaches(t *testing.T) {
 func TestEnsureSessionReopensDeadSession(t *testing.T) {
 	first := &fakeAgentSession{threadID: "thread-1"}
 	runtime := &fakeAgentRuntime{session: first}
-	conv := &agentConversation{workdir: "/tmp/work"}
+	conv := &Conversation{workdir: "/tmp/work"}
 
 	got, err := conv.ensureSession(context.Background(), runtime, nil)
 	if err != nil {
@@ -239,7 +239,6 @@ func TestEnsureSessionReopensDeadSession(t *testing.T) {
 		t.Fatalf("first ensureSession returned unexpected session")
 	}
 
-	// The warm session dies between turns; the next turn must drop and reopen it.
 	first.dead = true
 	second := &fakeAgentSession{threadID: "thread-2"}
 	runtime.session = second
@@ -260,7 +259,7 @@ func TestEnsureSessionReopensDeadSession(t *testing.T) {
 }
 
 func TestConversationThreadIDRoundTrip(t *testing.T) {
-	conv := &agentConversation{}
+	conv := &Conversation{}
 	if conv.getThreadID() != "" {
 		t.Fatalf("new conversation thread id = %q, want empty", conv.getThreadID())
 	}
@@ -279,7 +278,7 @@ func TestRenderTranscriptKeepsMessagesAndToolCalls(t *testing.T) {
 		{Role: "agent", Type: "message", Text: "done"},
 		{Role: "system", Type: "turn_complete"},
 	}
-	got := renderTranscript(events)
+	got := RenderTranscript(events)
 	for _, want := range []string{"[User] add a readme", "[Tool call] echo hi", "[Assistant] done", "transcript start"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("transcript missing %q:\n%s", want, got)
@@ -290,15 +289,15 @@ func TestRenderTranscriptKeepsMessagesAndToolCalls(t *testing.T) {
 			t.Fatalf("transcript should not contain %q:\n%s", notWant, got)
 		}
 	}
-	if got := renderTranscript(nil); got != "" {
-		t.Fatalf("renderTranscript(nil) = %q, want empty", got)
+	if got := RenderTranscript(nil); got != "" {
+		t.Fatalf("RenderTranscript(nil) = %q, want empty", got)
 	}
 }
 
 func TestEnsureSessionSeedsColdThreadHistory(t *testing.T) {
 	session := &fakeAgentSession{threadID: "thread-new"}
 	runtime := &fakeAgentRuntime{session: session}
-	conv := &agentConversation{workdir: t.TempDir()} // no codexThreadID => cold
+	conv := &Conversation{workdir: t.TempDir()}
 
 	if _, err := conv.ensureSession(context.Background(), runtime, func(context.Context) (string, error) {
 		return "PRIOR-TRANSCRIPT", nil

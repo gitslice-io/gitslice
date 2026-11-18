@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"gitslice.io/gitslice/internal/agentd"
 	"gitslice.io/gitslice/internal/clientcache"
 	"golang.org/x/term"
 )
@@ -89,7 +90,7 @@ func (r Runner) Getenv(key string) string {
 		if value, ok := r.Env[key]; ok {
 			return value
 		}
-		if isSensitiveAgentHostEnvKey(key, false) {
+		if agentd.IsSensitiveHostEnvKey(key, false) {
 			return ""
 		}
 	}

@@ -1,4 +1,4 @@
-package cli
+package agentd
 
 import (
 	"testing"
@@ -15,54 +15,18 @@ func TestInboundStale(t *testing.T) {
 		timeout time.Duration
 		want    bool
 	}{
-		{
-			name:    "fresh",
-			last:    base,
-			now:     base.Add(49 * time.Second),
-			timeout: timeout,
-			want:    false,
-		},
-		{
-			name:    "exact timeout",
-			last:    base,
-			now:     base.Add(timeout),
-			timeout: timeout,
-			want:    false,
-		},
-		{
-			name:    "over timeout",
-			last:    base,
-			now:     base.Add(timeout + time.Nanosecond),
-			timeout: timeout,
-			want:    true,
-		},
-		{
-			name:    "zero last seen",
-			last:    time.Time{},
-			now:     base.Add(timeout + time.Second),
-			timeout: timeout,
-			want:    false,
-		},
-		{
-			name:    "clock moved backwards",
-			last:    base,
-			now:     base.Add(-time.Second),
-			timeout: timeout,
-			want:    false,
-		},
-		{
-			name:    "nonpositive timeout",
-			last:    base,
-			now:     base.Add(time.Second),
-			timeout: 0,
-			want:    false,
-		},
+		{name: "fresh", last: base, now: base.Add(49 * time.Second), timeout: timeout, want: false},
+		{name: "exact timeout", last: base, now: base.Add(timeout), timeout: timeout, want: false},
+		{name: "over timeout", last: base, now: base.Add(timeout + time.Nanosecond), timeout: timeout, want: true},
+		{name: "zero last seen", last: time.Time{}, now: base.Add(timeout + time.Second), timeout: timeout, want: false},
+		{name: "clock moved backwards", last: base, now: base.Add(-time.Second), timeout: timeout, want: false},
+		{name: "nonpositive timeout", last: base, now: base.Add(time.Second), timeout: 0, want: false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := inboundStale(tc.last, tc.now, tc.timeout)
+			got := InboundStale(tc.last, tc.now, tc.timeout)
 			if got != tc.want {
-				t.Fatalf("inboundStale() = %t, want %t", got, tc.want)
+				t.Fatalf("InboundStale() = %t, want %t", got, tc.want)
 			}
 		})
 	}
@@ -70,7 +34,7 @@ func TestInboundStale(t *testing.T) {
 
 func TestAgentInboundStateMarksReceivedMessage(t *testing.T) {
 	base := time.Date(2026, 6, 29, 12, 0, 0, 0, time.UTC)
-	inbound := newAgentInboundState(base)
+	inbound := NewInboundState(base)
 	receivedAt := base.Add(30 * time.Second)
 
 	inbound.Mark(receivedAt)
@@ -78,7 +42,7 @@ func TestAgentInboundStateMarksReceivedMessage(t *testing.T) {
 	if got := inbound.LastSeen(); !got.Equal(receivedAt) {
 		t.Fatalf("last inbound = %s, want %s", got, receivedAt)
 	}
-	if inboundStale(inbound.LastSeen(), receivedAt.Add(49*time.Second), agentInboundStaleTimeout) {
+	if InboundStale(inbound.LastSeen(), receivedAt.Add(49*time.Second), InboundStaleTimeout) {
 		t.Fatalf("recently marked inbound message should keep connection fresh")
 	}
 }
@@ -94,45 +58,15 @@ func TestAgentDaemonIsIdle(t *testing.T) {
 		timeout      time.Duration
 		want         bool
 	}{
-		{
-			name:         "active work blocks idle",
-			lastActivity: base,
-			activeWork:   1,
-			now:          base.Add(2 * timeout),
-			timeout:      timeout,
-			want:         false,
-		},
-		{
-			name:         "disabled timeout",
-			lastActivity: base,
-			now:          base.Add(2 * timeout),
-			timeout:      0,
-			want:         false,
-		},
-		{
-			name:    "zero activity time",
-			now:     base.Add(2 * timeout),
-			timeout: timeout,
-			want:    false,
-		},
-		{
-			name:         "exact timeout",
-			lastActivity: base,
-			now:          base.Add(timeout),
-			timeout:      timeout,
-			want:         false,
-		},
-		{
-			name:         "inactive past timeout",
-			lastActivity: base,
-			now:          base.Add(timeout + time.Nanosecond),
-			timeout:      timeout,
-			want:         true,
-		},
+		{name: "active work blocks idle", lastActivity: base, activeWork: 1, now: base.Add(2 * timeout), timeout: timeout, want: false},
+		{name: "disabled timeout", lastActivity: base, now: base.Add(2 * timeout), timeout: 0, want: false},
+		{name: "zero activity time", now: base.Add(2 * timeout), timeout: timeout, want: false},
+		{name: "exact timeout", lastActivity: base, now: base.Add(timeout), timeout: timeout, want: false},
+		{name: "inactive past timeout", lastActivity: base, now: base.Add(timeout + time.Nanosecond), timeout: timeout, want: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			d := &agentDaemon{
+			d := &Daemon{
 				lastActivity: tc.lastActivity,
 				activeWork:   tc.activeWork,
 			}
@@ -145,7 +79,7 @@ func TestAgentDaemonIsIdle(t *testing.T) {
 
 func TestAgentDaemonWorkActivityBalance(t *testing.T) {
 	timeout := time.Hour
-	d := &agentDaemon{}
+	d := &Daemon{}
 
 	d.beginWork()
 	if d.isIdle(time.Now().Add(10*timeout), timeout) {
