@@ -29,6 +29,7 @@ func (r Runner) tagCommand(opts *commandOptions) *cobra.Command {
 		Short: "Create and list immutable slice tags (releases)",
 		RunE:  requireSubcommand("tag"),
 	}
+	markSchemaGroup(tagCmd)
 	createSlice, createCommit, createMessage := "", "", ""
 	createCmd := &cobra.Command{
 		Use:   "create <name>",
@@ -41,6 +42,7 @@ func (r Runner) tagCommand(opts *commandOptions) *cobra.Command {
 	createCmd.Flags().StringVar(&createSlice, "slice", createSlice, "slice to tag; defaults to the workspace slice")
 	createCmd.Flags().StringVar(&createCommit, "commit", createCommit, "native commit id; defaults to the current head")
 	createCmd.Flags().StringVarP(&createMessage, "message", "m", createMessage, "tag message")
+	withSchemaOutput[tagOutput](createCmd)
 	listSlice := ""
 	listCmd := &cobra.Command{
 		Use:   "list",

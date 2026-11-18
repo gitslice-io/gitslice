@@ -50,7 +50,7 @@ func (r Runner) sliceMemberCommands(opts *commandOptions) []*cobra.Command {
 	var shareRole string
 	shareCmd := &cobra.Command{
 		Use:   "share <slice|account:slice> <username|@account/group>",
-		Short: "Give a person, agent, or account group a role on one slice (writer by default)",
+		Short: "Give a person, agent, or account group a role on one slice (reader, contributor, writer or admin)",
 		Long: "Give a person, agent, or account group (@account/name) a role on one slice, without adding them to the account that owns it:\n" +
 			"reader (read and clone), contributor (propose changesets and patchsets with secretless CI),\n" +
 			"writer (submit, approve, tag and run CI with secrets) or admin (also manage the slice's\n" +
@@ -88,6 +88,8 @@ func (r Runner) sliceMemberCommands(opts *commandOptions) []*cobra.Command {
 			return r.runSliceMembers(cmd.Context(), *opts, args[0])
 		},
 	}
+	withSchemaOutput[sliceMemberOutput](shareCmd)
+	withSchemaOutput[sliceMembersOutput](membersCmd)
 	return []*cobra.Command{shareCmd, unshareCmd, leaveCmd, membersCmd}
 }
 

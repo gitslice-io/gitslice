@@ -16,6 +16,7 @@ func (r Runner) fsCommand(opts *commandOptions) *cobra.Command {
 			"and landed at once; --no-submit leaves it open for review instead.",
 		RunE: requireSubcommand("fs"),
 	}
+	markSchemaGroup(fsCmd)
 	fsCmd.PersistentFlags().BoolVar(&opts.NoSubmit, "no-submit", false, "open the changeset for review instead of submitting it")
 	fsLsCmd := &cobra.Command{
 		Use:   "ls [remote-path]",

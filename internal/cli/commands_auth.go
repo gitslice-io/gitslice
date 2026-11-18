@@ -14,6 +14,7 @@ func (r Runner) authCommand(opts *commandOptions) *cobra.Command {
 		Short: "Authenticate with a Gitslice server",
 		RunE:  requireSubcommand("auth"),
 	}
+	markSchemaGroup(authCmd)
 	loginServer := defaultServerAddr()
 	loginClerkToken := ""
 	loginClerkBrowser := false
@@ -139,6 +140,7 @@ func (r Runner) claimsCommand(opts *commandOptions) *cobra.Command {
 		Short: "Claim co-ownership of agents registered with your email",
 		RunE:  requireSubcommand("claims"),
 	}
+	markSchemaGroup(claimsCmd)
 	claimsListCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List agent accounts waiting for you to claim them",

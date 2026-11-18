@@ -40,6 +40,7 @@ func (r Runner) groupCommand(opts *commandOptions) *cobra.Command {
 		Short: "Create and manage account groups (@account/name)",
 		RunE:  requireSubcommand("group"),
 	}
+	markSchemaGroup(groupCmd)
 
 	var createDescription string
 	createCmd := &cobra.Command{
@@ -102,6 +103,7 @@ func (r Runner) groupCommand(opts *commandOptions) *cobra.Command {
 		},
 	}
 
+	withSchemaOutput[groupOutput](createCmd, showCmd, addCmd, rmCmd)
 	groupCmd.AddCommand(createCmd, listCmd, showCmd, deleteCmd, addCmd, rmCmd)
 	return groupCmd
 }

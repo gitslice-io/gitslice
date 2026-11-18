@@ -41,6 +41,7 @@ func (r Runner) secretCommand(opts *commandOptions) *cobra.Command {
 			"file (gs secret env). See gs help secrets.",
 		RunE: requireSubcommand("secret"),
 	}
+	markSchemaGroup(secretCmd)
 
 	var listAccount string
 	listCmd := &cobra.Command{

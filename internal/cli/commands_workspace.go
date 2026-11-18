@@ -68,6 +68,7 @@ matching files in the background; --read-only refuses writes.`,
 		Short:   "Manage the current single-slice workspace",
 		RunE:    requireSubcommand("workspace"),
 	}
+	markSchemaGroup(workspaceCmd)
 	workspaceInitCmd := &cobra.Command{
 		Use:    "init <slice|account:slice>",
 		Short:  "Bind the current directory to a slice",

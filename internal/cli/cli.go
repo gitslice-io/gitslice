@@ -181,6 +181,11 @@ func (r Runner) rootCommand() *cobra.Command {
 	} {
 		root.AddCommand(commands...)
 	}
+	root.InitDefaultHelpCmd()
+	root.InitDefaultCompletionCmd()
+	if comp, _, err := root.Find([]string{"completion"}); err == nil && comp != nil && comp != root {
+		withSchemaCollapsed(comp, "gs completion <shell>", "print a shell completion script (bash, zsh, fish, powershell); changeset and slice arguments complete from the server")
+	}
 	r.attachCompletions(root)
 	return root
 }

@@ -68,7 +68,7 @@ func (r Runner) historyCommands(opts *commandOptions) []*cobra.Command {
 	showStat := false
 	showPatch := false
 	showCmd := &cobra.Command{
-		Use:   "show <commit-or-changeset>",
+		Use:   "show <commit-id-or-prefix|changeset>",
 		Short: "Show a native commit, or a changeset",
 		Long: "Show a native commit by id or prefix. When no commit matches, or the id starts with cs_, " +
 			"gs show shows the changeset with that id or handle instead (as gs cs show).",

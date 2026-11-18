@@ -18,6 +18,7 @@ func (r Runner) accountCommand(opts *commandOptions) *cobra.Command {
 		Short: "Manage accounts: organizations, members, invitations, profiles and the active account",
 		RunE:  requireSubcommand("account"),
 	}
+	markSchemaGroup(accountCmd)
 	var owners []string
 	createOrgCmd := &cobra.Command{
 		Use:   "create-org <slug>",

@@ -332,6 +332,8 @@ func (r Runner) helpCommand(root *cobra.Command) *cobra.Command {
 			},
 		})
 	}
+	withSchemaCollapsed(cmd, "gs help <topic>", "show help for a command or CLI topic")
+	withSchemaOutputFields(cmd)
 	return cmd
 }
 

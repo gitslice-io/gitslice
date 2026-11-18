@@ -27,6 +27,7 @@ func (r Runner) checkCommand(opts *commandOptions) *cobra.Command {
 		Short: "List a changeset's check runs, print a check's log, rerun a check, allow secrets",
 		RunE:  requireSubcommand("check"),
 	}
+	markSchemaGroup(checkCmd)
 	listChangeset := ""
 	listCmd := &cobra.Command{
 		Use:   "list [changeset]",
@@ -77,6 +78,7 @@ func (r Runner) checkCommand(opts *commandOptions) *cobra.Command {
 		},
 	}
 	allowCmd.Flags().StringVar(&allowPatchset, "patchset", "", "patchset id to allow secrets on (default: current patchset)")
+	withSchemaOutput[allowPatchsetSecretsOutput](allowCmd)
 	checkCmd.AddCommand(listCmd, logsCmd, rerunCmd, allowCmd)
 	return checkCmd
 }

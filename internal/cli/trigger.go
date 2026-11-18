@@ -24,6 +24,7 @@ func (r Runner) triggerCommand(opts *commandOptions) *cobra.Command {
 			"below: an HTTP call, or a script run on Cloudflare that may report checks. See gs help triggers.",
 		RunE: requireSubcommand("trigger"),
 	}
+	markSchemaGroup(triggerCmd)
 
 	var lsRef string
 	lsCmd := &cobra.Command{

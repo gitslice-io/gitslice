@@ -14,6 +14,7 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 		Short:   "Manage slices",
 		RunE:    requireSubcommand("slice"),
 	}
+	markSchemaGroup(sliceCmd)
 	sliceCreateVisibility := "private"
 	sliceCreateRequiredApprovals := 0
 	sliceCreateRequiredHumanApprovals := 0
@@ -188,6 +189,7 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 			return r.runSliceSecretList(cmd.Context(), *opts, args[0])
 		},
 	}
+	withSchemaOutput[sliceOutput](sliceCreateCmd, sliceInfoCmd, sliceUpdateCmd, sliceSetCIDaemonCmd)
 	sliceSecretCmd.AddCommand(sliceSecretSetCmd, sliceSecretRemoveCmd, sliceSecretListCmd)
 	sliceCmd.AddCommand(r.sliceMemberCommands(opts)...)
 	sliceCmd.AddCommand(sliceCreateCmd, sliceListCmd, sliceInfoCmd, slicePathsCmd, sliceHistoryCmd, sliceUpdateCmd, sliceSetCIDaemonCmd, sliceSecretCmd, sliceDeleteCmd)

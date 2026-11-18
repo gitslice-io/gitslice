@@ -12,6 +12,7 @@ func (r Runner) configCommand(opts *commandOptions) *cobra.Command {
 		Short:   "Manage local CLI configuration",
 		RunE:    requireSubcommand("config"),
 	}
+	markSchemaGroup(configCmd)
 	configListCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List local CLI configuration",
@@ -48,6 +49,7 @@ func (r Runner) aliasCommand(opts *commandOptions) *cobra.Command {
 		Short: "Manage local command aliases",
 		RunE:  requireSubcommand("alias"),
 	}
+	markSchemaGroup(aliasCmd)
 	aliasListCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List local command aliases",
@@ -85,6 +87,7 @@ func (r Runner) rpcCommand(opts *commandOptions) *cobra.Command {
 		Short: "Call generated core RPCs for diagnostics",
 		RunE:  requireSubcommand("rpc"),
 	}
+	markSchemaGroup(rpcCmd)
 	rpcListCmd := &cobra.Command{
 		Use:   "list",
 		Short: "List generated core RPC methods",
@@ -125,7 +128,7 @@ func (r Runner) browseCommand(opts *commandOptions) *cobra.Command {
 	browsePrint := false
 	browsePath := ""
 	browseCmd := &cobra.Command{
-		Use:   "browse [target]",
+		Use:   "browse [account:slice | /account/path | workspace/path | web-page]",
 		Short: "Open the Gitslice web UI for a slice, path, or page",
 		Long: `Open (or with --print, print) the web UI link for a target.
 

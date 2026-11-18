@@ -43,6 +43,7 @@ signed in as that agent, or you own its account (accept its claim at
 <web-url>/claims or with gs claims accept).`,
 		RunE: requireSubcommand("auth keys"),
 	}
+	markSchemaGroup(keysCmd)
 	listAgent := ""
 	keysListCmd := &cobra.Command{
 		Use:   "list",

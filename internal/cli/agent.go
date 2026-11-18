@@ -122,6 +122,7 @@ func (r Runner) agentCommand(opts *commandOptions) *cobra.Command {
 		Short: "Run and inspect local BYOA agent daemons",
 		RunE:  requireSubcommand("agent"),
 	}
+	markSchemaGroup(agentCmd)
 	startCmd := &cobra.Command{
 		Use:   "start",
 		Short: "Start a local agent daemon",
