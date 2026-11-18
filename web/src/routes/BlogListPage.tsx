@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 
-import { blogPosts } from "./blog/posts";
+import { blogPostIndex } from "./blog/postIndex";
 
 const dateFormatter = new Intl.DateTimeFormat("en", {
   day: "numeric",
@@ -14,7 +14,7 @@ function formatDate(date: string) {
 }
 
 export function BlogListPage() {
-  const posts = [...blogPosts].sort((left, right) =>
+  const posts = [...blogPostIndex].sort((left, right) =>
     right.date.localeCompare(left.date)
   );
 

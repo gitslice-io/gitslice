@@ -1,5 +1,5 @@
 import { PageHeader, CommandBlock } from "./DocParts";
-import { commandGroups } from "./docData";
+import { commandGroups } from "./cliReferenceData";
 
 export function CliReferenceDoc() {
   return (

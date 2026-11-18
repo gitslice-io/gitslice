@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 
-import { getPost } from "./blog/posts";
+import { getPostMeta, loadPostMarkdown } from "./blog/postIndex";
 
 interface BlogParams {
   slug?: string;
@@ -10,6 +10,7 @@ interface BlogParams {
 interface MarkdownRenderState {
   error: boolean;
   html: string | null;
+  rawSource: string | null;
 }
 
 const dateFormatter = new Intl.DateTimeFormat("en", {
@@ -23,19 +24,22 @@ function formatDate(date: string) {
   return dateFormatter.format(new Date(`${date}T00:00:00Z`));
 }
 
-function MarkdownArticle({ source }: { source: string }) {
+function MarkdownArticle({ slug }: { slug: string }) {
   const [rendered, setRendered] = useState<MarkdownRenderState>({
     error: false,
-    html: null
+    html: null,
+    rawSource: null
   });
 
   useEffect(() => {
     let active = true;
 
     async function renderMarkdown() {
-      setRendered({ error: false, html: null });
+      setRendered({ error: false, html: null, rawSource: null });
 
+      let source = "";
       try {
+        source = (await loadPostMarkdown(slug)) ?? "";
         const [{ marked }, { default: createDOMPurify }] = await Promise.all([
           import("marked"),
           import("dompurify")
@@ -53,21 +57,21 @@ function MarkdownArticle({ source }: { source: string }) {
         const html = purifier.sanitize(parsed, { USE_PROFILES: { html: true } });
 
         if (active) {
-          setRendered({ error: false, html });
+          setRendered({ error: false, html, rawSource: source });
         }
       } catch {
         if (active) {
-          setRendered({ error: true, html: null });
+          setRendered({ error: true, html: null, rawSource: source });
         }
       }
     }
 
-    renderMarkdown();
+    void renderMarkdown();
 
     return () => {
       active = false;
     };
-  }, [source]);
+  }, [slug]);
 
   if (rendered.html !== null) {
     return (
@@ -88,7 +92,7 @@ function MarkdownArticle({ source }: { source: string }) {
         Markdown preview unavailable. Showing raw source.
       </p>
       <pre className="overflow-x-auto bg-white dark:bg-zinc-900 p-4 text-sm leading-6 text-zinc-900 dark:text-zinc-100">
-        <code>{source}</code>
+        <code>{rendered.rawSource ?? ""}</code>
       </pre>
     </div>
   );
@@ -96,7 +100,8 @@ function MarkdownArticle({ source }: { source: string }) {
 
 export function BlogPostPage() {
   const params = useParams({ strict: false }) as BlogParams;
-  const post = params.slug ? getPost(params.slug) : undefined;
+  const slug = params.slug ?? "";
+  const post = slug ? getPostMeta(slug) : undefined;
 
   if (!post) {
     return (
@@ -143,7 +148,7 @@ export function BlogPostPage() {
         </header>
 
         <div className="mt-8">
-          <MarkdownArticle source={post.markdown} />
+          <MarkdownArticle slug={post.slug} />
         </div>
       </article>
     </section>

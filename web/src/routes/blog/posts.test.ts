@@ -1,6 +1,7 @@
 import { marked } from "marked";
 import { describe, expect, it } from "vitest";
 
+import { blogPostIndex, getPostMeta, loadPost } from "./postIndex";
 import { blogPosts, getPost } from "./posts";
 
 describe("blog posts", () => {
@@ -59,5 +60,16 @@ describe("blog posts", () => {
       expect(post?.markdown).not.toContain(internal);
     }
     expect(html).toContain('<code class="language-bash">gs slice secret set acme/app GITHUB_MIRROR_TOKEN');
+  });
+
+  it("exposes metadata-only postIndex and lazy per-slug loadPost", async () => {
+    expect(blogPostIndex.map((m) => m.slug)).toEqual(blogPosts.map((p) => p.slug));
+    for (const meta of blogPostIndex) {
+      expect("markdown" in meta).toBe(false);
+      expect(getPostMeta(meta.slug)).toEqual(meta);
+      const loaded = await loadPost(meta.slug);
+      expect(loaded).toEqual(getPost(meta.slug));
+    }
+    expect(await loadPost("nonexistent-slug")).toBeUndefined();
   });
 });

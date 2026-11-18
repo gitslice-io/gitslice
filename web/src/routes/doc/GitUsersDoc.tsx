@@ -1,5 +1,5 @@
 import { PageHeader, CommandBlock } from "./DocParts";
-import { gitTranslations, gitQuestions } from "./docData";
+import { gitTranslations, gitQuestions } from "./gitUsersData";
 
 export function GitUsersDoc() {
   return (

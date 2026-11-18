@@ -1,5 +1,5 @@
 import { PageHeader } from "./DocParts";
-import { conceptCards } from "./docData";
+import { conceptCards } from "./conceptsData";
 
 export function ConceptsDoc() {
   return (

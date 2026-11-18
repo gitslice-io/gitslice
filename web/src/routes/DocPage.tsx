@@ -1,28 +1,35 @@
+import { Suspense, lazy, type ComponentType } from "react";
 import { useParams } from "@tanstack/react-router";
 
-import { type DocParams, normalizeSection, docSections } from "./doc/docData";
+import {
+  type DocParams,
+  type DocSection,
+  docSections,
+  normalizeSection
+} from "./doc/docData";
 import { SectionLink } from "./doc/DocParts";
-import { StartHereDoc } from "./doc/StartHereDoc";
-import { ConceptsDoc } from "./doc/ConceptsDoc";
-import { AgentsDoc } from "./doc/AgentsDoc";
-import { ChecksDoc } from "./doc/ChecksDoc";
-import { LazyWorkspacesDoc } from "./doc/LazyWorkspacesDoc";
-import { SecretsDoc } from "./doc/SecretsDoc";
-import { TriggersDoc } from "./doc/TriggersDoc";
-import { MirrorsDoc } from "./doc/MirrorsDoc";
-import { GitUsersDoc } from "./doc/GitUsersDoc";
-import { CliReferenceDoc } from "./doc/CliReferenceDoc";
+
+const lazyDocSections: Record<DocSection, ComponentType> = {
+  start: lazy(() => import("./doc/StartHereDoc").then((m) => ({ default: m.StartHereDoc }))),
+  concepts: lazy(() => import("./doc/ConceptsDoc").then((m) => ({ default: m.ConceptsDoc }))),
+  agents: lazy(() => import("./doc/AgentsDoc").then((m) => ({ default: m.AgentsDoc }))),
+  lazy: lazy(() => import("./doc/LazyWorkspacesDoc").then((m) => ({ default: m.LazyWorkspacesDoc }))),
+  checks: lazy(() => import("./doc/ChecksDoc").then((m) => ({ default: m.ChecksDoc }))),
+  secrets: lazy(() => import("./doc/SecretsDoc").then((m) => ({ default: m.SecretsDoc }))),
+  triggers: lazy(() => import("./doc/TriggersDoc").then((m) => ({ default: m.TriggersDoc }))),
+  mirrors: lazy(() => import("./doc/MirrorsDoc").then((m) => ({ default: m.MirrorsDoc }))),
+  "git-users": lazy(() => import("./doc/GitUsersDoc").then((m) => ({ default: m.GitUsersDoc }))),
+  cli: lazy(() => import("./doc/CliReferenceDoc").then((m) => ({ default: m.CliReferenceDoc })))
+};
 
 export function DocPage() {
   const params = useParams({ strict: false }) as DocParams;
   const section = normalizeSection(params.section);
+  const ActiveSection = lazyDocSections[section];
 
   return (
     <section className="mx-auto grid w-full max-w-[100rem] gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]">
       <aside className="lg:sticky lg:top-6 lg:self-start">
-        {/* On a phone the sections are a few rows of names, so the page being
-            read starts on the first screen; the full cards need the room of a
-            side column. */}
         <nav aria-label="Documentation sections" className="flex flex-wrap gap-2 lg:grid">
           {docSections.map((item) => (
             <SectionLink
@@ -35,16 +42,9 @@ export function DocPage() {
       </aside>
 
       <div className="min-w-0">
-        {section === "start" ? <StartHereDoc /> : null}
-        {section === "concepts" ? <ConceptsDoc /> : null}
-        {section === "agents" ? <AgentsDoc /> : null}
-        {section === "lazy" ? <LazyWorkspacesDoc /> : null}
-        {section === "checks" ? <ChecksDoc /> : null}
-        {section === "secrets" ? <SecretsDoc /> : null}
-        {section === "triggers" ? <TriggersDoc /> : null}
-        {section === "mirrors" ? <MirrorsDoc /> : null}
-        {section === "git-users" ? <GitUsersDoc /> : null}
-        {section === "cli" ? <CliReferenceDoc /> : null}
+        <Suspense fallback={<div aria-hidden className="min-h-32" />}>
+          <ActiveSection />
+        </Suspense>
       </div>
     </section>
   );

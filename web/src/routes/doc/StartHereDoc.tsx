@@ -1,5 +1,5 @@
 import { PageHeader, CommandBlock, NextDocCard } from "./DocParts";
-import { startSteps } from "./docData";
+import { startSteps } from "./startHereData";
 
 export function StartHereDoc() {
   return (
