@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -122,21 +121,7 @@ func (s *Session) latestCheckRuns(requested string) (*corev1.Changeset, []*corev
 	if err != nil {
 		return nil, nil, err
 	}
-	latest := map[string]*corev1.CheckRun{}
-	for _, run := range res.GetRuns() {
-		if patchsetID != "" && run.GetPatchsetId() != patchsetID {
-			continue
-		}
-		if prev := latest[run.GetCheckName()]; prev == nil || run.GetAttempt() > prev.GetAttempt() || (run.GetAttempt() == prev.GetAttempt() && run.GetCreatedAt() > prev.GetCreatedAt()) {
-			latest[run.GetCheckName()] = run
-		}
-	}
-	runs := make([]*corev1.CheckRun, 0, len(latest))
-	for _, run := range latest {
-		runs = append(runs, run)
-	}
-	sort.Slice(runs, func(i, j int) bool { return runs[i].GetCheckName() < runs[j].GetCheckName() })
-	return cs, runs, nil
+	return cs, LatestPatchsetCheckRuns(res.GetRuns(), patchsetID), nil
 }
 
 func (r Runner) runCheckList(ctx context.Context, opts commandOptions, requested string) error {

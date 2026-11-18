@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 	"time"
 
@@ -54,20 +53,11 @@ func currentPatchsetChecks(ctx context.Context, conn *grpc.ClientConn, changeset
 	if err != nil {
 		return nil
 	}
-	latest := map[string]*corev1.CheckRun{}
-	for _, run := range res.GetRuns() {
-		if run.GetPatchsetId() != patchsetID {
-			continue
-		}
-		if prev := latest[run.GetCheckName()]; prev == nil || run.GetAttempt() > prev.GetAttempt() || (run.GetAttempt() == prev.GetAttempt() && run.GetCreatedAt() > prev.GetCreatedAt()) {
-			latest[run.GetCheckName()] = run
-		}
-	}
+	latest := LatestPatchsetCheckRuns(res.GetRuns(), patchsetID)
 	out := make([]changesetCheckOutput, 0, len(latest))
-	for name, run := range latest {
-		out = append(out, changesetCheckOutput{Name: name, Status: run.GetStatus(), RunID: run.GetId(), Daemon: run.GetDaemonName()})
+	for _, run := range latest {
+		out = append(out, changesetCheckOutput{Name: run.GetCheckName(), Status: run.GetStatus(), RunID: run.GetId(), Daemon: run.GetDaemonName()})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 

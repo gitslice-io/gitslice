@@ -5,8 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"strings"
 	"testing"
+
+	corev1 "gitslice.io/gitslice/proto/core/v1"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func runMCPSession(t *testing.T, tools []mcpTool, lines ...string) []map[string]any {
@@ -150,5 +155,65 @@ func TestMCPSliceRepoPath(t *testing.T) {
 	two := mcpSlice{included: []string{"/acme/a", "/acme/b"}}
 	if _, err := two.repoPath("main.go"); err == nil {
 		t.Fatal("a relative path in a slice with two folders was accepted")
+	}
+}
+
+type stubMCPChangesetServer struct {
+	corev1.UnimplementedChangesetServiceServer
+	corev1.UnimplementedCheckServiceServer
+}
+
+func (s *stubMCPChangesetServer) GetChangeset(_ context.Context, req *corev1.GetChangesetRequest) (*corev1.Changeset, error) {
+	return &corev1.Changeset{
+		Id:                req.GetChangesetId(),
+		Title:             "Fix flaky check",
+		Status:            "draft",
+		CurrentPatchsetId: "ps_2",
+		Patchsets: []*corev1.Patchset{
+			{Id: "ps_2", Number: 2, ChangedPaths: []string{"/acme/app/main.go"}},
+		},
+	}, nil
+}
+
+func (s *stubMCPChangesetServer) ListCheckRuns(context.Context, *corev1.ListCheckRunsRequest) (*corev1.ListCheckRunsResponse, error) {
+	return &corev1.ListCheckRunsResponse{
+		Runs: []*corev1.CheckRun{
+			{Id: "run_1", CheckName: "gitslice/e2e", PatchsetId: "ps_2", Attempt: 1, Status: "failed", Summary: "flake", CreatedAt: "2026-01-01T00:01:00Z"},
+			{Id: "run_2", CheckName: "gitslice/e2e", PatchsetId: "ps_2", Attempt: 2, Status: "passed", Summary: "green", CreatedAt: "2026-01-01T00:02:00Z"},
+			{Id: "run_0", CheckName: "gitslice/old", PatchsetId: "ps_1", Attempt: 1, Status: "failed", CreatedAt: "2026-01-01T00:00:00Z"},
+		},
+	}, nil
+}
+
+func TestMCPGetChangesetDeduplicatesLatestCheckRuns(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := grpc.NewServer()
+	stub := &stubMCPChangesetServer{}
+	corev1.RegisterChangesetServiceServer(srv, stub)
+	corev1.RegisterCheckServiceServer(srv, stub)
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+
+	conn, err := grpc.NewClient(lis.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	backend := &mcpBackend{conn: conn}
+	got, err := backend.getChangeset(context.Background(), json.RawMessage(`{"changeset":"cs_123"}`))
+	if err != nil {
+		t.Fatalf("getChangeset = %v", err)
+	}
+	out := got.(map[string]any)
+	checks, ok := out["checks"].([]map[string]any)
+	if !ok || len(checks) != 1 {
+		t.Fatalf("checks = %#v, want single deduplicated check run on current patchset", out["checks"])
+	}
+	if checks[0]["name"] != "gitslice/e2e" || checks[0]["status"] != "passed" || checks[0]["summary"] != "green" {
+		t.Fatalf("checks[0] = %#v, want latest passed rerun", checks[0])
 	}
 }

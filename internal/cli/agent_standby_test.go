@@ -12,8 +12,8 @@ import (
 	grpcstatus "google.golang.org/grpc/status"
 )
 
-func standbyDaemon(poll func(context.Context) (*corev1.StandbyPollResponse, error)) (*agentDaemon, *bytes.Buffer) {
-	var stderr bytes.Buffer
+func standbyDaemon(poll func(context.Context) (*corev1.StandbyPollResponse, error)) (*agentDaemon, *safeBuffer) {
+	var stderr safeBuffer
 	return &agentDaemon{
 		runner:        Runner{Stderr: &stderr},
 		checkRuns:     map[string]context.CancelFunc{},
