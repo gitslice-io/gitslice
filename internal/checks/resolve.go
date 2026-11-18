@@ -4,24 +4,45 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/bmatcuk/doublestar/v4"
-	gspaths "gitslice.io/gitslice/internal/paths"
+	"gitslice.io/gitslice/internal/gitslicecfg"
 )
+
+// ConfigName is the filename under .gitslice/ for check definitions.
+const ConfigName = "checks.yaml"
 
 // ErrNotFound may be returned by TreeReader when a path is absent.
 var ErrNotFound = errors.New("not found")
 
-const logicalCanonicalBase = "/__gitslice_logical__/repo"
-
 // TreeReader reads file content from an immutable tree.
 type TreeReader interface {
 	ReadFile(ctx context.Context, rootTreeID, path string) ([]byte, error)
+}
+
+// NewResolver creates a memoized Resolver[*File] for .gitslice/checks.yaml
+// backed by tree.
+func NewResolver(tree TreeReader) *gitslicecfg.Resolver[*File] {
+	var read gitslicecfg.ReadConfigFunc
+	if tree != nil {
+		read = func(ctx context.Context, rootTreeID, configPath string) ([]byte, bool, error) {
+			data, err := tree.ReadFile(ctx, rootTreeID, configPath)
+			if isNotFound(err) {
+				return nil, false, nil
+			}
+			if err != nil {
+				return nil, false, err
+			}
+			return data, true, nil
+		}
+	}
+	return gitslicecfg.NewResolver(ConfigName, read, func(_ string, data []byte) (*File, error) {
+		return Parse(data)
+	})
 }
 
 // CheckSpec is a fully-resolved, runnable check.
@@ -105,6 +126,16 @@ func ResolvePlan(ctx context.Context, tree TreeReader, rootTreeID string, change
 	if tree == nil {
 		return nil, fmt.Errorf("tree reader is required")
 	}
+	return ResolveWithResolver(ctx, NewResolver(tree), rootTreeID, changedPaths, includedPaths, requiredChecks)
+}
+
+// ResolveWithResolver computes the applicable checks for a patchset using a
+// memoized gitslicecfg.Resolver[*File] so repeated plan lookups on the same
+// tree reuse parsed checks.File definitions.
+func ResolveWithResolver(ctx context.Context, resolver *gitslicecfg.Resolver[*File], rootTreeID string, changedPaths, includedPaths, requiredChecks []string) (*Plan, error) {
+	if resolver == nil {
+		return nil, fmt.Errorf("checks resolver is required")
+	}
 
 	cleanChanged, err := cleanLogicalPaths(changedPaths)
 	if err != nil {
@@ -122,18 +153,24 @@ func ResolvePlan(ctx context.Context, tree TreeReader, rootTreeID string, change
 	discovered := make([]discoveredFile, 0, len(dirs))
 	for _, dir := range dirs {
 		checksPath := checksFilePath(dir)
-		data, err := tree.ReadFile(ctx, rootTreeID, checksPath)
-		if isNotFound(err) {
-			continue
-		}
+		file, exists, err := resolver.Resolve(ctx, rootTreeID, checksPath)
 		if err != nil {
+			var pe *parseError
+			if errors.As(err, &pe) {
+				discovered = append(discovered, discoveredFile{
+					dir: dir,
+					err: err,
+				})
+				continue
+			}
 			return nil, fmt.Errorf("read checks file %s: %w", checksPath, err)
 		}
-		file, err := Parse(data)
+		if !exists {
+			continue
+		}
 		discovered = append(discovered, discoveredFile{
 			dir:  dir,
 			file: file,
-			err:  err,
 		})
 	}
 
@@ -173,19 +210,19 @@ func ResolvePlan(ctx context.Context, tree TreeReader, rootTreeID string, change
 		produced[required] = struct{}{}
 		dir, localName := splitQualifiedID(required)
 		checksPath := checksFilePath(dir)
-		data, err := tree.ReadFile(ctx, rootTreeID, checksPath)
-		if err != nil && !isNotFound(err) {
+		file, exists, err := resolver.Resolve(ctx, rootTreeID, checksPath)
+		if err != nil {
+			var pe *parseError
+			if errors.As(err, &pe) {
+				plan.Errored = append(plan.Errored, ErroredCheck{Name: required, Reason: err.Error()})
+				continue
+			}
 			return nil, fmt.Errorf("read checks file %s: %w", checksPath, err)
 		}
 		var check Check
 		var services map[string]Service
 		defined := false
-		if err == nil {
-			file, parseErr := Parse(data)
-			if parseErr != nil {
-				plan.Errored = append(plan.Errored, ErroredCheck{Name: required, Reason: parseErr.Error()})
-				continue
-			}
+		if exists && file != nil {
 			check, defined = file.Checks[localName]
 			services = file.Services
 		}
@@ -380,251 +417,4 @@ func materializeOutOfSlice(materializePaths, includedPaths []string) bool {
 		}
 	}
 	return false
-}
-
-func cleanLogicalPaths(values []string) ([]string, error) {
-	out := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-	for _, value := range values {
-		cleaned, err := cleanLogicalPath(value)
-		if err != nil {
-			return nil, fmt.Errorf("%q: %w", value, err)
-		}
-		if _, ok := seen[cleaned]; ok {
-			continue
-		}
-		seen[cleaned] = struct{}{}
-		out = append(out, cleaned)
-	}
-	return out, nil
-}
-
-func cleanLogicalPath(value string) (string, error) {
-	if value == "" {
-		return "", fmt.Errorf("path is empty")
-	}
-	value = normalizePathValue(value)
-	for _, segment := range strings.Split(value, "/") {
-		if segment == ".." {
-			return "", fmt.Errorf("path contains .. segment")
-		}
-	}
-	if !strings.HasPrefix(value, "/") {
-		value = "/" + value
-	}
-	if path.Clean(value) == "/" {
-		return "/", nil
-	}
-
-	canonical, err := gspaths.Canonical(logicalCanonicalBase + value)
-	if err != nil {
-		return "", err
-	}
-	trimmed := strings.TrimPrefix(canonical, logicalCanonicalBase)
-	if trimmed == "" || trimmed == "/" {
-		return "/", nil
-	}
-	return strings.TrimPrefix(trimmed, "/"), nil
-}
-
-func resolveLogicalPath(definingDir, value string) (string, error) {
-	if value == "" {
-		return "", fmt.Errorf("path is empty")
-	}
-	if err := validateNoAscent(value); err != nil {
-		return "", err
-	}
-	value = normalizePathValue(value)
-	if strings.HasPrefix(value, "/") {
-		return cleanLogicalPath(value)
-	}
-	base := logicalAbs(dirPrefix(definingDir))
-	return cleanLogicalPath(path.Join(base, value))
-}
-
-func validateNoAscent(value string) error {
-	value = normalizePathValue(value)
-	for _, segment := range strings.Split(value, "/") {
-		if segment == ".." {
-			return fmt.Errorf("path %q contains .. segment", value)
-		}
-	}
-	return nil
-}
-
-func discoverDirs(changedPaths []string) []string {
-	dirs := map[string]struct{}{}
-	for _, changed := range changedPaths {
-		for _, dir := range ancestorDirs(logicalDir(changed)) {
-			dirs[dir] = struct{}{}
-		}
-	}
-	out := make([]string, 0, len(dirs))
-	for dir := range dirs {
-		out = append(out, dir)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		leftDepth := logicalDepth(out[i])
-		rightDepth := logicalDepth(out[j])
-		if leftDepth != rightDepth {
-			return leftDepth < rightDepth
-		}
-		return out[i] < out[j]
-	})
-	return out
-}
-
-func ancestorDirs(dir string) []string {
-	if dir == "" || dir == "/" {
-		return []string{""}
-	}
-	segments := strings.Split(dir, "/")
-	out := make([]string, 0, len(segments)+1)
-	for i := len(segments); i > 0; i-- {
-		out = append(out, strings.Join(segments[:i], "/"))
-	}
-	out = append(out, "")
-	return out
-}
-
-func logicalDir(p string) string {
-	if p == "/" {
-		return ""
-	}
-	dir := path.Dir(p)
-	if dir == "." || dir == "/" {
-		return ""
-	}
-	return dir
-}
-
-func checksFilePath(dir string) string {
-	if dir == "" || dir == "/" {
-		return "/.gitslice/checks.yaml"
-	}
-	return dir + "/.gitslice/checks.yaml"
-}
-
-func qualifiedID(dir, localName string) string {
-	if dir == "" || dir == "/" {
-		return localName
-	}
-	return path.Join(dir, localName)
-}
-
-func dirPrefix(dir string) string {
-	if dir == "" || dir == "/" {
-		return "/"
-	}
-	return dir
-}
-
-func collapsePrefixes(values []string) []string {
-	if len(values) == 0 {
-		return nil
-	}
-	cleaned, err := cleanLogicalPaths(values)
-	if err != nil {
-		return nil
-	}
-	sort.Slice(cleaned, func(i, j int) bool {
-		leftDepth := logicalDepth(cleaned[i])
-		rightDepth := logicalDepth(cleaned[j])
-		if leftDepth != rightDepth {
-			return leftDepth < rightDepth
-		}
-		return cleaned[i] < cleaned[j]
-	})
-
-	out := make([]string, 0, len(cleaned))
-	for _, candidate := range cleaned {
-		nested := false
-		for _, existing := range out {
-			if containsLogicalPath(existing, candidate) {
-				nested = true
-				break
-			}
-		}
-		if !nested {
-			out = append(out, candidate)
-		}
-	}
-	return out
-}
-
-func containsLogicalPath(prefix, p string) bool {
-	return gspaths.Contains(logicalAbs(prefix), logicalAbs(p))
-}
-
-func logicalAbs(p string) string {
-	if p == "" || p == "/" {
-		return "/"
-	}
-	if strings.HasPrefix(p, "/") {
-		return path.Clean(p)
-	}
-	return "/" + path.Clean(p)
-}
-
-func relativeToDefiningDir(definingDir, changedPath string) string {
-	if definingDir == "" || definingDir == "/" {
-		if changedPath == "/" {
-			return "."
-		}
-		return changedPath
-	}
-	if changedPath == definingDir {
-		return "."
-	}
-	return strings.TrimPrefix(changedPath, definingDir+"/")
-}
-
-func logicalDepth(p string) int {
-	if p == "" || p == "/" {
-		return 0
-	}
-	return len(strings.Split(strings.Trim(p, "/"), "/"))
-}
-
-func normalizeRequiredChecks(requiredChecks []string) []string {
-	out := make([]string, 0, len(requiredChecks))
-	seen := map[string]struct{}{}
-	for _, required := range requiredChecks {
-		normalized := strings.Trim(normalizePathValue(required), "/")
-		if normalized == "" {
-			normalized = required
-		}
-		if _, ok := seen[normalized]; ok {
-			continue
-		}
-		seen[normalized] = struct{}{}
-		out = append(out, normalized)
-	}
-	return out
-}
-
-func parseErrorCheckNames(definingDir string, err error) []string {
-	var parseErr *parseError
-	if errors.As(err, &parseErr) && len(parseErr.checkNames) > 0 {
-		out := make([]string, 0, len(parseErr.checkNames))
-		for _, name := range parseErr.checkNames {
-			out = append(out, qualifiedID(definingDir, name))
-		}
-		sort.Strings(out)
-		return out
-	}
-	return []string{checksFilePath(definingDir)}
-}
-
-func sortedCheckNames(checks map[string]Check) []string {
-	names := make([]string, 0, len(checks))
-	for name := range checks {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
-}
-
-func isNotFound(err error) bool {
-	return errors.Is(err, os.ErrNotExist) || errors.Is(err, ErrNotFound)
 }

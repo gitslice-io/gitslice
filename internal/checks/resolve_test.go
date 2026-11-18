@@ -355,6 +355,61 @@ func (r readErrorTree) ReadFile(context.Context, string, string) ([]byte, error)
 	return nil, r.err
 }
 
+type countingTreeReader struct {
+	files fakeTreeReader
+	reads map[string]int
+}
+
+func (r *countingTreeReader) ReadFile(ctx context.Context, rootTreeID, p string) ([]byte, error) {
+	if r.reads == nil {
+		r.reads = map[string]int{}
+	}
+	r.reads[rootTreeID+":"+p]++
+	return r.files.ReadFile(ctx, rootTreeID, p)
+}
+
+func TestResolveWithResolverMemoizesCheckFilesAcrossPlanLookups(t *testing.T) {
+	reader := &countingTreeReader{
+		files: fakeTreeReader{
+			"/.gitslice/checks.yaml": []byte(`
+version: 1
+checks:
+  root:
+    run: root-test
+`),
+			"backend/.gitslice/checks.yaml": []byte(`
+version: 1
+checks:
+  unit:
+    run: go test ./...
+`),
+		},
+	}
+	resolver := NewResolver(reader)
+	for i := 0; i < 5; i++ {
+		plan, err := ResolveWithResolver(
+			context.Background(),
+			resolver,
+			"tree_1",
+			[]string{"backend/app.go"},
+			[]string{"/"},
+			[]string{"root", "backend/unit"},
+		)
+		if err != nil {
+			t.Fatalf("ResolveWithResolver #%d: %v", i, err)
+		}
+		if got := runnableNames(plan); !reflect.DeepEqual(got, []string{"root", "backend/unit"}) {
+			t.Fatalf("runnable names #%d = %#v, want [root backend/unit]", i, got)
+		}
+	}
+	if got := reader.reads["tree_1:/.gitslice/checks.yaml"]; got != 1 {
+		t.Fatalf("reads of /.gitslice/checks.yaml = %d, want 1", got)
+	}
+	if got := reader.reads["tree_1:backend/.gitslice/checks.yaml"]; got != 1 {
+		t.Fatalf("reads of backend/.gitslice/checks.yaml = %d, want 1", got)
+	}
+}
+
 func runnableNames(plan *Plan) []string {
 	out := make([]string, 0, len(plan.Runnable))
 	for _, check := range plan.Runnable {

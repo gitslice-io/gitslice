@@ -6,8 +6,10 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
 
 	"gitslice.io/gitslice/internal/checks"
+	"gitslice.io/gitslice/internal/gitslicecfg"
 	"gitslice.io/gitslice/internal/keylock"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -36,6 +38,9 @@ type checkDispatcher struct {
 	onDemand map[string]bool
 
 	claimLocks keylock.Locker
+
+	checkResolversMu sync.Mutex
+	checkResolvers   map[string]*gitslicecfg.Resolver[*checks.File]
 }
 
 // dispatchCIChecks sends a new patchset's checks to the slice's full-tree CI

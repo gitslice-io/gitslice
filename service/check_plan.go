@@ -36,6 +36,28 @@ func (r checkTreeReader) ReadFile(ctx context.Context, rootTreeID, logicalPath s
 	return data, err
 }
 
+func (d *checkDispatcher) checkResolver(account string) *gitslicecfg.Resolver[*checks.File] {
+	account = strings.TrimSpace(account)
+	d.checkResolversMu.Lock()
+	defer d.checkResolversMu.Unlock()
+	if d.checkResolvers == nil {
+		d.checkResolvers = make(map[string]*gitslicecfg.Resolver[*checks.File])
+	}
+	if r, ok := d.checkResolvers[account]; ok {
+		return r
+	}
+	if len(d.checkResolvers) >= 256 {
+		clear(d.checkResolvers)
+	}
+	r := checks.NewResolver(checkTreeReader{
+		repository: d.Repository,
+		objects:    d.ObjectStore,
+		account:    account,
+	})
+	d.checkResolvers[account] = r
+	return r
+}
+
 func (d *checkDispatcher) resolveCheckPlan(ctx context.Context, slice *corev1.Slice, patchset *corev1.Patchset) (*checks.Plan, error) {
 	if d == nil {
 		return nil, fmt.Errorf("check dispatcher is not configured")
@@ -49,14 +71,9 @@ func (d *checkDispatcher) resolveCheckPlan(ctx context.Context, slice *corev1.Sl
 	if strings.TrimSpace(patchset.ResultTreeId) == "" {
 		return nil, fmt.Errorf("patchset result tree is required")
 	}
-	reader := checkTreeReader{
-		repository: d.Repository,
-		objects:    d.ObjectStore,
-		account:    slice.Ref.Account,
-	}
-	return checks.ResolvePlan(
+	return checks.ResolveWithResolver(
 		ctx,
-		reader,
+		d.checkResolver(slice.Ref.Account),
 		patchset.ResultTreeId,
 		logicalPathsForAccount(slice.Ref.Account, patchset.ChangedPaths),
 		logicalPathsForAccount(slice.Ref.Account, slice.Definition.IncludedPaths),
