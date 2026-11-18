@@ -21,6 +21,8 @@ import {
   getErrorMessage
 } from "../components/slices/SlicePageParts";
 import { Timestamp } from "../components/Timestamp";
+import { Button } from "../components/ui/Button";
+import { Input, inputClassName } from "../components/ui/Input";
 import { canAdmin, kindLabel, membershipFor, type Membership } from "../lib/accounts";
 import { isHomeSlice, isSliceSort, loadSliceSort, saveSliceSort, sliceSorts, sortSlices, type SliceSort } from "../lib/sliceOrder";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
@@ -371,21 +373,19 @@ function PictureEditor({ account, kind, version }: { account: string; kind: stri
     change.mutate(new Uint8Array(await file.arrayBuffer()));
   }
 
-  const button =
-    "rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950";
   return (
     <div className="grid gap-1 text-xs font-medium text-slate-600 dark:text-zinc-400">
       Picture
       <div className="flex flex-wrap items-center gap-3">
         <AccountAvatar account={account} kind={kind} size="lg" version={version} />
         <input accept={pictureTypes.join(",")} aria-label="Picture file" className="hidden" onChange={(e) => void choose(e)} ref={input} type="file" />
-        <button className={button} disabled={change.isPending} onClick={() => input.current?.click()} type="button">
+        <Button disabled={change.isPending} onClick={() => input.current?.click()} size="md">
           {change.isPending ? "Saving..." : "Upload picture"}
-        </button>
+        </Button>
         {version ? (
-          <button className={button} disabled={change.isPending} onClick={() => change.mutate(undefined)} type="button">
+          <Button disabled={change.isPending} onClick={() => change.mutate(undefined)} size="md">
             Remove picture
-          </button>
+          </Button>
         ) : null}
       </div>
       <p className="font-normal text-slate-500 dark:text-zinc-500">
@@ -426,22 +426,20 @@ function ProfileEditor({ account, onDone, profile }: { account: string; onDone()
     save.mutate();
   }
 
-  const field =
-    "rounded-md border border-slate-300 bg-white px-3 py-2 text-sm text-zinc-950 outline-none focus:border-slate-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50";
   return (
     <form aria-label="Edit profile" className="mt-4 grid max-w-xl gap-3" onSubmit={submit}>
       <PictureEditor account={account} kind={profile.kind ?? ""} version={profile.avatarVersion ?? ""} />
       <label className="grid gap-1 text-xs font-medium text-slate-600 dark:text-zinc-400">
         Display name
-        <input className={field} maxLength={64} onChange={(e) => setDisplayName(e.target.value)} value={displayName} />
+        <Input maxLength={64} onChange={(e) => setDisplayName(e.target.value)} value={displayName} />
       </label>
       <label className="grid gap-1 text-xs font-medium text-slate-600 dark:text-zinc-400">
         Description
-        <textarea className={field} maxLength={280} onChange={(e) => setDescription(e.target.value)} rows={3} value={description} />
+        <textarea className={inputClassName({ className: "h-auto py-2" })} maxLength={280} onChange={(e) => setDescription(e.target.value)} rows={3} value={description} />
       </label>
       <label className="grid gap-1 text-xs font-medium text-slate-600 dark:text-zinc-400">
         Website
-        <input className={field} onChange={(e) => setWebsite(e.target.value)} placeholder="https://" type="url" value={website} />
+        <Input onChange={(e) => setWebsite(e.target.value)} placeholder="https://" type="url" value={website} />
       </label>
       {save.isError ? (
         <SliceNotice title="Could not save the profile" tone="error">
@@ -449,21 +447,12 @@ function ProfileEditor({ account, onDone, profile }: { account: string; onDone()
         </SliceNotice>
       ) : null}
       <div className="flex gap-2">
-        <button
-          className="rounded-md bg-zinc-950 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
-          disabled={save.isPending}
-          type="submit"
-        >
+        <Button disabled={save.isPending} size="md" type="submit" variant="primary">
           {save.isPending ? "Saving..." : "Save profile"}
-        </button>
-        <button
-          className="rounded-md border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 dark:border-zinc-700 dark:text-zinc-300"
-          disabled={save.isPending}
-          onClick={onDone}
-          type="button"
-        >
+        </Button>
+        <Button disabled={save.isPending} onClick={onDone} size="md">
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

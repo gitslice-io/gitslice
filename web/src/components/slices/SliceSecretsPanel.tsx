@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
 
 import type { SliceRef, SliceSecret } from "../../api/types";
 import { useApi } from "../../api/useApi";
@@ -10,11 +9,10 @@ import {
   SecretForm,
   scopeFromDraft,
   secretPaths,
-  secretButtonClass,
-  secretDangerButtonClass,
-  secretPrimaryButtonClass,
   type SecretDraft
 } from "../secrets/SecretForm";
+import { Button } from "../ui/Button";
+import { useCrudPanelState } from "../ui/useCrudPanelState";
 import { SliceLoadingBlock, SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
 
 // The secrets that apply somewhere in this slice's folders, and the folders
@@ -35,9 +33,7 @@ export function SliceSecretsPanel({
   const account = slice.account ?? "";
   const sliceName = slice.slice ?? "";
   const queryKey = ["sliceSecrets", account, sliceName];
-  const [editing, setEditing] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<SliceSecret | null>(null);
-  const [error, setError] = useState("");
+  const crud = useCrudPanelState<SliceSecret>();
 
   const secretsQuery = useQuery({
     queryKey,
@@ -49,39 +45,33 @@ export function SliceSecretsPanel({
       queryClient.invalidateQueries({ queryKey: secretsQueryKey(account) })
     ]);
   const done = async () => {
-    setEditing(null);
-    setDeleting(null);
+    crud.completeAction();
     await refresh();
   };
-  const onError = (err: unknown) => setError(getErrorMessage(err));
 
   const create = useMutation({
     mutationFn: (draft: SecretDraft) =>
       api.createSecret({ account, name: draft.name, scope: scopeFromDraft(draft), value: draft.value }),
-    onError,
-    onMutate: () => setError(""),
+    onError: crud.handleError,
+    onMutate: crud.clearError,
     onSuccess: done
   });
   const update = useMutation({
     mutationFn: ({ id, draft }: { id: string; draft: SecretDraft }) =>
       api.updateSecret({ id, scope: scopeFromDraft(draft), value: draft.value === "" ? undefined : draft.value }),
-    onError,
-    onMutate: () => setError(""),
+    onError: crud.handleError,
+    onMutate: crud.clearError,
     onSuccess: done
   });
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteSecret({ id }),
-    onError,
-    onMutate: () => setError(""),
+    onError: crud.handleError,
+    onMutate: crud.clearError,
     onSuccess: done
   });
 
   const secrets = secretsQuery.data ?? [];
   const busy = create.isPending || update.isPending || remove.isPending;
-  const startEditing = (id: string | null) => {
-    setError("");
-    setEditing(id);
-  };
   const thisSlice: SecretDraft = { name: "", paths: [...includedPaths].sort(), value: "" };
   const ownPaths = (paths: string[]) => paths.length > 0 && paths.every((path) => includedPaths.includes(path));
 
@@ -102,15 +92,15 @@ export function SliceSecretsPanel({
             </Link>
           </p>
         </div>
-        {editing !== "new" ? (
-          <button
-            className={secretPrimaryButtonClass}
+        {crud.editing !== "new" ? (
+          <Button
             disabled={busy || secretsQuery.isError}
-            onClick={() => startEditing("new")}
-            type="button"
+            onClick={crud.startNew}
+            size="md"
+            variant="primary"
           >
             Add secret
-          </button>
+          </Button>
         ) : null}
       </div>
 
@@ -122,20 +112,20 @@ export function SliceSecretsPanel({
         </div>
       ) : null}
 
-      {editing === "new" ? (
+      {crud.editing === "new" ? (
         <SecretForm
           account={account}
           busy={create.isPending}
           initial={thisSlice}
-          onCancel={() => startEditing(null)}
+          onCancel={crud.cancelEditing}
           onSubmit={(draft) => create.mutate(draft)}
-          problem={error}
+          problem={crud.error}
           submitLabel="Add secret"
         />
-      ) : error && !editing ? (
+      ) : crud.error && !crud.editing ? (
         <div className="mt-4">
           <SliceNotice title="Secret not changed" tone="error">
-            {error}
+            {crud.error}
           </SliceNotice>
         </div>
       ) : null}
@@ -155,7 +145,7 @@ export function SliceSecretsPanel({
               const id = secret.secretId ?? "";
               const paths = secretPaths(account, { allSlices: secret.allSlices, paths: secret.paths });
               const own = ownPaths(paths);
-              if (editing === id) {
+              if (crud.editing === id) {
                 return (
                   <li className="px-4 py-3" key={id}>
                     <SecretForm
@@ -163,9 +153,9 @@ export function SliceSecretsPanel({
                       busy={update.isPending}
                       editing
                       initial={{ name: secret.name ?? "", paths, value: "" }}
-                      onCancel={() => startEditing(null)}
+                      onCancel={crud.cancelEditing}
                       onSubmit={(draft) => update.mutate({ draft, id })}
-                      problem={error}
+                      problem={crud.error}
                       submitLabel="Save secret"
                     />
                   </li>
@@ -181,12 +171,12 @@ export function SliceSecretsPanel({
                   </div>
                   {own ? (
                     <div className="flex gap-1.5">
-                      <button className={secretButtonClass} disabled={busy} onClick={() => startEditing(id)} type="button">
+                      <Button disabled={busy} onClick={() => crud.startEditing(id)}>
                         Edit
-                      </button>
-                      <button className={secretDangerButtonClass} disabled={busy} onClick={() => setDeleting(secret)} type="button">
+                      </Button>
+                      <Button disabled={busy} onClick={() => crud.requestDelete(secret)} variant="danger">
                         Delete
-                      </button>
+                      </Button>
                     </div>
                   ) : (
                     <Link
@@ -208,17 +198,17 @@ export function SliceSecretsPanel({
         busy={remove.isPending}
         confirmLabel="Delete secret"
         message={
-          deleting ? (
+          crud.deleting ? (
             <>
-              Checks in {(deleting.paths ?? []).join(", ") || "this slice"} will no longer get{" "}
-              <code className="font-mono">{deleting.name}</code>. This cannot be undone.
+              Checks in {(crud.deleting.paths ?? []).join(", ") || "this slice"} will no longer get{" "}
+              <code className="font-mono">{crud.deleting.name}</code>. This cannot be undone.
             </>
           ) : null
         }
-        onCancel={() => setDeleting(null)}
-        onConfirm={() => deleting?.secretId && remove.mutate(deleting.secretId)}
-        open={deleting !== null}
-        title={`Delete ${deleting?.name ?? "secret"}?`}
+        onCancel={crud.cancelDelete}
+        onConfirm={() => crud.deleting?.secretId && remove.mutate(crud.deleting.secretId)}
+        open={crud.deleting !== null}
+        title={`Delete ${crud.deleting?.name ?? "secret"}?`}
         tone="danger"
       />
     </SlicePanel>

@@ -7,11 +7,11 @@ import { useApi } from "../../api/useApi";
 import { cn } from "../../lib/cn";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { Timestamp } from "../Timestamp";
-import { secretButtonClass, secretDangerButtonClass, secretPrimaryButtonClass } from "../secrets/SecretForm";
+import { Button } from "../ui/Button";
+import { Input } from "../ui/Input";
+import { Select } from "../ui/Select";
 import { SliceLoadingBlock, SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
 
-const inputClass =
-  "h-9 min-w-0 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:bg-slate-50 disabled:text-slate-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-zinc-700 dark:disabled:bg-zinc-950";
 const labelClass = "grid gap-1 text-xs font-medium text-slate-600 dark:text-zinc-400";
 
 type Draft = { url: string; branch: string; username: string; tokenSecret: string };
@@ -149,10 +149,10 @@ export function SliceGitMirrorPanel({ slice }: { slice: SliceRef }) {
           <form className="mt-4 grid gap-3" onSubmit={submit}>
             <label className={labelClass}>
               Repository URL
-              <input
+              <Input
                 autoComplete="off"
-                className={cn(inputClass, "font-mono")}
                 disabled={busy}
+                monospace
                 onChange={(event) => setDraft({ ...draft, url: event.target.value })}
                 placeholder="https://github.com/owner/repo.git"
                 required
@@ -164,8 +164,7 @@ export function SliceGitMirrorPanel({ slice }: { slice: SliceRef }) {
             <div className="grid gap-3 sm:grid-cols-3">
               <label className={labelClass}>
                 Token secret
-                <select
-                  className={inputClass}
+                <Select
                   disabled={busy}
                   onChange={(event) => setDraft({ ...draft, tokenSecret: event.target.value })}
                   value={draft.tokenSecret}
@@ -176,14 +175,14 @@ export function SliceGitMirrorPanel({ slice }: { slice: SliceRef }) {
                       {name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               <label className={labelClass}>
                 Branch
-                <input
+                <Input
                   autoComplete="off"
-                  className={cn(inputClass, "font-mono")}
                   disabled={busy}
+                  monospace
                   onChange={(event) => setDraft({ ...draft, branch: event.target.value })}
                   placeholder="main"
                   spellCheck={false}
@@ -192,10 +191,10 @@ export function SliceGitMirrorPanel({ slice }: { slice: SliceRef }) {
               </label>
               <label className={labelClass}>
                 User name
-                <input
+                <Input
                   autoComplete="off"
-                  className={cn(inputClass, "font-mono")}
                   disabled={busy}
+                  monospace
                   onChange={(event) => setDraft({ ...draft, username: event.target.value })}
                   placeholder="x-access-token"
                   spellCheck={false}
@@ -204,17 +203,17 @@ export function SliceGitMirrorPanel({ slice }: { slice: SliceRef }) {
               </label>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button className={secretPrimaryButtonClass} disabled={busy || !draft.url.trim() || (mirror !== null && !changed)} type="submit">
+              <Button disabled={busy || !draft.url.trim() || (mirror !== null && !changed)} size="md" type="submit" variant="primary">
                 {save.isPending ? "Saving..." : mirror ? "Save changes" : "Start mirroring"}
-              </button>
+              </Button>
               {mirror ? (
                 <>
-                  <button className={secretButtonClass} disabled={busy} onClick={() => push.mutate()} type="button">
+                  <Button disabled={busy} onClick={() => push.mutate()}>
                     {push.isPending ? "Queuing..." : "Push now"}
-                  </button>
-                  <button className={secretDangerButtonClass} disabled={busy} onClick={() => setRemoving(true)} type="button">
+                  </Button>
+                  <Button disabled={busy} onClick={() => setRemoving(true)} variant="danger">
                     Stop mirroring
-                  </button>
+                  </Button>
                 </>
               ) : null}
             </div>

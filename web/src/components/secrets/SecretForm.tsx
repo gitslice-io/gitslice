@@ -5,6 +5,9 @@ import type { Secret, SecretScope } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { cn } from "../../lib/cn";
 import { getErrorMessage } from "../slices/SlicePageParts";
+import { Button } from "../ui/Button";
+import { Input } from "../ui/Input";
+import { Select } from "../ui/Select";
 
 // Secrets (design/33_secrets.md): values passed, as environment variables, to
 // the CI checks defined in the folders each one applies to and below them.
@@ -12,17 +15,6 @@ import { getErrorMessage } from "../slices/SlicePageParts";
 export const SECRET_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 export const MAX_SECRET_VALUE_BYTES = 48 * 1024;
 export const MAX_SECRET_PATHS = 50;
-
-export const secretButtonClass =
-  "rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-950";
-export const secretPrimaryButtonClass =
-  "rounded-md bg-zinc-950 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white";
-export const secretDangerButtonClass = cn(
-  secretButtonClass,
-  "text-rose-700 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-950/30"
-);
-const inputClass =
-  "h-9 min-w-0 rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none transition focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 disabled:bg-slate-50 disabled:text-slate-500 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-zinc-700 dark:disabled:bg-zinc-950";
 
 export interface SecretDraft {
   name: string;
@@ -169,11 +161,11 @@ export function SecretForm({
     >
       <label className="grid gap-1 text-xs font-medium text-slate-600 dark:text-zinc-400">
         Name
-        <input
+        <Input
           autoCapitalize="characters"
           autoComplete="off"
-          className={cn(inputClass, "font-mono")}
           disabled={busy || editing}
+          monospace
           onChange={(event) => setDraft({ ...draft, name: event.target.value.toUpperCase() })}
           placeholder="DEPLOY_TOKEN"
           spellCheck={false}
@@ -247,11 +239,12 @@ export function SecretForm({
           </ul>
         )}
         <div className="flex min-w-0 gap-2">
-          <input
+          <Input
             aria-label="Add a folder"
             autoComplete="off"
-            className={cn(inputClass, "flex-1 font-mono text-xs")}
+            className="flex-1 text-xs"
             disabled={busy}
+            monospace
             onChange={(event) => setTyped(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") {
@@ -263,35 +256,35 @@ export function SecretForm({
             spellCheck={false}
             value={typed}
           />
-          <button className={secretButtonClass} disabled={busy || typed.trim() === ""} onClick={addTyped} type="button">
+          <Button disabled={busy || typed.trim() === ""} onClick={addTyped}>
             Add folder
-          </button>
+          </Button>
         </div>
         <div className="flex flex-wrap items-center gap-1.5 text-xs text-slate-500 dark:text-zinc-400">
           <span>Add:</span>
           {(choices.length > 9 ? choices.slice(0, 1) : choices).map((choice) => (
-            <button
-              className={cn(secretButtonClass, "py-0.5")}
+            <Button
               disabled={busy || choice.paths.every((path) => draft.paths.includes(path))}
               key={choice.label}
               onClick={() => addPaths(choice.paths)}
+              size="xs"
               title={choice.paths.join(", ")}
-              type="button"
             >
               {choice.label}
-            </button>
+            </Button>
           ))}
           {choices.length > 9 ? (
             // Many slices: a list instead of a row of buttons.
-            <select
+            <Select
               aria-label="Add a slice's folders"
-              className={cn(inputClass, "h-7 text-xs")}
+              className="h-7 text-xs"
               disabled={busy}
               onChange={(event) => {
                 const choice = choices.find((c) => c.label === event.target.value);
                 if (choice) addPaths(choice.paths);
                 event.target.value = "";
               }}
+              size="sm"
               value=""
             >
               <option value="">A slice's folders...</option>
@@ -300,7 +293,7 @@ export function SecretForm({
                   {choice.label}
                 </option>
               ))}
-            </select>
+            </Select>
           ) : null}
           {slicesQuery.isError ? (
             <span className="text-rose-700 dark:text-rose-300">{getErrorMessage(slicesQuery.error)}</span>
@@ -315,12 +308,12 @@ export function SecretForm({
         </p>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        <button className={secretPrimaryButtonClass} disabled={busy} type="submit">
+        <Button disabled={busy} size="md" type="submit" variant="primary">
           {busy ? "Saving..." : submitLabel}
-        </button>
-        <button className={secretButtonClass} disabled={busy} onClick={onCancel} type="button">
+        </Button>
+        <Button disabled={busy} onClick={onCancel}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

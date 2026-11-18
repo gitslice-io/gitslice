@@ -8,15 +8,15 @@ import { ActionMenu } from "../source/ActionMenu";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { Timestamp } from "../Timestamp";
 import { SliceLoadingBlock, SliceNotice, SlicePanel, getErrorMessage } from "../slices/SlicePageParts";
+import { Button } from "../ui/Button";
+import { Input } from "../ui/Input";
+import { useCrudPanelState } from "../ui/useCrudPanelState";
 import {
   SecretForm,
   draftFromSecret,
   scopeFromDraft,
   scopeLabel,
-  secretButtonClass,
   secretPaths,
-  secretDangerButtonClass,
-  secretPrimaryButtonClass,
   type SecretDraft
 } from "./SecretForm";
 
@@ -32,9 +32,7 @@ export function AccountSecretsPanel({ account }: { account: string }) {
   const api = useApi();
   const queryClient = useQueryClient();
   const queryKey = secretsQueryKey(account);
-  const [editing, setEditing] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<Secret | null>(null);
-  const [error, setError] = useState("");
+  const crud = useCrudPanelState<Secret>();
 
   const secretsQuery = useQuery({
     queryKey,
@@ -49,29 +47,29 @@ export function AccountSecretsPanel({ account }: { account: string }) {
   const create = useMutation({
     mutationFn: (draft: SecretDraft) =>
       api.createSecret({ account, name: draft.name, scope: scopeFromDraft(draft), value: draft.value }),
-    onError: (err) => setError(getErrorMessage(err)),
-    onMutate: () => setError(""),
+    onError: crud.handleError,
+    onMutate: crud.clearError,
     onSuccess: async () => {
-      setEditing(null);
+      crud.completeAction();
       await refresh();
     }
   });
   const update = useMutation({
     mutationFn: ({ id, draft }: { id: string; draft: SecretDraft }) =>
       api.updateSecret({ id, scope: scopeFromDraft(draft), value: draft.value === "" ? undefined : draft.value }),
-    onError: (err) => setError(getErrorMessage(err)),
-    onMutate: () => setError(""),
+    onError: crud.handleError,
+    onMutate: crud.clearError,
     onSuccess: async () => {
-      setEditing(null);
+      crud.completeAction();
       await refresh();
     }
   });
   const remove = useMutation({
     mutationFn: (id: string) => api.deleteSecret({ id }),
-    onError: (err) => setError(getErrorMessage(err)),
-    onMutate: () => setError(""),
+    onError: crud.handleError,
+    onMutate: crud.clearError,
     onSuccess: async () => {
-      setDeleting(null);
+      crud.completeAction();
       await refresh();
     }
   });
@@ -80,10 +78,6 @@ export function AccountSecretsPanel({ account }: { account: string }) {
   const [filter, setFilter] = useState("");
   const groups = groupSecrets(account, secrets, filter);
   const busy = create.isPending || update.isPending || remove.isPending;
-  const startEditing = (id: string | null) => {
-    setError("");
-    setEditing(id);
-  };
 
   return (
     <SlicePanel>
@@ -95,32 +89,32 @@ export function AccountSecretsPanel({ account }: { account: string }) {
             and below them. Anyone who can add a check in a folder can read its secrets from that check.
           </p>
         </div>
-        {editing !== "new" ? (
-          <button
-            className={secretPrimaryButtonClass}
+        {crud.editing !== "new" ? (
+          <Button
             disabled={busy || secretsQuery.isError}
-            onClick={() => startEditing("new")}
-            type="button"
+            onClick={crud.startNew}
+            size="md"
+            variant="primary"
           >
             New secret
-          </button>
+          </Button>
         ) : null}
       </div>
 
-      {editing === "new" ? (
+      {crud.editing === "new" ? (
         <SecretForm
           account={account}
           busy={create.isPending}
           initial={emptyDraft}
-          onCancel={() => startEditing(null)}
+          onCancel={crud.cancelEditing}
           onSubmit={(draft) => create.mutate(draft)}
-          problem={error}
+          problem={crud.error}
           submitLabel="Add secret"
         />
-      ) : error && !editing ? (
+      ) : crud.error && !crud.editing ? (
         <div className="mt-4">
           <SliceNotice title="Secret not changed" tone="error">
-            {error}
+            {crud.error}
           </SliceNotice>
         </div>
       ) : null}
@@ -137,9 +131,9 @@ export function AccountSecretsPanel({ account }: { account: string }) {
         ) : (
           <>
             {secrets.length > FILTER_FROM ? (
-              <input
+              <Input
                 aria-label="Filter secrets"
-                className="mb-3 h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-zinc-700"
+                className="mb-3 w-full"
                 onChange={(event) => setFilter(event.target.value)}
                 placeholder="Filter by name or folder"
                 type="search"
@@ -172,7 +166,7 @@ export function AccountSecretsPanel({ account }: { account: string }) {
                     <ul className="divide-y divide-slate-200 dark:divide-zinc-800">
                       {group.secrets.map((secret) => {
                         const id = secret.id ?? "";
-                        if (editing === id) {
+                        if (crud.editing === id) {
                           return (
                             <li className="px-4 py-3" key={id}>
                               <SecretForm
@@ -180,9 +174,9 @@ export function AccountSecretsPanel({ account }: { account: string }) {
                                 busy={update.isPending}
                                 editing
                                 initial={draftFromSecret(account, secret)}
-                                onCancel={() => startEditing(null)}
+                                onCancel={crud.cancelEditing}
                                 onSubmit={(draft) => update.mutate({ draft, id })}
-                                problem={error}
+                                problem={crud.error}
                                 submitLabel="Save secret"
                               />
                             </li>
@@ -201,18 +195,18 @@ export function AccountSecretsPanel({ account }: { account: string }) {
                             </div>
                             {/* Buttons on wider screens; a menu on phones, so the name keeps the row. */}
                             <div className="hidden shrink-0 gap-1.5 sm:flex">
-                              <button className={secretButtonClass} disabled={busy} onClick={() => startEditing(id)} type="button">
+                              <Button disabled={busy} onClick={() => crud.startEditing(id)}>
                                 Edit
-                              </button>
-                              <button className={secretDangerButtonClass} disabled={busy} onClick={() => setDeleting(secret)} type="button">
+                              </Button>
+                              <Button disabled={busy} onClick={() => crud.requestDelete(secret)} variant="danger">
                                 Delete
-                              </button>
+                              </Button>
                             </div>
                             <div className="shrink-0 sm:hidden">
                               <ActionMenu
                                 items={[
-                                  { label: "Edit", disabled: busy, onSelect: () => startEditing(id) },
-                                  { label: "Delete", disabled: busy, onSelect: () => setDeleting(secret), tone: "danger" }
+                                  { label: "Edit", disabled: busy, onSelect: () => crud.startEditing(id) },
+                                  { label: "Delete", disabled: busy, onSelect: () => crud.requestDelete(secret), tone: "danger" }
                                 ]}
                                 label={`Actions for ${secret.name}`}
                               />
@@ -233,12 +227,12 @@ export function AccountSecretsPanel({ account }: { account: string }) {
         busy={remove.isPending}
         confirmLabel="Delete secret"
         message={
-          deleting ? <DeleteMessage account={account} secret={deleting} /> : null
+          crud.deleting ? <DeleteMessage account={account} secret={crud.deleting} /> : null
         }
-        onCancel={() => setDeleting(null)}
-        onConfirm={() => deleting?.id && remove.mutate(deleting.id)}
-        open={deleting !== null}
-        title={`Delete ${deleting?.name ?? "secret"}?`}
+        onCancel={crud.cancelDelete}
+        onConfirm={() => crud.deleting?.id && remove.mutate(crud.deleting.id)}
+        open={crud.deleting !== null}
+        title={`Delete ${crud.deleting?.name ?? "secret"}?`}
         tone="danger"
       />
     </SlicePanel>

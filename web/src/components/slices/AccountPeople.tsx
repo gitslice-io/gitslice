@@ -4,6 +4,9 @@ import { useState, type FormEvent } from "react";
 import { useApi } from "../../api/useApi";
 import { canAdmin, type Membership } from "../../lib/accounts";
 import { AccountAvatar, AccountLink } from "../AccountAvatar";
+import { Button } from "../ui/Button";
+import { Input } from "../ui/Input";
+import { Select } from "../ui/Select";
 import { SliceLoadingBlock, SliceNotice, getErrorMessage } from "./SlicePageParts";
 import { authStatusKey } from "../../queries/auth";
 
@@ -129,11 +132,11 @@ export function AccountPeople({ account, membership }: { account: string; member
                 </span>
                 {manage && member.username ? (
                   <>
-                    <select
+                    <Select
                       aria-label={`Role of ${name}`}
-                      className="h-8 rounded-md border border-slate-300 bg-white px-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
                       disabled={busy}
                       onChange={(event) => setMember.mutate({ role: event.target.value, username: member.username ?? "" })}
+                      size="sm"
                       value={member.role ?? ""}
                     >
                       {ROLES.map((option) => (
@@ -141,15 +144,14 @@ export function AccountPeople({ account, membership }: { account: string; member
                           {option}
                         </option>
                       ))}
-                    </select>
-                    <button
-                      className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-rose-700 transition hover:bg-rose-50 disabled:opacity-50 dark:border-zinc-800 dark:text-rose-300 dark:hover:bg-rose-950/30"
+                    </Select>
+                    <Button
                       disabled={busy}
                       onClick={() => removeMember.mutate(member.username ?? "")}
-                      type="button"
+                      variant="danger"
                     >
                       Remove
-                    </button>
+                    </Button>
                   </>
                 ) : (
                   <span className="text-xs text-slate-500 dark:text-zinc-400" title={ROLE_HELP[member.role ?? ""]}>
@@ -180,14 +182,12 @@ export function AccountPeople({ account, membership }: { account: string; member
                     ) : null}
                   </span>
                 </span>
-                <button
-                  className="rounded-md border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-950"
+                <Button
                   disabled={busy}
                   onClick={() => cancelInvite.mutate(invitation.username ?? "")}
-                  type="button"
                 >
                   Cancel invitation
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -197,9 +197,10 @@ export function AccountPeople({ account, membership }: { account: string; member
         <form className="mt-4 flex flex-wrap items-end gap-3" onSubmit={add}>
           <label className="grid gap-1 text-xs font-medium text-slate-600 dark:text-zinc-400">
             Invite a person by username
-            <input
-              className="h-9 w-56 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+            <Input
+              className="w-56"
               disabled={busy}
+              monospace
               onChange={(event) => setUsername(event.target.value)}
               placeholder="username"
               spellCheck={false}
@@ -208,8 +209,7 @@ export function AccountPeople({ account, membership }: { account: string; member
           </label>
           <label className="grid gap-1 text-xs font-medium text-slate-600 dark:text-zinc-400">
             Role
-            <select
-              className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+            <Select
               disabled={busy}
               onChange={(event) => setRole(event.target.value)}
               value={role}
@@ -219,15 +219,17 @@ export function AccountPeople({ account, membership }: { account: string; member
                   {option} — {ROLE_HELP[option]}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
-          <button
-            className="h-9 rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white transition hover:bg-zinc-800 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+          <Button
+            className="h-9"
             disabled={busy || username.trim() === ""}
+            size="md"
             type="submit"
+            variant="primary"
           >
             Invite
-          </button>
+          </Button>
         </form>
       ) : null}
     </section>

@@ -16,6 +16,8 @@ import { parseStatusTab, statusTabs, type StatusTab } from "./changesets-list/fi
 import { changesetsListQuery } from "../queries/changesets";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
+import { Button } from "../components/ui/Button";
+import { Input } from "../components/ui/Input";
 import {
   SliceLoadingBlock,
   SliceNotice,
@@ -158,14 +160,13 @@ export function ChangesetsPage() {
                     {changesetsQuery.hasNextPage ? " so far" : ""}
                   </span>
                   {changesetsQuery.hasNextPage ? (
-                    <button
-                      className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
+                    <Button
                       disabled={changesetsQuery.isFetchingNextPage}
                       onClick={() => void changesetsQuery.fetchNextPage()}
-                      type="button"
+                      size="md"
                     >
                       {changesetsQuery.isFetchingNextPage ? "Loading…" : "Show more"}
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
                 {loadMoreFailed ? (
@@ -231,9 +232,9 @@ function ChangesetsToolbar({
           </button>
         ))}
       </div>
-      <input
+      <Input
         aria-label="Search changesets"
-        className="h-9 min-w-0 basis-full rounded-md border border-slate-300 bg-white px-3 text-sm text-zinc-950 outline-none focus:border-slate-500 sm:max-w-sm sm:flex-1 sm:basis-0 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+        className="basis-full sm:max-w-sm sm:flex-1 sm:basis-0"
         onChange={(event) => setText(event.target.value)}
         placeholder="Search titles and ids, or author:name"
         type="search"
