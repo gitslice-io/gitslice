@@ -1,96 +1,36 @@
 import {
-  HeadContent,
-  Outlet,
-  Scripts,
-  createRootRouteWithContext,
-  redirect,
   createRoute,
   createRouter,
-  lazyRouteComponent,
   isNotFound,
-  notFound,
-  useRouter,
-  useRouterState
+  lazyRouteComponent,
+  redirect
 } from "@tanstack/react-router";
-import {
-  HydrationBoundary,
-  QueryClient,
-  QueryClientProvider,
-  dehydrate,
-  type DehydratedState
-} from "@tanstack/react-query";
-import { useAuth } from "@clerk/tanstack-react-start";
-import type { ReactNode } from "react";
+import { dehydrate, type DehydratedState } from "@tanstack/react-query";
 
-import appCss from "../index.css?url";
-import { PostHogProvider } from "../analytics/PostHogProvider";
-import { ClerkAuthProvider } from "../auth/ClerkAuthProvider";
-import { clerkScriptPreload } from "../auth/clerkScript";
-import { RpcError } from "../api/rpcError";
+import { conversationsEnabled } from "../lib/features";
+import { changesetHead, sliceHead } from "../lib/socialMeta";
 import { accountProfileQuery } from "../queries/accounts";
 import { conversationQuery } from "../queries/agents";
 import { authStatusQuery } from "../queries/auth";
-import {
-  changesetDiffQuery,
-  changesetKey,
-  changesetQuery,
-  changesetsListQuery,
-  dependentChangesetsQuery
-} from "../queries/changesets";
-import { checkRunsQuery, triggerRunsQuery } from "../queries/checks";
-import {
-  globalRefQuery,
-  sliceDirectoryQuery,
-  sliceFileQuery,
-  slicePathQuery,
-  sliceRefKey,
-  sliceRefQuery,
-  sliceRenderedFileQuery,
-  sliceRenderedFileQueryKey
-} from "../queries/slices";
-import {
-  isSliceProjectionDirectoryPath,
-  normalizeRepositoryPath
-} from "../components/source/sourceUtils";
-import { findNestedReadme, nestedReadmeQueryKey, onlyDirectory } from "./slice-detail/nestedReadme";
-import { findReadmeEntry, README_MAX_BYTES } from "./slice-detail/readme";
-import { initialTreeExpansion } from "./slice-detail/sourceTree";
-import { RequireAuth } from "../auth/RequireAuth";
-import { AppShell } from "../components/AppShell";
-import { VisitorBanner } from "../components/VisitorBanner";
-import { visitorBannerWanted } from "../lib/visitorBanner";
-import { isNotFoundError } from "../api/rpcError";
-import type { Changeset, Slice } from "../api/types";
-import { shortChangesetId } from "../lib/objectId";
+import { changesetsListQuery } from "../queries/changesets";
+import { globalRefQuery, sliceRefQuery } from "../queries/slices";
 import { parseStatusTab } from "./changesets-list/filters";
-import { conversationsEnabled } from "../lib/features";
-import { CLERK_UI_ATTRIBUTE, clerkUiInDocument, clerkUiWanted } from "../lib/clerkUi";
-import {
-  changesetHead,
-  sliceHead,
-  SITE_DESCRIPTION,
-  type ChangesetSocial,
-  type SliceSocial
-} from "../lib/socialMeta";
-import { SelectionProvider, useSelection } from "../state/selection";
-import { THEME_BOOTSTRAP_SCRIPT } from "../theme";
-import { isTerminalCheckStatus } from "./changeset-detail/checkStatus";
-import { sortedPatchsets } from "./changeset-detail/patchsetUtils";
-import { UsernameGate } from "./UsernameGate";
+import { appRoute, lookupOrNotFound, publicAppRoute } from "./layouts";
+import { loadChangesetDetail } from "./loaders/changesetDetailLoader";
+import { loadSliceDetail } from "./loaders/sliceDetailLoader";
 import { AccountNotFound, ChangesetNotFound, PageNotFound, SliceNotFound } from "./NotFoundPage";
-import { ChooseUsernamePage } from "./ChooseUsernamePage";
-import { parseSliceSearch } from "./stackPageUtils";
+import { createQueryClient, rootRoute, stripUndefined } from "./root";
 import {
   validateChangesetDetailSearch,
   validateChangesetsSearch,
   validateSliceCreateSearch,
   validateSliceDetailSearch
 } from "./searchSchemas";
+import { parseSliceSearch } from "./stackPageUtils";
 
 // Each page's code is fetched when its route is opened, not with every page:
 // a visitor reading a slice does not download the docs, the blog, the diff
-// viewer or the settings forms. The router loads a matched page's chunk before
-// it renders and hydrates, on the server and in the browser alike.
+// viewer or the settings forms.
 const lazyPages = {
   AccountPage: lazyRouteComponent(() => import("./AccountPage"), "AccountPage"),
   AccountSecretsPage: lazyRouteComponent(() => import("./AccountSecretsPage"), "AccountSecretsPage"),
@@ -113,534 +53,91 @@ const lazyPages = {
   SliceSettingsPage: lazyRouteComponent(() => import("./SliceSettingsPage"), "SliceSettingsPage")
 };
 
-interface RouterContext {
-  getDehydratedQueryState: () => DehydratedState | undefined;
-  queryClient: QueryClient;
-}
-
-function createQueryClient() {
-  return new QueryClient({
-    defaultOptions: {
-      queries: {
-        staleTime: 15_000,
-        // SSR route loaders await ensureQueryData before the HTML is flushed.
-        // react-query's default retry waits ~1s before the single retry, so a
-        // failing prefetch (e.g. an RPC that 401s for a signed-out request)
-        // blocks the document response for a full second. These prefetches are
-        // best-effort — the component refetches client-side on a miss — so we
-        // never retry during SSR. The browser keeps one retry.
-        // Client errors (401/403/404, e.g. the optimistic readFile on a path
-        // that turns out to be a directory) will not succeed on retry, so only
-        // transient failures get the single browser retry.
-        retry: import.meta.env.SSR
-          ? false
-          : (failureCount, error) =>
-              failureCount < 1 &&
-              !(error instanceof RpcError && error.status >= 400 && error.status < 500),
-        refetchOnWindowFocus: false
-      }
-    }
-  });
-}
-
-const rootRoute = createRootRouteWithContext<RouterContext>()({
-  // Whether this document asks Clerk for its UI script (lib/clerkUi). The
-  // server decides from the address and the cookies; the browser keeps to
-  // what the document was served with.
-  loader: async ({ location }) => {
-    if (import.meta.env.SSR) {
-      const { getRequestHeader } = await import("@tanstack/react-start/server");
-      return { clerkUi: clerkUiWanted(location.pathname, getRequestHeader("cookie") ?? "") };
-    }
-    return { clerkUi: clerkUiInDocument() };
-  },
-  head: () => ({
-    meta: [
-      { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1.0" },
-      { name: "theme-color", content: "#f8fafc" },
-      { title: "Gitslice" },
-      // Defaults for link previews; a slice page sets its own (lib/socialMeta).
-      { name: "description", content: SITE_DESCRIPTION },
-      { property: "og:site_name", content: "Gitslice" },
-      { property: "og:title", content: "Gitslice" },
-      { property: "og:description", content: SITE_DESCRIPTION },
-      { name: "twitter:card", content: "summary" }
-    ],
-    links: [
-      { rel: "stylesheet", href: appCss },
-      // Start fetching Clerk's script with the page (auth/clerkScript).
-      ...[clerkScriptPreload(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY)].filter((link) => link !== undefined),
-      { rel: "icon", type: "image/png", sizes: "64x64", href: "/favicon.png" },
-      {
-        rel: "apple-touch-icon",
-        sizes: "180x180",
-        href: "/apple-touch-icon.png"
-      },
-      { rel: "manifest", href: "/site.webmanifest" },
-      // Plain-text guide for agents: install gs and sign up without a browser.
-      { rel: "alternate", type: "text/plain", title: "llms.txt", href: "/llms.txt" }
-    ]
-  }),
-  shellComponent: RootDocument,
-  component: () => <Outlet />
-});
-
-function RootDocument({ children }: { children: ReactNode }) {
-  const router = useRouter();
-  const { getDehydratedQueryState, queryClient } = router.options
-    .context as RouterContext;
-  const rootData = useRouterState({
-    select: (state) => state.matches.find((match) => match.routeId === rootRoute.id)?.loaderData
-  }) as { clerkUi?: boolean } | undefined;
-  // Unknown (an error before the loader ran) means load it.
-  const clerkUi = rootData?.clerkUi ?? clerkUiInDocument();
-
-  return (
-    <html lang="en" suppressHydrationWarning {...{ [CLERK_UI_ATTRIBUTE]: clerkUi ? "1" : "0" }}>
-      <head>
-        <HeadContent />
-        <script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP_SCRIPT }} />
-      </head>
-      <body>
-        <PostHogProvider />
-        <ClerkAuthProvider ui={clerkUi}>
-          <QueryClientProvider client={queryClient}>
-            <HydrationBoundary state={getDehydratedQueryState()}>
-              {children}
-            </HydrationBoundary>
-          </QueryClientProvider>
-        </ClerkAuthProvider>
-        <Scripts />
-      </body>
-    </html>
-  );
-}
-
-const loginRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/login",
-  component: lazyPages.LoginPage
-});
-
-const loginFlowRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  // Clerk's path-based sign-in flow uses nested paths for OAuth callbacks and
-  // other verification steps (for example, /login/sso-callback). Keep the
-  // whole flow mounted on the same component instead of treating those paths
-  // as application 404s.
-  path: "/login/$",
-  component: lazyPages.LoginPage
-});
-
-const signupRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/signup",
-  component: lazyPages.SignupPage
-});
-
-const signupFlowRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  // Clerk's sign-up flow nests verification steps under the page, as sign-in
-  // does under /login.
-  path: "/signup/$",
-  component: lazyPages.SignupPage
-});
-
-const cliLoginRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  path: "/cli-login",
-  component: lazyPages.CliLoginPage
-});
+const loginRoute = createRoute({ getParentRoute: () => rootRoute, path: "/login", component: lazyPages.LoginPage });
+const loginFlowRoute = createRoute({ getParentRoute: () => rootRoute, path: "/login/$", component: lazyPages.LoginPage });
+const signupRoute = createRoute({ getParentRoute: () => rootRoute, path: "/signup", component: lazyPages.SignupPage });
+const signupFlowRoute = createRoute({ getParentRoute: () => rootRoute, path: "/signup/$", component: lazyPages.SignupPage });
+const cliLoginRoute = createRoute({ getParentRoute: () => rootRoute, path: "/cli-login", component: lazyPages.CliLoginPage });
 
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/",
   loader: async ({ context }) => {
-    if (import.meta.env.SSR) {
-      try {
-        const { auth } = await import("@clerk/tanstack-react-start/server");
-        const authState = await auth();
-        // Signed-out visitors render the public landing page; skip the RPC
-        // that would be guaranteed to fail without a session token.
-        if (!authState.isAuthenticated) return;
-        const { createServerApiClient } = await import("../api/serverApi");
-        const api = await createServerApiClient();
-        await context.queryClient.ensureQueryData(authStatusQuery(api));
-      } catch {
-        // The component keeps the existing client-side load/error behavior.
-      }
+    if (!import.meta.env.SSR) return;
+    try {
+      const { auth } = await import("@clerk/tanstack-react-start/server");
+      if (!(await auth()).isAuthenticated) return;
+      const { createServerApiClient } = await import("../api/serverApi");
+      await context.queryClient.ensureQueryData(authStatusQuery(await createServerApiClient()));
+    } catch {
+      // The component keeps the existing client-side load/error behavior.
     }
   },
   component: lazyPages.IndexPage
 });
 
-const appRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  id: "app",
-  loader: async ({ context }) => {
-    if (import.meta.env.SSR) {
-      try {
-        const { auth } = await import("@clerk/tanstack-react-start/server");
-        const authState = await auth();
-        // Signed-out visitors are redirected to /login by RequireAuth; skip
-        // the RPC that would be guaranteed to fail without a session token.
-        if (!authState.isAuthenticated) return;
-        const { createServerApiClient } = await import("../api/serverApi");
-        const api = await createServerApiClient();
-        await context.queryClient.ensureQueryData(authStatusQuery(api));
-      } catch {
-        // The component keeps the existing client-side load/error behavior.
-      }
-    }
-  },
-  component: () => (
-    <RequireAuth>
-      <SelectionProvider>
-        <UsernameGate>
-          <AppShell />
-        </UsernameGate>
-      </SelectionProvider>
-    </RequireAuth>
-  )
-});
-
-const publicAppRoute = createRoute({
-  getParentRoute: () => rootRoute,
-  id: "publicApp",
-  // Whether to offer a visitor with no session an introduction: from the
-  // cookies, which the server render and the browser both see.
-  loader: async () => {
-    if (import.meta.env.SSR) {
-      const { getRequestHeader } = await import("@tanstack/react-start/server");
-      return { visitorBanner: visitorBannerWanted(getRequestHeader("cookie") ?? "") };
-    }
-    return { visitorBanner: visitorBannerWanted(document.cookie) };
-  },
-  component: PublicAppLayout
-});
-
-function PublicAppLayout(): JSX.Element {
-  const loaded = useRouterState({
-    select: (state) => state.matches.find((match) => match.routeId === publicAppRoute.id)?.loaderData
-  }) as { visitorBanner?: boolean } | undefined;
-  return (
-    <SelectionProvider>
-      <AppShell banner={<VisitorBanner show={loaded?.visitorBanner ?? false} />} />
-    </SelectionProvider>
-  );
-}
-
-const claimsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "claims",
-  component: lazyPages.ClaimsPage
-});
-
-// Conversations are not offered for now (lib/features): their addresses go
-// to the home page, or to the slice, instead of showing the feature.
+const claimsRoute = createRoute({ getParentRoute: () => appRoute, path: "claims", component: lazyPages.ClaimsPage });
 const conversationsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "conversations",
   beforeLoad: () => {
-    if (!conversationsEnabled) {
-      throw redirect({ replace: true, to: "/" });
-    }
+    if (!conversationsEnabled) throw redirect({ replace: true, to: "/" });
   },
   component: lazyPages.ConversationsPage
 });
 
-// Public docs: reachable from the signed-out landing page.
-const docRoute = createRoute({
-  getParentRoute: () => publicAppRoute,
-  path: "doc",
-  component: lazyPages.DocPage
-});
-
-const docSectionRoute = createRoute({
-  getParentRoute: () => publicAppRoute,
-  path: "doc/$section",
-  component: lazyPages.DocPage
-});
-
-const blogsRoute = createRoute({
-  getParentRoute: () => publicAppRoute,
-  path: "blogs",
-  component: lazyPages.BlogListPage
-});
-
-const blogPostRoute = createRoute({
-  getParentRoute: () => publicAppRoute,
-  path: "blogs/$slug",
-  component: lazyPages.BlogPostPage
-});
-
-const slicesRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "slices",
-  component: lazyPages.HomePage
-});
-
-const organizationCreateRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "organizations/new",
-  component: lazyPages.NewOrganizationPage
-});
-
-const sliceCreateRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "slices/new",
-  validateSearch: validateSliceCreateSearch,
-  component: lazyPages.SliceCreatePage
-});
-
-// Upper bound on how long SSR waits for path-specific prefetches. Anything that
-// finishes in time is hydrated; the rest loads client-side as before, so a slow
-// API can delay the first byte by at most this much.
-const SLICE_PATH_PREFETCH_BUDGET_MS = 1200;
-
-// lookupOrNotFound runs the server render's lookup of the page's own subject
-// (the slice, the changeset, the account). When the server says there is no
-// such thing and the request has no session, the page is a 404 (a crawler, curl
-// or an agent is told so, instead of being sent a page); for anyone who may be
-// signed in, the browser decides, as it always did.
-async function lookupOrNotFound<T>(lookup: () => Promise<T>): Promise<T> {
-  try {
-    return await lookup();
-  } catch (error) {
-    if (isNotFoundError(error)) {
-      const { isAnonymousRequest } = await import("../api/serverApi");
-      if (await isAnonymousRequest()) {
-        throw notFound();
-      }
-    }
-    throw error;
-  }
-}
+const docRoute = createRoute({ getParentRoute: () => publicAppRoute, path: "doc", component: lazyPages.DocPage });
+const docSectionRoute = createRoute({ getParentRoute: () => publicAppRoute, path: "doc/$section", component: lazyPages.DocPage });
+const blogsRoute = createRoute({ getParentRoute: () => publicAppRoute, path: "blogs", component: lazyPages.BlogListPage });
+const blogPostRoute = createRoute({ getParentRoute: () => publicAppRoute, path: "blogs/$slug", component: lazyPages.BlogPostPage });
+const slicesRoute = createRoute({ getParentRoute: () => appRoute, path: "slices", component: lazyPages.HomePage });
+const organizationCreateRoute = createRoute({ getParentRoute: () => appRoute, path: "organizations/new", component: lazyPages.NewOrganizationPage });
+const sliceCreateRoute = createRoute({ getParentRoute: () => appRoute, path: "slices/new", validateSearch: validateSliceCreateSearch, component: lazyPages.SliceCreatePage });
+const accountSecretsRoute = createRoute({ getParentRoute: () => appRoute, path: "accounts/$account/secrets", component: lazyPages.AccountSecretsPage });
 
 const accountRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "accounts/$account",
   loader: async ({ context, params }) => {
-    if (import.meta.env.SSR) {
-      try {
-        const { createServerApiClient } = await import("../api/serverApi");
-        const api = await createServerApiClient();
-        await lookupOrNotFound(() =>
-          context.queryClient.ensureQueryData(accountProfileQuery(api, params.account))
-        );
-      } catch (error) {
-        // Anything else the component finds out for itself.
-        if (isNotFound(error)) {
-          throw error;
-        }
-      }
+    if (!import.meta.env.SSR) return;
+    try {
+      const { createServerApiClient } = await import("../api/serverApi");
+      const api = await createServerApiClient();
+      await lookupOrNotFound(() => context.queryClient.ensureQueryData(accountProfileQuery(api, params.account)));
+    } catch (error) {
+      if (isNotFound(error)) throw error;
     }
   },
   notFoundComponent: AccountNotFound,
   component: lazyPages.AccountPage
 });
 
-const accountSecretsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "accounts/$account/secrets",
-  component: lazyPages.AccountSecretsPage
-});
-
 const sliceDetailRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "slices/$account/$slice",
   validateSearch: validateSliceDetailSearch,
-  loaderDeps: ({ search }) => ({
-    path: search.path ?? ""
-  }),
-  loader: async ({ context, deps, params }) => {
-    let social: SliceSocial | undefined;
-    if (!import.meta.env.SSR && params.account && params.slice) {
-      // In the browser the page loads the slice itself; the title follows
-      // whatever is already known.
-      const known = context.queryClient.getQueryData(sliceRefKey(params.account, params.slice));
-      if (known) {
-        social = sliceSocial(known, params, deps.path, window.location.origin);
-      }
-    }
-    if (import.meta.env.SSR && params.account && params.slice) {
-      try {
-        const { createServerApiClient, isServerSignedIn } = await import("../api/serverApi");
-        const { getRequestUrl } = await import("@tanstack/react-start/server");
-        const api = await createServerApiClient();
-        const ref = { account: params.account, slice: params.slice };
-        // A signed-in viewer's memberships decide what the page offers them
-        // (editing, settings). Known in the server render, those parts are in
-        // the page from the start instead of appearing after it loads and
-        // pushing the README down. Fetched alongside the slice and the ref,
-        // so it adds no wait of its own; a failure leaves it to the browser.
-        const memberships = isServerSignedIn().then((signedIn) =>
-          signedIn
-            ? context.queryClient.prefetchQuery(authStatusQuery(api))
-            : undefined
-        );
-        // The default view resolves the slice and the latest global ref (which
-        // yields the commit the file tree renders from); both fire on first
-        // paint and have no derived inputs, so prefetch them together.
-        const [slice, latest] = await Promise.all([
-          lookupOrNotFound(() =>
-            context.queryClient.ensureQueryData(sliceRefQuery(api, params.account, params.slice))
-          ),
-          context.queryClient.ensureQueryData(globalRefQuery(api))
-        ]);
-        await memberships.catch(() => undefined);
-        social = sliceSocial(slice, params, deps.path, getRequestUrl().origin);
-        const commitId = latest.commitId ?? "";
-        const sliceRef = slice.ref ?? ref;
-        const includedPaths = slice.definition?.includedPaths ?? [];
-        const selectedPath = deps.path;
-        if (commitId) {
-          // Without this, the browser discovers the path's kind, then its
-          // listing, then the navigator's ancestor listings, one round trip at
-          // a time. Prefetch them here with the page's own query keys.
-          const listing = (path: string) =>
-            context.queryClient.ensureQueryData(
-              sliceDirectoryQuery(api, sliceRef, commitId, path, {
-                allowMissingDirectory: isSliceProjectionDirectoryPath(path, includedPaths)
-              })
-            );
-          // The listings say which README the root shows, and rendering it
-          // is one more round trip after them. A slice of one folder nearly
-          // always shows that folder's README.md, so ask for it alongside the
-          // listings; they still decide, and a wrong guess is dropped.
-          const guessedReadmePath =
-            !selectedPath && includedPaths.length === 1
-              ? `${normalizeRepositoryPath(includedPaths[0]).replace(/\/$/, "")}/README.md`
-              : "";
-          const guessedReadmeKey = sliceRenderedFileQueryKey(sliceRef, commitId, guessedReadmePath);
-          if (guessedReadmePath) {
-            void context.queryClient.prefetchQuery(
-              sliceRenderedFileQuery(api, sliceRef, commitId, guessedReadmePath)
-            );
-          }
-          const dropGuessedReadme = () => {
-            if (guessedReadmePath) {
-              context.queryClient.removeQueries({ exact: true, queryKey: guessedReadmeKey });
-            }
-          };
-          // A folder's README is part of its page: find it as the page does
-          // (through single-folder levels), and ask the server for it
-          // rendered, so the page is served with it.
-          const readmeFor = async (path: string) => {
-            const entries = await listing(path);
-            const readme = await findNestedReadme(entries, listing);
-            const only = findReadmeEntry(entries) ? undefined : onlyDirectory(entries);
-            if (only) {
-              context.queryClient.setQueryData(
-                nestedReadmeQueryKey(sliceRef, commitId, normalizeRepositoryPath(only.path ?? "")),
-                readme ?? null
-              );
-            }
-            if (!readme || Number(readme.size) > README_MAX_BYTES) {
-              dropGuessedReadme();
-              return;
-            }
-            const readmePath = normalizeRepositoryPath(readme.path ?? "");
-            if (readmePath !== guessedReadmePath) {
-              dropGuessedReadme();
-            }
-            await context.queryClient.ensureQueryData(
-              sliceRenderedFileQuery(api, sliceRef, commitId, readmePath)
-            );
-          };
-          const navigatorPaths = new Set(
-            initialTreeExpansion(selectedPath, includedPaths, false)
-          );
-          const work: Promise<unknown>[] = Array.from(navigatorPaths, listing);
-          if (selectedPath && !isSliceProjectionDirectoryPath(selectedPath, includedPaths)) {
-            // A path whose last part has an extension is nearly always a
-            // file: read it while its kind is looked up, not after. For a
-            // folder the read fails and nothing comes of it.
-            // Without one it is nearly always a folder: list it meanwhile.
-            // A wrong guess fails, and the lookup's answer is what is used.
-            if (/[^/]\.[^/]+$/.test(selectedPath)) {
-              void context.queryClient.prefetchQuery(
-                sliceFileQuery(api, sliceRef, commitId, selectedPath)
-              );
-            } else {
-              void listing(selectedPath).catch(() => undefined);
-            }
-            work.push(
-              context.queryClient
-                .ensureQueryData(slicePathQuery(api, sliceRef, commitId, selectedPath))
-                .then((resolved): Promise<unknown> | undefined => {
-                  const kind = resolved.entry?.kind;
-                  if (kind === "ENTRY_KIND_DIRECTORY") {
-                    return readmeFor(selectedPath);
-                  }
-                  if (kind === "ENTRY_KIND_FILE") {
-                    return context.queryClient.ensureQueryData(
-                      sliceFileQuery(api, sliceRef, commitId, selectedPath)
-                    );
-                  }
-                  return undefined;
-                })
-            );
-          } else {
-            // A projected folder, or the slice's root.
-            work.push(readmeFor(selectedPath));
-          }
-          await Promise.race([
-            Promise.allSettled(work),
-            new Promise((resolve) => setTimeout(resolve, SLICE_PATH_PREFETCH_BUDGET_MS))
-          ]);
-        }
-      } catch (error) {
-        // A 404 is the answer; any other failure leaves it to the component.
-        if (isNotFound(error)) {
-          throw error;
-        }
-      }
-    }
-    return { social };
-  },
+  loaderDeps: ({ search }) => ({ path: search.path ?? "" }),
+  loader: loadSliceDetail,
   notFoundComponent: SliceNotFound,
-  // Link previews read these from the server-rendered page (lib/socialMeta).
   head: ({ loaderData, params }) =>
-    loaderData?.social
-      ? sliceHead(loaderData.social)
-      : { meta: [{ title: `${params.account}/${params.slice} · Gitslice` }] },
+    loaderData?.social ? sliceHead(loaderData.social) : { meta: [{ title: `${params.account}/${params.slice} · Gitslice` }] },
   component: lazyPages.SliceDetailPage
 });
-
-function sliceSocial(
-  slice: Slice,
-  params: { account: string; slice: string },
-  path: string,
-  origin: string
-): SliceSocial {
-  return {
-    account: slice.ref?.account || params.account,
-    slice: slice.ref?.slice || params.slice,
-    description: slice.description ?? "",
-    path,
-    origin
-  };
-}
 
 const sliceSettingsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "slices/$account/$slice/settings",
   loader: async ({ context, params }) => {
-    if (import.meta.env.SSR && params.account && params.slice) {
-      try {
-        const { createServerApiClient } = await import("../api/serverApi");
-        const api = await createServerApiClient();
-        // Settings resolves the slice and (in the definition form) the latest
-        // global ref; both render on first paint.
-        await Promise.all([
-          context.queryClient.ensureQueryData(sliceRefQuery(api, params.account, params.slice)),
-          context.queryClient.ensureQueryData(globalRefQuery(api))
-        ]);
-      } catch {
-        // The component keeps the existing client-side load/error behavior.
-      }
+    if (!import.meta.env.SSR || !params.account || !params.slice) return;
+    try {
+      const { createServerApiClient } = await import("../api/serverApi");
+      const api = await createServerApiClient();
+      await Promise.all([
+        context.queryClient.ensureQueryData(sliceRefQuery(api, params.account, params.slice)),
+        context.queryClient.ensureQueryData(globalRefQuery(api))
+      ]);
+    } catch {
+      // The component keeps the existing client-side load/error behavior.
     }
   },
   component: lazyPages.SliceSettingsPage
@@ -650,9 +147,7 @@ const sliceAgentsRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "slices/$account/$slice/agents",
   beforeLoad: ({ params }) => {
-    if (!conversationsEnabled) {
-      throw redirect({ params: { account: params.account, slice: params.slice }, replace: true, to: "/slices/$account/$slice" });
-    }
+    if (!conversationsEnabled) throw redirect({ params: { account: params.account, slice: params.slice }, replace: true, to: "/slices/$account/$slice" });
   },
   component: lazyPages.SliceAgentsPage
 });
@@ -661,247 +156,81 @@ const sliceAgentConversationRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "slices/$account/$slice/agents/$conversationId",
   beforeLoad: ({ params }) => {
-    if (!conversationsEnabled) {
-      throw redirect({ params: { account: params.account, slice: params.slice }, replace: true, to: "/slices/$account/$slice" });
-    }
+    if (!conversationsEnabled) throw redirect({ params: { account: params.account, slice: params.slice }, replace: true, to: "/slices/$account/$slice" });
   },
   loader: async ({ context, params }) => {
-    if (import.meta.env.SSR && params.conversationId) {
-      try {
-        const { createServerApiClient } = await import("../api/serverApi");
-        const api = await createServerApiClient();
-        await context.queryClient.ensureQueryData(conversationQuery(api, params.conversationId));
-      } catch {
-        // The component keeps the existing client-side load/error behavior.
-      }
+    if (!import.meta.env.SSR || !params.conversationId) return;
+    try {
+      const { createServerApiClient } = await import("../api/serverApi");
+      await context.queryClient.ensureQueryData(conversationQuery(await createServerApiClient(), params.conversationId));
+    } catch {
+      // The component keeps the existing client-side load/error behavior.
     }
   },
   component: lazyPages.SliceAgentsPage
 });
 
-// Public, shareable changeset list URL: /changesets?slice=<account:slice>.
-// Readable anonymously for public slices; write actions stay gated behind auth.
 const changesetsRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "changesets",
   validateSearch: validateChangesetsSearch,
-  loaderDeps: ({ search }) => ({
-    slice: search.slice,
-    status: search.status,
-    q: search.q
-  }),
+  loaderDeps: ({ search }) => ({ slice: search.slice, status: search.status, q: search.q }),
   loader: async ({ context, deps }) => {
-    if (import.meta.env.SSR) {
-      const sliceRef = parseSliceSearch(deps.slice);
-      if (sliceRef) {
-        try {
-          const { createServerApiClient } = await import("../api/serverApi");
-          const api = await createServerApiClient();
-          // The page's first screen: the list as the address asks for it.
-          await context.queryClient.prefetchInfiniteQuery(
-            changesetsListQuery(
-              api,
-              sliceRef,
-              parseStatusTab(deps.status),
-              deps.q ?? ""
-            )
-          );
-        } catch {
-          // The component keeps the existing client-side load/error behavior.
-        }
-      }
+    if (!import.meta.env.SSR) return;
+    const sliceRef = parseSliceSearch(deps.slice);
+    if (!sliceRef) return;
+    try {
+      const { createServerApiClient } = await import("../api/serverApi");
+      await context.queryClient.prefetchInfiniteQuery(changesetsListQuery(await createServerApiClient(), sliceRef, parseStatusTab(deps.status), deps.q ?? ""));
+    } catch {
+      // The component keeps the existing client-side load/error behavior.
     }
   },
   component: lazyPages.ChangesetsPage
 });
 
-// Primary, shareable changeset URL: /cs/<short changeset id>.
 const changesetShortRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "cs/$id",
   validateSearch: validateChangesetDetailSearch,
-  loaderDeps: ({ search }) => ({
-    from: search.from,
-    to: search.to
-  }),
-  loader: async ({ context, deps, params }) => {
-    let social: ChangesetSocial | undefined;
-    if (!import.meta.env.SSR) {
-      // In the browser the page loads the changeset itself; the title follows
-      // whatever is already known.
-      const known = context.queryClient.getQueryData(changesetKey(params.id));
-      if (known) {
-        social = changesetSocial(known, params.id, window.location.origin);
-      }
-    }
-    if (import.meta.env.SSR) {
-      try {
-        const { createServerApiClient } = await import("../api/serverApi");
-        const { getRequestUrl } = await import("@tanstack/react-start/server");
-        const api = await createServerApiClient();
-        const changeset = await lookupOrNotFound(() =>
-          context.queryClient.ensureQueryData(changesetQuery(api, params.id))
-        );
-        // Link previews read the server-rendered head (lib/socialMeta).
-        social = changesetSocial(changeset, params.id, getRequestUrl().origin);
-        // The diff is the page's primary content; the slice's changesets back
-        // the dependent-changeset list. Both render on first paint and derive
-        // only from the changeset just fetched, so prefill them under the same
-        // keys the component uses.
-        const canonicalChangesetId = changeset.id || params.id;
-        const patchsets = sortedPatchsets(changeset);
-        const ids = new Set(
-          patchsets
-            .map((patchset) => patchset.id)
-            .filter((id): id is string => Boolean(id))
-        );
-        // Mirror the component's URL-driven from/to resolution so the prefilled
-        // diff matches the shared link and the page renders it without a refetch.
-        const fromPatchset =
-          deps.from && ids.has(deps.from) ? deps.from : "";
-        const toPatchset =
-          deps.to && ids.has(deps.to)
-            ? deps.to
-            : changeset.currentPatchsetId ||
-              patchsets[patchsets.length - 1]?.id ||
-              "";
-        const authoringSlice = changeset.authoringSlice;
-        // The panels above the diff. Fetched by the browser they arrive after
-        // the page and push the diff down; a failure here only leaves them to
-        // the browser, as before. Check runs need a session.
-        const { isServerSignedIn } = await import("../api/serverApi");
-        const panels = [
-          context.queryClient.prefetchQuery(triggerRunsQuery(api, canonicalChangesetId)),
-          isServerSignedIn().then(async (signedIn) => {
-            if (!signedIn || !toPatchset) {
-              return;
-            }
-            const checkRuns = checkRunsQuery(api, canonicalChangesetId, toPatchset);
-            const queryKey = checkRuns.queryKey;
-            await context.queryClient.prefetchQuery(checkRuns);
-            // A run still going shows times that move ("last seen 5s ago");
-            // the server's text and the browser's would differ. Those are
-            // left to the browser, which polls them anyway.
-            const runs = context.queryClient.getQueryData(queryKey);
-            if (runs?.some((run) => !isTerminalCheckStatus(run.status))) {
-              context.queryClient.removeQueries({ exact: true, queryKey });
-            }
-          })
-        ];
-        await Promise.all([
-          Promise.allSettled(panels),
-          context.queryClient.ensureQueryData(
-            changesetDiffQuery(api, canonicalChangesetId, fromPatchset, toPatchset)
-          ),
-          authoringSlice?.account && authoringSlice?.slice
-            ? context.queryClient.ensureQueryData(
-                dependentChangesetsQuery(api, authoringSlice, changeset.id ?? "")
-              )
-            : Promise.resolve(undefined)
-        ]);
-      } catch (error) {
-        // A 404 is the answer; any other failure leaves it to the component.
-        if (isNotFound(error)) {
-          throw error;
-        }
-      }
-    }
-    return { social };
-  },
+  loaderDeps: ({ search }) => ({ from: search.from, to: search.to }),
+  loader: loadChangesetDetail,
   notFoundComponent: ChangesetNotFound,
-  // The page's title and what a shared link shows come from the changeset.
-  // Without one (not found, or not readable by this viewer) the head says
-  // nothing about it.
   head: ({ loaderData, params }) =>
-    loaderData?.social
-      ? changesetHead(loaderData.social)
-      : { meta: [{ title: `Changeset ${params.id} · Gitslice` }] },
+    loaderData?.social ? changesetHead(loaderData.social) : { meta: [{ title: `Changeset ${params.id} · Gitslice` }] },
   component: lazyPages.ChangesetDetailPage
 });
 
-function changesetSocial(changeset: Changeset, requestedId: string, origin: string): ChangesetSocial {
-  return {
-    handle: shortChangesetId(changeset.id ?? "") || requestedId,
-    title: changeset.title ?? "",
-    description: changeset.description ?? "",
-    status: changeset.status ?? "",
-    author: changeset.author ?? "",
-    account: changeset.authoringSlice?.account ?? "",
-    slice: changeset.authoringSlice?.slice ?? "",
-    fileCount: changeset.affectedPaths?.length ?? 0,
-    origin
-  };
-}
-
 const routeTree = rootRoute.addChildren([
-  indexRoute,
-  loginRoute,
-  loginFlowRoute,
-  signupRoute,
-  signupFlowRoute,
-  cliLoginRoute,
-  appRoute.addChildren([
-    claimsRoute,
-    conversationsRoute,
-    slicesRoute,
-    sliceCreateRoute,
-    organizationCreateRoute,
-    sliceSettingsRoute,
-    accountSecretsRoute
-  ]),
-  publicAppRoute.addChildren([
-    docRoute,
-    docSectionRoute,
-    blogsRoute,
-    blogPostRoute,
-    accountRoute,
-    sliceDetailRoute,
-    sliceAgentsRoute,
-    sliceAgentConversationRoute,
-    changesetsRoute,
-    changesetShortRoute
-  ])
+  indexRoute, loginRoute, loginFlowRoute, signupRoute, signupFlowRoute, cliLoginRoute,
+  appRoute.addChildren([claimsRoute, conversationsRoute, slicesRoute, sliceCreateRoute, organizationCreateRoute, sliceSettingsRoute, accountSecretsRoute]),
+  publicAppRoute.addChildren([docRoute, docSectionRoute, blogsRoute, blogPostRoute, accountRoute, sliceDetailRoute, sliceAgentsRoute, sliceAgentConversationRoute, changesetsRoute, changesetShortRoute])
 ]);
 
 export function getRouter() {
   const queryClient = createQueryClient();
   let dehydratedQueryState: DehydratedState | undefined;
-
   return createRouter({
     routeTree,
-    context: {
-      getDehydratedQueryState: () => dehydratedQueryState,
-      queryClient
-    },
-    // A route with no page of its own for a missing thing, and an address that
-    // matches no route, get this.
+    context: { getDehydratedQueryState: () => dehydratedQueryState, queryClient },
     defaultNotFoundComponent: PageNotFound,
     defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
     scrollRestoration: true,
     dehydrate: () => {
-      dehydratedQueryState = dehydrate(queryClient, {
-        shouldDehydrateMutation: () => false
-      });
-      return {
-        queryClient: JSON.parse(JSON.stringify(dehydratedQueryState))
-      };
+      dehydratedQueryState = dehydrate(queryClient, { shouldDehydrateMutation: () => false });
+      return { queryClient: stripUndefined(dehydratedQueryState) as never };
     },
     hydrate: (dehydrated) => {
-      dehydratedQueryState = dehydrated?.queryClient;
+      dehydratedQueryState = dehydrated?.queryClient as DehydratedState | undefined;
     }
   });
 }
 
 declare module "@tanstack/react-router" {
-  interface Register {
-    router: ReturnType<typeof getRouter>;
-  }
+  interface Register { router: ReturnType<typeof getRouter>; }
 }
 
 declare module "@tanstack/react-start" {
-  interface Register {
-    ssr: true;
-    router: ReturnType<typeof getRouter>;
-  }
+  interface Register { ssr: true; router: ReturnType<typeof getRouter>; }
 }
