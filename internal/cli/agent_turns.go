@@ -1,13 +1,10 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"os/exec"
 	"strings"
 
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -228,74 +225,27 @@ func (d *agentDaemon) capturePatchset(ctx context.Context, conv *agentConversati
 		})
 		return
 	}
-	out, err := d.runWorkspaceGSWithEnv(ctx, conv, childEnv, "cs", "capture", "--title", title, "--verbose")
+	// The capture runs in this process, in a Runner scoped to the
+	// conversation's workspace and identity; what it did comes back as data.
+	child := d.childRunner(conv.workdir, childEnv, io.Discard)
+	res, err := child.captureChangeset(ctx, commandOptions{Format: "text", Verbose: true}, title, false)
 	if err != nil {
-		text := "patchset capture failed"
-		if out != "" {
-			text = "patchset capture failed: " + out
-		}
 		_ = d.sendAgentEvent(ctx, &corev1.AgentEvent{
 			ConversationId: conv.id,
 			Role:           "system",
 			Type:           "error",
-			Text:           text,
+			Text:           "patchset capture failed: " + err.Error(),
 		})
 		return
 	}
-	if out != "" && out != "no changes to capture" && out != "no changes since last patchset" {
+	if res.Outcome == captureCaptured {
 		_ = d.sendAgentEvent(ctx, &corev1.AgentEvent{
 			ConversationId: conv.id,
 			Role:           "system",
 			Type:           "status",
-			Text:           out,
+			Text:           res.Summary(),
 		})
 	}
-}
-
-// runWorkspaceGS runs the gs binary against this conversation's workspace subdir,
-// inheriting the daemon's auth/server environment, and returns trimmed combined
-// output.
-func (d *agentDaemon) runWorkspaceGS(ctx context.Context, conv *agentConversation, args ...string) (string, error) {
-	return d.runWorkspaceGSWithEnv(ctx, conv, nil, args...)
-}
-
-func (d *agentDaemon) runWorkspaceGSWithEnv(ctx context.Context, conv *agentConversation, envOverrides map[string]string, args ...string) (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	cmd := exec.CommandContext(ctx, exe, args...)
-	cmd.Dir = conv.workdir
-	cmd.Env = agentWorkspaceInitEnvWithOverrides(d.runner, d.cfg, envOverrides)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = io.MultiWriter(&stderr, d.runner.stderr())
-	err = cmd.Run()
-	if err != nil {
-		out := strings.TrimSpace(stdout.String())
-		errOut := workspaceGSUserError(stderr.String())
-		if out == "" {
-			return errOut, err
-		}
-		if errOut == "" {
-			return out, err
-		}
-		return out + "\n" + errOut, err
-	}
-	return strings.TrimSpace(stdout.String()), nil
-}
-
-func workspaceGSUserError(stderr string) string {
-	lines := strings.Split(strings.TrimSpace(stderr), "\n")
-	kept := lines[:0]
-	for _, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "capture diagnostics:") {
-			continue
-		}
-		kept = append(kept, line)
-	}
-	return strings.TrimSpace(strings.Join(kept, "\n"))
 }
 
 func (d *agentDaemon) handleCancelConversation(cancel *corev1.CancelConversation) {

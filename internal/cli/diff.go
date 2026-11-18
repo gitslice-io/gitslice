@@ -86,7 +86,7 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 		return err
 	}
 	// Lazily: --stat and --name-only work from local state, offline too.
-	conn, err := dialLazy(cfg.ServerAddr)
+	conn, err := dialLazy(cfg.ServerAddr, r.Insecure)
 	if err != nil {
 		return err
 	}

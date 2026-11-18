@@ -15,6 +15,14 @@ type Runner struct {
 	Stdin  io.Reader
 	Dir    string
 	Home   string
+	// Insecure allows plaintext connections to non-loopback servers, as
+	// --insecure does; it is per Runner, so concurrent runs never share it.
+	Insecure bool
+	// Env overrides process environment variables for the settings Runner
+	// reads through Getenv. When non-nil it also hides the host's credentials
+	// (such as GS_TOKEN) that Env does not name, so an isolated child run only
+	// sees the identity it was given.
+	Env map[string]string
 	// AgentDoctorProbes and AgentService are optional host-operation seams for
 	// the agent preflight and user-service commands. They are primarily useful
 	// to unit tests; nil uses the real machine.
@@ -68,8 +76,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 }
 
 func (r Runner) Run(ctx context.Context, args []string) error {
-	cliInsecureFlag.Store(false)
-	defer cliInsecureFlag.Store(false)
+	ctx = withInsecure(ctx, r.Insecure)
 	args, dir, err := extractDirectoryFlag(args, r.cwd())
 	if err != nil {
 		return err
@@ -107,7 +114,8 @@ func (r Runner) rootCommand() *cobra.Command {
 			return userError("missing_command", "missing command", "Run gs --help to list available commands.")
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			cliInsecureFlag.Store(opts.Insecure)
+			r.Insecure = r.Insecure || opts.Insecure
+			cmd.SetContext(withInsecure(cmd.Context(), r.Insecure))
 			if cmd.Root().PersistentFlags().Changed("json") {
 				opts.Format = "json"
 				fields, err := parseJSONFields(jsonFlagValue)

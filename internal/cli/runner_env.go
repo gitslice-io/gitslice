@@ -81,6 +81,21 @@ func (r Runner) homeDir() string {
 	return home
 }
 
+// Getenv reads an environment variable for this Runner. Variables in Env win;
+// when Env is set, host credentials it does not name are hidden so an
+// isolated child run never inherits the daemon's identity.
+func (r Runner) Getenv(key string) string {
+	if r.Env != nil {
+		if value, ok := r.Env[key]; ok {
+			return value
+		}
+		if isSensitiveAgentHostEnvKey(key, false) {
+			return ""
+		}
+	}
+	return os.Getenv(key)
+}
+
 func (r Runner) cwd() string {
 	if r.Dir != "" {
 		return r.Dir

@@ -255,7 +255,7 @@ func (d *agentDaemon) pollConnection() (*grpc.ClientConn, error) {
 	if d.pollConn != nil {
 		return d.pollConn, nil
 	}
-	conn, err := dialLazy(d.cfg.ServerAddr)
+	conn, err := dialLazy(d.cfg.ServerAddr, d.runner.Insecure)
 	if err != nil {
 		return nil, err
 	}

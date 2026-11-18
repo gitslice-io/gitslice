@@ -49,7 +49,7 @@ func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dir
 		}()
 	}
 	if isMounted(dir) {
-		if _, err := callMountDaemon(rec.ID, mountControlRequest{Op: "status"}); err == nil || foreground {
+		if _, err := r.callMountDaemon(rec.ID, mountControlRequest{Op: "status"}); err == nil || foreground {
 			return userError("already_mounted", dir+" is already a mount point", "Run gs mount list, or gs unmount "+dir+" first.")
 		}
 		// The daemon is gone and left its mount behind ("transport endpoint
@@ -248,7 +248,7 @@ func (r Runner) runUnmount(ctx context.Context, opts commandOptions, selector st
 	if !isMounted(rec.MountPath) {
 		return userError("not_mounted", rec.MountPath+" is not mounted", "Its workspace is kept; gs mount list shows it.")
 	}
-	if err := unmountLazyWorkspace(rec); err != nil {
+	if err := r.unmountLazyWorkspace(rec); err != nil {
 		return err
 	}
 	if opts.jsonOutput() {
@@ -262,8 +262,8 @@ func (r Runner) runUnmount(ctx context.Context, opts commandOptions, selector st
 
 // unmountLazyWorkspace asks rec's daemon to unmount, or unmounts directly
 // when it is gone, and waits until the mount is.
-func unmountLazyWorkspace(rec mountRecord) error {
-	if _, err := callMountDaemon(rec.ID, mountControlRequest{Op: "unmount"}); err != nil {
+func (r Runner) unmountLazyWorkspace(rec mountRecord) error {
+	if _, err := r.callMountDaemon(rec.ID, mountControlRequest{Op: "unmount"}); err != nil {
 		if err := forceUnmount(rec.MountPath); err != nil {
 			return err
 		}
@@ -346,10 +346,10 @@ func (r Runner) runMountStatus(ctx context.Context, opts commandOptions, selecto
 	var status *mountControlReply
 	localEdits := -1
 	if mounted {
-		if got, err := callMountDaemon(rec.ID, mountControlRequest{Op: "status"}); err == nil {
+		if got, err := r.callMountDaemon(rec.ID, mountControlRequest{Op: "status"}); err == nil {
 			status = &got
 		}
-		if got, err := callMountDaemon(rec.ID, mountControlRequest{Op: "edits"}); err == nil {
+		if got, err := r.callMountDaemon(rec.ID, mountControlRequest{Op: "edits"}); err == nil {
 			localEdits = len(got.Edits)
 		}
 	}
@@ -511,7 +511,7 @@ func (r Runner) runRestore(ctx context.Context, opts commandOptions, args []stri
 	if lw, err := r.currentLazyWorkspace(); err == nil && lw != nil {
 		r.autoCheckpoint(ctx, lw, "before gs restore")
 	}
-	reply, err := callMountDaemon(id, req)
+	reply, err := r.callMountDaemon(id, req)
 	if err != nil {
 		return userError("restore_failed", err.Error(), "Is the workspace mounted? gs mount status "+root)
 	}

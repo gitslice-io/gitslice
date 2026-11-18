@@ -86,7 +86,7 @@ func (r Runner) attachWorkspace(ctx context.Context, rec mountRecord, debug bool
 	if err != nil {
 		return nil, err
 	}
-	conn, err := dialLazy(rec.ServerAddr)
+	conn, err := dialLazy(rec.ServerAddr, r.Insecure)
 	if err != nil {
 		return nil, err
 	}

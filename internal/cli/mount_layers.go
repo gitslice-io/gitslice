@@ -69,7 +69,7 @@ func (lw *lazyWorkspace) baseManifest() (*lazyfs.Manifest, error) {
 }
 
 func (lw *lazyWorkspace) call(req mountControlRequest) (mountControlReply, error) {
-	reply, err := callMountDaemon(lw.id, req)
+	reply, err := lw.r.callMountDaemon(lw.id, req)
 	if errors.Is(err, errMountUnreachable) {
 		return reply, userError("lazy_workspace_not_mounted", "cannot reach the mount of the lazy workspace at "+lw.root+": "+err.Error(), "Mount it again: gs mount "+lw.rec.Account+":"+lw.rec.Slice+" "+lw.root+".")
 	}

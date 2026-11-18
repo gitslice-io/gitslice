@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"gitslice.io/gitslice/internal/rpclimits"
@@ -77,10 +76,27 @@ func (r Runner) activeAccount(ctx context.Context, cfg UserConfig, conn *grpc.Cl
 
 type bearerTokenContextKey struct{}
 
-var cliInsecureFlag atomic.Bool
+// insecureContextKey carries --insecure (or Runner.Insecure) down a command's
+// context, so concurrent Runners never share process-global transport policy.
+type insecureContextKey struct{}
 
-func insecureTransportRequested() bool {
-	if cliInsecureFlag.Load() {
+func withInsecure(ctx context.Context, insecure bool) context.Context {
+	if !insecure {
+		return ctx
+	}
+	return context.WithValue(ctx, insecureContextKey{}, true)
+}
+
+func insecureFromContext(ctx context.Context) bool {
+	insecure, _ := ctx.Value(insecureContextKey{}).(bool)
+	return insecure
+}
+
+// insecureTransportRequested reports whether plaintext connections to
+// non-loopback servers were requested: by the caller (--insecure, carried in
+// its context) or by GS_INSECURE.
+func insecureTransportRequested(insecure bool) bool {
+	if insecure {
 		return true
 	}
 	v := strings.TrimSpace(os.Getenv("GS_INSECURE"))
@@ -140,15 +156,15 @@ const (
 // the first call needs it, and a call made while the server is unreachable
 // fails with Unavailable. A long-lived process that can work from local state,
 // such as a lazy workspace's mount daemon, uses it so it starts offline.
-func dialLazy(addr string) (*grpc.ClientConn, error) {
-	target, options := dialOptions(addr)
+func dialLazy(addr string, insecureRequested bool) (*grpc.ClientConn, error) {
+	target, options := dialOptions(addr, insecureRequested)
 	return grpc.DialContext(context.Background(), target, options...)
 }
 
 func dialWithOptions(ctx context.Context, addr string, extraOptions ...grpc.DialOption) (*grpc.ClientConn, error) {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	target, options := dialOptions(addr)
+	target, options := dialOptions(addr, insecureFromContext(ctx))
 	options = append(options, grpc.WithBlock())
 	options = append(options, extraOptions...)
 	return grpc.DialContext(ctx, target, options...)
@@ -156,8 +172,8 @@ func dialWithOptions(ctx context.Context, addr string, extraOptions ...grpc.Dial
 
 // dialOptions returns the target and the options every connection to the
 // server uses, except whether to wait for it.
-func dialOptions(addr string) (string, []grpc.DialOption) {
-	target, useTLS, explicitPlain := resolveDialTargetPolicy(addr)
+func dialOptions(addr string, insecureRequested bool) (string, []grpc.DialOption) {
+	target, useTLS, explicitPlain := resolveDialTargetPolicy(addr, insecureRequested)
 	host := extractDialHost(target)
 	creds := insecure.NewCredentials()
 	if useTLS {
@@ -191,11 +207,11 @@ func dialOptions(addr string) (string, []grpc.DialOption) {
 // is set; loopback hosts remain plaintext by default unless port 443, an https/
 // grpcs scheme, or GS_TLS=1/true is set.
 func resolveDialTarget(addr string) (string, bool) {
-	target, useTLS, _ := resolveDialTargetPolicy(addr)
+	target, useTLS, _ := resolveDialTargetPolicy(addr, false)
 	return target, useTLS
 }
 
-func resolveDialTargetPolicy(addr string) (target string, useTLS bool, explicitPlain bool) {
+func resolveDialTargetPolicy(addr string, insecureRequested bool) (target string, useTLS bool, explicitPlain bool) {
 	addr = strings.TrimSpace(addr)
 	explicitTLS := false
 	switch {
@@ -219,7 +235,7 @@ func resolveDialTargetPolicy(addr string) (target string, useTLS bool, explicitP
 			explicitTLS = false
 		}
 	}
-	if insecureTransportRequested() && !explicitTLS {
+	if insecureTransportRequested(insecureRequested) && !explicitTLS {
 		explicitPlain = true
 	}
 	host := extractDialHost(addr)
@@ -263,7 +279,7 @@ func isLoopbackHost(host string) bool {
 }
 
 func isLoopbackDialAddr(addr string) bool {
-	target, _, _ := resolveDialTargetPolicy(addr)
+	target, _, _ := resolveDialTargetPolicy(addr, false)
 	return isLoopbackHost(extractDialHost(target))
 }
 

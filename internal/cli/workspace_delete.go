@@ -64,7 +64,7 @@ func (r Runner) deleteLazyWorkspace(opts commandOptions, rec mountRecord, force 
 		return localEditsError(rec.MountPath, paths)
 	}
 	if mounted {
-		if err := unmountLazyWorkspace(rec); err != nil {
+		if err := r.unmountLazyWorkspace(rec); err != nil {
 			return err
 		}
 	}
@@ -81,7 +81,7 @@ func (r Runner) deleteLazyWorkspace(opts commandOptions, rec mountRecord, force 
 // daemon while mounted, else from its local layer on disk.
 func (r Runner) lazyWorkspaceEdits(rec mountRecord, mounted bool) ([]lazyfs.Edit, error) {
 	if mounted {
-		reply, err := callMountDaemon(rec.ID, mountControlRequest{Op: "edits"})
+		reply, err := r.callMountDaemon(rec.ID, mountControlRequest{Op: "edits"})
 		if err == nil && reply.Error == "" {
 			return reply.Edits, nil
 		}
@@ -148,7 +148,7 @@ func (r Runner) checkoutEditPaths(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := dialLazy(cfg.ServerAddr)
+	conn, err := dialLazy(cfg.ServerAddr, r.Insecure)
 	if err != nil {
 		return nil, err
 	}

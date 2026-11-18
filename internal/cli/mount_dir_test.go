@@ -165,7 +165,7 @@ func TestMountIDValidationAndPathTraversal(t *testing.T) {
 		if relErr != nil || strings.HasPrefix(rel, "..") {
 			t.Fatalf("mountStateDir(%q) = %q escaped mountsRoot %q", bad, stateDir, mountsRoot)
 		}
-		sock := mountControlPath(bad)
+		sock := Runner{}.mountControlPath(bad)
 		if filepath.Dir(sock) != filepath.Clean(runDir) {
 			t.Fatalf("mountControlPath(%q) = %q escaped runtime dir %q", bad, sock, runDir)
 		}
@@ -223,7 +223,7 @@ func TestMountRuntimeDirAndSocketSecurity(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", "")
 	t.Setenv("HOME", shortHome)
 
-	gotRun := mountRuntimeDir()
+	gotRun := Runner{}.mountRuntimeDir()
 	wantRun := filepath.Join(shortHome, ".gitslice", "run")
 	if gotRun != wantRun {
 		t.Fatalf("mountRuntimeDir() = %q, want %q", gotRun, wantRun)
@@ -275,13 +275,13 @@ func TestMountRuntimeDirAndSocketSecurity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	listener, cleanup := listenMountControl(id)
+	listener, cleanup := Runner{}.listenMountControl(id)
 	if listener == nil {
 		t.Fatal("listenMountControl returned nil listener")
 	}
 	defer cleanup()
 
-	sockInfo, err := os.Lstat(mountControlPath(id))
+	sockInfo, err := os.Lstat(Runner{}.mountControlPath(id))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -292,7 +292,7 @@ func TestMountRuntimeDirAndSocketSecurity(t *testing.T) {
 	go serveMountControl(listener, func(req mountControlRequest) mountControlReply {
 		return mountControlReply{PID: os.Getpid(), BaseCommit: "commit-ok"}
 	})
-	reply, err := callMountDaemon(id, mountControlRequest{Op: "status"})
+	reply, err := Runner{}.callMountDaemon(id, mountControlRequest{Op: "status"})
 	if err != nil {
 		t.Fatalf("callMountDaemon over verified peer socket failed: %v", err)
 	}

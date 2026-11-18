@@ -231,10 +231,9 @@ func describeEdits(edits []*corev1.FileEdit) string {
 func TestLiveMountEditsAvoidManifestReloadAndFallbackOffline(t *testing.T) {
 	ctx := context.Background()
 	runDir := shortTempDir(t, "gsrun-")
-	t.Setenv("XDG_RUNTIME_DIR", runDir)
 
 	mountRoot := t.TempDir()
-	r := Runner{Home: t.TempDir(), Dir: mountRoot}
+	r := Runner{Home: t.TempDir(), Dir: mountRoot, Env: map[string]string{"XDG_RUNTIME_DIR": runDir}}
 	ws := WorkspaceConfig{Account: "acme", Slice: "app", IncludedPaths: []string{"/acme/app"}}
 	cache, err := r.objectCache()
 	if err != nil {
@@ -358,7 +357,7 @@ func TestLiveMountEditsAvoidManifestReloadAndFallbackOffline(t *testing.T) {
 	}
 
 	digest := manifestDigest(manifest)
-	listener, closeListener := listenMountControl(id)
+	listener, closeListener := r.listenMountControl(id)
 	if listener == nil {
 		t.Fatal("listenMountControl returned nil")
 	}

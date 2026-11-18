@@ -9,13 +9,6 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-func TestWorkspaceGSUserErrorOmitsCaptureDiagnostics(t *testing.T) {
-	got := workspaceGSUserError("capture diagnostics: result=error total=2s\npermission denied\n")
-	if got != "permission denied" {
-		t.Fatalf("workspace error = %q, want permission denied", got)
-	}
-}
-
 func TestAgentWorkspaceInstructionsIncludesEditableScope(t *testing.T) {
 	got := agentWorkspaceInstructions([]string{"/nic/File"})
 	for _, want := range []string{"/nic/File/", "only edit files", "canonical account-rooted", "gsfile:nic/File/Lol.txt", "not\n  `gsfile:Lol.txt`"} {

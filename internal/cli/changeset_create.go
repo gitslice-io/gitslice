@@ -113,7 +113,60 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 // It is a no-op when the workspace has no pending edits, so an agent daemon can
 // call it after every turn without producing empty patchsets. The conversation
 // link comes from the workspace config (WorkspaceConfig.ConversationID).
-func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, title string, noChecks bool) (retErr error) {
+func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, title string, noChecks bool) error {
+	res, err := r.captureChangeset(ctx, opts, title, noChecks)
+	if err != nil {
+		return err
+	}
+	switch res.Outcome {
+	case captureNoChanges:
+		if !opts.jsonOutput() && !opts.Quiet {
+			fmt.Fprintln(r.Stdout, "no changes to capture")
+		}
+	case captureUnchangedPatchset:
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, changesetOutput{ChangesetID: res.ChangesetID, PatchsetID: res.PatchsetID, PatchsetNumber: res.PatchsetNumber})
+		}
+		if !opts.Quiet {
+			fmt.Fprintln(r.Stdout, "no changes to capture")
+		}
+	default:
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, changesetOutput{ChangesetID: res.ChangesetID, PatchsetID: res.PatchsetID, PatchsetNumber: res.PatchsetNumber})
+		}
+		if !opts.Quiet {
+			fmt.Fprintln(r.Stdout, res.Summary())
+		}
+	}
+	return nil
+}
+
+// What a capture did.
+const (
+	captureNoChanges         = "no_changes"
+	captureUnchangedPatchset = "unchanged_patchset"
+	captureCaptured          = "captured"
+)
+
+// captureResult is what captureChangeset did, as data: callers such as the
+// agent daemon read it instead of parsing what gs cs capture prints.
+type captureResult struct {
+	Outcome        string
+	ChangesetID    string
+	PatchsetID     string
+	PatchsetNumber int64
+}
+
+// Summary is the one line gs cs capture prints for a new patchset.
+func (c captureResult) Summary() string {
+	label := firstNonEmpty(model.ShortChangesetID(c.ChangesetID), c.ChangesetID)
+	return fmt.Sprintf("captured changeset %s patchset %d", label, c.PatchsetNumber)
+}
+
+// captureChangeset snapshots the workspace's edits and records them as a
+// patchset (see runChangesetCapture), reporting the outcome instead of
+// printing it. Verbose capture diagnostics still go to the Runner's stderr.
+func (r Runner) captureChangeset(ctx context.Context, opts commandOptions, title string, noChecks bool) (result captureResult, retErr error) {
 	started := time.Now()
 	diagnostics := captureDiagnostics{Result: "captured"}
 	if opts.Verbose || opts.Debug || opts.Trace {
@@ -128,11 +181,11 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
-		return err
+		return result, err
 	}
 	conn, err := dial(ctx, cfg.ServerAddr)
 	if err != nil {
-		return err
+		return result, err
 	}
 	defer conn.Close()
 	callCtx := authContext(ctx, cfg)
@@ -142,14 +195,11 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 	diagnostics.Snapshot = snapshotStats
 	diagnostics.ChangedPaths = len(edits)
 	if err != nil {
-		return err
+		return result, err
 	}
 	if len(edits) == 0 {
 		diagnostics.Result = "no_changes"
-		if !opts.jsonOutput() && !opts.Quiet {
-			fmt.Fprintln(r.Stdout, "no changes to capture")
-		}
-		return nil
+		return captureResult{Outcome: captureNoChanges}, nil
 	}
 
 	// Reuse the current draft changeset when one exists; otherwise create one.
@@ -169,7 +219,7 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 				priorPatchsetID = cs.CurrentPatchsetId
 			}
 		} else if grpcstatus.Code(err) != codes.NotFound {
-			return err
+			return result, err
 		}
 	}
 
@@ -183,7 +233,7 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 			Title:          title,
 		})
 		if err != nil {
-			return err
+			return result, err
 		}
 		changesetID = cs.Id
 		expectedPatchsetID = ""
@@ -196,7 +246,7 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 		bundledCheckRuns, err = r.captureBundledCheckRuns(ctx, opts, ws, changedPathsFromEdits(edits))
 		diagnostics.ChecksDuration = time.Since(checksStarted)
 		if err != nil {
-			return err
+			return result, err
 		}
 	}
 
@@ -211,7 +261,7 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 	})
 	diagnostics.UpdateDuration = time.Since(updateStarted)
 	if err != nil {
-		return err
+		return result, err
 	}
 	if priorPatchsetID != "" && patchset.Id == priorPatchsetID {
 		diagnostics.Result = "unchanged_patchset"
@@ -220,39 +270,16 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 		state.CurrentChangesetID = changesetID
 		state.CurrentPatchsetID = patchset.Id
 		if err := r.writeWorkspaceState(state); err != nil {
-			return err
+			return result, err
 		}
-		if opts.jsonOutput() {
-			return r.writeJSONOutput(opts, changesetOutput{
-				ChangesetID:    changesetID,
-				PatchsetID:     patchset.Id,
-				PatchsetNumber: patchset.Number,
-			})
-		}
-		if !opts.Quiet {
-			fmt.Fprintln(r.Stdout, "no changes to capture")
-		}
-		return nil
+		return captureResult{Outcome: captureUnchangedPatchset, ChangesetID: changesetID, PatchsetID: patchset.Id, PatchsetNumber: patchset.Number}, nil
 	}
 	state.CurrentChangesetID = changesetID
 	state.CurrentPatchsetID = patchset.Id
 	if err := r.writeWorkspaceState(state); err != nil {
-		return err
+		return result, err
 	}
-
-	label := firstNonEmpty(model.ShortChangesetID(changesetID), changesetID)
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, changesetOutput{
-			ChangesetID:    changesetID,
-			PatchsetID:     patchset.Id,
-			PatchsetNumber: patchset.Number,
-		})
-	}
-	if opts.Quiet {
-		return nil
-	}
-	fmt.Fprintf(r.Stdout, "captured changeset %s patchset %d\n", label, patchset.Number)
-	return nil
+	return captureResult{Outcome: captureCaptured, ChangesetID: changesetID, PatchsetID: patchset.Id, PatchsetNumber: patchset.Number}, nil
 }
 
 func (r Runner) writeCaptureDiagnostics(stats captureDiagnostics) {

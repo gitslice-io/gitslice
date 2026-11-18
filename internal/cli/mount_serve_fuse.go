@@ -22,11 +22,11 @@ import (
 // the mount appears, so a command run right after gs mount always finds it
 // (connections wait until served). The returned func closes and removes it. A
 // workspace still works without one, only its commands cannot reach it.
-func listenMountControl(id string) (net.Listener, func()) {
+func (r Runner) listenMountControl(id string) (net.Listener, func()) {
 	if err := validateMountID(id); err != nil {
 		return nil, func() {}
 	}
-	socket := mountControlPath(id)
+	socket := r.mountControlPath(id)
 	listener, err := listenUnixControlSocket(socket)
 	if err != nil {
 		return nil, func() {}
@@ -42,7 +42,7 @@ func listenMountControl(id string) (net.Listener, func()) {
 // ends: gs mount --foreground. gs mount without it hands the workspace to the
 // mount supervisor instead.
 func (r Runner) serveMount(ctx context.Context, rec mountRecord, debug bool, ready func()) error {
-	listener, closeListener := listenMountControl(rec.ID)
+	listener, closeListener := r.listenMountControl(rec.ID)
 	defer closeListener()
 	w, err := r.attachWorkspace(ctx, rec, debug, func(format string, args ...any) {
 		fmt.Fprintf(os.Stderr, format+"\n", args...)
@@ -139,9 +139,9 @@ func (r Runner) startMountSupervisor(socket string) error {
 	cmd.Env = os.Environ()
 	if r.Home != "" {
 		cmd.Env = append(cmd.Env, "HOME="+r.Home)
-		if os.Getenv("XDG_RUNTIME_DIR") == "" {
-			cmd.Env = append(cmd.Env, "XDG_RUNTIME_DIR="+filepath.Dir(socket))
-		}
+		// The supervisor serves this Home's mounts: it must put its sockets
+		// where this Runner looks for them, not under the host's runtime dir.
+		cmd.Env = append(cmd.Env, "XDG_RUNTIME_DIR="+filepath.Dir(socket))
 	}
 	cmd.Stdout, cmd.Stderr = logFile, logFile
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}

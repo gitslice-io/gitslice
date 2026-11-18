@@ -15,8 +15,6 @@ import (
 func TestResolveDialTargetTLSDefaultsAndBearerSecurity(t *testing.T) {
 	t.Setenv("GS_TLS", "")
 	t.Setenv("GS_INSECURE", "")
-	cliInsecureFlag.Store(false)
-	defer cliInsecureFlag.Store(false)
 
 	// Non-loopback custom ports MUST default to TLS.
 	for _, remoteAddr := range []string{
@@ -26,7 +24,7 @@ func TestResolveDialTargetTLSDefaultsAndBearerSecurity(t *testing.T) {
 		"https://api.gitslice.io:9000",
 		"grpcs://api.gitslice.io:9000",
 	} {
-		_, useTLS, explicitPlain := resolveDialTargetPolicy(remoteAddr)
+		_, useTLS, explicitPlain := resolveDialTargetPolicy(remoteAddr, false)
 		if !useTLS || explicitPlain {
 			t.Fatalf("resolveDialTargetPolicy(%q) = (useTLS=%v, explicitPlain=%v), want useTLS=true", remoteAddr, useTLS, explicitPlain)
 		}
@@ -38,7 +36,7 @@ func TestResolveDialTargetTLSDefaultsAndBearerSecurity(t *testing.T) {
 		"localhost:50051",
 		"[::1]:50051",
 	} {
-		_, useTLS, _ := resolveDialTargetPolicy(localAddr)
+		_, useTLS, _ := resolveDialTargetPolicy(localAddr, false)
 		if useTLS {
 			t.Fatalf("resolveDialTargetPolicy(%q) = useTLS=true, want false for local loopback", localAddr)
 		}
@@ -48,11 +46,9 @@ func TestResolveDialTargetTLSDefaultsAndBearerSecurity(t *testing.T) {
 	if _, useTLS := resolveDialTarget("grpc://api.gitslice.io:50051"); useTLS {
 		t.Fatal("explicit grpc:// scheme unexpectedly enabled TLS")
 	}
-	cliInsecureFlag.Store(true)
-	if _, useTLS := resolveDialTarget("api.gitslice.io:50051"); useTLS {
+	if _, useTLS, _ := resolveDialTargetPolicy("api.gitslice.io:50051", true); useTLS {
 		t.Fatal("--insecure flag did not allow plaintext dial")
 	}
-	cliInsecureFlag.Store(false)
 	t.Setenv("GS_TLS", "0")
 	if _, useTLS := resolveDialTarget("api.gitslice.io:50051"); useTLS {
 		t.Fatal("GS_TLS=0 did not allow plaintext dial")
@@ -94,19 +90,18 @@ func TestResolveRunChecksServerAddrPinsConfiguredServer(t *testing.T) {
 
 func TestNormalizeDoorbellURLRequiresWSSForRemoteTLS(t *testing.T) {
 	t.Setenv("GS_INSECURE", "")
-	cliInsecureFlag.Store(false)
 
-	if _, err := normalizeDoorbellURL("ws://doorbell.gitslice.io/wait", true); err == nil {
+	if _, err := normalizeDoorbellURL("ws://doorbell.gitslice.io/wait", true, false); err == nil {
 		t.Fatal("expected ws:// doorbell URL to be rejected when requireTLS is true")
 	}
-	if _, err := normalizeDoorbellURL("http://doorbell.gitslice.io/wait", false); err == nil {
+	if _, err := normalizeDoorbellURL("http://doorbell.gitslice.io/wait", false, false); err == nil {
 		t.Fatal("expected http:// doorbell URL to non-loopback host to be rejected")
 	}
-	got, err := normalizeDoorbellURL("https://doorbell.gitslice.io/wait?daemon=1", true)
+	got, err := normalizeDoorbellURL("https://doorbell.gitslice.io/wait?daemon=1", true, false)
 	if err != nil || got != "wss://doorbell.gitslice.io/wait?daemon=1" {
 		t.Fatalf("normalizeDoorbellURL(https) = %q, err=%v", got, err)
 	}
-	gotLoop, err := normalizeDoorbellURL("ws://127.0.0.1:9123/wait", false)
+	gotLoop, err := normalizeDoorbellURL("ws://127.0.0.1:9123/wait", false, false)
 	if err != nil || gotLoop != "ws://127.0.0.1:9123/wait" {
 		t.Fatalf("normalizeDoorbellURL(loopback ws) = %q, err=%v", gotLoop, err)
 	}

@@ -1,8 +1,10 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -62,10 +64,17 @@ func conversationIDFromWorkdir(workingDir, workdir string) string {
 	return ""
 }
 
+// conversationRunner is the daemon's Runner confined to one conversation's run
+// home: its mount state and sockets live under that home, as those of the gs
+// processes the daemon starts with HOME=runHome do. A host XDG_RUNTIME_DIR,
+// which those processes honor, is passed on explicitly.
 func (d *agentDaemon) conversationRunner(conversationID string) Runner {
 	r := d.runner
 	if runHome := d.conversationRunHomeDir(conversationID); runHome != "" {
 		r.Home = runHome
+		if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+			r.Env = map[string]string{"XDG_RUNTIME_DIR": dir}
+		}
 	}
 	return r
 }
@@ -103,13 +112,13 @@ func (d *agentDaemon) unmountConversationLazyWorkspace(ctx context.Context, conv
 			return nil
 		} else if !d.workspaceMounted(rec.MountPath) {
 			return nil
-		} else if fallbackErr := unmountLazyWorkspace(rec); fallbackErr == nil {
+		} else if fallbackErr := d.conversationRunner(conversationID).unmountLazyWorkspace(rec); fallbackErr == nil {
 			return nil
 		} else {
 			return fmt.Errorf("%w (%s)", fallbackErr, out)
 		}
 	}
-	return unmountLazyWorkspace(rec)
+	return d.runner.unmountLazyWorkspace(rec)
 }
 
 // handleCloseWorkspace tears a conversation down at the server's request: it
@@ -386,7 +395,7 @@ func (d *agentDaemon) hydrateWorkspaceWithEnv(ctx context.Context, conv *agentCo
 		}
 		fmt.Fprintf(d.runner.stderr(), "lazy workspaces are not available here (%s); checking out instead\n", output)
 	}
-	output, err := d.runGSWithEnv(ctx, conv.workdir, envOverrides, "--quiet", "workspace", "init", sliceRef, "--agent-conversation", conv.id)
+	output, err := d.workspaceInit(ctx, conv, sliceRef, envOverrides)
 	if err == nil {
 		return nil
 	}
@@ -395,4 +404,50 @@ func (d *agentDaemon) hydrateWorkspaceWithEnv(ctx context.Context, conv *agentCo
 		return fmt.Errorf("workspace init failed for %s: %w", sliceRef, err)
 	}
 	return fmt.Errorf("workspace init failed for %s: %w: %s", sliceRef, err, detail)
+}
+
+// workspaceInit checks the slice out into the conversation's workspace
+// directory. It runs in this process, in a Runner scoped to that directory and
+// to the conversation's identity (see childRunner), not as a gs subprocess
+// whose output has to be read back.
+func (d *agentDaemon) workspaceInit(ctx context.Context, conv *agentConversation, sliceRef string, envOverrides map[string]string) (string, error) {
+	if d.runGSFn != nil {
+		return d.runGSFn(ctx, conv.workdir, envOverrides, "--quiet", "workspace", "init", sliceRef, "--agent-conversation", conv.id)
+	}
+	var stderr bytes.Buffer
+	child := d.childRunner(conv.workdir, envOverrides, io.Discard)
+	child.Stderr = io.MultiWriter(&stderr, d.runner.stderr())
+	err := child.runWorkspaceInit(ctx, commandOptions{Format: "text", Quiet: true, AgentConversationID: conv.id}, sliceRef)
+	return strings.TrimSpace(stderr.String()), err
+}
+
+// childRunner is the daemon's Runner for the work it used to hand to a gs
+// subprocess: rooted at dir, with the conversation's identity (envOverrides:
+// GS_TOKEN, HOME and the like) and the daemon's server, and with the host's
+// own credentials hidden. Nothing is shared with the daemon's Runner but its
+// settings, so conversations run side by side.
+func (d *agentDaemon) childRunner(dir string, envOverrides map[string]string, stdout io.Writer) Runner {
+	env := map[string]string{}
+	if addr := strings.TrimSpace(d.cfg.ServerAddr); addr != "" {
+		env["GS_SERVER_ADDR"] = addr
+		env["GITSLICE_SERVER_ADDR"] = addr
+	}
+	if len(envOverrides) == 0 {
+		if token := strings.TrimSpace(d.cfg.Token); token != "" {
+			env["GS_TOKEN"] = token
+		}
+	}
+	for key, value := range envOverrides {
+		env[key] = value
+	}
+	child := d.runner
+	child.Dir = dir
+	child.Stdout = stdout
+	child.Stderr = d.runner.stderr()
+	child.Stdin = strings.NewReader("")
+	child.Env = env
+	if home := strings.TrimSpace(env["HOME"]); home != "" {
+		child.Home = home
+	}
+	return child
 }

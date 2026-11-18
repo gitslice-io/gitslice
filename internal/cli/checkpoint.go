@@ -465,7 +465,7 @@ func (r Runner) lazyRemote() (UserConfig, *grpc.ClientConn, error) {
 	if err != nil {
 		return cfg, nil, err
 	}
-	conn, err := dialLazy(cfg.ServerAddr)
+	conn, err := dialLazy(cfg.ServerAddr, r.Insecure)
 	return cfg, conn, err
 }
 

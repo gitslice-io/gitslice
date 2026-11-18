@@ -192,7 +192,7 @@ func (l *doorbellListener) run(ctx context.Context) {
 }
 
 func dialDoorbell(ctx context.Context, waitURL, token string, requireTLS bool) (*websocket.Conn, error) {
-	normalized, err := normalizeDoorbellURL(waitURL, requireTLS)
+	normalized, err := normalizeDoorbellURL(waitURL, requireTLS, insecureFromContext(ctx))
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +213,7 @@ func dialDoorbell(ctx context.Context, waitURL, token string, requireTLS bool) (
 	return cfg.DialContext(dialCtx)
 }
 
-func normalizeDoorbellURL(waitURL string, requireTLS bool) (string, error) {
+func normalizeDoorbellURL(waitURL string, requireTLS, insecureRequested bool) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(waitURL))
 	if err != nil {
 		return "", fmt.Errorf("invalid doorbell URL: %w", err)
@@ -229,7 +229,7 @@ func normalizeDoorbellURL(waitURL string, requireTLS bool) (string, error) {
 	if u.Host == "" || u.Hostname() == "" {
 		return "", fmt.Errorf("doorbell URL missing host")
 	}
-	mustTLS := requireTLS || (!isLoopbackHost(u.Hostname()) && !insecureTransportRequested())
+	mustTLS := requireTLS || (!isLoopbackHost(u.Hostname()) && !insecureTransportRequested(insecureRequested))
 	if mustTLS && u.Scheme != "wss" {
 		return "", fmt.Errorf("doorbell URL must use wss:// for non-loopback TLS target")
 	}

@@ -180,7 +180,7 @@ func (s *mountSupervisor) attach(id string) mountdReply {
 		finish()
 		return mountdError(userError("not_a_lazy_workspace", "no lazy workspace "+id, "Run gs mount list."))
 	}
-	listener, closeListener := listenMountControl(id)
+	listener, closeListener := s.r.listenMountControl(id)
 	w, err := s.r.attachWorkspace(s.ctx, rec, false, s.logf)
 	if err != nil {
 		closeListener()

@@ -100,8 +100,12 @@ func rejectPreStackWorkspaceState(state WorkspaceState) error {
 }
 
 func envServerAddrOverride() string {
+	return Runner{}.envServerAddrOverride()
+}
+
+func (r Runner) envServerAddrOverride() string {
 	for _, key := range []string{"GS_SERVER_ADDR", "GITSLICE_GRPC_ADDR", "GITSLICE_SERVER_ADDR"} {
-		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+		if value := strings.TrimSpace(r.Getenv(key)); value != "" {
 			return value
 		}
 	}
@@ -109,7 +113,7 @@ func envServerAddrOverride() string {
 }
 
 func (r Runner) readEnvUserConfig() (UserConfig, bool, error) {
-	token := strings.TrimSpace(os.Getenv("GS_TOKEN"))
+	token := strings.TrimSpace(r.Getenv("GS_TOKEN"))
 	if token == "" {
 		return UserConfig{}, false, nil
 	}
@@ -117,7 +121,7 @@ func (r Runner) readEnvUserConfig() (UserConfig, bool, error) {
 	if err != nil {
 		return UserConfig{}, false, err
 	}
-	serverAddr := envServerAddrOverride()
+	serverAddr := r.envServerAddrOverride()
 	if serverAddr == "" {
 		serverAddr = strings.TrimSpace(cfg.ServerAddr)
 	}

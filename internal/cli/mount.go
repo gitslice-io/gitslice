@@ -92,7 +92,7 @@ func (rec mountRecord) ref() *corev1.SliceRef {
 
 // mountsRoot is where lazy workspaces keep their state.
 func (r Runner) mountsRoot() string {
-	if dataHome := os.Getenv("XDG_DATA_HOME"); dataHome != "" && r.Home == "" {
+	if dataHome := r.Getenv("XDG_DATA_HOME"); dataHome != "" && r.Home == "" {
 		return filepath.Join(dataHome, "gitslice", "mounts")
 	}
 	return filepath.Join(r.homeDir(), ".local", "share", "gitslice", "mounts")
@@ -133,11 +133,20 @@ func (r Runner) mountStateDir(id string) string {
 
 // mountRuntimeDir is where the mount sockets live, in a user-owned 0700
 // directory short enough for Unix domain sockets (104 bytes on macOS).
-func mountRuntimeDir() string {
-	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+//
+// A Runner with its own Home (an isolated per-conversation run, a test) keeps
+// its sockets under that home, never the host user's: it ignores the host's
+// XDG_RUNTIME_DIR, and its /tmp fallback is private to that home.
+func (r Runner) mountRuntimeDir() string {
+	if dir, named := r.Env["XDG_RUNTIME_DIR"]; named && dir != "" {
 		return filepath.Clean(dir)
 	}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
+	if r.Home == "" {
+		if dir := r.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+			return filepath.Clean(dir)
+		}
+	}
+	if home := r.homeDir(); home != "" {
 		candidate := filepath.Join(home, ".gitslice", "run")
 		if len(candidate) <= maxMountRuntimeDirLen {
 			return candidate
@@ -149,7 +158,12 @@ func mountRuntimeDir() string {
 	if runtime.GOOS == "darwin" {
 		tmp = "/tmp"
 	}
-	return filepath.Join(tmp, fmt.Sprintf("gitslice-%d", os.Getuid()))
+	name := fmt.Sprintf("gitslice-%d", os.Getuid())
+	if r.Home != "" {
+		sum := sha256.Sum256([]byte(r.Home))
+		name += "-" + hex.EncodeToString(sum[:4])
+	}
+	return filepath.Join(tmp, name)
 }
 
 func verifyMountRuntimeDir(dir string) error {
@@ -249,18 +263,18 @@ func verifyUnixPeerUID(conn net.Conn) error {
 
 // mountControlPath is a lazy workspace's control socket, served by whichever
 // process has it mounted.
-func mountControlPath(id string) string {
+func (r Runner) mountControlPath(id string) string {
 	if !isValidMountID(id) {
-		return filepath.Join(mountRuntimeDir(), "gs-mount-_invalid.sock")
+		return filepath.Join(r.mountRuntimeDir(), "gs-mount-_invalid.sock")
 	}
-	return filepath.Join(mountRuntimeDir(), "gs-mount-"+id+".sock")
+	return filepath.Join(r.mountRuntimeDir(), "gs-mount-"+id+".sock")
 }
 
 // mountSupervisorSocket is the socket of the mount supervisor (gs mountd) for
 // this state directory: one process serves all of a user's mounts.
 func (r Runner) mountSupervisorSocket() string {
 	sum := sha256.Sum256([]byte(r.mountsRoot()))
-	return filepath.Join(mountRuntimeDir(), "gs-mountd-"+hex.EncodeToString(sum[:4])+".sock")
+	return filepath.Join(r.mountRuntimeDir(), "gs-mountd-"+hex.EncodeToString(sum[:4])+".sock")
 }
 
 // mountdRequest and mountdReply are the supervisor's own protocol, besides the
@@ -982,7 +996,7 @@ func (r Runner) newDaemonLayerView(rec mountRecord, mountRoot string, manifest *
 }
 
 func (v *daemonLayerView) EditsWithBase() ([]lazyfs.Edit, string, map[string]BaseSnapshotFile, string, bool, error) {
-	reply, err := callMountDaemon(v.id, mountControlRequest{Op: "edits"})
+	reply, err := v.r.callMountDaemon(v.id, mountControlRequest{Op: "edits"})
 	if errors.Is(err, errMountUnreachable) {
 		edits, m, oerr := v.offlineEdits()
 		if oerr == nil {
@@ -1193,12 +1207,12 @@ type mountControlReply struct {
 // control socket: the workspace is not mounted, or its daemon died.
 var errMountUnreachable = errors.New("no mount daemon answers")
 
-func callMountDaemon(id string, req mountControlRequest) (mountControlReply, error) {
+func (r Runner) callMountDaemon(id string, req mountControlRequest) (mountControlReply, error) {
 	var reply mountControlReply
 	if err := validateMountID(id); err != nil {
 		return reply, err
 	}
-	socket := mountControlPath(id)
+	socket := r.mountControlPath(id)
 	if err := verifyMountRuntimeDir(filepath.Dir(socket)); err != nil {
 		return reply, fmt.Errorf("%w: %v", errMountUnreachable, err)
 	}

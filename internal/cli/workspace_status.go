@@ -188,7 +188,7 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions, local, relat
 		return err
 	}
 	// Lazily: offline, the calls below fail fast instead of the dial waiting.
-	conn, err := dialLazy(cfg.ServerAddr)
+	conn, err := dialLazy(cfg.ServerAddr, r.Insecure)
 	if err != nil {
 		return err
 	}
