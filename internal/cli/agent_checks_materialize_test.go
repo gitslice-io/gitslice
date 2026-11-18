@@ -16,8 +16,8 @@ import (
 
 func TestMaterializeCheckTreeFetchesNestedPrefix(t *testing.T) {
 	repo := checkTreeRepoClient{
-		account: "acme",
-		inner: newFakeCheckRepo(map[string][]*corev1.TreeEntry{
+		Account: "acme",
+		Inner: newFakeCheckRepo(map[string][]*corev1.TreeEntry{
 			"/acme": {
 				checkDirEntry("/acme/backend"),
 			},
@@ -279,8 +279,8 @@ func TestMaterializeCheckTreeReusesObjectCacheAcrossRuns(t *testing.T) {
 
 func TestCheckRunSpecMaterializedHostExecution(t *testing.T) {
 	repo := checkTreeRepoClient{
-		account: "acme",
-		inner: newFakeCheckRepo(map[string][]*corev1.TreeEntry{
+		Account: "acme",
+		Inner: newFakeCheckRepo(map[string][]*corev1.TreeEntry{
 			"/acme": {
 				checkDirEntry("/acme/backend"),
 			},

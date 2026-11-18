@@ -1,6 +1,6 @@
 //go:build aix || darwin || dragonfly || freebsd || linux || netbsd || openbsd || solaris
 
-package cli
+package agentd
 
 import (
 	"errors"
@@ -8,9 +8,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-var errAgentDoctorDiskUnknown = errors.New("disk space is unknown")
+var ErrDoctorDiskUnknown = errors.New("disk space is unknown")
 
-func agentDoctorFreeBytes(path string) (uint64, error) {
+func DoctorFreeBytes(path string) (uint64, error) {
 	var stat unix.Statfs_t
 	if err := unix.Statfs(path, &stat); err != nil {
 		return 0, err

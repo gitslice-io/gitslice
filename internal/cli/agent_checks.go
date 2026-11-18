@@ -7,12 +7,23 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
+	"gitslice.io/gitslice/internal/agentd"
 	"gitslice.io/gitslice/internal/checkexec"
-	"gitslice.io/gitslice/internal/checks"
-	"gitslice.io/gitslice/internal/secretmask"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
+)
+
+const (
+	agentMaxPendingCheckRunUpdates = agentd.MaxPendingCheckRunUpdates
+	agentMaxCheckRunOutboxes       = agentd.MaxCheckRunOutboxes
+)
+
+var (
+	resolveRunChecksServerAddr = agentd.ResolveRunChecksServerAddr
+	checkSpecFromProto         = agentd.CheckSpecFromProto
+	detectContainerRuntimes    = agentd.DetectContainerRuntimes
+	checkSecretMasker          = agentd.CheckSecretMasker
+	runCheckIDs                = agentd.RunCheckIDs
 )
 
 func (d *agentDaemon) handleRunChecks(req *corev1.RunChecks) {
@@ -34,11 +45,8 @@ func (d *agentDaemon) handleRunChecks(req *corev1.RunChecks) {
 
 	repo := RepoClient(corev1.NewRepositoryServiceClient(conn))
 	if account := strings.TrimSpace(req.GetSlice().GetAccount()); account != "" {
-		repo = checkTreeRepoClient{inner: repo, account: account}
+		repo = checkTreeRepoClient{Inner: repo, Account: account}
 	}
-	// The checks of one request start in the order listed, and run side by
-	// side up to the daemon's check concurrency (GITSLICE_CHECK_CONCURRENCY);
-	// the slots in handleCheckRunSpec bound them across requests too.
 	specs := req.GetChecks()
 	workers := len(specs)
 	if d.checkSlots != nil && cap(d.checkSlots) < workers {
@@ -75,9 +83,6 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 	defer d.clearCheckRun(spec.GetRunId(), cancel)
 	defer cancel()
 
-	// What goes back to the server hides the slice's secrets: a check that
-	// prints one must not put it in its log. The server masks too, for older
-	// daemons.
 	masker := checkSecretMasker(spec)
 	emitLog := func(seq *int64, log string) { d.emitCheckRunLog(spec.GetRunId(), seq, masker.Mask(log)) }
 	emitTerminal := func(seq *int64, status string, exitCode int32, summary string) {
@@ -86,7 +91,6 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 
 	seq := int64(0)
 	if d.checkSlots != nil {
-		// The run stays queued until a slot frees up.
 		select {
 		case d.checkSlots <- struct{}{}:
 			defer func() { <-d.checkSlots }()
@@ -138,7 +142,6 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 		if checkSpec.Env == nil {
 			checkSpec.Env = map[string]string{}
 		}
-		// Never expose the daemon user's ~/.gitslice/config.json to allow_host_exec checks.
 		checkSpec.Env["HOME"] = checkHome
 	}
 	result, err := checkexec.Run(runCtx, tempDir, checkSpec)
@@ -161,21 +164,6 @@ func (d *agentDaemon) handleCheckRunSpec(req *corev1.RunChecks, repo RepoClient,
 	emitTerminal(&seq, result.Status, result.ExitCode, oneLineSummary(result.Summary))
 }
 
-func resolveRunChecksServerAddr(configuredAddr, requestedAddr string) (string, error) {
-	configured := strings.TrimSpace(configuredAddr)
-	requested := strings.TrimSpace(requestedAddr)
-	if configured != "" {
-		return configured, nil
-	}
-	if requested != "" && isLoopbackDialAddr(requested) {
-		return requested, nil
-	}
-	if requested == "" {
-		return "", fmt.Errorf("check server address is not configured")
-	}
-	return "", fmt.Errorf("refusing untrusted check server address %q", requested)
-}
-
 func (d *agentDaemon) emitSetupFailureForRunChecks(req *corev1.RunChecks, err error) {
 	for _, spec := range req.GetChecks() {
 		if spec == nil || strings.TrimSpace(spec.GetRunId()) == "" {
@@ -187,73 +175,6 @@ func (d *agentDaemon) emitSetupFailureForRunChecks(req *corev1.RunChecks, err er
 		d.emitCheckRunError(spec.GetRunId(), 0, err)
 		d.clearCheckRun(spec.GetRunId(), nil)
 	}
-}
-
-func checkSpecFromProto(spec *corev1.CheckRunSpec) checks.CheckSpec {
-	if spec == nil {
-		return checks.CheckSpec{}
-	}
-	timeout := time.Duration(0)
-	if spec.GetTimeoutMs() > 0 {
-		timeout = time.Duration(spec.GetTimeoutMs()) * time.Millisecond
-	}
-	return checks.CheckSpec{
-		Name:             spec.GetName(),
-		Run:              spec.GetCommand(),
-		Image:            spec.GetImage(),
-		Setup:            append([]string(nil), spec.GetSetup()...),
-		Cache:            append([]string(nil), spec.GetCache()...),
-		WorkingDir:       spec.GetWorkingDir(),
-		MaterializePaths: append([]string(nil), spec.GetMaterializePaths()...),
-		Env:              copyCheckEnv(spec.GetEnv()),
-		Network:          spec.GetNetwork(),
-		Memory:           spec.GetMemory(),
-		CPUs:             spec.GetCpus(),
-		Timeout:          timeout,
-		Build:            checkImageBuildFromProto(spec.GetBuild()),
-		Services:         checkServicesFromProto(spec.GetServices()),
-	}
-}
-
-func checkImageBuildFromProto(build *corev1.CheckImageBuild) *checks.ImageBuild {
-	if build == nil || strings.TrimSpace(build.GetDockerfile()) == "" {
-		return nil
-	}
-	return &checks.ImageBuild{
-		ContextDir: build.GetContextDir(),
-		Dockerfile: build.GetDockerfile(),
-		Inputs:     append([]string(nil), build.GetInputs()...),
-		Timeout:    time.Duration(build.GetTimeoutMs()) * time.Millisecond,
-	}
-}
-
-func checkServicesFromProto(services []*corev1.CheckServiceContainer) []checks.ServiceSpec {
-	var out []checks.ServiceSpec
-	for _, service := range services {
-		if service == nil {
-			continue
-		}
-		out = append(out, checks.ServiceSpec{
-			Name:         service.GetName(),
-			Image:        service.GetImage(),
-			Env:          copyCheckEnv(service.GetEnv()),
-			Ready:        service.GetReady(),
-			ReadyTimeout: time.Duration(service.GetReadyTimeoutMs()) * time.Millisecond,
-			Memory:       service.GetMemory(),
-		})
-	}
-	return out
-}
-
-func copyCheckEnv(in map[string]string) map[string]string {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(in))
-	for key, value := range in {
-		out[key] = value
-	}
-	return out
 }
 
 func (d *agentDaemon) startCheckRun(runID string, cancel context.CancelFunc) bool {
@@ -331,25 +252,4 @@ func (d *agentDaemon) checkBaseContext() context.Context {
 		return d.baseCtx
 	}
 	return context.Background()
-}
-
-// detectContainerRuntimes lists the container runtime the daemon can run
-// checks in: one whose daemon answers, not merely one on the PATH.
-func detectContainerRuntimes() []string {
-	rt := checkexec.DetectRuntime(context.Background())
-	if !rt.OK() {
-		return nil
-	}
-	return []string{rt.Name}
-}
-
-// checkSecretMasker masks the values of the spec's secret env entries.
-func checkSecretMasker(spec *corev1.CheckRunSpec) *secretmask.Masker {
-	var values []string
-	for _, name := range spec.GetSecretEnv() {
-		if value, ok := spec.GetEnv()[name]; ok {
-			values = append(values, value)
-		}
-	}
-	return secretmask.New(values)
 }

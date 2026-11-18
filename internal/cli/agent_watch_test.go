@@ -73,12 +73,12 @@ func TestAgentInboundStateMarksReceivedMessage(t *testing.T) {
 	inbound := newAgentInboundState(base)
 	receivedAt := base.Add(30 * time.Second)
 
-	inbound.mark(receivedAt)
+	inbound.Mark(receivedAt)
 
-	if got := inbound.lastSeen(); !got.Equal(receivedAt) {
+	if got := inbound.LastSeen(); !got.Equal(receivedAt) {
 		t.Fatalf("last inbound = %s, want %s", got, receivedAt)
 	}
-	if inboundStale(inbound.lastSeen(), receivedAt.Add(49*time.Second), agentInboundStaleTimeout) {
+	if inboundStale(inbound.LastSeen(), receivedAt.Add(49*time.Second), agentInboundStaleTimeout) {
 		t.Fatalf("recently marked inbound message should keep connection fresh")
 	}
 }

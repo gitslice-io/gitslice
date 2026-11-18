@@ -220,7 +220,12 @@ func fakeCodexAppServer(in io.Reader, out io.Writer) {
 	writer := bufio.NewWriter(out)
 
 	for scanner.Scan() {
-		var msg jsonrpcMessage
+		var msg struct {
+			ID     json.RawMessage `json:"id,omitempty"`
+			Method string          `json:"method,omitempty"`
+			Params json.RawMessage `json:"params,omitempty"`
+			Result json.RawMessage `json:"result,omitempty"`
+		}
 		if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
 			fmt.Fprintf(os.Stderr, "fake codex: decode request: %v\n", err)
 			return

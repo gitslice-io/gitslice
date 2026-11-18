@@ -38,8 +38,8 @@ func TestCodexTurnCategorizesCompletedItems(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var got []agentRuntimeEvent
-			turn := &codexTurn{emit: func(e agentRuntimeEvent) { got = append(got, e) }, accum: map[string]*deltaAccum{}, done: make(chan error, 1)}
-			turn.handleNotification("item/completed", json.RawMessage(tc.params))
+			turn := &codexTurn{Emit: func(e agentRuntimeEvent) { got = append(got, e) }, Accum: map[string]*deltaAccum{}, Done: make(chan error, 1)}
+			turn.HandleNotification("item/completed", json.RawMessage(tc.params))
 			if tc.wantSkip {
 				if len(got) != 0 {
 					t.Fatalf("expected no events, got %+v", got)
@@ -59,11 +59,11 @@ func TestCodexTurnCategorizesCompletedItems(t *testing.T) {
 
 func TestCodexTurnStreamsThrottledDeltas(t *testing.T) {
 	var got []agentRuntimeEvent
-	turn := &codexTurn{emit: func(e agentRuntimeEvent) { got = append(got, e) }, accum: map[string]*deltaAccum{}, done: make(chan error, 1)}
+	turn := &codexTurn{Emit: func(e agentRuntimeEvent) { got = append(got, e) }, Accum: map[string]*deltaAccum{}, Done: make(chan error, 1)}
 	// First delta flushes immediately (zero lastFlush); subsequent within the
 	// throttle window are buffered, so accumulated text grows when it does flush.
-	turn.handleNotification("item/agentMessage/delta", json.RawMessage(`{"itemId":"msg_0","delta":"Hel"}`))
-	turn.handleNotification("item/agentMessage/delta", json.RawMessage(`{"itemId":"msg_0","delta":"lo"}`))
+	turn.HandleNotification("item/agentMessage/delta", json.RawMessage(`{"itemId":"msg_0","delta":"Hel"}`))
+	turn.HandleNotification("item/agentMessage/delta", json.RawMessage(`{"itemId":"msg_0","delta":"lo"}`))
 	if len(got) < 1 {
 		t.Fatalf("expected at least one ephemeral delta, got none")
 	}
@@ -72,21 +72,21 @@ func TestCodexTurnStreamsThrottledDeltas(t *testing.T) {
 		t.Fatalf("first delta = %+v, want ephemeral message_delta msg_0 text=Hel", first)
 	}
 	// Completion emits the persisted final and clears accumulation.
-	turn.handleNotification("item/completed", json.RawMessage(`{"item":{"id":"msg_0","type":"agentMessage","text":"Hello"}}`))
+	turn.HandleNotification("item/completed", json.RawMessage(`{"item":{"id":"msg_0","type":"agentMessage","text":"Hello"}}`))
 	last := got[len(got)-1]
 	if last.Ephemeral || last.Type != "message" || last.Text != "Hello" {
 		t.Fatalf("final = %+v, want persisted message text=Hello", last)
 	}
-	if _, ok := turn.accum["msg_0"]; ok {
+	if _, ok := turn.Accum["msg_0"]; ok {
 		t.Fatalf("accumulation for msg_0 should be cleared after completion")
 	}
 }
 
 func TestCodexTurnCompletionSignalsDone(t *testing.T) {
-	turn := &codexTurn{emit: func(agentRuntimeEvent) {}, accum: map[string]*deltaAccum{}, done: make(chan error, 1)}
-	turn.handleNotification("turn/completed", nil)
+	turn := &codexTurn{Emit: func(agentRuntimeEvent) {}, Accum: map[string]*deltaAccum{}, Done: make(chan error, 1)}
+	turn.HandleNotification("turn/completed", nil)
 	select {
-	case err := <-turn.done:
+	case err := <-turn.Done:
 		if err != nil {
 			t.Fatalf("done err = %v, want nil", err)
 		}

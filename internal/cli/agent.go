@@ -2,8 +2,6 @@ package cli
 
 import (
 	"context"
-	cryptorand "crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -11,42 +9,37 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
-	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
+	"gitslice.io/gitslice/internal/agentd"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	grpcstatus "google.golang.org/grpc/status"
 )
 
 const (
-	defaultAgentRuntime = "codex"
-	ciAgentRuntime      = "ci"
-	agentSendBuffer     = 128
-	agentHeartbeat      = 15 * time.Second
-	// The server sends Ping messages every 20s. A 50s inbound gap is safely above
-	// normal jitter but short enough to catch half-open server->daemon streams
-	// before queued pushes wait on the transport's much longer receive timeout.
-	agentInboundStaleTimeout       = 50 * time.Second
-	agentInboundStaleCheckInterval = 10 * time.Second
-	agentMetaFilename              = ".agent-meta.json"
-	agentRecentCheckRunLimit       = 256
-	// agentMaxPendingEvents bounds a conversation's unacked outbound buffer. Acks
-	// are per-event and keep this near-empty in practice; the cap only guards the
-	// degenerate case where the server stops acking.
-	agentMaxPendingEvents = 10000
-	// agentTurnCompleteType marks the end of an agent turn. A turn can emit
-	// several finalized messages/tool calls before it finishes, so this explicit
-	// control event — not a finalized message — is the reliable turn-end signal
-	// for clients (which render it invisibly).
-	agentTurnCompleteType = "turn_complete"
+	defaultAgentRuntime            = agentd.DefaultRuntimeName
+	ciAgentRuntime                 = agentd.CIRuntimeName
+	agentSendBuffer                = agentd.SendBuffer
+	agentHeartbeat                 = agentd.HeartbeatInterval
+	agentInboundStaleTimeout       = agentd.InboundStaleTimeout
+	agentInboundStaleCheckInterval = agentd.InboundStaleCheckEvery
+	agentMetaFilename              = agentd.MetaFilename
+	agentRecentCheckRunLimit       = agentd.RecentCheckRunLimit
+	agentMaxPendingEvents          = agentd.MaxPendingEvents
+	agentTurnCompleteType          = agentd.TurnCompleteType
+)
+
+var (
+	checkSlotsFromEnv      = agentd.CheckSlotsFromEnv
+	newAgentInstanceID     = agentd.NewInstanceID
+	defaultAgentName       = agentd.DefaultAgentName
+	agentConversationPaths = agentd.ConversationPaths
+	canonicalSliceKey      = agentd.CanonicalSliceKey
 )
 
 type agentStartOptions struct {
@@ -387,7 +380,7 @@ func (d *agentDaemon) serveAgentConnection(ctx context.Context, opts commandOpti
 	d.mu.Unlock()
 	defer func() {
 		cancel()
-		_ = sendQueue.wait()
+		_ = sendQueue.Wait()
 		d.mu.Lock()
 		if d.sendQueue == sendQueue {
 			d.sendQueue = nil
@@ -395,7 +388,7 @@ func (d *agentDaemon) serveAgentConnection(ctx context.Context, opts commandOpti
 		d.mu.Unlock()
 	}()
 
-	if err := sendQueue.send(connCtx, registerDaemonMessage(name, runtimeName, d.instanceID, cap(d.checkSlots))); err != nil {
+	if err := sendQueue.Send(connCtx, registerDaemonMessage(name, runtimeName, d.instanceID, cap(d.checkSlots))); err != nil {
 		return err
 	}
 	registered, err := stream.Recv()
@@ -439,204 +432,14 @@ func (d *agentDaemon) serveAgentConnection(ctx context.Context, opts commandOpti
 			if agentStreamEndedCleanly(ctx, err) {
 				return nil
 			}
-			if queueErr := sendQueue.err(); queueErr != nil && !errors.Is(queueErr, context.Canceled) {
+			if queueErr := sendQueue.Err(); queueErr != nil && !errors.Is(queueErr, context.Canceled) {
 				return queueErr
 			}
 			return err
 		}
-		lastInbound.mark(time.Now())
+		lastInbound.Mark(time.Now())
 		d.handleServerMessage(connCtx, cancel, msg)
 	}
-}
-
-func (r Runner) runAgentStatus(ctx context.Context, opts commandOptions, forSlice string) error {
-	cfg, err := r.readUserConfig()
-	if err != nil {
-		return err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	callCtx := authContext(ctx, cfg)
-	request := &corev1.ListDaemonsRequest{}
-	if strings.TrimSpace(forSlice) != "" {
-		if request.ForSlice, err = r.resolveSliceRefInput(callCtx, cfg, conn, forSlice); err != nil {
-			return err
-		}
-	}
-	res, err := corev1.NewAgentServiceClient(conn).ListDaemons(callCtx, request)
-	if err != nil {
-		return err
-	}
-	out := agentStatusOutput{Daemons: make([]agentDaemonOutput, 0, len(res.GetDaemons()))}
-	for _, daemon := range res.GetDaemons() {
-		out.Daemons = append(out.Daemons, agentDaemonToOutput(daemon))
-	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if opts.Quiet {
-		return nil
-	}
-	if len(out.Daemons) == 0 {
-		fmt.Fprintln(r.Stdout, "no agent daemons")
-		return nil
-	}
-	w := tabwriter.NewWriter(r.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tNAME\tACCOUNT\tRUNTIME\tSTATUS\tLAST_SEEN\tCI_FOR\tEXPOSED_TO")
-	for _, daemon := range out.Daemons {
-		name := daemon.shownName()
-		if daemon.DisplayName != "" && daemon.DisplayName != daemon.Name {
-			name += " (" + daemon.Name + ")"
-		}
-		exposed := firstNonEmpty(strings.Join(daemon.ExposedTo, ", "), "-")
-		if !daemon.Manageable {
-			exposed = "(exposed to you)"
-		}
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", daemon.ID, name, daemon.Account, daemon.Runtime, daemon.Status, daemon.LastSeenAt, firstNonEmpty(strings.Join(daemon.CISlices, ", "), "-"), exposed)
-	}
-	return w.Flush()
-}
-
-// runAgentRename sets, or with an empty name clears, the name a daemon is
-// shown by.
-func (r Runner) runAgentRename(ctx context.Context, opts commandOptions, selector, newName string) error {
-	cfg, err := r.readUserConfig()
-	if err != nil {
-		return err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	client := corev1.NewAgentServiceClient(conn)
-	callCtx := authContext(ctx, cfg)
-	res, err := client.ListDaemons(callCtx, &corev1.ListDaemonsRequest{})
-	if err != nil {
-		return err
-	}
-	daemon, err := pickDaemon(res.GetDaemons(), selector)
-	if err != nil {
-		return err
-	}
-	renamed, err := client.RenameDaemon(callCtx, &corev1.RenameDaemonRequest{DaemonId: daemon.GetId(), DisplayName: newName})
-	if err != nil {
-		if grpcstatus.Code(err) == codes.AlreadyExists {
-			return userError("name_taken", grpcstatus.Convert(err).Message(), "Pick another name; gs agent status lists the account's daemons.")
-		}
-		return err
-	}
-	out := agentDaemonToOutput(renamed)
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if opts.Quiet {
-		return nil
-	}
-	if renamed.GetDisplayName() == "" {
-		fmt.Fprintf(r.Stdout, "%s is shown as %s again\n", renamed.GetId(), renamed.GetName())
-		return nil
-	}
-	fmt.Fprintf(r.Stdout, "%s is now shown as %s (it still registers as %s)\n", renamed.GetId(), renamed.GetDisplayName(), renamed.GetName())
-	return nil
-}
-
-// runAgentExpose exposes a daemon to a slice, or with expose false withdraws it.
-func (r Runner) runAgentExpose(ctx context.Context, opts commandOptions, selector, sliceArg string, expose bool) error {
-	cfg, conn, callCtx, err := r.authenticatedConn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	client := corev1.NewAgentServiceClient(conn)
-	res, err := client.ListDaemons(callCtx, &corev1.ListDaemonsRequest{})
-	if err != nil {
-		return err
-	}
-	daemon, err := pickDaemon(res.GetDaemons(), selector)
-	if err != nil {
-		return err
-	}
-	ref, err := r.resolveSliceRefInput(callCtx, cfg, conn, sliceArg)
-	if err != nil {
-		return err
-	}
-	var updated *corev1.AgentDaemon
-	if expose {
-		updated, err = client.ExposeDaemon(callCtx, &corev1.ExposeDaemonRequest{DaemonId: daemon.GetId(), Slice: ref})
-	} else {
-		updated, err = client.UnexposeDaemon(callCtx, &corev1.UnexposeDaemonRequest{DaemonId: daemon.GetId(), Slice: ref})
-	}
-	if err != nil {
-		return err
-	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, agentDaemonToOutput(updated))
-	}
-	if opts.Quiet {
-		return nil
-	}
-	name := firstNonEmpty(updated.GetDisplayName(), updated.GetName())
-	if expose {
-		fmt.Fprintf(r.Stdout, "%s (%s) is exposed to %s: its owners and admins can choose it with gs slice set-ci-daemon\n", name, updated.GetId(), sliceRefLabel(ref))
-		return nil
-	}
-	fmt.Fprintf(r.Stdout, "%s (%s) is no longer exposed to %s\n", name, updated.GetId(), sliceRefLabel(ref))
-	if sliceCI := updated.GetCiSlices(); len(sliceCI) > 0 {
-		for _, used := range sliceCI {
-			if used.GetAccount() == ref.GetAccount() && used.GetSlice() == ref.GetSlice() {
-				fmt.Fprintf(r.Stdout, "that slice still names it, so its checks are refused until it names another daemon\n")
-			}
-		}
-	}
-	return nil
-}
-
-// pickDaemon finds the daemon a user named: by id, else by the name it is
-// shown by or the one it registered with.
-func pickDaemon(daemons []*corev1.AgentDaemon, selector string) (*corev1.AgentDaemon, error) {
-	selector = strings.TrimSpace(selector)
-	for _, d := range daemons {
-		if d.GetId() == selector {
-			return d, nil
-		}
-	}
-	var matches []*corev1.AgentDaemon
-	for _, d := range daemons {
-		if strings.EqualFold(d.GetDisplayName(), selector) || strings.EqualFold(d.GetName(), selector) {
-			matches = append(matches, d)
-		}
-	}
-	switch len(matches) {
-	case 1:
-		return matches[0], nil
-	case 0:
-		return nil, userError("daemon_not_found", "no agent daemon "+selector, "gs agent status lists the daemons you can rename; use the id from its first column.")
-	}
-	ids := make([]string, len(matches))
-	for i, d := range matches {
-		ids[i] = d.GetId() + " (" + d.GetAccount() + ")"
-	}
-	return nil, userError("ambiguous_daemon", selector+" names more than one daemon: "+strings.Join(ids, ", "), "Use the daemon's id.")
-}
-
-func (r Runner) runAgentStop(opts commandOptions) error {
-	out := map[string]string{
-		"status": "manual",
-		"hint":   "agent daemons stop when their gs agent start process receives Ctrl-C; installed daemons stop with gs agent uninstall <name>",
-	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if opts.Quiet {
-		return nil
-	}
-	fmt.Fprintln(r.Stdout, "agent daemons stop when their gs agent start process receives Ctrl-C; installed daemons stop with gs agent uninstall <name>")
-	return nil
 }
 
 type agentAuthClient interface {
@@ -710,54 +513,6 @@ func (d *agentDaemon) cancelAll() {
 	}
 }
 
-func agentRuntimeForName(name string) (agentRuntime, error) {
-	switch strings.ToLower(strings.TrimSpace(name)) {
-	case "", defaultAgentRuntime:
-		return codexRuntime{}, nil
-	default:
-		return nil, userError("invalid_agent_runtime", "unsupported agent runtime: "+name, "Only codex is supported in this version.")
-	}
-}
-
-// checkSlotsFromEnv reads GITSLICE_CHECK_CONCURRENCY, the most checks the
-// daemon runs at once. Unset or not a positive number means no limit; a small
-// CI host sets 1 so timing-sensitive test suites do not compete for CPU.
-func checkSlotsFromEnv() chan struct{} {
-	n, err := strconv.Atoi(strings.TrimSpace(os.Getenv("GITSLICE_CHECK_CONCURRENCY")))
-	if err != nil || n <= 0 {
-		return nil
-	}
-	return make(chan struct{}, n)
-}
-
-// newAgentInstanceID is a random id for this daemon process.
-func newAgentInstanceID() string {
-	var b [8]byte
-	if _, err := cryptorand.Read(b[:]); err != nil {
-		return fmt.Sprintf("p%d", os.Getpid())
-	}
-	return hex.EncodeToString(b[:])
-}
-
-func defaultAgentName() string {
-	hostname, err := os.Hostname()
-	if err == nil && strings.TrimSpace(hostname) != "" {
-		return hostname
-	}
-	return "gs-agent"
-}
-
-func agentConversationPaths(root, conversationID string) (string, string, error) {
-	if strings.TrimSpace(conversationID) == "" {
-		return "", "", userError("invalid_conversation_id", "agent conversation id is empty", "Try creating a new conversation.")
-	}
-	if filepath.IsAbs(conversationID) || conversationID == "." || conversationID == ".." || strings.ContainsAny(conversationID, `/\`) {
-		return "", "", userError("invalid_conversation_id", "invalid agent conversation id: "+conversationID, "Try creating a new conversation.")
-	}
-	subdir := filepath.ToSlash(filepath.Join("conversations", conversationID))
-	return subdir, filepath.Join(root, "conversations", conversationID), nil
-}
-
 func (d *agentDaemon) setDaemonID(id string) {
 	id = strings.TrimSpace(id)
 	d.mu.Lock()
@@ -769,15 +524,6 @@ func (d *agentDaemon) currentDaemonID() string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.daemonID
-}
-
-func canonicalSliceKey(account, slice string) string {
-	a := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(account), "_", "-"))
-	s := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(slice), "_", "-"))
-	if a == "" || s == "" {
-		return ""
-	}
-	return a + "/" + s
 }
 
 func normalizeDaemonAllowedSlices(values []string) ([]string, error) {

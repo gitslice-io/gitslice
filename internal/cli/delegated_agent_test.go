@@ -120,10 +120,10 @@ func TestAgentStartAndInstallSliceFlags(t *testing.T) {
 		Dir:    t.TempDir(),
 		Stdout: &out,
 		AgentService: &agentServiceProbes{
-			osName:     "darwin",
-			executable: func() (string, error) { return "/usr/local/bin/gs", nil },
-			userHome:   func() (string, error) { return t.TempDir(), nil },
-			environ:    func() []string { return nil },
+			OSName:     "darwin",
+			Executable: func() (string, error) { return "/usr/local/bin/gs", nil },
+			UserHome:   func() (string, error) { return t.TempDir(), nil },
+			Environ:    func() []string { return nil },
 		},
 	}
 	if err := ir.Run(ctx, []string{"agent", "install", "--name", "slice-bot", "--slice", "Acme/Payment_API", "--slice", "acme/docs", "--slice", "acme/docs", "--print"}); err != nil {
@@ -328,8 +328,8 @@ func TestHostCheckIsolatesHomeWithoutConfig(t *testing.T) {
 	defer stop()
 
 	sendQueue := &agentSendQueue{
-		ch:   make(chan *corev1.DaemonMessage, 16),
-		done: make(chan struct{}),
+		Ch:   make(chan *corev1.DaemonMessage, 16),
+		Done: make(chan struct{}),
 	}
 	d := newTestCheckDaemon(t)
 	d.cfg = UserConfig{ServerAddr: addr}
@@ -350,7 +350,7 @@ func TestHostCheckIsolatesHomeWithoutConfig(t *testing.T) {
 
 	var logs strings.Builder
 	var terminal *corev1.CheckRunUpdate
-	for _, u := range collectCheckRunUpdates(sendQueue.ch, "run-isolated-home") {
+	for _, u := range collectCheckRunUpdates(sendQueue.Ch, "run-isolated-home") {
 		logs.WriteString(u.GetLogChunk())
 		if u.GetFinal() {
 			terminal = u

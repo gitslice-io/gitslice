@@ -9643,3 +9643,34 @@ pages are code-split, analytics waits for the page to load.
 **Verification**
 - `internal/treestore` random tree diffs applied to the old listing equal the new one; `service` delta Checkout (and the whole listing for a stale definition, unknown commit or none); `tests/cli` `TestCheckoutListingDelta` (a checkout after the slice moved starts from the cached listing); `internal/clientcache` prune order, pins and recent-use protection; `internal/lazyfs` tests with every subtree walk checked against a full scan, and a removal-scaling test (51 µs a removal at 20,000 entries, from 1.8 ms).
 - In a real mount (kernel 5.15): `rm -rf` of 10,000 files 15.9 s → 2.6 s.
+
+## 2026-11-18 — 30-proposal architectural & code-quality refactoring sweep (B1–B10, C1–C10, W1–W10)
+
+**Why**
+- Completed the 30-proposal refactoring program across the backend (`B1–B10` + `W10b`), CLI/LazyFS (`C1–C10`), and Web App (`W1–W10`) to eliminate transport/RPC boilerplate, enforce consistent transaction/error/authorization contracts, remove N+1 and waterfall queries, harden concurrency, and split large monoliths into focused `<600` LOC modules/packages.
+
+**What changed**
+- **Backend (`B1–B10` + `W10b`):**
+  - `B6` (`sha256:935552329049`): unified `.gitslice` `TreeReader`, memoized `Resolver[T]`, `ConfigPaths`, and `CollectTouchedPaths`.
+  - `B1` (`sha256:23b2a5fc57fe`): generic `connectServerStream[M]` and generated `connect_adapters_gen.go`.
+  - `W10b` (`sha256:a2198a282cbb`): server-side `ListSlicesRequest.sort` eliminating `AccountPage.tsx` N+1 waterfall.
+  - `B3` (`sha256:03c7d3c7be4f`): consolidated `SubmitChangeset(ctx, SubmitInput)` and role-focused store sub-interfaces.
+  - `B4` (`sha256:f9fca5037554`): typed `SubmitBlockCode` domain enums and migration `0062_submit_blocked_code.sql`.
+  - `B7` (`sha256:dc5237c9fb9c`): shared `EvaluateControllerApprovals`, domain validators, and `memory`/`postgres` parity.
+  - `B8` (`sha256:58885b905648`): shared `dbtx` (`inTx[T]`/`querySlice[T]`/`jsonColumn[T]`) and `ANY($1)` batch readers.
+  - `B9` (`sha256:d9f03cc04c35`): preloaded `EventEntities` into `Triggers.FanOut`, shared `internal/outbound.PostSignedJSON`, and `events/` + `triggers/` splits (`<450` LOC).
+  - `B10` (`sha256:46fa0b672ae5`): per-page `blameWalkPage` cleanup, reference-counted `internal/keylock.Locker`, unified `buildCachedContainerImage` + `capped_buffer.go`, `internal/triggers/modules.go`, and `service/` splits (`<500` LOC).
+- **CLI & LazyFS (`C1–C10`):**
+  - `C1` / `C6` / `C9`: earlier structural and workspace reliability refactorings (`Runner`, error classification, command structure).
+  - `C3` (`sha256:767f5d5466d4`): dynamic `gs schema` auto-derived from `r.rootCommand()`.
+  - `C4` (`sha256:46a6aa204a08`): unified `Session`, `ChangesetTarget`, and `SliceResolveOptions` in `internal/cli/session.go`.
+  - `C5` (`sha256:0ce5067cebf1`): shared `TransferManager` (`FetchFilesToCache` + `AttachAndUploadBlobs`) in `internal/cli/transfer_manager.go`.
+  - `C7` (`sha256:46b02e62831c`): per-runner `Insecure`, `Runner.Env`/`Getenv`, isolated `mountRuntimeDir`, and in-process `workspace init` + `cs capture`.
+  - `C8` (`sha256:eb6988b25aa6`): atomic `WorkspaceMetadataStore`, `workspaceSyncDriver`, immutable `BaseSnapshot.Files` clone, and `workspace_sync_{cmd,plan,apply}.go` splits.
+  - `C10` (`sha256:0c63fc8e2641`): non-blocking `lazyfs.Edits()` hashing, shared `LatestPatchsetCheckRuns`, generic `callUnixControl` IPC, and `internal/cli` / `internal/lazyfs` file splits (`<400` LOC).
+  - `C2a` (`sha256:f984f7a27ebf`) & `C2b`: extracted CLI-side subpackages `internal/selfupdate`, `internal/mcpserver`, `internal/mountd`, and `internal/agentd` with `userCodedError` bridge, keeping thin Cobra/CLI adapters and splitting `agent.go` + `agent_conversation.go` `<600` LOC while preserving `TestCmdGSBinaryDoesNotLinkServerStorageStack`.
+- **Web App (`W1–W10a`):**
+  - `W6` (`sha256:7aa3ef5f...`), `W4`, `W2`, `W1`, `W3`, `W5`, `W7`, `W8`, `W9`, `W10a`: consolidated RPC error/permission helpers (`useSlicePermissions`/`useChangesetPermissions`), validated TanStack Router search schemas, shared TanStack Query `queryOptions` modules for SSR + client hydration, descriptor-driven Protobuf-ES v2 codec/client builder (`lazyClient.ts` chunk boundary preserved), extracted `ChangesetDetailPage` & `SliceDetailPage` panels/hooks, shared `AgentEventStream` reducer and `MarkdownBody` component, unified file/dir entry & blob upload helpers, and design-token/accessibility passes.
+
+**Verification**
+- Backend + CLI `-race` and live-PG `internal/postgres`, `service`, `tests/rpc`, `tests/cli` suites, `TestCmdGSBinaryDoesNotLinkServerStorageStack`, `TestSchema`, and `web/` `npm run build && npm test` verified green across the sweep and remote CI (`build`, `e2e`, `gofmt`, `test`, `vet`).

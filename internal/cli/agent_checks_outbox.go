@@ -1,21 +1,13 @@
 package cli
 
 import (
-	"context"
 	"strings"
-	"sync"
 
+	"gitslice.io/gitslice/internal/agentd"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-type checkRunOutbox struct {
-	outMu          sync.Mutex
-	pending        []*corev1.CheckRunUpdate
-	ackedClientSeq int64
-	flushedSeq     int64
-	flushQueue     *agentSendQueue
-	terminal       bool
-}
+type checkRunOutbox = agentd.CheckRunOutbox
 
 func (d *agentDaemon) emitCheckRunError(runID string, seq int64, err error) {
 	if err == nil {
@@ -76,13 +68,9 @@ func (d *agentDaemon) sendCheckRunUpdate(update *corev1.CheckRunUpdate) {
 	update.RunId = runID
 
 	outbox := d.lockCurrentCheckRunOutboxForSend(runID)
-	outbox.pending = append(outbox.pending, update)
-	if update.GetFinal() {
-		outbox.terminal = true
-	}
-	outbox.dropOverflowLocked()
+	outbox.AppendLocked(update)
 	d.flushCheckRunPendingLocked(outbox)
-	outbox.outMu.Unlock()
+	outbox.OutMu.Unlock()
 
 	d.enforceCheckRunOutboxLimit()
 }
@@ -90,12 +78,12 @@ func (d *agentDaemon) sendCheckRunUpdate(update *corev1.CheckRunUpdate) {
 func (d *agentDaemon) lockCurrentCheckRunOutboxForSend(runID string) *checkRunOutbox {
 	for {
 		outbox := d.ensureCheckRunOutbox(runID)
-		outbox.outMu.Lock()
+		outbox.OutMu.Lock()
 		current := d.isCurrentCheckRunOutbox(runID, outbox)
 		if current {
 			return outbox
 		}
-		outbox.outMu.Unlock()
+		outbox.OutMu.Unlock()
 	}
 }
 
@@ -120,52 +108,11 @@ func (d *agentDaemon) isCurrentCheckRunOutbox(runID string, outbox *checkRunOutb
 	return d.checkRunOutboxes[runID] == outbox
 }
 
-func (outbox *checkRunOutbox) dropOverflowLocked() {
-	for len(outbox.pending) > agentMaxPendingCheckRunUpdates {
-		drop := -1
-		for i, update := range outbox.pending {
-			if isLogOnlyCheckRunUpdate(update) {
-				drop = i
-				break
-			}
-		}
-		if drop < 0 {
-			return
-		}
-		copy(outbox.pending[drop:], outbox.pending[drop+1:])
-		outbox.pending[len(outbox.pending)-1] = nil
-		outbox.pending = outbox.pending[:len(outbox.pending)-1]
-	}
-}
-
-func isLogOnlyCheckRunUpdate(update *corev1.CheckRunUpdate) bool {
-	return update != nil && update.GetStatus() == "" && !update.GetFinal()
-}
-
 func (d *agentDaemon) flushCheckRunPendingLocked(outbox *checkRunOutbox) {
-	if outbox == nil {
-		return
-	}
 	d.mu.Lock()
 	sq := d.sendQueue
 	d.mu.Unlock()
-	if sq == nil {
-		return
-	}
-	if sq != outbox.flushQueue {
-		outbox.flushQueue = sq
-		outbox.flushedSeq = outbox.ackedClientSeq
-	}
-	for _, update := range outbox.pending {
-		if update.GetClientSeq() <= outbox.flushedSeq {
-			continue
-		}
-		msg := &corev1.DaemonMessage{Payload: &corev1.DaemonMessage_CheckUpdate{CheckUpdate: update}}
-		if err := sq.send(context.Background(), msg); err != nil {
-			return
-		}
-		outbox.flushedSeq = update.GetClientSeq()
-	}
+	outbox.FlushLocked(sq)
 }
 
 func (d *agentDaemon) enforceCheckRunOutboxLimit() {
@@ -200,10 +147,10 @@ func (d *agentDaemon) oldestEvictableCheckRunOutbox(order []string) string {
 		if outbox == nil {
 			continue
 		}
-		outbox.outMu.Lock()
-		terminal := outbox.terminal
-		stale := terminal && len(outbox.pending) == 0
-		outbox.outMu.Unlock()
+		outbox.OutMu.Lock()
+		terminal := outbox.Terminal
+		stale := terminal && len(outbox.Pending) == 0
+		outbox.OutMu.Unlock()
 		if stale {
 			return runID
 		}
@@ -240,21 +187,8 @@ func (d *agentDaemon) handleCheckRunAck(ack *corev1.CheckRunAck) {
 		return
 	}
 
-	outbox.outMu.Lock()
-	if ack.GetAckedClientSeq() > outbox.ackedClientSeq {
-		outbox.ackedClientSeq = ack.GetAckedClientSeq()
-	}
-	kept := outbox.pending[:0]
-	for _, update := range outbox.pending {
-		if update.GetClientSeq() > outbox.ackedClientSeq {
-			kept = append(kept, update)
-		}
-	}
-	for i := len(kept); i < len(outbox.pending); i++ {
-		outbox.pending[i] = nil
-	}
-	outbox.pending = kept
-	if len(outbox.pending) == 0 && outbox.terminal {
+	outbox.OutMu.Lock()
+	if outbox.AckLocked(ack.GetAckedClientSeq()) {
 		d.mu.Lock()
 		if d.checkRunOutboxes[runID] == outbox {
 			delete(d.checkRunOutboxes, runID)
@@ -262,5 +196,5 @@ func (d *agentDaemon) handleCheckRunAck(ack *corev1.CheckRunAck) {
 		}
 		d.mu.Unlock()
 	}
-	outbox.outMu.Unlock()
+	outbox.OutMu.Unlock()
 }

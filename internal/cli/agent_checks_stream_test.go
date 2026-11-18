@@ -70,7 +70,7 @@ func TestMaterializeCheckTreeInOneCheckout(t *testing.T) {
 	}
 	dest := t.TempDir()
 	d := newTestCheckDaemon(t)
-	if err := d.materializeCheckTree(context.Background(), checkTreeRepoClient{account: "acme", inner: inner}, "tree-1", []string{"backend"}, dest); err != nil {
+	if err := d.materializeCheckTree(context.Background(), checkTreeRepoClient{Account: "acme", Inner: inner}, "tree-1", []string{"backend"}, dest); err != nil {
 		t.Fatal(err)
 	}
 	if len(inner.gotPaths) != 1 || inner.gotPaths[0] != "/acme/backend" {
@@ -95,7 +95,7 @@ func TestMaterializeCheckTreeWalksOnAnOlderServer(t *testing.T) {
 		}, map[string][]byte{"/acme/backend/run.sh": []byte("walked\n")}),
 	}
 	dest := t.TempDir()
-	if err := newTestCheckDaemon(t).materializeCheckTree(context.Background(), checkTreeRepoClient{account: "acme", inner: inner}, "tree-1", []string{"backend"}, dest); err != nil {
+	if err := newTestCheckDaemon(t).materializeCheckTree(context.Background(), checkTreeRepoClient{Account: "acme", Inner: inner}, "tree-1", []string{"backend"}, dest); err != nil {
 		t.Fatal(err)
 	}
 	assertFileContent(t, filepath.Join(dest, "backend", "run.sh"), "walked\n")

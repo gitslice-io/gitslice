@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"gitslice.io/gitslice/internal/agentd"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -55,7 +56,7 @@ func (d *agentDaemon) handleStartConversation(ctx context.Context, start *corev1
 	// later launch against a missing cmd.Dir and fail with no repair.
 	if conv.isReady() && d.conversationWorkspaceUsable(conv.id, conv.workdir) {
 		d.persistConversationMeta(conv)
-		_ = d.sendQueue.send(ctx, &corev1.DaemonMessage{
+		_ = d.sendQueue.Send(ctx, &corev1.DaemonMessage{
 			Payload: &corev1.DaemonMessage_Started{Started: &corev1.ConversationStarted{
 				ConversationId:  conversationID,
 				WorkspaceSubdir: conv.workspaceSubdir,
@@ -71,7 +72,7 @@ func (d *agentDaemon) handleStartConversation(ctx context.Context, start *corev1
 
 	conv.setReady(nil)
 	d.persistConversationMeta(conv)
-	_ = d.sendQueue.send(ctx, &corev1.DaemonMessage{
+	_ = d.sendQueue.Send(ctx, &corev1.DaemonMessage{
 		Payload: &corev1.DaemonMessage_Started{Started: &corev1.ConversationStarted{
 			ConversationId:  conversationID,
 			WorkspaceSubdir: conv.workspaceSubdir,
@@ -256,15 +257,10 @@ func (d *agentDaemon) handleCancelConversation(cancel *corev1.CancelConversation
 	conv.cancelRun()
 }
 
-// agentTranscriptSeedLimit caps the rendered transcript handed to a cold runtime
-// thread, keeping the most recent context when a conversation is very long.
-const agentTranscriptSeedLimit = 24000
+const agentTranscriptSeedLimit = agentd.TranscriptSeedLimit
 
-// fetchConversationTranscript loads the conversation's persisted events from the
-// server and renders them as a compact transcript for seeding a cold runtime
-// thread. Returns "" when there is nothing to seed (a brand-new conversation).
-// Best-effort by contract: the runtime treats any error as "no seed" and starts
-// cold rather than failing the turn.
+var renderTranscript = agentd.RenderTranscript
+
 func (d *agentDaemon) fetchConversationTranscript(ctx context.Context, conversationID string) (string, error) {
 	conn, err := dial(ctx, d.cfg.ServerAddr)
 	if err != nil {
@@ -279,48 +275,4 @@ func (d *agentDaemon) fetchConversationTranscript(ctx context.Context, conversat
 		return "", err
 	}
 	return renderTranscript(res.GetEvents()), nil
-}
-
-// renderTranscript turns persisted conversation events into a developer-prompt
-// block that gives a freshly started runtime thread the prior context. It keeps
-// user/agent messages and tool calls, drops streamed deltas and control events,
-// and trims to the most recent agentTranscriptSeedLimit bytes.
-func renderTranscript(events []*corev1.ConversationEvent) string {
-	lines := make([]string, 0, len(events))
-	for _, ev := range events {
-		text := strings.TrimSpace(ev.GetText())
-		if text == "" {
-			continue
-		}
-		var label string
-		switch ev.GetType() {
-		case "message":
-			switch ev.GetRole() {
-			case "user":
-				label = "User"
-			case "agent":
-				label = "Assistant"
-			default:
-				label = "System"
-			}
-		case "tool_call":
-			label = "Tool call"
-		default:
-			// Skip streamed deltas, reasoning, tool output, status, error, and
-			// control events (turn_complete): they are noise or redundant here.
-			continue
-		}
-		lines = append(lines, fmt.Sprintf("[%s] %s", label, text))
-	}
-	if len(lines) == 0 {
-		return ""
-	}
-	body := strings.Join(lines, "\n\n")
-	if len(body) > agentTranscriptSeedLimit {
-		// Keep the most recent context; fix up any rune split by the cut.
-		body = strings.ToValidUTF8(body[len(body)-agentTranscriptSeedLimit:], "")
-	}
-	return "You are resuming an existing conversation. The transcript so far is " +
-		"below; use it as context and do not repeat work already completed.\n\n" +
-		"--- transcript start ---\n" + body + "\n--- transcript end ---"
 }

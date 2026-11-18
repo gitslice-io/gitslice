@@ -35,10 +35,10 @@ func collectCheckRunSeqs(ch <-chan *corev1.DaemonMessage, runID string) []int64 
 func pendingCheckRunSeqs(t *testing.T, d *agentDaemon, runID string) []int64 {
 	t.Helper()
 	outbox := checkRunOutboxForTest(t, d, runID)
-	outbox.outMu.Lock()
-	defer outbox.outMu.Unlock()
-	seqs := make([]int64, 0, len(outbox.pending))
-	for _, update := range outbox.pending {
+	outbox.OutMu.Lock()
+	defer outbox.OutMu.Unlock()
+	seqs := make([]int64, 0, len(outbox.Pending))
+	for _, update := range outbox.Pending {
 		seqs = append(seqs, update.GetClientSeq())
 	}
 	return seqs
@@ -63,8 +63,8 @@ func checkRunOutboxExists(d *agentDaemon, runID string) bool {
 
 func newTestAgentSendQueue(buffer int) *agentSendQueue {
 	return &agentSendQueue{
-		ch:   make(chan *corev1.DaemonMessage, buffer),
-		done: make(chan struct{}),
+		Ch:   make(chan *corev1.DaemonMessage, buffer),
+		Done: make(chan struct{}),
 	}
 }
 

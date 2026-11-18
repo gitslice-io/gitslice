@@ -65,18 +65,18 @@ func TestAgentDoctorInjectedChecksAndFailure(t *testing.T) {
 		Home:   home,
 		Stdout: &stdout,
 		AgentDoctorProbes: &agentDoctorProbes{
-			detectRuntime: func(context.Context) checkexec.RuntimeInfo {
+			DetectRuntime: func(context.Context) checkexec.RuntimeInfo {
 				return checkexec.RuntimeInfo{Err: errors.New("docker is stopped")}
 			},
-			cacheRoot: func() (string, error) { return filepath.Join(home, "cache", "missing"), nil },
-			freeBytes: func(string) (uint64, error) { return 512 * 1024 * 1024, nil },
-			lookPath: func(name string) (string, error) {
+			CacheRoot: func() (string, error) { return filepath.Join(home, "cache", "missing"), nil },
+			FreeBytes: func(string) (uint64, error) { return 512 * 1024 * 1024, nil },
+			LookPath: func(name string) (string, error) {
 				if name == "go" {
 					return "/tools/go", nil
 				}
 				return "", os.ErrNotExist
 			},
-			commandOutput: func(_ context.Context, name string, _ ...string) ([]byte, error) {
+			CommandOutput: func(_ context.Context, name string, _ ...string) ([]byte, error) {
 				if name != "/tools/go" {
 					t.Fatalf("command = %q", name)
 				}
@@ -107,13 +107,13 @@ func TestAgentDoctorCIJSONOmitsRuntimeAndUsesInjectedStatuses(t *testing.T) {
 	r := Runner{
 		Home: home,
 		AgentDoctorProbes: &agentDoctorProbes{
-			detectRuntime: func(context.Context) checkexec.RuntimeInfo {
+			DetectRuntime: func(context.Context) checkexec.RuntimeInfo {
 				return checkexec.RuntimeInfo{Name: "podman", Path: "/bin/podman", Rootless: true}
 			},
-			cacheRoot: func() (string, error) { return home, nil },
-			freeBytes: func(string) (uint64, error) { return 10 * 1024 * 1024 * 1024, nil },
-			lookPath:  func(string) (string, error) { return "/tool", nil },
-			commandOutput: func(_ context.Context, name string, _ ...string) ([]byte, error) {
+			CacheRoot: func() (string, error) { return home, nil },
+			FreeBytes: func(string) (uint64, error) { return 10 * 1024 * 1024 * 1024, nil },
+			LookPath:  func(string) (string, error) { return "/tool", nil },
+			CommandOutput: func(_ context.Context, name string, _ ...string) ([]byte, error) {
 				return []byte(filepath.Base(name) + " version\n"), nil
 			},
 		},
@@ -214,16 +214,16 @@ func TestAgentInstallAndUninstallLinux(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "config") // relative: ignored, as systemd does
 	var calls [][]string
 	p := &agentServiceProbes{
-		osName:     "linux",
-		executable: func() (string, error) { return "/opt/gs-real", nil },
-		evalSymlinks: func(path string) (string, error) {
+		OSName:     "linux",
+		Executable: func() (string, error) { return "/opt/gs-real", nil },
+		EvalSymlinks: func(path string) (string, error) {
 			return map[string]string{"/opt/gs-real": "/opt/gs-real", "/usr/local/bin/gs": "/opt/gs-real"}[path], nil
 		},
-		lookPath: func(string) (string, error) { return "/usr/local/bin/gs", nil },
-		environ:  func() []string { return []string{"PATH=/tools", "GITSLICE_TRACE=1", "GITSLICE_API_TOKEN=hide"} },
-		userName: func() string { return "ci-user" },
-		userHome: func() (string, error) { return accountHome, nil },
-		command: func(_ context.Context, name string, args ...string) ([]byte, error) {
+		LookPath: func(string) (string, error) { return "/usr/local/bin/gs", nil },
+		Environ:  func() []string { return []string{"PATH=/tools", "GITSLICE_TRACE=1", "GITSLICE_API_TOKEN=hide"} },
+		UserName: func() string { return "ci-user" },
+		UserHome: func() (string, error) { return accountHome, nil },
+		Command: func(_ context.Context, name string, args ...string) ([]byte, error) {
 			calls = append(calls, append([]string{name}, args...))
 			if name == "loginctl" {
 				return []byte("no\n"), nil
@@ -268,14 +268,14 @@ func TestAgentInstallAndUninstallLaunchd(t *testing.T) {
 	home := t.TempDir()
 	var calls [][]string
 	p := &agentServiceProbes{
-		osName:       "darwin",
-		executable:   func() (string, error) { return "/opt/gs", nil },
-		evalSymlinks: func(path string) (string, error) { return path, nil },
-		lookPath:     func(string) (string, error) { return "", os.ErrNotExist },
-		environ:      func() []string { return []string{"PATH=/tools"} },
-		uid:          func() int { return 501 },
-		userHome:     func() (string, error) { return home, nil },
-		command: func(_ context.Context, name string, args ...string) ([]byte, error) {
+		OSName:       "darwin",
+		Executable:   func() (string, error) { return "/opt/gs", nil },
+		EvalSymlinks: func(path string) (string, error) { return path, nil },
+		LookPath:     func(string) (string, error) { return "", os.ErrNotExist },
+		Environ:      func() []string { return []string{"PATH=/tools"} },
+		UID:          func() int { return 501 },
+		UserHome:     func() (string, error) { return home, nil },
+		Command: func(_ context.Context, name string, args ...string) ([]byte, error) {
 			calls = append(calls, append([]string{name}, args...))
 			return nil, nil
 		},
@@ -311,12 +311,12 @@ func TestAgentInstallPrintAndInvalidName(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", "config")
 	called := false
 	p := &agentServiceProbes{
-		osName:       "linux",
-		executable:   func() (string, error) { return "/opt/gs", nil },
-		evalSymlinks: func(path string) (string, error) { return path, nil },
-		lookPath:     func(string) (string, error) { return "", os.ErrNotExist },
-		environ:      func() []string { return []string{"PATH=/tools"} },
-		command:      func(context.Context, string, ...string) ([]byte, error) { called = true; return nil, nil },
+		OSName:       "linux",
+		Executable:   func() (string, error) { return "/opt/gs", nil },
+		EvalSymlinks: func(path string) (string, error) { return path, nil },
+		LookPath:     func(string) (string, error) { return "", os.ErrNotExist },
+		Environ:      func() []string { return []string{"PATH=/tools"} },
+		Command:      func(context.Context, string, ...string) ([]byte, error) { called = true; return nil, nil },
 	}
 	var stdout bytes.Buffer
 	r := Runner{Home: home, Dir: t.TempDir(), Stdout: &stdout, AgentService: p}
@@ -341,13 +341,13 @@ func TestAgentInstallWithoutAccountHomeProbeStaysUnderHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", "")
 	p := &agentServiceProbes{
-		osName:       "linux",
-		executable:   func() (string, error) { return "/opt/gs", nil },
-		evalSymlinks: func(path string) (string, error) { return path, nil },
-		lookPath:     func(string) (string, error) { return "", os.ErrNotExist },
-		environ:      func() []string { return []string{"PATH=/tools"} },
-		userName:     func() string { return "ci-user" },
-		command:      func(context.Context, string, ...string) ([]byte, error) { return nil, nil },
+		OSName:       "linux",
+		Executable:   func() (string, error) { return "/opt/gs", nil },
+		EvalSymlinks: func(path string) (string, error) { return path, nil },
+		LookPath:     func(string) (string, error) { return "", os.ErrNotExist },
+		Environ:      func() []string { return []string{"PATH=/tools"} },
+		UserName:     func() string { return "ci-user" },
+		Command:      func(context.Context, string, ...string) ([]byte, error) { return nil, nil },
 	}
 	r := Runner{Home: home, Dir: t.TempDir(), AgentService: p}
 	if err := r.runAgentInstall(context.Background(), commandOptions{Quiet: true}, agentInstallOptions{Name: "guarded", CI: true}); err != nil {

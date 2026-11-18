@@ -3,30 +3,17 @@ package cli
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
+
+	"gitslice.io/gitslice/internal/agentd"
 )
 
-type agentInboundState struct {
-	mu   sync.Mutex
-	last time.Time
-}
+type agentInboundState = agentd.InboundState
 
-func newAgentInboundState(now time.Time) *agentInboundState {
-	return &agentInboundState{last: now}
-}
-
-func (s *agentInboundState) mark(now time.Time) {
-	s.mu.Lock()
-	s.last = now
-	s.mu.Unlock()
-}
-
-func (s *agentInboundState) lastSeen() time.Time {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.last
-}
+var (
+	newAgentInboundState = agentd.NewInboundState
+	inboundStale         = agentd.InboundStale
+)
 
 func (d *agentDaemon) markActivity() {
 	d.idleMu.Lock()
@@ -98,7 +85,7 @@ func (d *agentDaemon) runInboundWatchdog(ctx context.Context, cancel context.Can
 			if ctx.Err() != nil {
 				return
 			}
-			last := inbound.lastSeen()
+			last := inbound.LastSeen()
 			now := time.Now()
 			if inboundStale(last, now, agentInboundStaleTimeout) {
 				fmt.Fprintf(d.runner.stderr(), "no server message in %s; assuming half-open stream, reconnecting\n", now.Sub(last).Round(time.Second))
@@ -135,11 +122,4 @@ func (d *agentDaemon) runIdleMonitor(ctx context.Context, cancel context.CancelF
 			}
 		}
 	}
-}
-
-func inboundStale(last time.Time, now time.Time, timeout time.Duration) bool {
-	if last.IsZero() || timeout <= 0 || now.Before(last) {
-		return false
-	}
-	return now.Sub(last) > timeout
 }

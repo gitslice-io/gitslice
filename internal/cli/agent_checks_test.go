@@ -18,8 +18,8 @@ func TestHandleRunChecksDedupsRecentlyCompletedRunID(t *testing.T) {
 	defer stop()
 
 	sendQueue := &agentSendQueue{
-		ch:   make(chan *corev1.DaemonMessage, 16),
-		done: make(chan struct{}),
+		Ch:   make(chan *corev1.DaemonMessage, 16),
+		Done: make(chan struct{}),
 	}
 	d := newTestCheckDaemon(t)
 	d.cfg = UserConfig{ServerAddr: addr}
@@ -43,7 +43,7 @@ func TestHandleRunChecksDedupsRecentlyCompletedRunID(t *testing.T) {
 	terminal := 0
 	for {
 		select {
-		case msg := <-sendQueue.ch:
+		case msg := <-sendQueue.Ch:
 			update := msg.GetCheckUpdate()
 			if update != nil && update.GetRunId() == "run-dup" && update.GetFinal() {
 				terminal++
@@ -63,8 +63,8 @@ func TestHandleRunChecksEmitsRunningBeforeTerminal(t *testing.T) {
 	defer stop()
 
 	sendQueue := &agentSendQueue{
-		ch:   make(chan *corev1.DaemonMessage, 16),
-		done: make(chan struct{}),
+		Ch:   make(chan *corev1.DaemonMessage, 16),
+		Done: make(chan struct{}),
 	}
 	d := newTestCheckDaemon(t)
 	d.cfg = UserConfig{ServerAddr: addr}
@@ -84,7 +84,7 @@ func TestHandleRunChecksEmitsRunningBeforeTerminal(t *testing.T) {
 
 	d.handleRunChecks(req)
 
-	updates := collectCheckRunUpdates(sendQueue.ch, "run-running")
+	updates := collectCheckRunUpdates(sendQueue.Ch, "run-running")
 	if len(updates) < 2 {
 		t.Fatalf("check updates = %d, want running and terminal", len(updates))
 	}
@@ -120,7 +120,7 @@ func TestCheckRunUpdatesResentAfterQueueSwap(t *testing.T) {
 	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: "run-resend", Status: "running", ClientSeq: 1})
 	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: "run-resend", LogChunk: "hello\n", Stream: "stdout", ClientSeq: 2})
 
-	if got := collectCheckRunSeqs(firstQueue.ch, "run-resend"); !sameInt64s(got, []int64{1, 2}) {
+	if got := collectCheckRunSeqs(firstQueue.Ch, "run-resend"); !sameInt64s(got, []int64{1, 2}) {
 		t.Fatalf("first queue seqs = %v, want [1 2]", got)
 	}
 
@@ -128,7 +128,7 @@ func TestCheckRunUpdatesResentAfterQueueSwap(t *testing.T) {
 	d.sendQueue = secondQueue
 	d.resendPendingAll()
 
-	if got := collectCheckRunSeqs(secondQueue.ch, "run-resend"); !sameInt64s(got, []int64{1, 2}) {
+	if got := collectCheckRunSeqs(secondQueue.Ch, "run-resend"); !sameInt64s(got, []int64{1, 2}) {
 		t.Fatalf("second queue resent seqs = %v, want [1 2]", got)
 	}
 }
@@ -174,19 +174,19 @@ func TestCheckRunPendingCapDropsLogOnlyUpdatesFirst(t *testing.T) {
 	d.sendCheckRunUpdate(&corev1.CheckRunUpdate{RunId: runID, Status: "passed", ClientSeq: terminalSeq, Final: true})
 
 	outbox := checkRunOutboxForTest(t, d, runID)
-	outbox.outMu.Lock()
-	defer outbox.outMu.Unlock()
-	if got := len(outbox.pending); got != agentMaxPendingCheckRunUpdates {
+	outbox.OutMu.Lock()
+	defer outbox.OutMu.Unlock()
+	if got := len(outbox.Pending); got != agentMaxPendingCheckRunUpdates {
 		t.Fatalf("pending len = %d, want %d", got, agentMaxPendingCheckRunUpdates)
 	}
-	if first := outbox.pending[0]; first.GetClientSeq() != 1 || first.GetStatus() != "running" {
+	if first := outbox.Pending[0]; first.GetClientSeq() != 1 || first.GetStatus() != "running" {
 		t.Fatalf("first pending update = seq %d status %q, want running seq 1", first.GetClientSeq(), first.GetStatus())
 	}
-	last := outbox.pending[len(outbox.pending)-1]
+	last := outbox.Pending[len(outbox.Pending)-1]
 	if last.GetClientSeq() != terminalSeq || !last.GetFinal() {
 		t.Fatalf("last pending update = seq %d final %v, want terminal seq %d", last.GetClientSeq(), last.GetFinal(), terminalSeq)
 	}
-	for _, update := range outbox.pending {
+	for _, update := range outbox.Pending {
 		if update.GetClientSeq() == 2 {
 			t.Fatal("oldest log-only update seq 2 survived cap trimming")
 		}
@@ -199,8 +199,8 @@ func TestHandleRunChecksHonorsCheckConcurrency(t *testing.T) {
 	defer stop()
 
 	sendQueue := &agentSendQueue{
-		ch:   make(chan *corev1.DaemonMessage, 64),
-		done: make(chan struct{}),
+		Ch:   make(chan *corev1.DaemonMessage, 64),
+		Done: make(chan struct{}),
 	}
 	d := newTestCheckDaemon(t)
 	d.cfg = UserConfig{ServerAddr: addr}
@@ -252,8 +252,8 @@ func TestHandleRunChecksRunsOneRequestsChecksSideBySide(t *testing.T) {
 	defer stop()
 
 	sendQueue := &agentSendQueue{
-		ch:   make(chan *corev1.DaemonMessage, 64),
-		done: make(chan struct{}),
+		Ch:   make(chan *corev1.DaemonMessage, 64),
+		Done: make(chan struct{}),
 	}
 	d := newTestCheckDaemon(t)
 	d.cfg = UserConfig{ServerAddr: addr}
