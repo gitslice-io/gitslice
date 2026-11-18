@@ -33,6 +33,7 @@ import { cn } from "../lib/cn";
 import { shortChangesetId } from "../lib/objectId";
 import { changesetPageTitle } from "../lib/socialMeta";
 import { conversationsEnabled } from "../lib/features";
+import { useChangesetPermissions } from "../lib/permissions";
 
 import {
   ChangesetSkeleton,
@@ -139,6 +140,7 @@ export function ChangesetDetailPage() {
 
   const changeset = changesetQuery.data;
   const authoringSlice = changeset?.authoringSlice;
+  const changesetPermissions = useChangesetPermissions(changeset);
 
   // The tab and the browser history name the changeset. The route sets the
   // title when it knows the changeset; this covers arriving by an in-app link,
@@ -611,14 +613,15 @@ export function ChangesetDetailPage() {
           actionBusy={actionBusy}
           actionError={actionError}
           abandonPending={abandonMutation.isPending}
-          canUseReviewActions={Boolean(isLoaded && isSignedIn)}
+          canAbandon={changesetPermissions.canAbandon}
+          canSubmit={changesetPermissions.canSubmit}
           changeset={changeset}
           dependentChangesets={dependentChangesets}
           mergePending={mergeMutation.isPending}
           onAbandon={submitAbandon}
           onAbandonReasonChange={setAbandonReason}
           onMerge={() => mergeMutation.mutate()}
-          onSaveInfo={isLoaded && isSignedIn ? saveInfo : undefined}
+          onSaveInfo={changesetPermissions.canEditInfo ? saveInfo : undefined}
           patchsetCompare={
             <PatchsetComparePanel
               conversationOpen={conversationOpen}

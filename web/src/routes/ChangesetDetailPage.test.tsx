@@ -83,8 +83,20 @@ vi.mock("@tanstack/react-router", async () => {
   };
 });
 
+const selectionMock = vi.hoisted(() => ({
+  current: {
+    account: "nic",
+    accounts: ["nic", "acme"],
+    memberships: [
+      { account: "nic", kind: "personal", role: "owner" },
+      { account: "acme", kind: "organization", role: "admin" }
+    ],
+    subjectId: "user_nic"
+  }
+}));
+
 vi.mock("../state/selection", () => ({
-  useSelection: () => ({ account: "nic", accounts: ["nic"] })
+  useSelection: () => selectionMock.current
 }));
 
 vi.mock("../components/diff/DiffViewer", () => ({
@@ -176,6 +188,15 @@ describe("changeset detail page", () => {
 
   afterEach(() => {
     featuresMock.conversationsEnabled = false;
+    selectionMock.current = {
+      account: "nic",
+      accounts: ["nic", "acme"],
+      memberships: [
+        { account: "nic", kind: "personal", role: "owner" },
+        { account: "acme", kind: "organization", role: "admin" }
+      ],
+      subjectId: "user_nic"
+    };
     cleanup();
     vi.clearAllMocks();
   });
@@ -778,6 +799,74 @@ describe("changeset detail page", () => {
       await screen.findByText("Changeset conflicts with base")
     ).toBeInTheDocument();
   });
+
+  it("gates Merge, Abandon, and Edit on changeset ownership, collaborators, controller attribution, and contributor role", async () => {
+    routerMock.params = { id: "cs_child" };
+    routerMock.search = {};
+
+    // 1. Non-owner writer on acme cannot merge, abandon, or edit alice's changeset.
+    selectionMock.current = {
+      account: "nic",
+      accounts: ["nic", "acme"],
+      memberships: [
+        { account: "nic", kind: "personal", role: "owner" },
+        { account: "acme", kind: "organization", role: "writer" }
+      ],
+      subjectId: "user_nic"
+    };
+    const api = makeApi();
+    api.getChangeset = vi.fn().mockResolvedValue(changeset("cs_child", "alice work"));
+    apiMock.current = api;
+
+    renderRoute(<ChangesetDetailPage />);
+    expect(await screen.findByText("alice work")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Merge" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "More changeset actions" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    cleanup();
+
+    // 2. Collaborator with shared contributor role can edit & abandon, but not merge.
+    selectionMock.current = {
+      account: "nic",
+      accounts: ["nic"],
+      memberships: [{ account: "nic", kind: "personal", role: "owner" }],
+      subjectId: "user_nic"
+    };
+    const contribApi = makeApi();
+    contribApi.listSharedSlices = vi.fn().mockResolvedValue({
+      slices: [{ role: "contributor", slice: { ref: { account: "acme", slice: "payment" } } }]
+    });
+    contribApi.getChangeset = vi.fn().mockResolvedValue({
+      ...changeset("cs_child", "collab work"),
+      collaborators: ["nic"]
+    });
+    apiMock.current = contribApi;
+
+    renderRoute(<ChangesetDetailPage />);
+    expect(await screen.findByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More changeset actions" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Merge" })).toBeNull();
+    cleanup();
+
+    // 3. Human controller of an agent author gets Edit, Merge, and Abandon via attribution.controllerUsername.
+    const ctrlApi = makeApi();
+    ctrlApi.getChangeset = vi.fn().mockResolvedValue({
+      ...changeset("cs_child", "agent work"),
+      author: "web-agent",
+      attribution: {
+        actingSubjectId: "agent_web",
+        actingUsername: "web-agent",
+        controllerSubjectId: "user_nic",
+        controllerUsername: "nic"
+      }
+    });
+    apiMock.current = ctrlApi;
+
+    renderRoute(<ChangesetDetailPage />);
+    expect(await screen.findByRole("button", { name: "Merge" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "More changeset actions" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+  });
 });
 
 describe("reading a changed file in full", () => {
@@ -909,6 +998,7 @@ function makeApi() {
     getStack: vi.fn().mockResolvedValue(stackFixture()),
     listCheckRuns: vi.fn().mockResolvedValue({ runs: [] }),
     listChangesets: vi.fn().mockResolvedValue({ changesets: [] }),
+    listSharedSlices: vi.fn().mockResolvedValue({ slices: [] }),
     listDirectory: vi.fn().mockResolvedValue({
       entries: [
         {

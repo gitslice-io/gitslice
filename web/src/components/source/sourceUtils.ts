@@ -1,4 +1,4 @@
-import { RpcError } from "../../api/rpcError";
+import { RpcError, isNotFoundError } from "../../api/rpcError";
 import type { ApiClient } from "../../api/useApi";
 import type {
   ListDirectoryResponse,
@@ -355,12 +355,7 @@ export function isPathNotFoundError(error: unknown) {
     return false;
   }
   if (error instanceof RpcError) {
-    return (
-      error.status === 404 ||
-      error.code === 5 ||
-      error.code === "5" ||
-      error.code === "NotFound"
-    );
+    return isNotFoundError(error);
   }
   return error.message.toLowerCase().includes("path not found");
 }

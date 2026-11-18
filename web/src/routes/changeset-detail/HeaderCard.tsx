@@ -21,9 +21,11 @@ export function HeaderCard({
   abandonReason,
   actionBusy,
   actionError,
+  canAbandon,
+  canSubmit,
   changeset,
   dependentChangesets,
-  canUseReviewActions,
+  canUseReviewActions = false,
   mergePending,
   onAbandon,
   onAbandonReasonChange,
@@ -36,9 +38,11 @@ export function HeaderCard({
   abandonReason: string;
   actionBusy: boolean;
   actionError: string;
+  canAbandon?: boolean;
+  canSubmit?: boolean;
   changeset: Changeset;
   dependentChangesets: { id: string; title: string }[];
-  canUseReviewActions: boolean;
+  canUseReviewActions?: boolean;
   mergePending: boolean;
   onAbandon(event: FormEvent<HTMLFormElement>): void;
   onAbandonReasonChange(value: string): void;
@@ -48,6 +52,9 @@ export function HeaderCard({
   patchsetCompare?: ReactNode;
   terminal: boolean;
 }) {
+  const allowSubmit = canSubmit ?? canUseReviewActions;
+  const allowAbandon = canAbandon ?? canUseReviewActions;
+  const showActions = allowSubmit || (!terminal && allowAbandon);
   // On phones the page folds its details; outside such a page the card keeps
   // its own toggle for the description.
   const pageDetails = useMobileDetails();
@@ -203,16 +210,18 @@ export function HeaderCard({
             </div>
           </div>
 
-          {canUseReviewActions ? (
+          {showActions ? (
             <div className="w-full shrink-0 lg:w-auto">
               <ReviewActions
                 abandonPending={abandonPending}
                 abandonReason={abandonReason}
                 actionBusy={actionBusy}
+                canAbandon={allowAbandon}
                 canMerge={
                   Boolean(changeset.currentPatchsetId) &&
                   isMergeableStatus(changeset.status)
                 }
+                canSubmit={allowSubmit}
                 mergePending={mergePending}
                 onAbandon={onAbandon}
                 onAbandonReasonChange={onAbandonReasonChange}

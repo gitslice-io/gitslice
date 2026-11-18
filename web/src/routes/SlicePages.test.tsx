@@ -1170,7 +1170,59 @@ describe("slice route pages (render smoke)", () => {
     selectionMock.current = { ...selectionMock.current, accounts: ["nic"], memberships: selectionMock.current.memberships.slice(0, 1) };
   });
 
+  it("lets an external slice contributor propose edits and an external slice admin manage members", async () => {
+    authMock.current = { isLoaded: true, isSignedIn: true };
+    routerMock.params = { account: "acme", slice: "payment" };
+    const paymentSlice = {
+      id: "slice_acme_payment",
+      ref: { account: "acme", slice: "payment" },
+      definition: { includedPaths: ["/acme/payment"], visibility: "private" }
+    };
+    const api = makeApi();
+    api.resolveSlice = vi.fn().mockResolvedValue(paymentSlice);
+    api.listDirectory = vi.fn().mockResolvedValue({
+      entries: [{ kind: "ENTRY_KIND_DIRECTORY", name: "payment", path: "/acme/payment" }]
+    });
+    api.resolvePath = vi.fn().mockResolvedValue({
+      entry: { kind: "ENTRY_KIND_DIRECTORY", path: "/acme/payment" }
+    });
+    api.listSharedSlices = vi.fn().mockResolvedValue({
+      slices: [{ role: "contributor", slice: paymentSlice }]
+    });
+    apiMock.current = api;
+
+    renderRoute(<SliceDetailPage />);
+    await waitFor(() => expect(api.listSharedSlices).toHaveBeenCalled());
+    await flushAsync();
+    // Contributors can propose changesets (Create item) without account membership,
+    // and cannot configure slice settings.
+    expect((await screen.findAllByLabelText("Create item")).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Settings")).not.toBeInTheDocument();
+    cleanup();
+
+    // Shared as slice admin (direct or @group): sees Settings + People panel,
+    // without account-owner-only Secrets/GitMirror/Definition forms.
+    const adminApi = makeApi();
+    adminApi.resolveSlice = vi.fn().mockResolvedValue(paymentSlice);
+    adminApi.listSharedSlices = vi.fn().mockResolvedValue({
+      slices: [{ role: "admin", slice: paymentSlice }]
+    });
+    adminApi.listSliceMembers = vi.fn().mockResolvedValue({ members: [], groupMembers: [] });
+    apiMock.current = adminApi;
+
+    renderRoute(<SliceDetailPage />);
+    expect(await screen.findByText("Settings")).toBeInTheDocument();
+    cleanup();
+
+    renderRoute(<SliceSettingsPage />);
+    expect(await screen.findByRole("heading", { name: "People" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save definition" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Secrets" })).not.toBeInTheDocument();
+    expectHealthy();
+  });
+
   it("renders the slice settings page", async () => {
+    authMock.current = { isLoaded: true, isSignedIn: true };
     renderRoute(<SliceSettingsPage />);
     await waitFor(() => expect(apiMock.current.resolveSlice).toHaveBeenCalled());
     await flushAsync();
@@ -1178,6 +1230,7 @@ describe("slice route pages (render smoke)", () => {
   });
 
   it("updates the slice CI daemon from settings", async () => {
+    authMock.current = { isLoaded: true, isSignedIn: true };
     const api = makeApi();
     const slice = {
       id: "slice_nic_home",
@@ -1241,6 +1294,7 @@ describe("slice route pages (render smoke)", () => {
   });
 
   it("adds a backup CI daemon and removes one from the pool", async () => {
+    authMock.current = { isLoaded: true, isSignedIn: true };
     const api = makeApi();
     const slice = {
       id: "slice_nic_home",
@@ -1392,6 +1446,10 @@ function makeApi() {
     resolveSlice: vi.fn().mockResolvedValue(slice),
     getSlice: vi.fn().mockResolvedValue(slice),
     listSlices: vi.fn().mockResolvedValue({ slices: [slice], nextCursor: "" }),
+    listSharedSlices: vi.fn().mockResolvedValue({ slices: [] }),
+    listSliceMembers: vi.fn().mockResolvedValue({ members: [], groupMembers: [] }),
+    listSliceSecrets: vi.fn().mockResolvedValue({ secrets: [] }),
+    getSliceGitMirror: vi.fn().mockRejectedValue(new RpcError(404, { code: "not_found" })),
     listAccountMembers: vi.fn().mockResolvedValue({ members: [] }),
     setAccountMember: vi.fn().mockResolvedValue({}),
     removeAccountMember: vi.fn().mockResolvedValue({}),

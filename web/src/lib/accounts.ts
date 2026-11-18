@@ -6,7 +6,7 @@ export interface Membership {
   account: string;
   // personal (the viewer's own), organization, or agent (an agent they claimed).
   kind: string;
-  // owner, admin, writer, member or reader; "" when the server did not say.
+  // owner, admin, writer, member, contributor or reader; "" when the server did not say.
   role: string;
 }
 
@@ -20,24 +20,107 @@ export function normalizeMemberships(accounts: string[], memberships: AccountMem
   return accounts.map((account, index) => ({ account, kind: index === 0 ? "personal" : "", role: "" }));
 }
 
-export function membershipFor(memberships: readonly Membership[], account: string | undefined) {
+export function membershipFor(memberships: readonly Membership[] | undefined, account: string | undefined) {
+  if (!memberships || memberships.length === 0) {
+    return undefined;
+  }
   const wanted = (account ?? "").trim().toLowerCase();
+  if (!wanted) {
+    return undefined;
+  }
   return memberships.find((m) => m.account.toLowerCase() === wanted);
 }
 
-const WRITE_ROLES = new Set(["owner", "admin", "member", "writer"]);
-const ADMIN_ROLES = new Set(["owner", "admin"]);
-
-// The same rules as the server (internal/authz): who may change a slice's
-// files, and who may change its definition or create slices in the account.
-// A membership whose role an older server did not report is given the benefit
-// of the doubt; the server still decides.
-export function canWrite(membership: Membership | undefined) {
-  return Boolean(membership && (membership.role === "" || WRITE_ROLES.has(membership.role)));
+// Role hierarchy aligned with internal/authz/authz.go (design/36 §1).
+export function roleTier(role: string | undefined): number {
+  switch ((role ?? "").trim().toLowerCase()) {
+    case "owner":
+      return 5;
+    case "admin":
+      return 4;
+    case "writer":
+    case "member":
+      return 3;
+    case "contributor":
+      return 2;
+    case "reader":
+      return 1;
+    default:
+      return 0;
+  }
 }
 
-export function canAdmin(membership: Membership | undefined) {
-  return Boolean(membership && (membership.role === "" || ADMIN_ROLES.has(membership.role)));
+function accountRoleRank(role: string): number {
+  switch (role) {
+    case "owner":
+      return 0;
+    case "admin":
+      return 1;
+    case "writer":
+      return 2;
+    case "member":
+      return 3;
+    case "contributor":
+      return 4;
+    case "reader":
+      return 5;
+    default:
+      return 6;
+  }
+}
+
+export function higherRole(a: string | undefined, b: string | undefined): string {
+  const normA = (a ?? "").trim().toLowerCase();
+  const normB = (b ?? "").trim().toLowerCase();
+  const tierA = roleTier(normA);
+  const tierB = roleTier(normB);
+  if (tierA === 0 && tierB === 0) {
+    return "";
+  }
+  if (tierA !== tierB) {
+    return tierA > tierB ? normA : normB;
+  }
+  return accountRoleRank(normB) < accountRoleRank(normA) ? normB : normA;
+}
+
+export function roleAllowsPropose(role: string | undefined): boolean {
+  return roleTier(role) >= 2;
+}
+
+export function roleAllowsSubmit(role: string | undefined): boolean {
+  return roleTier(role) >= 3;
+}
+
+export function roleAllowsReview(role: string | undefined): boolean {
+  return roleTier(role) >= 3;
+}
+
+export function roleAllowsAdmin(role: string | undefined): boolean {
+  return roleTier(role) >= 4;
+}
+
+// The same rules as the server (internal/authz): who may propose changesets,
+// who may submit/review changesets, and who may administer slices/settings.
+// A membership whose role an older server did not report is given the benefit
+// of the doubt; the server still decides.
+export function canPropose(membership: Membership | undefined): boolean {
+  return Boolean(membership && (membership.role === "" || roleAllowsPropose(membership.role)));
+}
+
+export function canSubmit(membership: Membership | undefined): boolean {
+  return Boolean(membership && (membership.role === "" || roleAllowsSubmit(membership.role)));
+}
+
+export function canReview(membership: Membership | undefined): boolean {
+  return Boolean(membership && (membership.role === "" || roleAllowsReview(membership.role)));
+}
+
+export function canWrite(membership: Membership | undefined): boolean {
+  return canSubmit(membership);
+}
+
+export function canAdmin(membership: Membership | undefined): boolean {
+  return Boolean(membership && (membership.role === "" || roleAllowsAdmin(membership.role)));
 }
 
 export function kindLabel(kind: string) {

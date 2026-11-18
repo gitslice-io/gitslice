@@ -41,7 +41,7 @@ import {
 } from "../components/source/SliceEditing";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
 import { shortChangesetId, shortHash } from "../lib/objectId";
-import { canAdmin, canWrite, membershipFor } from "../lib/accounts";
+import { useSlicePermissions } from "../lib/permissions";
 import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 import { cn } from "../lib/cn";
@@ -90,7 +90,7 @@ export function SliceDetailPage() {
   const navigate = useNavigate();
   const router = useRouter();
   const { isLoaded, isSignedIn } = useAuth();
-  const { account, accounts, memberships } = useSelection();
+  const { account, accounts } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;
   const search = useSearch({ strict: false }) as SliceSearch;
   const routeAccount = params.account ?? "";
@@ -125,12 +125,6 @@ export function SliceDetailPage() {
   const [isCreatingChangeset, setIsCreatingChangeset] = useState(false);
   const [changesetError, setChangesetError] = useState("");
   const gitCloneOrigin = useGitCloneOrigin();
-  // What the viewer may do here follows their role in the slice's account, as
-  // the server decides it: writers edit files, owners and admins change the
-  // slice's settings. Anyone else reads.
-  const sliceMembership = membershipFor(memberships, routeAccount);
-  const canEdit = Boolean(isLoaded && isSignedIn && account && canWrite(sliceMembership));
-  const canConfigure = Boolean(isLoaded && isSignedIn && canAdmin(sliceMembership));
 
   const sliceQuery = useQuery({
     enabled: Boolean(isLoaded && routeSliceRef),
@@ -157,6 +151,13 @@ export function SliceDetailPage() {
 
   const slice = sliceQuery.data;
   const sliceRef = slice?.ref ?? routeSliceRef;
+  // Capabilities combine the viewer's role in the slice's account with any
+  // direct or @account/group share on the slice itself (design/36):
+  // contributors/writers/admins propose changesets, writers/admins submit
+  // direct path ops, and slice/account admins open slice settings.
+  const slicePermissions = useSlicePermissions(slice ?? routeSliceRef);
+  const canEdit = Boolean(account && slicePermissions.canPropose);
+  const canConfigure = slicePermissions.canAdmin;
   const sliceId = slice?.id ?? "";
   const sliceRouteParams = toSliceRouteParams(sliceRef);
   const sliceRouteKey = sliceRouteParams
@@ -677,11 +678,9 @@ export function SliceDetailPage() {
             >
               <CopyMoveProvider
                 canModify={(path) => canModifyPath(includedPaths, path)}
-                canWriteAccount={(name) =>
-                  canWrite(membershipFor(memberships, name))
-                }
+                canWriteAccount={slicePermissions.canSubmitToAccount}
                 commitId={commitId}
-                enabled={canEdit}
+                enabled={Boolean(account && slicePermissions.canSubmit)}
                 onLanded={openLandedPath}
                 slice={sliceRef}
               >

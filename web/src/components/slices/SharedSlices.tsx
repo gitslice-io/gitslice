@@ -1,8 +1,6 @@
-import { useAuth } from "@clerk/tanstack-react-start";
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
-import { useApi } from "../../api/useApi";
+import { useSharedSlices } from "../../lib/permissions";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
 import { VisibilityBadge, formatPathPreview } from "./SlicePageParts";
 
@@ -12,14 +10,7 @@ import { VisibilityBadge, formatPathPreview } from "./SlicePageParts";
  * none are shared or the server does not support it.
  */
 export function SharedSlices() {
-  const api = useApi();
-  const { isLoaded, isSignedIn } = useAuth();
-  const sharedQuery = useQuery({
-    enabled: Boolean(isLoaded && isSignedIn),
-    queryKey: ["sharedSlices"],
-    queryFn: async () => (await api.listSharedSlices({})).slices ?? [],
-    retry: false
-  });
+  const sharedQuery = useSharedSlices();
   const shared = (sharedQuery.data ?? []).filter((item) => item.slice?.ref);
   if (shared.length === 0) {
     return null;

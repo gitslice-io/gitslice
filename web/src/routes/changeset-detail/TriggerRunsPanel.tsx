@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { RpcError } from "../../api/rpcError";
+import { RpcError, isDefiniteClientError } from "../../api/rpcError";
 import type { TriggerRun } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { Timestamp } from "../../components/Timestamp";
@@ -27,7 +27,10 @@ export function TriggerRunsPanel({ changesetId, patchsetId }: { changesetId: str
     enabled: Boolean(changesetId),
     queryKey,
     queryFn: async () => (await api.listTriggerRuns({ changesetId, limit: 50 })).runs ?? [],
-    retry: (failures, error) => !(error instanceof RpcError && (error.status === 401 || error.status === 503)) && failures < 3,
+    retry: (failures, error) =>
+      !isDefiniteClientError(error) &&
+      !(error instanceof RpcError && error.status === 503) &&
+      failures < 3,
     refetchInterval: (query) => (query.state.data?.some((run) => !isFinalTriggerStatus(run.status)) ? POLL_MS : false)
   });
   const refresh = () => Promise.all([

@@ -3,7 +3,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useParams } from "@tanstack/react-router";
 
-import { RpcError, isNotFoundError } from "../api/rpcError";
+import { isDefiniteClientError, isNotFoundError } from "../api/rpcError";
 import type { AccountProfile, ListSlicesResponse } from "../api/types";
 import { useApi } from "../api/useApi";
 import { AccountAvatar, rememberAvatarVersion } from "../components/AccountAvatar";
@@ -27,10 +27,6 @@ import { useSelection } from "../state/selection";
 
 const PAGE_SIZE = 50;
 
-function isDefinite(error: unknown) {
-  return error instanceof RpcError && [400, 401, 403, 404].includes(error.status);
-}
-
 // An account's page, personal or organization: its slices that the visitor can
 // open, and for the account's members its people. Anyone sees the public
 // slices; members see every slice.
@@ -53,13 +49,13 @@ export function AccountPage() {
     queryFn: ({ pageParam }) => api.listSlices({ account, cursor: pageParam, pageSize: PAGE_SIZE }),
     // Asking again does not change a definite answer (no such account, not
     // signed in, not allowed); only failures that may pass are retried.
-    retry: (count, error) => !isDefinite(error) && count < 2
+    retry: (count, error) => !isDefiniteClientError(error) && count < 2
   });
   const profileQuery = useQuery({
     enabled: Boolean(account),
     queryKey: ["accountProfile", account],
     queryFn: () => api.getAccountProfile({ account }),
-    retry: (count, error) => !isDefinite(error) && count < 2
+    retry: (count, error) => !isDefiniteClientError(error) && count < 2
   });
   const profile = profileQuery.data;
   // Every avatar of this account on the page uses the picture the profile

@@ -36,6 +36,50 @@ export function isNotFoundError(error: unknown): boolean {
   );
 }
 
+// isUnauthenticatedError says the server refused the call because the caller
+// is not signed in or holds no valid session/credential.
+export function isUnauthenticatedError(error: unknown): boolean {
+  return (
+    error instanceof RpcError &&
+    (error.status === 401 ||
+      error.code === 16 ||
+      error.code === "16" ||
+      error.code === "Unauthenticated" ||
+      error.code === "unauthenticated")
+  );
+}
+
+// isPermissionDeniedError says the server refused an authenticated caller who
+// lacks authority for the requested action.
+export function isPermissionDeniedError(error: unknown): boolean {
+  return (
+    error instanceof RpcError &&
+    (error.status === 403 ||
+      error.code === 7 ||
+      error.code === "7" ||
+      error.code === "PermissionDenied" ||
+      error.code === "permission_denied")
+  );
+}
+
+// isDefiniteClientError says retrying the exact same request will not change
+// the answer (invalid argument, unauthenticated, permission denied, not found).
+export function isDefiniteClientError(error: unknown): boolean {
+  if (!(error instanceof RpcError)) {
+    return false;
+  }
+  return (
+    error.status === 400 ||
+    error.code === 3 ||
+    error.code === "3" ||
+    error.code === "InvalidArgument" ||
+    error.code === "invalid_argument" ||
+    isUnauthenticatedError(error) ||
+    isPermissionDeniedError(error) ||
+    isNotFoundError(error)
+  );
+}
+
 export const defaultApiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export interface CreateApiClientOptions {

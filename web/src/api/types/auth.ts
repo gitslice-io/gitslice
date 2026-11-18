@@ -11,7 +11,7 @@ export interface GetAuthStatusResponse {
 
 export type AccountKind = "personal" | "organization" | "agent";
 
-export type AccountRole = "owner" | "admin" | "writer" | "member" | "reader";
+export type AccountRole = "owner" | "admin" | "writer" | "member" | "contributor" | "reader";
 
 export interface AccountMembership {
   account?: string;

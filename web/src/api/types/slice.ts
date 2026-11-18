@@ -135,7 +135,7 @@ export interface SetSliceDescriptionRequest {
 export interface SliceMember {
   username?: string;
   subjectId?: string;
-  /** admin, writer or reader. */
+  /** admin, writer, contributor or reader. */
   role?: string;
   displayName?: string;
   /** person or agent. */

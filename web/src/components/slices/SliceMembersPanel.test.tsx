@@ -38,9 +38,10 @@ afterEach(() => {
 });
 
 describe("SliceMembersPanel", () => {
-  it("lists members and shares, changes and removes", async () => {
+  it("lists direct and group members and shares, changes (including contributor) and removes", async () => {
     api.listSliceMembers.mockResolvedValue({
-      members: [{ kind: "agent", role: "writer", subjectId: "agent_bob", username: "bob-agent" }]
+      members: [{ kind: "agent", role: "writer", subjectId: "agent_bob", username: "bob-agent" }],
+      groupMembers: [{ groupId: "grp_1", account: "acme", name: "qa", handle: "@acme/qa", role: "contributor" }]
     });
     api.setSliceMember.mockResolvedValue({});
     api.removeSliceMember.mockResolvedValue({});
@@ -48,16 +49,21 @@ describe("SliceMembersPanel", () => {
 
     expect(await screen.findByRole("link", { name: "bob-agent" })).toHaveAttribute("href", "/accounts/bob-agent");
     expect(screen.getByText("agent")).toBeInTheDocument();
+    expect(screen.getByText("@acme/qa")).toBeInTheDocument();
+    expect(screen.getByText("group")).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText("Username"), { target: { value: "carol" } });
-    fireEvent.change(screen.getByLabelText("Role"), { target: { value: "reader" } });
+    fireEvent.change(screen.getByLabelText("Role"), { target: { value: "contributor" } });
     fireEvent.click(screen.getByRole("button", { name: "Share" }));
-    await waitFor(() => expect(api.setSliceMember).toHaveBeenCalledWith({ role: "reader", slice, username: "carol" }));
+    await waitFor(() => expect(api.setSliceMember).toHaveBeenCalledWith({ role: "contributor", slice, username: "carol" }));
 
     fireEvent.change(screen.getByLabelText("Role of bob-agent"), { target: { value: "admin" } });
     await waitFor(() => expect(api.setSliceMember).toHaveBeenLastCalledWith({ role: "admin", slice, username: "bob-agent" }));
 
-    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.change(screen.getByLabelText("Role of @acme/qa"), { target: { value: "writer" } });
+    await waitFor(() => expect(api.setSliceMember).toHaveBeenLastCalledWith({ role: "writer", slice, username: "@acme/qa" }));
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]);
     await waitFor(() => expect(api.removeSliceMember).toHaveBeenCalledWith({ slice, username: "bob-agent" }));
   });
 

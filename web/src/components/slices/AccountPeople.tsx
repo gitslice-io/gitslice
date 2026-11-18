@@ -6,10 +6,11 @@ import { canAdmin, type Membership } from "../../lib/accounts";
 import { AccountAvatar, AccountLink } from "../AccountAvatar";
 import { SliceLoadingBlock, SliceNotice, getErrorMessage } from "./SlicePageParts";
 
-const ROLES = ["owner", "admin", "writer", "member", "reader"] as const;
+const ROLES = ["owner", "admin", "writer", "member", "contributor", "reader"] as const;
 
 const ROLE_HELP: Record<string, string> = {
   admin: "manages members and slices",
+  contributor: "can propose changesets",
   member: "can change files",
   owner: "full control",
   reader: "can read private slices",

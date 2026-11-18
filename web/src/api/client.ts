@@ -21,7 +21,14 @@ import { RpcError, defaultApiBaseUrl, type CreateApiClientOptions } from "./rpcE
 // Kept here for the code that has always imported them from the client. Code
 // that every page loads imports them from ./rpcError instead, so it does not
 // bring the client with it (see ./lazyClient).
-export { RpcError, defaultApiBaseUrl, isNotFoundError } from "./rpcError";
+export {
+  RpcError,
+  defaultApiBaseUrl,
+  isDefiniteClientError,
+  isNotFoundError,
+  isPermissionDeniedError,
+  isUnauthenticatedError
+} from "./rpcError";
 export type { CreateApiClientOptions, RpcErrorBody } from "./rpcError";
 
 export function createApiClient({

@@ -1,6 +1,5 @@
 import { type FormEvent } from "react";
 import { cn } from "../../lib/cn";
-import { isMergeableStatus } from "./status";
 import { dangerButtonClass } from "./status";
 import { MoreActionsMenu } from "./MoreActionsMenu";
 
@@ -8,7 +7,9 @@ export function ReviewActions({
   abandonPending,
   abandonReason,
   actionBusy,
+  canAbandon = true,
   canMerge,
+  canSubmit = true,
   mergePending,
   onAbandon,
   onAbandonReasonChange,
@@ -18,25 +19,34 @@ export function ReviewActions({
   abandonPending: boolean;
   abandonReason: string;
   actionBusy: boolean;
+  canAbandon?: boolean;
   canMerge: boolean;
+  canSubmit?: boolean;
   mergePending: boolean;
   onAbandon(event: FormEvent<HTMLFormElement>): void;
   onAbandonReasonChange(value: string): void;
   onMerge(): void;
   terminal: boolean;
 }) {
+  const showAbandon = !terminal && canAbandon;
+  if (!canSubmit && !showAbandon) {
+    return null;
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-      <button
-        className="h-8 rounded-md bg-zinc-950 dark:bg-zinc-100 px-3 py-2 text-xs font-medium text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={actionBusy || terminal || !canMerge}
-        onClick={onMerge}
-        type="button"
-      >
-        {mergePending ? "Merging..." : "Merge"}
-      </button>
+      {canSubmit ? (
+        <button
+          className="h-8 rounded-md bg-zinc-950 dark:bg-zinc-100 px-3 py-2 text-xs font-medium text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={actionBusy || terminal || !canMerge}
+          onClick={onMerge}
+          type="button"
+        >
+          {mergePending ? "Merging..." : "Merge"}
+        </button>
+      ) : null}
 
-      {!terminal ? (
+      {showAbandon ? (
         <MoreActionsMenu disabled={actionBusy} label="More changeset actions">
           <form className="space-y-2" onSubmit={onAbandon}>
             <label className="block text-xs font-medium text-slate-600 dark:text-zinc-400">

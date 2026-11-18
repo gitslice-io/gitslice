@@ -4,7 +4,13 @@ import { cleanup, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { RpcError, isNotFoundError } from "../api/client";
+import {
+  RpcError,
+  isDefiniteClientError,
+  isNotFoundError,
+  isPermissionDeniedError,
+  isUnauthenticatedError
+} from "../api/client";
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to, ...rest }: { children: ReactNode; to: string }) => (
@@ -49,5 +55,31 @@ describe("isNotFoundError", () => {
     expect(isNotFoundError(new RpcError(503, { code: "unavailable" }))).toBe(false);
     expect(isNotFoundError(new Error("not found"))).toBe(false);
     expect(isNotFoundError(undefined)).toBe(false);
+  });
+});
+
+describe("rpcError classifiers", () => {
+  it("classifies unauthenticated, permission-denied, and definite client errors", () => {
+    const unauth = new RpcError(401, { code: 16, message: "missing subject" });
+    const unauthByCode = new RpcError(500, { code: "unauthenticated" });
+    const denied = new RpcError(403, { code: 7, message: "forbidden" });
+    const deniedByCode = new RpcError(500, { code: "PermissionDenied" });
+    const badReq = new RpcError(400, { code: 3, message: "invalid" });
+    const unavailable = new RpcError(503, { code: "unavailable" });
+
+    expect(isUnauthenticatedError(unauth)).toBe(true);
+    expect(isUnauthenticatedError(unauthByCode)).toBe(true);
+    expect(isUnauthenticatedError(denied)).toBe(false);
+
+    expect(isPermissionDeniedError(denied)).toBe(true);
+    expect(isPermissionDeniedError(deniedByCode)).toBe(true);
+    expect(isPermissionDeniedError(unauth)).toBe(false);
+
+    expect(isDefiniteClientError(badReq)).toBe(true);
+    expect(isDefiniteClientError(unauth)).toBe(true);
+    expect(isDefiniteClientError(denied)).toBe(true);
+    expect(isDefiniteClientError(new RpcError(404))).toBe(true);
+    expect(isDefiniteClientError(unavailable)).toBe(false);
+    expect(isDefiniteClientError(new Error("boom"))).toBe(false);
   });
 });

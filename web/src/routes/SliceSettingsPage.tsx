@@ -27,8 +27,8 @@ import { SliceSecretsPanel } from "../components/slices/SliceSecretsPanel";
 import { SliceMembersPanel } from "../components/slices/SliceMembersPanel";
 import { SliceDescriptionPanel } from "../components/slices/SliceDescriptionPanel";
 import { SliceMergeOnSubmitPanel } from "../components/slices/SliceMergeOnSubmitPanel";
-import { canAdmin, membershipFor } from "../lib/accounts";
 import { daemonName } from "../lib/daemons";
+import { useSlicePermissions } from "../lib/permissions";
 import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 
@@ -40,7 +40,7 @@ interface SliceParams {
 export function SliceSettingsPage() {
   const api = useApi();
   const queryClient = useQueryClient();
-  const { accounts: viewerAccounts, memberships } = useSelection();
+  const { accounts: viewerAccounts } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;
   const routeAccount = params.account ?? "";
   const routeSlice = params.slice ?? "";
@@ -63,6 +63,7 @@ export function SliceSettingsPage() {
 
   const slice = sliceQuery.data;
   const sliceId = slice?.id ?? "";
+  const slicePermissions = useSlicePermissions(slice ?? routeSliceRef);
   const sliceRouteParams = toSliceRouteParams(slice?.ref ?? routeSliceRef);
   const sliceRouteKey = sliceRouteParams
     ? `${sliceRouteParams.account}:${sliceRouteParams.slice}`
@@ -211,10 +212,12 @@ export function SliceSettingsPage() {
 
   const sliceLabel = sliceDisplayName(slice);
   const sliceCrumbs = sliceBreadcrumbItems(slice?.ref ?? routeSliceRef, viewerAccounts);
-  // Members, triggers and mirrors are for the slice's owners and admins; the
-  // server checks too.
+  // Slice admins (including external or @group slice admins) manage slice
+  // members; account owners and admins manage the slice definition, CI daemon,
+  // secrets, and Git mirror.
   const settingsSlice = slice.ref ?? routeSliceRef;
-  const canManageSettings = Boolean(settingsSlice) && canAdmin(membershipFor(memberships, settingsSlice?.account));
+  const canManageMembers = Boolean(settingsSlice) && slicePermissions.canAdmin;
+  const canManageAccountSettings = Boolean(settingsSlice) && slicePermissions.isAccountAdmin;
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
@@ -235,16 +238,22 @@ export function SliceSettingsPage() {
         }
       />
       <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-        Edit the supported slice definition fields only.
+        {canManageAccountSettings
+          ? "Edit the supported slice definition fields only."
+          : "Manage access and inspect configuration for this slice."}
       </p>
 
-      <div className="mt-8">
-        <SliceDescriptionPanel slice={slice} />
-      </div>
+      {canManageAccountSettings ? (
+        <div className="mt-8">
+          <SliceDescriptionPanel slice={slice} />
+        </div>
+      ) : null}
 
-      <div className="mt-8">
-        <SliceMergeOnSubmitPanel slice={slice} />
-      </div>
+      {canManageAccountSettings ? (
+        <div className="mt-8">
+          <SliceMergeOnSubmitPanel slice={slice} />
+        </div>
+      ) : null}
 
       <form className="mt-8 space-y-6" onSubmit={saveDefinition}>
         <SlicePanel>
@@ -277,6 +286,7 @@ export function SliceSettingsPage() {
         </SlicePanel>
 
         <SliceCIDaemonPanel
+          canEdit={canManageAccountSettings}
           currentDaemonId={slice.ciDaemonId ?? ""}
           currentDaemonName={slice.ciDaemonName ?? ""}
           daemons={daemonsQuery.data ?? []}
@@ -294,72 +304,76 @@ export function SliceSettingsPage() {
           slice={slice}
         />
 
-        <SliceDefinitionForm
-          account={slice?.ref?.account}
-          disabled={updateMutation.isPending}
-          includedPaths={includedPaths}
-          includedPathsLocked={slice?.ref?.slice === "home"}
-          onIncludedPathsChange={setIncludedPaths}
-          onVisibilityChange={setVisibility}
-          visibility={visibility}
-        />
+        {canManageAccountSettings ? (
+          <>
+            <SliceDefinitionForm
+              account={slice?.ref?.account}
+              disabled={updateMutation.isPending}
+              includedPaths={includedPaths}
+              includedPathsLocked={slice?.ref?.slice === "home"}
+              onIncludedPathsChange={setIncludedPaths}
+              onVisibilityChange={setVisibility}
+              visibility={visibility}
+            />
 
-        {clientErrors.length > 0 ? (
-          <SliceNotice title="Fix included paths" tone="error">
-            <ul className="list-disc space-y-1 pl-5">
-              {clientErrors.map((error) => (
-                <li className="break-all" key={error}>{error}</li>
-              ))}
-            </ul>
-          </SliceNotice>
+            {clientErrors.length > 0 ? (
+              <SliceNotice title="Fix included paths" tone="error">
+                <ul className="list-disc space-y-1 pl-5">
+                  {clientErrors.map((error) => (
+                    <li className="break-all" key={error}>{error}</li>
+                  ))}
+                </ul>
+              </SliceNotice>
+            ) : null}
+
+            {updateMutation.isError && !conflictMessage ? (
+              <SliceNotice title="Could not save definition" tone="error">
+                {getErrorMessage(updateMutation.error)}
+              </SliceNotice>
+            ) : null}
+
+            {conflictMessage ? (
+              <SliceNotice title="Definition hash conflict" tone="error">
+                {conflictMessage}
+              </SliceNotice>
+            ) : null}
+
+            {saveMessage ? (
+              <SliceNotice title={saveMessage} tone="success">
+                The latest slice definition is being refreshed from the server.
+              </SliceNotice>
+            ) : null}
+
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                className="rounded-md bg-zinc-950 dark:bg-zinc-100 px-4 py-2 text-sm font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 dark:disabled:bg-zinc-700 disabled:text-slate-500 dark:disabled:text-zinc-400"
+                disabled={updateMutation.isPending}
+                type="submit"
+              >
+                {updateMutation.isPending ? "Saving..." : "Save definition"}
+              </button>
+              <button
+                className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
+                disabled={sliceQuery.isFetching}
+                onClick={() => {
+                  void sliceQuery.refetch();
+                }}
+                type="button"
+              >
+                Reload
+              </button>
+            </div>
+          </>
         ) : null}
-
-        {updateMutation.isError && !conflictMessage ? (
-          <SliceNotice title="Could not save definition" tone="error">
-            {getErrorMessage(updateMutation.error)}
-          </SliceNotice>
-        ) : null}
-
-        {conflictMessage ? (
-          <SliceNotice title="Definition hash conflict" tone="error">
-            {conflictMessage}
-          </SliceNotice>
-        ) : null}
-
-        {saveMessage ? (
-          <SliceNotice title={saveMessage} tone="success">
-            The latest slice definition is being refreshed from the server.
-          </SliceNotice>
-        ) : null}
-
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            className="rounded-md bg-zinc-950 dark:bg-zinc-100 px-4 py-2 text-sm font-semibold text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 dark:disabled:bg-zinc-700 disabled:text-slate-500 dark:disabled:text-zinc-400"
-            disabled={updateMutation.isPending}
-            type="submit"
-          >
-            {updateMutation.isPending ? "Saving..." : "Save definition"}
-          </button>
-          <button
-            className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-            disabled={sliceQuery.isFetching}
-            onClick={() => {
-              void sliceQuery.refetch();
-            }}
-            type="button"
-          >
-            Reload
-          </button>
-        </div>
       </form>
 
-      {canManageSettings && settingsSlice ? (
+      {canManageMembers && settingsSlice ? (
         <div className="mt-8">
           <SliceMembersPanel slice={settingsSlice} />
         </div>
       ) : null}
 
-      {canManageSettings && settingsSlice ? (
+      {canManageAccountSettings && settingsSlice ? (
         <div className="mt-8">
           <SliceSecretsPanel
             hasCIDaemon={Boolean(slice.ciDaemonId)}
@@ -369,7 +383,7 @@ export function SliceSettingsPage() {
         </div>
       ) : null}
 
-      {canManageSettings && settingsSlice ? (
+      {canManageAccountSettings && settingsSlice ? (
         <div className="mt-8">
           <SliceGitMirrorPanel slice={settingsSlice} />
         </div>
@@ -384,6 +398,7 @@ export function SliceSettingsPage() {
 type CIDaemonChange = { daemonId: string; add?: boolean; remove?: boolean };
 
 function SliceCIDaemonPanel({
+  canEdit,
   currentDaemonId,
   currentDaemonName,
   daemons,
@@ -394,6 +409,7 @@ function SliceCIDaemonPanel({
   pending,
   slice
 }: {
+  canEdit: boolean;
   currentDaemonId: string;
   // The name the server shows the current daemon by, known even to people who
   // cannot list it.
@@ -411,7 +427,7 @@ function SliceCIDaemonPanel({
   const currentIsOnline = onlineDaemons.some(
     (daemon) => daemon.id === currentDaemonId
   );
-  const canUpdate = Boolean(slice.ref?.account && slice.ref.slice);
+  const canUpdate = canEdit && Boolean(slice.ref?.account && slice.ref.slice);
   const disabled = isLoading || pending || !canUpdate;
   // The pool (design/32): each run goes to the first one online.
   const poolIds = slice.ciDaemonIds?.length ? slice.ciDaemonIds : currentDaemonId ? [currentDaemonId] : [];
