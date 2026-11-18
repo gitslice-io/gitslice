@@ -3,8 +3,12 @@ import { Link } from "@tanstack/react-router";
 
 import type { SliceRef, SliceSecret } from "../../api/types";
 import { useApi } from "../../api/useApi";
+import {
+  secretsKey,
+  sliceSecretsKey,
+  sliceSecretsQuery
+} from "../../queries/secrets";
 import { ConfirmDialog } from "../ConfirmDialog";
-import { secretsQueryKey } from "../secrets/AccountSecretsPanel";
 import {
   SecretForm,
   scopeFromDraft,
@@ -31,18 +35,14 @@ export function SliceSecretsPanel({
   const api = useApi();
   const queryClient = useQueryClient();
   const account = slice.account ?? "";
-  const sliceName = slice.slice ?? "";
-  const queryKey = ["sliceSecrets", account, sliceName];
+  const queryKey = sliceSecretsKey(slice);
   const crud = useCrudPanelState<SliceSecret>();
 
-  const secretsQuery = useQuery({
-    queryKey,
-    queryFn: async () => (await api.listSliceSecrets({ slice })).secrets ?? []
-  });
+  const secretsQuery = useQuery(sliceSecretsQuery(api, slice));
   const refresh = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey }),
-      queryClient.invalidateQueries({ queryKey: secretsQueryKey(account) })
+      queryClient.invalidateQueries({ queryKey: secretsKey(account) })
     ]);
   const done = async () => {
     crud.completeAction();

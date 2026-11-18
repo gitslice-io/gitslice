@@ -3,6 +3,7 @@ import { useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
+import { sliceBlameQuery } from "../../queries/slices";
 import { BlameDetails, BlameGutter, BlameHighlight } from "./BlameGutter";
 import { blameLines, codeLineCount, commitBands } from "./blame";
 
@@ -56,11 +57,7 @@ const NOTE = "border-b border-slate-200 dark:border-zinc-800 px-4 py-2 text-xs";
 // the lines no longer line up and the view says so instead of guessing.
 export function BlameView({ children, code, fill, path, repo, selection }: BlameViewProps) {
   const api = useApi();
-  const query = useQuery({
-    queryKey: ["blame", repo.slice.account, repo.slice.slice, repo.commitId, path],
-    queryFn: () => api.blameFile({ path, slice: repo.slice }),
-    staleTime: 60_000
-  });
+  const query = useQuery(sliceBlameQuery(api, repo.slice, repo.commitId, path));
   const lineCount = useMemo(() => codeLineCount(code), [code]);
   const blame = query.data;
   const matches = blame !== undefined && (blame.lineCount ?? 0) === lineCount;

@@ -1,14 +1,14 @@
 import { queryOptions } from "@tanstack/react-query";
 
-import type { SliceRef } from "../api/types";
+import { isNotFoundError } from "../api/rpcError";
+import type { SliceGitMirror, SliceRef } from "../api/types";
 import type { ApiClient } from "../api/useApi";
 import { listDirectoryAll } from "../components/source/sourceUtils";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
 
-// Slice source data. The slice page, the folder navigator, the README views
-// and the SSR route loader read these through the same options, so a
-// directory listed by one is never fetched again by another and what the
-// server prefetched is picked up on hydration.
+// Slice source and settings data. The slice page, the folder navigator, the
+// README/blame views, settings panels, and SSR route loaders read these through
+// the same options so cache keys and shapes stay consistent.
 
 function refParts(ref: SliceRef | undefined) {
   return [ref?.account ?? "", ref?.slice ?? ""] as const;
@@ -16,6 +16,7 @@ function refParts(ref: SliceRef | undefined) {
 
 export const sliceRefKey = (account: string, slice: string) => ["sliceRef", account, slice] as const;
 export const globalRefKey = ["globalRef", GLOBAL_REF_NAME] as const;
+export const sliceGitMirrorKey = (ref: SliceRef) => ["sliceGitMirror", ...refParts(ref)] as const;
 
 export function slicePathQueryKey(ref: SliceRef | undefined, commitId: string, path: string) {
   return ["slicePath", ...refParts(ref), commitId, path] as const;
@@ -31,6 +32,10 @@ export function sliceFileQueryKey(ref: SliceRef | undefined, commitId: string, p
 
 export function sliceRenderedFileQueryKey(ref: SliceRef | undefined, commitId: string, path: string) {
   return ["sliceRenderedFile", ...refParts(ref), commitId, path] as const;
+}
+
+export function sliceBlameQueryKey(ref: SliceRef | undefined, commitId: string, path: string) {
+  return ["blame", ...refParts(ref), commitId, path] as const;
 }
 
 // A slice, by the name it is opened under (a renamed slice opens under its
@@ -109,5 +114,37 @@ export function sliceRenderedFileQuery(
   return queryOptions({
     queryKey: sliceRenderedFileQueryKey(ref, commitId, path),
     queryFn: () => api.renderFile({ commitId, path, slice: ref })
+  });
+}
+
+export function sliceBlameQuery(
+  api: Pick<ApiClient, "blameFile">,
+  ref: SliceRef,
+  commitId: string,
+  path: string
+) {
+  return queryOptions({
+    queryKey: sliceBlameQueryKey(ref, commitId, path),
+    queryFn: () => api.blameFile({ path, slice: ref }),
+    staleTime: 60_000
+  });
+}
+
+export function sliceGitMirrorQuery(
+  api: Pick<ApiClient, "getSliceGitMirror">,
+  slice: SliceRef
+) {
+  return queryOptions({
+    queryKey: sliceGitMirrorKey(slice),
+    queryFn: async (): Promise<SliceGitMirror | null> => {
+      try {
+        return await api.getSliceGitMirror({ slice });
+      } catch (error) {
+        if (isNotFoundError(error)) {
+          return null;
+        }
+        throw error;
+      }
+    }
   });
 }

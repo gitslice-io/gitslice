@@ -4,8 +4,14 @@ import { useState } from "react";
 import { RpcError, isDefiniteClientError } from "../../api/rpcError";
 import type { TriggerRun } from "../../api/types";
 import { useApi } from "../../api/useApi";
-import { checkRunsKeyPrefix, triggerRunsKey, triggerRunsQuery } from "../../queries/checks";
+import {
+  checkRunsKeyPrefix,
+  triggerRunLogsQuery,
+  triggerRunsKey,
+  triggerRunsQuery
+} from "../../queries/checks";
 import { Timestamp } from "../../components/Timestamp";
+import { Button } from "../../components/ui/Button";
 import { cn } from "../../lib/cn";
 import { errorMessage } from "./status";
 
@@ -84,24 +90,22 @@ export function TriggerRunsPanel({ changesetId, patchsetId }: { changesetId: str
                 <div className="flex items-center gap-2 md:justify-end">
                   <span className="text-xs font-medium text-slate-500 dark:text-zinc-400">{open ? "Log open" : "View log"}</span>
                   {final && run.action ? (
-                    <button
-                      className={actionButton}
+                    <Button
                       disabled={rerun.isPending}
                       onClick={() => rerun.mutate(id)}
-                      type="button"
+                      size="xs"
                     >
                       Rerun
-                    </button>
+                    </Button>
                   ) : null}
                   {!final ? (
-                    <button
-                      className={actionButton}
+                    <Button
                       disabled={cancel.isPending}
                       onClick={() => cancel.mutate(id)}
-                      type="button"
+                      size="xs"
                     >
                       Cancel
-                    </button>
+                    </Button>
                   ) : null}
                 </div>
               </div>
@@ -114,17 +118,13 @@ export function TriggerRunsPanel({ changesetId, patchsetId }: { changesetId: str
   );
 }
 
-const actionButton =
-  "rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2 py-1 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 disabled:opacity-60";
-
 // TriggerRunLog shows a run's log, polling while the run is open.
 export function TriggerRunLog({ run }: { run: TriggerRun }) {
   const api = useApi();
   const runId = run.id ?? "";
   const logsQuery = useQuery({
+    ...triggerRunLogsQuery(api, runId),
     enabled: Boolean(runId),
-    queryKey: ["triggerRunLogs", runId],
-    queryFn: async () => (await api.listTriggerRunLogs({ runId, afterSeq: "0" })).logs ?? [],
     refetchInterval: isFinalTriggerStatus(run.status) ? false : POLL_MS
   });
   const text = (logsQuery.data ?? []).map((log) => log.chunk ?? "").join("");

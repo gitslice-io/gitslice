@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
 import { useApi } from "../api/useApi";
+import { pendingClaimsQuery } from "../queries/auth";
 
 /**
  * Tells a signed-in person, on every page, that agents registered with one
@@ -13,10 +14,8 @@ export function ClaimsNotice() {
   const api = useApi();
   const { isLoaded, isSignedIn } = useAuth();
   const claimsQuery = useQuery({
+    ...pendingClaimsQuery(api),
     enabled: Boolean(isLoaded && isSignedIn),
-    queryKey: ["pendingClaims"],
-    queryFn: () => api.listPendingClaims({}),
-    retry: false,
     select: (response) => response.claims ?? [],
     staleTime: 60_000
   });

@@ -4,7 +4,9 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useApi } from "../api/useApi";
 import { BrandMark } from "../components/BrandMark";
 import { ThemeToggle } from "../components/ThemeToggle";
-import { authStatusKey } from "../queries/auth";
+import { Button } from "../components/ui/Button";
+import { Input } from "../components/ui/Input";
+import { authStatusKey, usernameAvailableQuery } from "../queries/auth";
 
 export function ChooseUsernamePage() {
   const api = useApi();
@@ -23,9 +25,8 @@ export function ChooseUsernamePage() {
 
   const trimmedUsername = username.trim();
   const availabilityQuery = useQuery({
-    enabled: debouncedUsername.length > 0,
-    queryKey: ["usernameAvailable", debouncedUsername],
-    queryFn: () => api.checkUsernameAvailable({ username: debouncedUsername })
+    ...usernameAvailableQuery(api, debouncedUsername),
+    enabled: debouncedUsername.length > 0
   });
 
   const chooseUsernameMutation = useMutation({
@@ -97,14 +98,15 @@ export function ChooseUsernamePage() {
         <form className="mt-6 space-y-5" onSubmit={submitUsername}>
           <label className="grid gap-2 text-sm font-medium text-zinc-950 dark:text-zinc-100">
             Username
-            <input
+            <Input
               autoCapitalize="none"
               autoComplete="username"
               autoFocus
-              className="h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 font-mono text-sm text-zinc-950 outline-none transition focus:border-slate-500 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:focus:border-zinc-500 dark:disabled:bg-zinc-800 dark:disabled:text-zinc-500"
+              className="h-10"
               disabled={chooseUsernameMutation.isPending}
               maxLength={63}
               minLength={4}
+              monospace
               onChange={(event) => {
                 setUsername(event.target.value);
                 if (submitError) {
@@ -164,13 +166,15 @@ export function ChooseUsernamePage() {
             </div>
           ) : null}
 
-          <button
-            className="w-full rounded-md bg-zinc-950 px-4 py-2 text-sm font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white dark:disabled:bg-zinc-700 dark:disabled:text-zinc-500"
+          <Button
+            className="w-full py-2"
             disabled={!canSubmit}
+            size="md"
             type="submit"
+            variant="primary"
           >
             {chooseUsernameMutation.isPending ? "Saving..." : "Continue"}
-          </button>
+          </Button>
         </form>
       </section>
     </main>

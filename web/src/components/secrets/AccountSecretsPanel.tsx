@@ -4,6 +4,11 @@ import { useState } from "react";
 import type { Secret } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { cn } from "../../lib/cn";
+import {
+  accountSecretsQuery,
+  secretsKey,
+  sliceSecretsKeyPrefix
+} from "../../queries/secrets";
 import { ActionMenu } from "../source/ActionMenu";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { Timestamp } from "../Timestamp";
@@ -22,26 +27,21 @@ import {
 
 const emptyDraft: SecretDraft = { name: "", paths: [], value: "" };
 
-export function secretsQueryKey(account: string) {
-  return ["secrets", account];
-}
+export const secretsQueryKey = secretsKey;
 
 // An account's secrets, for its owners and admins: each one's name, the
 // folders it applies to and who changed it last. Values are never shown.
 export function AccountSecretsPanel({ account }: { account: string }) {
   const api = useApi();
   const queryClient = useQueryClient();
-  const queryKey = secretsQueryKey(account);
+  const queryKey = secretsKey(account);
   const crud = useCrudPanelState<Secret>();
 
-  const secretsQuery = useQuery({
-    queryKey,
-    queryFn: async () => (await api.listSecrets({ account })).secrets ?? []
-  });
+  const secretsQuery = useQuery(accountSecretsQuery(api, account));
   const refresh = () =>
     Promise.all([
       queryClient.invalidateQueries({ queryKey }),
-      queryClient.invalidateQueries({ queryKey: ["sliceSecrets"] })
+      queryClient.invalidateQueries({ queryKey: sliceSecretsKeyPrefix })
     ]);
 
   const create = useMutation({

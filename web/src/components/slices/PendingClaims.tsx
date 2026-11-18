@@ -4,9 +4,15 @@ import { Link } from "@tanstack/react-router";
 
 import type { PendingClaim } from "../../api/types";
 import { useApi } from "../../api/useApi";
-import { getErrorMessage } from "./SlicePageParts";
 import { formatDate } from "../../lib/time";
-import { authStatusKey } from "../../queries/auth";
+import {
+  authStatusKey,
+  ownedAgentsKey,
+  pendingClaimsKey,
+  pendingClaimsQuery
+} from "../../queries/auth";
+import { Button } from "../ui/Button";
+import { getErrorMessage } from "./SlicePageParts";
 
 // PendingClaims lists agents that registered with one of the signed-in user's
 // verified emails and lets them accept co-ownership. It renders nothing when
@@ -20,19 +26,17 @@ export function PendingClaims({ showEmpty = false }: { showEmpty?: boolean }) {
   // One request answers both: the claims, and the verified emails they were
   // matched against, which explain an empty list. The top bar's pill shares it.
   const claimsQuery = useQuery({
-    enabled,
-    queryKey: ["pendingClaims"],
-    queryFn: () => api.listPendingClaims({}),
-    retry: false
+    ...pendingClaimsQuery(api),
+    enabled
   });
 
   const acceptMutation = useMutation({
     mutationFn: (agentSubjectId: string) => api.acceptClaim({ agentSubjectId }),
     onSuccess: async () => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["pendingClaims"] }),
+        queryClient.invalidateQueries({ queryKey: pendingClaimsKey }),
         queryClient.invalidateQueries({ queryKey: authStatusKey }),
-        queryClient.invalidateQueries({ queryKey: ["ownedAgents"] }),
+        queryClient.invalidateQueries({ queryKey: ownedAgentsKey }),
         queryClient.invalidateQueries({ queryKey: ["slices"] })
       ]);
     }
@@ -149,14 +153,14 @@ function PendingClaimRow({
             : ""}
         </p>
       </div>
-      <button
-        className="shrink-0 rounded-md bg-zinc-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] disabled:opacity-60 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+      <Button
+        className="shrink-0"
         disabled={isAccepting}
         onClick={onAccept}
-        type="button"
+        variant="primary"
       >
         {isAccepting ? "Accepting..." : "Accept"}
-      </button>
+      </Button>
     </li>
   );
 }

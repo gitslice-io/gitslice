@@ -5,6 +5,7 @@ import { Link } from "@tanstack/react-router";
 import type { OwnedAgent } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { formatRelativeTime } from "../../lib/time";
+import { ownedAgentsQuery } from "../../queries/auth";
 
 // useOwnedAgents returns the self-registered agents whose accounts the
 // signed-in user owns. Errors resolve to an empty list so callers (the home
@@ -14,10 +15,8 @@ export function useOwnedAgents() {
   const { isLoaded, isSignedIn } = useAuth();
   const enabled = Boolean(isLoaded && isSignedIn);
   const query = useQuery({
-    enabled,
-    queryKey: ["ownedAgents"],
-    queryFn: async () => (await api.listOwnedAgents({})).agents ?? [],
-    retry: false
+    ...ownedAgentsQuery(api),
+    enabled
   });
   return {
     agents: query.isError ? [] : (query.data ?? []),

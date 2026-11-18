@@ -1,10 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState, type FormEvent } from "react";
 
-import { isNotFoundError } from "../../api/rpcError";
 import type { SliceGitMirror, SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { cn } from "../../lib/cn";
+import { sliceSecretsQuery } from "../../queries/secrets";
+import {
+  sliceGitMirrorKey,
+  sliceGitMirrorQuery
+} from "../../queries/slices";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { Timestamp } from "../Timestamp";
 import { Button } from "../ui/Button";
@@ -25,7 +29,7 @@ function draftOf(mirror: SliceGitMirror | null): Draft {
   };
 }
 
-export const sliceGitMirrorQueryKey = (slice: SliceRef) => ["sliceGitMirror", slice.account ?? "", slice.slice ?? ""];
+export const sliceGitMirrorQueryKey = sliceGitMirrorKey;
 
 /**
  * The slice's Git mirror (design/35_git_mirrors.md): the server pushes every
@@ -35,31 +39,18 @@ export const sliceGitMirrorQueryKey = (slice: SliceRef) => ["sliceGitMirror", sl
 export function SliceGitMirrorPanel({ slice }: { slice: SliceRef }) {
   const api = useApi();
   const queryClient = useQueryClient();
-  const queryKey = sliceGitMirrorQueryKey(slice);
+  const queryKey = sliceGitMirrorKey(slice);
   const [draft, setDraft] = useState<Draft>(draftOf(null));
   const [removing, setRemoving] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const mirrorQuery = useQuery({
-    queryKey,
-    queryFn: async () => {
-      try {
-        return await api.getSliceGitMirror({ slice });
-      } catch (err) {
-        if (isNotFoundError(err)) {
-          return null;
-        }
-        throw err;
-      }
-    },
+    ...sliceGitMirrorQuery(api, slice),
     // Follow a push while one is waiting.
     refetchInterval: (query) => (query.state.data?.pending ? 3000 : false)
   });
-  const secretsQuery = useQuery({
-    queryKey: ["sliceSecrets", slice.account ?? "", slice.slice ?? ""],
-    queryFn: async () => (await api.listSliceSecrets({ slice })).secrets ?? []
-  });
+  const secretsQuery = useQuery(sliceSecretsQuery(api, slice));
   const mirror = mirrorQuery.data ?? null;
   useEffect(() => {
     setDraft(draftOf(mirror));
