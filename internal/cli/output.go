@@ -92,6 +92,25 @@ func (r Runner) writeJSONOutput(opts commandOptions, v any) error {
 	return writeJSON(r.Stdout, output)
 }
 
+// writeSchemaOutput renders val as structured output when --json/--jq/--template
+// is active, suppresses human text when --quiet is set, and otherwise invokes
+// textFn. Pair with withSchemaOutput[T] on the Cobra command so gs schema's
+// machine_output and runtime --json output share the exact same Go type T.
+func writeSchemaOutput[T any](r Runner, opts commandOptions, val T, textFn func() error) error {
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, val)
+	}
+	if opts.Quiet || textFn == nil {
+		return nil
+	}
+	return textFn()
+}
+
+// renderCommandOutput is an alias for writeSchemaOutput.
+func renderCommandOutput[T any](r Runner, opts commandOptions, val T, textFn func() error) error {
+	return writeSchemaOutput(r, opts, val, textFn)
+}
+
 func (r Runner) writeJQOutput(rawQuery string, v any) error {
 	data, err := templateData(v)
 	if err != nil {

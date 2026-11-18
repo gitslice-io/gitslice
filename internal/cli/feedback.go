@@ -117,6 +117,7 @@ func (r Runner) feedbackCommand(opts *commandOptions) *cobra.Command {
 	resolveCmd.Flags().StringVar(&resolveNote, "note", "", "the answer the sender reads: what changed and where, or why nothing will")
 	resolveCmd.Flags().BoolVar(&resolveReopen, "reopen", false, "open it again instead")
 
+	withSchemaOutput[feedbackListOutput](listCmd)
 	feedbackCmd.AddCommand(sendCmd, listCmd, resolveCmd)
 	return feedbackCmd
 }
@@ -192,26 +193,22 @@ func (r Runner) runFeedbackList(ctx context.Context, opts commandOptions, req *c
 	for _, f := range res.GetFeedback() {
 		out.Feedback = append(out.Feedback, feedbackToOutput(f))
 	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if opts.Quiet {
-		return nil
-	}
-	if len(out.Feedback) == 0 {
-		fmt.Fprintln(r.Stdout, "no feedback")
-		return nil
-	}
-	for i, f := range out.Feedback {
-		if i > 0 {
-			fmt.Fprintln(r.Stdout)
+	return writeSchemaOutput[feedbackListOutput](r, opts, out, func() error {
+		if len(out.Feedback) == 0 {
+			fmt.Fprintln(r.Stdout, "no feedback")
+			return nil
 		}
-		r.writeFeedbackText(f)
-	}
-	if out.NextCursor != "" {
-		fmt.Fprintf(r.Stdout, "\nmore: gs feedback list --cursor %s\n", out.NextCursor)
-	}
-	return nil
+		for i, f := range out.Feedback {
+			if i > 0 {
+				fmt.Fprintln(r.Stdout)
+			}
+			r.writeFeedbackText(f)
+		}
+		if out.NextCursor != "" {
+			fmt.Fprintf(r.Stdout, "\nmore: gs feedback list --cursor %s\n", out.NextCursor)
+		}
+		return nil
+	})
 }
 
 func (r Runner) writeFeedbackText(f feedbackOutput) {

@@ -170,6 +170,7 @@ func (r Runner) versionCommand(opts *commandOptions) *cobra.Command {
 			return r.runVersion(cmd.Context(), *opts)
 		},
 	}
+	withSchemaOutput[versionOutput](versionCmd)
 
 	return versionCmd
 }

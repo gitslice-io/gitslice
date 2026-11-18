@@ -127,13 +127,10 @@ func (r Runner) runGroupCreate(ctx context.Context, opts commandOptions, rawGrou
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if !opts.Quiet {
+	return writeSchemaOutput[groupOutput](r, opts, out, func() error {
 		fmt.Fprintf(r.Stdout, "created group %s\n", out.Handle)
-	}
-	return nil
+		return nil
+	})
 }
 
 func (r Runner) runGroupList(ctx context.Context, opts commandOptions, rawAccount string) error {
@@ -202,40 +199,36 @@ func (r Runner) runGroupShow(ctx context.Context, opts commandOptions, rawGroup 
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if opts.Quiet {
+	return writeSchemaOutput[groupOutput](r, opts, out, func() error {
+		fmt.Fprintln(r.Stdout, out.Handle)
+		if out.Description != "" {
+			fmt.Fprintf(r.Stdout, "description: %s\n", out.Description)
+		}
+		fmt.Fprintf(r.Stdout, "members (%d):\n", out.MemberCount)
+		if len(out.Members) == 0 {
+			fmt.Fprintln(r.Stdout, "  (none)")
+			return nil
+		}
+		for _, m := range out.Members {
+			label := m.Username
+			if label == "" {
+				label = m.SubjectID
+			}
+			var notes []string
+			if m.DisplayName != "" {
+				notes = append(notes, m.DisplayName)
+			}
+			if m.Kind != "" {
+				notes = append(notes, m.Kind)
+			}
+			if len(notes) > 0 {
+				fmt.Fprintf(r.Stdout, "  %s\t(%s)\n", label, strings.Join(notes, ", "))
+			} else {
+				fmt.Fprintf(r.Stdout, "  %s\n", label)
+			}
+		}
 		return nil
-	}
-	fmt.Fprintln(r.Stdout, out.Handle)
-	if out.Description != "" {
-		fmt.Fprintf(r.Stdout, "description: %s\n", out.Description)
-	}
-	fmt.Fprintf(r.Stdout, "members (%d):\n", out.MemberCount)
-	if len(out.Members) == 0 {
-		fmt.Fprintln(r.Stdout, "  (none)")
-		return nil
-	}
-	for _, m := range out.Members {
-		label := m.Username
-		if label == "" {
-			label = m.SubjectID
-		}
-		var notes []string
-		if m.DisplayName != "" {
-			notes = append(notes, m.DisplayName)
-		}
-		if m.Kind != "" {
-			notes = append(notes, m.Kind)
-		}
-		if len(notes) > 0 {
-			fmt.Fprintf(r.Stdout, "  %s\t(%s)\n", label, strings.Join(notes, ", "))
-		} else {
-			fmt.Fprintf(r.Stdout, "  %s\n", label)
-		}
-	}
-	return nil
+	})
 }
 
 func (r Runner) runGroupDelete(ctx context.Context, opts commandOptions, rawGroup string) error {
@@ -293,13 +286,10 @@ func (r Runner) runGroupAddMember(ctx context.Context, opts commandOptions, rawG
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if !opts.Quiet {
+	return writeSchemaOutput[groupOutput](r, opts, out, func() error {
 		fmt.Fprintf(r.Stdout, "added %s to %s\n", username, out.Handle)
-	}
-	return nil
+		return nil
+	})
 }
 
 func (r Runner) runGroupRemoveMember(ctx context.Context, opts commandOptions, rawGroup, rawUsername string) error {
@@ -326,13 +316,10 @@ func (r Runner) runGroupRemoveMember(ctx context.Context, opts commandOptions, r
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if !opts.Quiet {
+	return writeSchemaOutput[groupOutput](r, opts, out, func() error {
 		fmt.Fprintf(r.Stdout, "removed %s from %s\n", username, out.Handle)
-	}
-	return nil
+		return nil
+	})
 }
 
 func (s *Session) resolveCLIGroupTarget(raw string) (string, string, error) {

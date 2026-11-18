@@ -98,6 +98,7 @@ func (r Runner) intentCommand(opts *commandOptions) *cobra.Command {
 	}
 	clearCmd.Flags().BoolVar(&clearAll, "all", false, "clear all of your active intents on the target slice")
 
+	withSchemaOutput[pathIntentOutput](intentCmd)
 	intentCmd.AddCommand(listCmd, clearCmd)
 	return intentCmd
 }
@@ -156,10 +157,7 @@ func (r Runner) runIntentCreate(ctx context.Context, opts commandOptions, sliceF
 		return err
 	}
 
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if !opts.Quiet {
+	return writeSchemaOutput[pathIntentOutput](r, opts, out, func() error {
 		exp, _ := time.Parse(time.RFC3339, out.ExpiresAt)
 		rem := intents.FormatRemaining(time.Until(exp))
 		if out.Message != "" {
@@ -168,8 +166,8 @@ func (r Runner) runIntentCreate(ctx context.Context, opts commandOptions, sliceF
 			fmt.Fprintf(r.Stdout, "declared intent %s on %s (%s, %s left)\n", out.ID, out.Pattern, out.Slice, rem)
 		}
 		printOverlapWarnings(r.Stdout, out.OverlapWarnings)
-	}
-	return nil
+		return nil
+	})
 }
 
 var intentSliceResolveOptions = SliceResolveOptions{

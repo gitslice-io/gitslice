@@ -68,13 +68,10 @@ func (r Runner) runTagCreate(ctx context.Context, opts commandOptions, slice, na
 			return tagError(err)
 		}
 		out := tagToOutput(tag)
-		if opts.jsonOutput() {
-			return r.writeJSONOutput(opts, out)
-		}
-		if !opts.Quiet {
+		return writeSchemaOutput[tagOutput](r, opts, out, func() error {
 			fmt.Fprintf(r.Stdout, "tagged %s as %s in %s\n", shortID(out.CommitID), out.Name, out.Slice)
-		}
-		return nil
+			return nil
+		})
 	})
 }
 

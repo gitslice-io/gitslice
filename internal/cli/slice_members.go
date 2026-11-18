@@ -104,23 +104,19 @@ func (r Runner) runSliceShare(ctx context.Context, opts commandOptions, sliceVal
 			return sliceMemberError(err, ref)
 		}
 		out := sliceMemberFromProto(member)
-		if opts.jsonOutput() {
-			return r.writeJSONOutput(opts, out)
-		}
-		if opts.Quiet {
+		return writeSchemaOutput[sliceMemberOutput](r, opts, out, func() error {
+			label := ref.Account + "/" + ref.Slice
+			fmt.Fprintf(r.Stdout, "shared %s with %s as %s\n", label, out.Username, out.Role)
+			if ref.Slice == "home" {
+				fmt.Fprintf(r.Stdout, "note: %s/home covers everything in /%s; a narrower slice shares less\n", ref.Account, ref.Account)
+			}
+			if strings.HasPrefix(out.Username, "@") {
+				fmt.Fprintf(r.Stdout, "members of %s can now run: gs init %s\n", out.Username, label)
+			} else {
+				fmt.Fprintf(r.Stdout, "%s can now run: gs init %s\n", out.Username, label)
+			}
 			return nil
-		}
-		label := ref.Account + "/" + ref.Slice
-		fmt.Fprintf(r.Stdout, "shared %s with %s as %s\n", label, out.Username, out.Role)
-		if ref.Slice == "home" {
-			fmt.Fprintf(r.Stdout, "note: %s/home covers everything in /%s; a narrower slice shares less\n", ref.Account, ref.Account)
-		}
-		if strings.HasPrefix(out.Username, "@") {
-			fmt.Fprintf(r.Stdout, "members of %s can now run: gs init %s\n", out.Username, label)
-		} else {
-			fmt.Fprintf(r.Stdout, "%s can now run: gs init %s\n", out.Username, label)
-		}
-		return nil
+		})
 	})
 }
 
@@ -171,42 +167,38 @@ func (r Runner) runSliceMembers(ctx context.Context, opts commandOptions, sliceV
 				CreatedAt: groupMember.GetCreatedAt(),
 			})
 		}
-		if opts.jsonOutput() {
-			return r.writeJSONOutput(opts, out)
-		}
-		if opts.Quiet {
+		return writeSchemaOutput[sliceMembersOutput](r, opts, out, func() error {
+			if len(out.Members) == 0 && len(out.GroupMembers) == 0 {
+				fmt.Fprintf(r.Stdout, "%s is not shared with anyone outside account %s\n", label, ref.Account)
+			} else {
+				for _, member := range out.Members {
+					notes := []string{}
+					if member.DisplayName != "" {
+						notes = append(notes, member.DisplayName)
+					}
+					if member.Kind != "" {
+						notes = append(notes, member.Kind)
+					}
+					if member.AddedBy != "" {
+						notes = append(notes, "added by "+member.AddedBy)
+					}
+					fmt.Fprintf(r.Stdout, "%s\t%s\t(%s)\n", firstNonEmpty(member.Username, member.SubjectID), member.Role, strings.Join(notes, ", "))
+				}
+				for _, groupMember := range out.GroupMembers {
+					notes := []string{"group"}
+					if groupMember.AddedBy != "" {
+						notes = append(notes, "added by "+groupMember.AddedBy)
+					}
+					handle := groupMember.Handle
+					if handle == "" && groupMember.Account != "" && groupMember.Name != "" {
+						handle = model.FormatGroupHandle(groupMember.Account, groupMember.Name)
+					}
+					fmt.Fprintf(r.Stdout, "%s\t%s\t(%s)\n", handle, groupMember.Role, strings.Join(notes, ", "))
+				}
+			}
+			fmt.Fprintf(r.Stdout, "The members of account %s have access too: gs account members %s\n", ref.Account, ref.Account)
 			return nil
-		}
-		if len(out.Members) == 0 && len(out.GroupMembers) == 0 {
-			fmt.Fprintf(r.Stdout, "%s is not shared with anyone outside account %s\n", label, ref.Account)
-		} else {
-			for _, member := range out.Members {
-				notes := []string{}
-				if member.DisplayName != "" {
-					notes = append(notes, member.DisplayName)
-				}
-				if member.Kind != "" {
-					notes = append(notes, member.Kind)
-				}
-				if member.AddedBy != "" {
-					notes = append(notes, "added by "+member.AddedBy)
-				}
-				fmt.Fprintf(r.Stdout, "%s\t%s\t(%s)\n", firstNonEmpty(member.Username, member.SubjectID), member.Role, strings.Join(notes, ", "))
-			}
-			for _, groupMember := range out.GroupMembers {
-				notes := []string{"group"}
-				if groupMember.AddedBy != "" {
-					notes = append(notes, "added by "+groupMember.AddedBy)
-				}
-				handle := groupMember.Handle
-				if handle == "" && groupMember.Account != "" && groupMember.Name != "" {
-					handle = model.FormatGroupHandle(groupMember.Account, groupMember.Name)
-				}
-				fmt.Fprintf(r.Stdout, "%s\t%s\t(%s)\n", handle, groupMember.Role, strings.Join(notes, ", "))
-			}
-		}
-		fmt.Fprintf(r.Stdout, "The members of account %s have access too: gs account members %s\n", ref.Account, ref.Account)
-		return nil
+		})
 	})
 }
 

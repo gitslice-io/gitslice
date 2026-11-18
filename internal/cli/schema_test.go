@@ -281,3 +281,130 @@ func TestSchemaCommandSupportsStructuredOutputFilters(t *testing.T) {
 		t.Fatalf("schema jq output = %q, want %q", got, want)
 	}
 }
+
+func TestSchemaOutputAnnotatedCommandsBindMachineOutputAndJSONRendering(t *testing.T) {
+	doc := runSchemaForTest(t)
+	machineOutputByUse := make(map[string][]string, len(doc.Commands))
+	for _, cmd := range doc.Commands {
+		machineOutputByUse[cmd.Use] = cmd.MachineOutput
+	}
+
+	r := Runner{}
+	root := r.rootCommand()
+	annotatedCanonicals := map[string]reflect.Type{}
+	var walk func(ancestors []*cobra.Command, cmd *cobra.Command)
+	walk = func(ancestors []*cobra.Command, cmd *cobra.Command) {
+		if cmd == nil || cmd.Hidden || isSchemaExcludedCommand(cmd) {
+			return
+		}
+		chain := append(append([]*cobra.Command(nil), ancestors...), cmd)
+		canonical := schemaCommandCanonicalPath(root, chain)
+		use := schemaCommandUse(root, chain)
+		if cmd.Annotations[schemaOutputSetAnnotation] == "true" {
+			if cmd.Annotations[schemaOutputAnnotation] == "" && cmd.Annotations[schemaOutputTypeAnnotation] == "" {
+				if got := machineOutputByUse[use]; len(got) != 0 {
+					t.Fatalf("command %q (%s) declares empty machine_output via withSchemaOutputFields, got %v", use, canonical, got)
+				}
+			} else {
+				outType, ok := schemaOutputTypeForCommand(cmd)
+				if !ok {
+					t.Fatalf("command %q (%s) sets non-empty schema output annotation without registered Go type", use, canonical)
+				}
+				if outType.Kind() != reflect.Struct {
+					t.Fatalf("command %q (%s) schema output type %v is not a struct", use, canonical, outType)
+				}
+				wantFields := structJSONFields(outType)
+				if len(wantFields) == 0 {
+					t.Fatalf("command %q (%s) schema output struct %v has no exported JSON fields", use, canonical, outType)
+				}
+				gotFields := machineOutputByUse[use]
+				if !slices.Equal(gotFields, wantFields) {
+					t.Fatalf("command %q (%s) machine_output = %v, want %v from %v", use, canonical, gotFields, wantFields, outType)
+				}
+				if _, dup := defaultSchemaCommandOutputs[canonical]; dup {
+					t.Fatalf("command %q (%s) uses withSchemaOutput[%s] and should not duplicate defaultSchemaCommandOutputs", use, canonical, outType.Name())
+				}
+
+				// Verify writeSchemaOutput marshals the registered Go type using keys declared in machine_output.
+				var buf bytes.Buffer
+				jsonRunner := Runner{Stdout: &buf, Stderr: &bytes.Buffer{}}
+				zeroVal := reflect.New(outType).Elem().Interface()
+				if err := writeSchemaOutput(jsonRunner, commandOptions{Format: "json"}, zeroVal, func() error {
+					t.Fatalf("textFn should not run in --json mode for %s", canonical)
+					return nil
+				}); err != nil {
+					t.Fatalf("writeSchemaOutput(%s) failed: %v", canonical, err)
+				}
+				var decoded map[string]any
+				if err := json.Unmarshal(buf.Bytes(), &decoded); err != nil {
+					t.Fatalf("writeSchemaOutput(%s) produced invalid JSON: %v\n%s", canonical, err, buf.String())
+				}
+				for key := range decoded {
+					if !slices.Contains(wantFields, key) {
+						t.Fatalf("writeSchemaOutput(%s) emitted undeclared JSON key %q (declared: %v)", canonical, key, wantFields)
+					}
+				}
+				annotatedCanonicals[canonical] = outType
+			}
+		}
+		if isSchemaCollapsedCommand(cmd) {
+			return
+		}
+		for _, child := range cmd.Commands() {
+			walk(chain, child)
+		}
+	}
+	for _, child := range root.Commands() {
+		walk(nil, child)
+	}
+
+	for _, wantCanonical := range []string{
+		"gs auth status",
+		"gs blame",
+		"gs check allow",
+		"gs feedback list",
+		"gs group add",
+		"gs group create",
+		"gs group rm",
+		"gs group show",
+		"gs intent",
+		"gs slice create",
+		"gs slice info",
+		"gs slice members",
+		"gs slice set-ci-daemon",
+		"gs slice share",
+		"gs slice update",
+		"gs tag create",
+		"gs version",
+	} {
+		if _, ok := annotatedCanonicals[wantCanonical]; !ok {
+			t.Fatalf("expected %q to be annotated with withSchemaOutput[T], got %v", wantCanonical, annotatedCanonicals)
+		}
+	}
+
+	// Verify renderCommandOutput / writeSchemaOutput text and --quiet modes too.
+	var textBuf bytes.Buffer
+	textRunner := Runner{Stdout: &textBuf, Stderr: &bytes.Buffer{}}
+	called := false
+	if err := renderCommandOutput(textRunner, commandOptions{Format: "text"}, versionOutput{Version: "1.2.3", GoVersion: "go1.26"}, func() error {
+		called = true
+		textBuf.WriteString("human text\n")
+		return nil
+	}); err != nil {
+		t.Fatalf("renderCommandOutput text mode failed: %v", err)
+	}
+	if !called || textBuf.String() != "human text\n" {
+		t.Fatalf("unexpected text mode result: called=%v out=%q", called, textBuf.String())
+	}
+
+	textBuf.Reset()
+	if err := writeSchemaOutput(textRunner, commandOptions{Format: "text", Quiet: true}, versionOutput{Version: "1.2.3"}, func() error {
+		t.Fatal("textFn should not be called when Quiet is true")
+		return nil
+	}); err != nil {
+		t.Fatalf("writeSchemaOutput quiet mode failed: %v", err)
+	}
+	if textBuf.Len() != 0 {
+		t.Fatalf("expected empty output in quiet mode, got %q", textBuf.String())
+	}
+}

@@ -25,14 +25,10 @@ func (r Runner) runSliceSetCIDaemon(ctx context.Context, opts commandOptions, sl
 		if err != nil {
 			return err
 		}
-		if opts.jsonOutput() {
-			return r.writeJSONOutput(opts, sliceToOutput(updated))
-		}
-		if opts.Quiet {
-			return nil
-		}
-		fmt.Fprintf(r.Stdout, "updated slice %s\n", sliceRefLabel(updated.Ref))
-		return writeSliceText(r.Stdout, updated)
+		return writeSchemaOutput[sliceOutput](r, opts, sliceToOutput(updated), func() error {
+			fmt.Fprintf(r.Stdout, "updated slice %s\n", sliceRefLabel(updated.Ref))
+			return writeSliceText(r.Stdout, updated)
+		})
 	})
 }
 

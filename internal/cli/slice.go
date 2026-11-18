@@ -44,17 +44,13 @@ func (r Runner) runSliceCreate(ctx context.Context, opts commandOptions, sliceRe
 			}
 			return err
 		}
-		if opts.jsonOutput() {
-			return r.writeJSONOutput(opts, sliceToOutput(slice))
-		}
-		if opts.Quiet {
-			return nil
-		}
-		fmt.Fprintf(r.Stdout, "created slice %s\n", sliceRefLabel(slice.Ref))
-		if link := webSliceResourceURL(slice.Ref); link != "" {
-			fmt.Fprintf(r.Stdout, "view: %s\n", link)
-		}
-		return writeSliceText(r.Stdout, slice)
+		return writeSchemaOutput[sliceOutput](r, opts, sliceToOutput(slice), func() error {
+			fmt.Fprintf(r.Stdout, "created slice %s\n", sliceRefLabel(slice.Ref))
+			if link := webSliceResourceURL(slice.Ref); link != "" {
+				fmt.Fprintf(r.Stdout, "view: %s\n", link)
+			}
+			return writeSliceText(r.Stdout, slice)
+		})
 	})
 }
 
@@ -158,13 +154,9 @@ func (r Runner) runSliceInfo(ctx context.Context, opts commandOptions, sliceRef 
 	if err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, sliceToOutput(slice))
-	}
-	if opts.Quiet {
-		return nil
-	}
-	return writeSliceText(r.Stdout, slice)
+	return writeSchemaOutput[sliceOutput](r, opts, sliceToOutput(slice), func() error {
+		return writeSliceText(r.Stdout, slice)
+	})
 }
 
 func (r Runner) runSlicePaths(ctx context.Context, opts commandOptions, sliceRef string) error {
@@ -331,17 +323,13 @@ func (r Runner) runSliceUpdate(ctx context.Context, opts commandOptions, sliceRe
 		if err != nil {
 			return err
 		}
-		if opts.jsonOutput() {
-			return r.writeJSONOutput(opts, sliceToOutput(updated))
-		}
-		if opts.Quiet {
-			return nil
-		}
-		fmt.Fprintf(r.Stdout, "updated slice %s\n", sliceRefLabel(updated.Ref))
-		if link := webSliceResourceURL(updated.Ref); link != "" {
-			fmt.Fprintf(r.Stdout, "view: %s\n", link)
-		}
-		return writeSliceText(r.Stdout, updated)
+		return writeSchemaOutput[sliceOutput](r, opts, sliceToOutput(updated), func() error {
+			fmt.Fprintf(r.Stdout, "updated slice %s\n", sliceRefLabel(updated.Ref))
+			if link := webSliceResourceURL(updated.Ref); link != "" {
+				fmt.Fprintf(r.Stdout, "view: %s\n", link)
+			}
+			return writeSliceText(r.Stdout, updated)
+		})
 	})
 }
 

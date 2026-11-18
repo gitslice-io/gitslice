@@ -53,6 +53,7 @@ func (r Runner) blameCommand(opts *commandOptions) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&slice, "slice", "", "read through this slice (default: the workspace's)")
 	cmd.Flags().StringVarP(&lines, "lines", "L", "", "only these lines, such as 10,20 (text output)")
+	withSchemaOutput[blameOutput](cmd)
 	return cmd
 }
 
@@ -88,49 +89,44 @@ func (r Runner) runBlame(ctx context.Context, opts commandOptions, rawPath, slic
 		for _, rg := range res.GetRanges() {
 			out.Ranges = append(out.Ranges, blameRangeOutput{StartLine: rg.GetStartLine(), LineCount: rg.GetLineCount(), CommitID: rg.GetCommitId()})
 		}
-		if opts.jsonOutput() {
-			return r.writeJSONOutput(opts, out)
-		}
-		if opts.Quiet {
+		return writeSchemaOutput[blameOutput](r, opts, out, func() error {
+			// The text view prints the lines themselves, read at the same commit.
+			file, err := s.Repository().ReadFile(s.Ctx(), &corev1.ReadFileRequest{CommitId: out.CommitID, Path: out.Path, Slice: sliceRef})
+			if err != nil {
+				return err
+			}
+			text := strings.SplitAfter(string(file.GetData()), "\n")
+			width := len(strconv.Itoa(int(out.LineCount)))
+			authorWidth := 0
+			for _, c := range commits {
+				authorWidth = max(authorWidth, len(c.Author))
+			}
+			for _, rg := range out.Ranges {
+				c := commits[rg.CommitID]
+				handle := model.ShortChangesetID(c.ChangesetID)
+				if handle == "" {
+					handle = "-"
+				}
+				date := c.CreatedAt
+				if len(date) >= 10 {
+					date = date[:10]
+				}
+				for line := rg.StartLine; line < rg.StartLine+rg.LineCount; line++ {
+					if (first > 0 && int(line) < first) || (last > 0 && int(line) > last) {
+						continue
+					}
+					content := ""
+					if int(line)-1 < len(text) {
+						content = strings.TrimRight(text[line-1], "\n")
+					}
+					fmt.Fprintf(r.Stdout, "%s %-10s (%-*s %s %*d) %s\n", shortID(rg.CommitID), handle, authorWidth, c.Author, date, width, line, content)
+				}
+			}
+			if out.Truncated && len(out.Ranges) > 0 {
+				fmt.Fprintf(r.stderr(), "note: history was read back to a limit; lines credited to the oldest commit shown may be older\n")
+			}
 			return nil
-		}
-
-		// The text view prints the lines themselves, read at the same commit.
-		file, err := s.Repository().ReadFile(s.Ctx(), &corev1.ReadFileRequest{CommitId: out.CommitID, Path: out.Path, Slice: sliceRef})
-		if err != nil {
-			return err
-		}
-		text := strings.SplitAfter(string(file.GetData()), "\n")
-		width := len(strconv.Itoa(int(out.LineCount)))
-		authorWidth := 0
-		for _, c := range commits {
-			authorWidth = max(authorWidth, len(c.Author))
-		}
-		for _, rg := range out.Ranges {
-			c := commits[rg.CommitID]
-			handle := model.ShortChangesetID(c.ChangesetID)
-			if handle == "" {
-				handle = "-"
-			}
-			date := c.CreatedAt
-			if len(date) >= 10 {
-				date = date[:10]
-			}
-			for line := rg.StartLine; line < rg.StartLine+rg.LineCount; line++ {
-				if (first > 0 && int(line) < first) || (last > 0 && int(line) > last) {
-					continue
-				}
-				content := ""
-				if int(line)-1 < len(text) {
-					content = strings.TrimRight(text[line-1], "\n")
-				}
-				fmt.Fprintf(r.Stdout, "%s %-10s (%-*s %s %*d) %s\n", shortID(rg.CommitID), handle, authorWidth, c.Author, date, width, line, content)
-			}
-		}
-		if out.Truncated && len(out.Ranges) > 0 {
-			fmt.Fprintf(r.stderr(), "note: history was read back to a limit; lines credited to the oldest commit shown may be older\n")
-		}
-		return nil
+		})
 	})
 }
 

@@ -25,31 +25,27 @@ type versionOutput struct {
 
 func (r Runner) runVersion(ctx context.Context, opts commandOptions) error {
 	out := cliVersionInfo()
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if opts.Quiet {
-		return nil
-	}
-	fmt.Fprintf(r.Stdout, "gs version %s\n", out.Version)
-	if out.Commit != "" {
-		fmt.Fprintf(r.Stdout, "commit: %s\n", out.Commit)
-	}
-	if out.BuildDate != "" {
-		fmt.Fprintf(r.Stdout, "built: %s\n", out.BuildDate)
-	}
-	fmt.Fprintf(r.Stdout, "go: %s\n", out.GoVersion)
-	if out.Dirty {
-		fmt.Fprintln(r.Stdout, "dirty: true")
-	}
-	// A release build says when a newer release is out (source builds have
-	// no release to compare; --json stays offline).
-	if _, ok := selfupdate.ParseVersion(out.Version); ok {
-		if latest := r.latestKnownRelease(ctx); latest != "" && selfupdate.NewerVersion(latest, out.Version) {
-			fmt.Fprintf(r.Stdout, "update: %s is available; run %s\n", latest, upgradeHint())
+	return writeSchemaOutput[versionOutput](r, opts, out, func() error {
+		fmt.Fprintf(r.Stdout, "gs version %s\n", out.Version)
+		if out.Commit != "" {
+			fmt.Fprintf(r.Stdout, "commit: %s\n", out.Commit)
 		}
-	}
-	return nil
+		if out.BuildDate != "" {
+			fmt.Fprintf(r.Stdout, "built: %s\n", out.BuildDate)
+		}
+		fmt.Fprintf(r.Stdout, "go: %s\n", out.GoVersion)
+		if out.Dirty {
+			fmt.Fprintln(r.Stdout, "dirty: true")
+		}
+		// A release build says when a newer release is out (source builds have
+		// no release to compare; --json stays offline).
+		if _, ok := selfupdate.ParseVersion(out.Version); ok {
+			if latest := r.latestKnownRelease(ctx); latest != "" && selfupdate.NewerVersion(latest, out.Version) {
+				fmt.Fprintf(r.Stdout, "update: %s is available; run %s\n", latest, upgradeHint())
+			}
+		}
+		return nil
+	})
 }
 
 func cliVersionInfo() versionOutput {

@@ -222,44 +222,40 @@ func (r Runner) probeAuthStatus(ctx context.Context) (authStatusOutput, error) {
 }
 
 func (r Runner) writeAuthStatus(opts commandOptions, status authStatusOutput) error {
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, status)
-	}
-	if opts.Quiet {
+	return writeSchemaOutput[authStatusOutput](r, opts, status, func() error {
+		if !status.SignedIn {
+			fmt.Fprintln(r.Stdout, "not logged in")
+			if status.ServerAddr != "" {
+				fmt.Fprintf(r.Stdout, "server: %s\n", status.ServerAddr)
+			}
+			if status.Reason != "" && status.Reason != "not_logged_in" {
+				fmt.Fprintf(r.Stdout, "reason: %s\n", strings.ReplaceAll(status.Reason, "_", " "))
+			}
+			return nil
+		}
+		if status.SubjectID != "" {
+			fmt.Fprintf(r.Stdout, "signed in as %s\n", status.SubjectID)
+		} else {
+			fmt.Fprintln(r.Stdout, "signed in")
+		}
+		fmt.Fprintf(r.Stdout, "server: %s\n", status.ServerAddr)
+		if status.ActiveAccount != "" {
+			fmt.Fprintf(r.Stdout, "active account: %s\n", status.ActiveAccount)
+		}
+		if len(status.Memberships) > 0 {
+			parts := make([]string, 0, len(status.Memberships))
+			for _, m := range status.Memberships {
+				parts = append(parts, fmt.Sprintf("%s (%s)", m.Account, strings.Trim(m.Kind+", "+m.Role, ", ")))
+			}
+			fmt.Fprintf(r.Stdout, "accounts: %s\n", strings.Join(parts, ", "))
+		}
+		if len(status.SharedSlices) > 0 {
+			parts := make([]string, 0, len(status.SharedSlices))
+			for _, s := range status.SharedSlices {
+				parts = append(parts, fmt.Sprintf("%s (%s)", s.Slice, s.Role))
+			}
+			fmt.Fprintf(r.Stdout, "shared with you: %s\n", strings.Join(parts, ", "))
+		}
 		return nil
-	}
-	if !status.SignedIn {
-		fmt.Fprintln(r.Stdout, "not logged in")
-		if status.ServerAddr != "" {
-			fmt.Fprintf(r.Stdout, "server: %s\n", status.ServerAddr)
-		}
-		if status.Reason != "" && status.Reason != "not_logged_in" {
-			fmt.Fprintf(r.Stdout, "reason: %s\n", strings.ReplaceAll(status.Reason, "_", " "))
-		}
-		return nil
-	}
-	if status.SubjectID != "" {
-		fmt.Fprintf(r.Stdout, "signed in as %s\n", status.SubjectID)
-	} else {
-		fmt.Fprintln(r.Stdout, "signed in")
-	}
-	fmt.Fprintf(r.Stdout, "server: %s\n", status.ServerAddr)
-	if status.ActiveAccount != "" {
-		fmt.Fprintf(r.Stdout, "active account: %s\n", status.ActiveAccount)
-	}
-	if len(status.Memberships) > 0 {
-		parts := make([]string, 0, len(status.Memberships))
-		for _, m := range status.Memberships {
-			parts = append(parts, fmt.Sprintf("%s (%s)", m.Account, strings.Trim(m.Kind+", "+m.Role, ", ")))
-		}
-		fmt.Fprintf(r.Stdout, "accounts: %s\n", strings.Join(parts, ", "))
-	}
-	if len(status.SharedSlices) > 0 {
-		parts := make([]string, 0, len(status.SharedSlices))
-		for _, s := range status.SharedSlices {
-			parts = append(parts, fmt.Sprintf("%s (%s)", s.Slice, s.Role))
-		}
-		fmt.Fprintf(r.Stdout, "shared with you: %s\n", strings.Join(parts, ", "))
-	}
-	return nil
+	})
 }

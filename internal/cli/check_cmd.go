@@ -335,21 +335,17 @@ func (r Runner) runCheckAllow(ctx context.Context, opts commandOptions, requeste
 			AllowedAt:   res.GetAllowedAt(),
 			RerunChecks: runs,
 		}
-		if opts.jsonOutput() {
-			return r.writeJSONOutput(opts, out)
-		}
-		if opts.Quiet {
+		return writeSchemaOutput[allowPatchsetSecretsOutput](r, opts, out, func() error {
+			if len(runs) == 0 {
+				fmt.Fprintf(r.Stdout, "allowed secrets for %s (%s)\n", csLabel, out.PatchsetID)
+				return nil
+			}
+			fmt.Fprintf(r.Stdout, "allowed secrets for %s (%s); running %d check(s):\n", csLabel, out.PatchsetID, len(runs))
+			for _, c := range runs {
+				fmt.Fprintf(r.Stdout, "  %-10s %-24s %s\n", c.Status, c.Name, c.RunID)
+			}
 			return nil
-		}
-		if len(runs) == 0 {
-			fmt.Fprintf(r.Stdout, "allowed secrets for %s (%s)\n", csLabel, out.PatchsetID)
-			return nil
-		}
-		fmt.Fprintf(r.Stdout, "allowed secrets for %s (%s); running %d check(s):\n", csLabel, out.PatchsetID, len(runs))
-		for _, c := range runs {
-			fmt.Fprintf(r.Stdout, "  %-10s %-24s %s\n", c.Status, c.Name, c.RunID)
-		}
-		return nil
+		})
 	})
 }
 

@@ -44,6 +44,7 @@ func (r Runner) authCommand(opts *commandOptions) *cobra.Command {
 			return r.runAuthStatus(cmd.Context(), *opts)
 		},
 	}
+	withSchemaOutput[authStatusOutput](authStatusCmd)
 	authTokenCmd := &cobra.Command{
 		Use:   "token",
 		Short: "Print the validated bearer token",
