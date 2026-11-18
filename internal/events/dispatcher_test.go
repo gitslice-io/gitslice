@@ -11,6 +11,7 @@ import (
 	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
+	"gitslice.io/gitslice/internal/triggers"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -32,7 +33,7 @@ type fakeTriggers struct {
 
 func (f *fakeTriggers) MayHaveTriggers(context.Context) bool { return f.likely }
 
-func (f *fakeTriggers) FanOut(_ context.Context, _ storage.Event, envelope []byte) {
+func (f *fakeTriggers) FanOut(_ context.Context, _ storage.Event, _ storage.EventEntities, envelope []byte) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.envelopes = append(f.envelopes, envelope)
@@ -135,5 +136,133 @@ func TestRunWaitsForActivity(t *testing.T) {
 	<-done
 	if store.claims.Load() == 0 {
 		t.Fatal("Run did not drain after activity")
+	}
+}
+
+type countingChangesets struct {
+	storage.ChangesetStore
+	gets atomic.Int32
+}
+
+func (c *countingChangesets) Get(ctx context.Context, id string) (*corev1.Changeset, error) {
+	c.gets.Add(1)
+	return c.ChangesetStore.Get(ctx, id)
+}
+
+type countingSlices struct {
+	storage.SliceStore
+	gets atomic.Int32
+}
+
+func (c *countingSlices) Get(ctx context.Context, id string) (*corev1.Slice, error) {
+	c.gets.Add(1)
+	return c.SliceStore.Get(ctx, id)
+}
+
+type countingChecks struct {
+	storage.CheckStore
+	gets atomic.Int32
+}
+
+func (c *countingChecks) GetCheckRun(ctx context.Context, id string) (*corev1.CheckRun, error) {
+	c.gets.Add(1)
+	return c.CheckStore.GetCheckRun(ctx, id)
+}
+
+type staticTreeReader struct{}
+
+func (staticTreeReader) ReadFile(context.Context, string, string) ([]byte, error) {
+	return nil, triggers.ErrNotFound
+}
+
+func TestDrainOncePassesPreloadedEntitiesWithoutDuplicateReads(t *testing.T) {
+	ctx := context.Background()
+	mem := memory.New()
+	mem.AddAccount("user_alice", "acme")
+	slice := mem.PutSlice(&corev1.SliceRef{Account: "acme", Slice: "app"}, []string{"/acme/app"}, "private")
+	ref, err := mem.Repository.GetRef(ctx, storage.DefaultTargetRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := mem.Changesets.Create(ctx, "user_alice", &corev1.CreateChangesetRequest{
+		AuthoringSlice: slice.Ref,
+		BaseCommitId:   ref.CommitId,
+		Title:          "single read",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ps, err := mem.Changesets.AddPatchset(ctx, cs.Id, "", &corev1.Patchset{
+		BaseCommitId: ref.CommitId,
+		Author:       "user_alice",
+		ChangedPaths: []string{"/acme/app/main.go"},
+		FileEdits:    []*corev1.FileEdit{{Op: "upsert", Path: "/acme/app/main.go", ContentHash: "sha256:abc", Mode: 0o100644}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkRun, err := mem.Checks.CreateCheckRun(ctx, storage.CheckRunInput{
+		ChangesetID: cs.Id,
+		PatchsetID:  ps.Id,
+		CheckName:   "unit",
+		Status:      "passed",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	csStore := &countingChangesets{ChangesetStore: mem.Changesets}
+	sliceStore := &countingSlices{SliceStore: mem.Slices}
+	checkStore := &countingChecks{CheckStore: mem.Checks}
+
+	engine := triggers.NewEngine(triggers.Stores{
+		Triggers:   mem.Triggers,
+		Changesets: csStore,
+		Slices:     sliceStore,
+		Repository: mem.Repository,
+		Checks:     checkStore,
+	}, triggers.Options{
+		Tree:                staticTreeReader{},
+		AllowPrivateTargets: true,
+	})
+	dispatcher := NewDispatcher(Stores{
+		Events:     mem.Events,
+		Slices:     sliceStore,
+		Changesets: csStore,
+		Checks:     checkStore,
+		Auth:       mem.Auth,
+	}, Options{
+		WebBaseURL: "https://gitslice.test",
+		Triggers:   engine,
+	})
+
+	if _, err := mem.Events.AppendEvent(ctx, storage.Event{
+		Kind:         storage.EventCheckRunCompleted,
+		ChangesetID:  cs.Id,
+		PatchsetID:   ps.Id,
+		CheckRunID:   checkRun.Id,
+		ChangedPaths: []string{"/acme/app/main.go"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mem.Events.AppendEvent(ctx, storage.Event{
+		Kind:    storage.EventTagCreated,
+		SliceID: slice.Id,
+		TagName: "v1.2.3",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := dispatcher.DrainOnce(ctx); err != nil {
+		t.Fatalf("DrainOnce: %v", err)
+	}
+	if got := csStore.gets.Load(); got != 1 {
+		t.Fatalf("Changesets.Get calls = %d, want 1 (no duplicate read in Engine.FanOut)", got)
+	}
+	if got := sliceStore.gets.Load(); got != 1 {
+		t.Fatalf("Slices.Get calls = %d, want 1 (no duplicate read in Engine.FanOut)", got)
+	}
+	if got := checkStore.gets.Load(); got != 1 {
+		t.Fatalf("Checks.GetCheckRun calls = %d, want 1 (no duplicate read in Engine.FanOut)", got)
 	}
 }

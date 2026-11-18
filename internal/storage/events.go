@@ -3,6 +3,8 @@ package storage
 import (
 	"context"
 	"time"
+
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 // Events recorded by Gitslice automation.
@@ -37,6 +39,15 @@ type Event struct {
 	// (for example a reported check's name and status).
 	Data      string
 	CreatedAt time.Time
+}
+
+// EventEntities carries pre-loaded domain entities resolved during event
+// fan-out so downstream consumers (such as triggers.Engine) do not re-query
+// storage for the same Changeset, Slice, or CheckRun.
+type EventEntities struct {
+	Slice     *corev1.Slice
+	Changeset *corev1.Changeset
+	CheckRun  *corev1.CheckRun
 }
 
 // EventStore keeps the historical-named webhook_events event log. The table

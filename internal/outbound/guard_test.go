@@ -1,10 +1,13 @@
 package outbound
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"testing"
+	"time"
 )
 
 func TestValidateURL(t *testing.T) {
@@ -97,5 +100,52 @@ func TestSignAndVerify(t *testing.T) {
 	}
 	if Verify("other", body, got) || Verify("secret", []byte(`{}`), got) {
 		t.Fatal("Verify accepted a wrong secret or body")
+	}
+}
+
+func TestPostSignedJSONAndRetryDelay(t *testing.T) {
+	if got := RetryDelay(0); got != time.Minute {
+		t.Fatalf("RetryDelay(0) = %v, want 1m", got)
+	}
+	if got := RetryDelay(1); got != time.Minute {
+		t.Fatalf("RetryDelay(1) = %v, want 1m", got)
+	}
+	if got := RetryDelay(6); got != 12*time.Hour {
+		t.Fatalf("RetryDelay(6) = %v, want 12h", got)
+	}
+	if got := RetryDelay(99); got != 12*time.Hour {
+		t.Fatalf("RetryDelay(99) = %v, want 12h", got)
+	}
+
+	var gotSig, gotUA, gotCustom string
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSig = r.Header.Get(SignatureHeader)
+		gotUA = r.Header.Get("User-Agent")
+		gotCustom = r.Header.Get("X-Custom")
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = w.Write([]byte("accepted-response"))
+	}))
+	defer srv.Close()
+
+	payload := []byte(`{"hello":"world"}`)
+	res, err := PostSignedJSON(context.Background(), PostJSONRequest{
+		Client:           newClient(true),
+		URL:              srv.URL,
+		Body:             payload,
+		UserAgent:        "TestAgent/1.0",
+		Headers:          map[string]string{"X-Custom": "yes"},
+		SignSecret:       "s3cr3t",
+		MaxResponseBytes: 8,
+	})
+	if err != nil {
+		t.Fatalf("PostSignedJSON: %v", err)
+	}
+	if res.StatusCode != http.StatusAccepted || string(res.Body) != "accepted" {
+		t.Fatalf("res = %+v, want 202 and 8-byte bounded body", res)
+	}
+	if !Verify("s3cr3t", payload, gotSig) || gotUA != "TestAgent/1.0" || gotCustom != "yes" || string(gotBody) != string(payload) {
+		t.Fatalf("headers/body mismatch: sig=%q ua=%q custom=%q body=%q", gotSig, gotUA, gotCustom, gotBody)
 	}
 }
