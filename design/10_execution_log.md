@@ -9674,3 +9674,14 @@ pages are code-split, analytics waits for the page to load.
 
 **Verification**
 - Backend + CLI `-race` and live-PG `internal/postgres`, `service`, `tests/rpc`, `tests/cli` suites, `TestCmdGSBinaryDoesNotLinkServerStorageStack`, `TestSchema`, and `web/` `npm run build && npm test` verified green across the sweep and remote CI (`build`, `e2e`, `gofmt`, `test`, `vet`).
+
+## 2026-11-18 — the build check cross-compiles gs
+
+**Why**: v0.4.30 failed to release. `internal/mountd` (split out of `internal/cli`) gave `ListenMountControl`, `ServeMountControl` and `PopulateReplyBaseFiles` only behind `linux || darwin`, so `gs` did not compile for Windows, and no check built anything but Linux. cs d62aa4da71 added the stubs to `serve_other.go`; v0.4.31 is the release (the v0.4.30 tag stays, unreleased).
+
+**What changed**
+- The `build` check (and GitHub's ci.yml) also builds `./cmd/gs` with `CGO_ENABLED=0` for darwin and windows (arm64; build tags here are per OS).
+
+**Verification**
+- The check's command passes at head, and fails with `undefined: mountd.ListenMountControl` when that stub is removed again.
+- Test files still do not compile for Windows (FUSE, `Setpgid`, unix-only helpers); tests run on Linux and macOS only, so the check builds `gs`, not the tests.

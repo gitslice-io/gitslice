@@ -53,8 +53,12 @@ checks:
     paths: ["**/*.go", "go.mod", "go.sum", "internal/postgres/migrations/**"]
 
   build:
-    description: "Build the gs CLI and server"
-    run: "go build ./cmd/..."
+    description: "Build the gs CLI and server, and gs for macOS and Windows"
+    # Releases build gs for macOS and Windows too (ops/release/build.sh), and
+    # code behind a linux||darwin build tag can leave the other platforms
+    # without a function: v0.4.30 failed to build for Windows that way. One
+    # arch per OS is enough, since build tags here are per OS.
+    run: "go build ./cmd/... && for os in darwin windows; do CGO_ENABLED=0 GOOS=$os GOARCH=arm64 go build -o /dev/null ./cmd/gs || exit 1; done"
     paths: ["**/*.go", "go.mod", "go.sum"]
 
   e2e:
