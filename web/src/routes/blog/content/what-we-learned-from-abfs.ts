@@ -1,1 +1,79 @@
-export const markdown = "Google recently wrote about [ABFS](https://developers.googleblog.com/accelerating-development-for-massive-git-repositories/), the file system its Android engineers use to work in a source tree too big to check out. An ABFS workspace shows every file at once, but each file's content is only downloaded the first time something reads it. Nobody waits for a full checkout, and nobody stores files they never open.\n\nThat is also how a Gitslice [lazy workspace](/doc/lazy) works (`gs init --lazy`), so we read the post closely and compared the two designs. Most of it matched. Three things did not, and all three are now fixed:\n\n| | Before | After |\n| --- | ---: | ---: |\n| Sync a mount six commits forward (1,661 files) | 526 KB, the whole listing | **36 KB**, only what changed |\n| Size of the local cache | grew forever | **10 GB by default**, oldest content removed first |\n| `rm -rf` of 10,000 files in a mount | 15.9 s | **2.6 s** |\n\n## 1. What already matched\n\n- **Content is fetched on first read.** Opening a file downloads it. Listing a folder, `stat` and walking the tree are answered without the network.\n- **Content is stored once per machine.** Fetched files go into a cache shared by every workspace on the machine, keyed by their content. A second workspace of the same slice reads what the first one fetched.\n- **Edits stay local until you share them.** Your writes go to the workspace on your machine. Nothing is uploaded until `gs create` or `gs modify`, and then only what you changed.\n\n## 2. Syncs now download only what changed\n\nA lazy workspace needs the slice's file listing up front: every path, with its size and content id. Until now, each `gs sync` downloaded the whole listing again, even when two files had changed. That cost grows with the size of the slice instead of with the size of the change.\n\nNow `gs` remembers the last listing it received for each slice and tells the server which commit it is from. The server compares the two commits folder by folder, skips every folder that did not change, and sends back only the files that were added or changed and the paths that were removed.\n\nOn our own slice (1,661 files), syncing a mount six commits forward used to transfer 526 KB. It now transfers 36 KB: 106 changed files and 21 removed paths. When nothing in the slice changed, the answer is under 1 KB.\n\nYou don't have to do anything to get this. `gs sync` in a mount, `gs init --lazy` and `gs init` all use it. When there is no earlier listing to start from, or the slice's definition changed since then, the server sends the full listing as before.\n\n## 3. The cache now has a size limit\n\nABFS keeps its local cache bounded and drops the least recently used content first. Until now our cache only grew: every file that any workspace had ever fetched stayed on disk.\n\nNow, once the cache is larger than `GS_CACHE_MAX` (10 GB by default), `gs` removes the least recently used content until the cache is back under 80% of the limit. This runs automatically at most once an hour, after a command or from a running mount. Some content is never removed:\n\n- anything used in the last six hours, so a long build doesn't lose files it read at the start;\n- checkpoints of lazy workspaces and both sides of a sync conflict, because only your machine has them.\n\nRemoving content is always safe. If a file is needed again, it is downloaded again on the next read.\n\n```bash\ngs cache status                      # size, limit, pinned content\ngs cache prune --max 2G --dry-run    # what pruning to 2 GB would remove\ngs cache prune                       # prune now\nexport GS_CACHE_MAX=50G              # a bigger limit (off turns pruning off)\n```\n\n## 4. Build output in a mount\n\nABFS keeps build output out of the synchronized workspace. Build tools write a lot of files, and a file system that tracks every write pays for each one. So we measured what happens when a build writes 10,000 small files into a mount, as `npm install` does in `node_modules/`:\n\n| 10,000 small files | Plain disk | Mount, before | Mount, after |\n| --- | ---: | ---: | ---: |\n| Write them | 1.4 s | 7.3 s | 7.3 s |\n| `rm -rf` them | 0.2 s | 15.9 s | **2.6 s** |\n| `gs status` with one edit | | 1.2 s | 1.2 s |\n\nThe real problem was removal. Each removed file was checked against everything else written in the workspace, so deleting N files took time proportional to N². With 20,000 files written, one removal took 1.8 ms. It now looks only under the path being removed, and takes 51 µs. Deleting a `node_modules/` folder, or a clean before a rebuild, is now 6 times faster.\n\nWriting files is still slower than on plain disk. Almost all of that time is spent in the operating system passing each file operation to the mount, not in Gitslice. We had planned a separate scratch area for build output, but it would go through the same mount and save at most a seventh of the time. So we did not build it.\n\nIf a tool's output needs plain disk speed, point it outside the workspace. Go already does this: its build cache lives outside the source tree. Files your build writes inside the workspace are still ignored by `gs status` when `.gitignore` covers them, and `gs restore --ignored` clears them.\n\n## 5. What we left out\n\nABFS also lets a build reuse outputs that another machine already built from the same inputs. That works for Android because its build system lists every input of every step, so a cached result is known to be correct.\n\nGitslice slices hold all kinds of projects, built with all kinds of tools, and most don't declare their inputs. Reusing a result from another machine could then return a stale answer that looks fresh, which is worse than rebuilding. Tools that do track their inputs already reuse results safely on their own: Go's test cache, for example, works unchanged in a mount. So we left this out.\n\n## 6. Try it\n\nThese changes need `gs` v0.4.31 or later:\n\n```bash\ngs upgrade\ngs init --lazy acme/payments ~/work/payments\ncd ~/work/payments\ngs sync          # downloads only what changed since the last listing\ngs cache status\n```\n\nThe [Lazy Workspaces docs](/doc/lazy) cover mounts, prefetching, checkpoints and the cache in full.";
+export const markdown = `Google recently described [ABFS](https://developers.googleblog.com/accelerating-development-for-massive-git-repositories/), the virtual file system its Android engineers use to work inside a source tree far too large to check out in full. An ABFS workspace makes every file visible immediately, but downloads a file's contents only the first time something reads it. Nobody waits for a giant checkout, and nobody stores files they never open.
+
+That is the same model behind a Gitslice [lazy workspace](/doc/lazy) (\`gs init --lazy\`), so we compared the two designs side by side. The core architecture already matched. Three things did not — and all three are now shipped:
+
+| | Before | After |
+| --- | ---: | ---: |
+| Sync a mount six commits forward (1,661 files) | 526 KB (full listing) | **36 KB**, only what changed |
+| Local cache size | Unbounded | **10 GB default**, oldest content removed first |
+| \`rm -rf\` of 10,000 files in a mount | 15.9 s | **2.6 s** |
+
+## 1. What already matched
+
+- **Content arrives on first read.** Opening a file downloads it on demand. Directory listings, \`stat\`, and tree walks run locally without network round trips.
+- **Content is stored once per machine.** Fetched files live in a shared, content-addressed cache across every workspace on your machine. A second workspace for the same slice reuses whatever the first one already fetched.
+- **Edits stay local until you share them.** Writes stay on your machine. Nothing is uploaded until \`gs create\` or \`gs modify\`, and even then only your changes move.
+
+## 2. Syncs now download only what changed
+
+A lazy workspace needs the slice's file listing up front: every path, its size, and its content id. Previously, every \`gs sync\` downloaded the full listing again even if only two files had changed — a cost that scaled with the size of the slice rather than the size of the change.
+
+Now \`gs\` remembers the last listing it received for a slice and asks only for what changed since that commit. The server compares the two commits folder by folder, skips unchanged subtrees, and streams back only added or updated entries alongside removed paths.
+
+On our own slice (1,661 files), syncing a mount six commits forward dropped from **526 KB** to **36 KB** (106 changed files and 21 removed paths). When nothing changed, the response is under 1 KB.
+
+No flags or migration steps are required: \`gs sync\` in a mount, \`gs init --lazy\`, and standard \`gs init\` checkouts all use incremental listings automatically. If there is no prior listing on your machine, or the slice definition changed, Gitslice falls back cleanly to a full listing.
+
+## 3. A bounded local cache
+
+ABFS keeps its cache under a disk budget by evicting the least recently used content first. Previously, the Gitslice client cache only grew: every file any workspace had ever read stayed on disk until deleted by hand.
+
+Now, once cached objects exceed \`GS_CACHE_MAX\` (**10 GB** by default), \`gs\` automatically evicts the least recently used content until usage drops below 80% of the limit (checked at most once an hour after commands or from a running mount). Content you still rely on is protected from eviction:
+
+- anything read in the last six hours, so long builds do not lose files opened at the start;
+- checkpoints in lazy workspaces and both sides of an unresolved sync conflict, because only your machine holds those bytes.
+
+Evicting cached objects is always safe: any file you need later is simply re-downloaded on its next read. You can inspect, adjust, or test pruning at any time:
+
+\`\`\`bash
+gs cache status                      # size, limit, and pinned content
+gs cache prune --max 2G --dry-run    # preview pruning down to 2 GB
+gs cache prune                       # prune now
+export GS_CACHE_MAX=50G              # raise the limit (or "off" to disable pruning)
+\`\`\`
+
+## 4. Build outputs and fast deletes inside a mount
+
+ABFS keeps build artifacts outside its virtualized workspace because tools like compilers and package managers emit thousands of small files, and tracking every write in a mounted file system adds overhead. We timed writing, deleting, and scanning 10,000 small files inside a Gitslice mount (similar to \`npm install\` populating \`node_modules/\`):
+
+| 10,000 small files | Plain disk | Mount (before) | Mount (after) |
+| --- | ---: | ---: | ---: |
+| Write them | 1.4 s | 7.3 s | 7.3 s |
+| \`rm -rf\` them | 0.2 s | 15.9 s | **2.6 s** |
+| \`gs status\` with one edit | | 1.2 s | 1.2 s |
+
+Deleting directories was the real bottleneck: each removed path checked against every modified entry in the workspace, turning a tree delete into quadratic work (at 20,000 written files, a single delete took 1.8 ms). Removals now inspect only the subtree being removed, dropping that cost to 51 µs and making \`rm -rf\` on large build folders **6x faster**.
+
+Writing thousands of brand-new files in a mount is still slower than plain disk because each file operation crosses the operating system's mount boundary. We considered adding a scratch overlay inside the mount to bypass tracking for build directories, but the OS mount boundary itself accounts for roughly 85% of the write cost — saving about 15% wasn't worth the extra complexity.
+
+When a build tool needs native disk throughput, point its output or cache directory outside the workspace (as Go already does with its build cache). Build artifacts that do stay inside the workspace remain ignored by \`gs status\` whenever \`.gitignore\` covers them, and \`gs restore --ignored\` clears them cleanly.
+
+## 5. What we intentionally left out
+
+ABFS can also fetch prebuilt compiler outputs built on another machine when source inputs match. That works cleanly inside Android because its build system strictly declares every input to every build step, guaranteeing cache soundness.
+
+Gitslice hosts all kinds of projects and toolchains, most without hermitic input manifests. Sharing remote build outputs across machines without complete input tracking risks handing you a stale artifact that looks valid — far worse than running the build. Tools that already verify their own inputs, such as Go's test cache, continue to reuse cached results safely inside a mount.
+
+## 6. Try it
+
+Incremental syncs, bounded caching, and fast deletes require \`gs\` v0.4.31 or later:
+
+\`\`\`bash
+gs upgrade
+gs init --lazy acme/payments ~/work/payments
+cd ~/work/payments
+gs sync          # downloads only what changed since the last listing
+gs cache status
+\`\`\`
+
+See the [Lazy Workspaces docs](/doc/lazy) for mount management, prefetch patterns, local checkpoints, and cache tuning.`;

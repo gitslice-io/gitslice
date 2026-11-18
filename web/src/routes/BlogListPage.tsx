@@ -28,7 +28,7 @@ export function BlogListPage() {
           Blog
         </h1>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-zinc-400">
-          Notes on how Gitslice is built.
+          Product updates, benchmarks, and engineering notes from Gitslice.
         </p>
       </header>
 

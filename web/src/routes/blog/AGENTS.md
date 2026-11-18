@@ -1,7 +1,8 @@
 # Blog posts
 
-Posts live in `posts.ts` (newest first; `posts.test.ts` pins the first one)
-and are published at `https://gitslice.io/blogs/<slug>`.
+Post metadata lives in `postIndex.ts` (newest first; `posts.test.ts` pins the first one)
+and markdown bodies live in `content/<slug>.ts` (re-exported by `posts.ts`),
+published at `https://gitslice.io/blogs/<slug>`.
 
 ## Audience: users, not us
 

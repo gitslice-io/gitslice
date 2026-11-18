@@ -84,4 +84,32 @@ describe("blog posts", () => {
     }
     expect(await loadPost("nonexistent-slug")).toBeUndefined();
   });
+
+  it("omits hosting infrastructure and internal implementation details across all posts", () => {
+    const forbidden = [
+      "Cloud Run",
+      "Cloudflare",
+      "R2",
+      "Neon",
+      "Cloud Build",
+      "Postgres",
+      "PostgreSQL",
+      "path_heads",
+      "root_tree_id",
+      "signed request",
+      "design/",
+      "tests/cli/bench_git_test.go",
+      "since_commit_id",
+      "lazyfs",
+      "treestore",
+      "~/.cache",
+      "webhooks"
+    ];
+    for (const post of blogPosts) {
+      const combined = `${post.title}\n${post.dek}\n${post.markdown}`;
+      for (const term of forbidden) {
+        expect(combined, `${post.slug} contains forbidden term ${term}`).not.toContain(term);
+      }
+    }
+  });
 });
