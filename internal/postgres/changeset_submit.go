@@ -13,23 +13,18 @@ import (
 )
 
 func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (res *corev1.SubmitChangesetResponse, err error) {
-	return s.SubmitWithCheckStatuses(ctx, changesetID, expectedCurrentPatchsetID, nil)
+	return s.SubmitChangeset(ctx, storage.SubmitInput{
+		ChangesetID:               changesetID,
+		ExpectedCurrentPatchsetID: expectedCurrentPatchsetID,
+	})
 }
 
 func (s *ChangesetStore) SetPendingPublishListener(fn func()) {
 	s.onPendingPublish = fn
 }
 
-func (s *ChangesetStore) SubmitWithCheckStatuses(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string) (res *corev1.SubmitChangesetResponse, err error) {
-	return s.submit(ctx, changesetID, expectedCurrentPatchsetID, extraCheckStatuses, false)
-}
-
-// SubmitBypassingRequirements submits without the slice's required approvals
-// and checks. The service uses it only for a changeset that is a single copy
-// or move (CopyPath, MovePath); path bases and the slice definition still
-// apply.
-func (s *ChangesetStore) SubmitBypassingRequirements(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
-	return s.submit(ctx, changesetID, expectedCurrentPatchsetID, nil, true)
+func (s *ChangesetStore) SubmitChangeset(ctx context.Context, in storage.SubmitInput) (res *corev1.SubmitChangesetResponse, err error) {
+	return s.submit(ctx, in.ChangesetID, in.ExpectedCurrentPatchsetID, in.ExtraCheckStatuses, in.BypassRequirements)
 }
 
 func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string, bypassRequirements bool) (res *corev1.SubmitChangesetResponse, err error) {

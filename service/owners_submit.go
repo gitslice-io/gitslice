@@ -16,16 +16,8 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-type changesetBlockRecorder interface {
-	RecordSubmitBlockedReason(ctx context.Context, changesetID, expectedCurrentPatchsetID, reason string) error
-}
-
 func (s *ChangesetService) recordRequirementBlock(ctx context.Context, cs *corev1.Changeset, reason string) {
-	if cs == nil || reason == "" {
-		return
-	}
-	recorder, ok := s.Changesets.(changesetBlockRecorder)
-	if !ok {
+	if cs == nil || reason == "" || s.Changesets == nil {
 		return
 	}
 	patchsetID := cs.GetCurrentPatchsetId()
@@ -34,7 +26,7 @@ func (s *ChangesetService) recordRequirementBlock(ctx context.Context, cs *corev
 			patchsetID = ps.GetId()
 		}
 	}
-	_ = recorder.RecordSubmitBlockedReason(ctx, cs.GetId(), patchsetID, reason)
+	_ = s.Changesets.RecordSubmitBlockedReason(ctx, cs.GetId(), patchsetID, reason)
 }
 
 func (s *ChangesetService) submitHeadCommitID(ctx context.Context, cs *corev1.Changeset) (string, error) {

@@ -21,10 +21,6 @@ import (
 // quick, but it shares the target ref's publish lock with other changesets.
 const pathOperationPublishTimeout = 2 * time.Minute
 
-type changesetSubmitBypassingRequirements interface {
-	SubmitBypassingRequirements(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error)
-}
-
 // CopyPath copies a file or folder and lands it at once. The source may be in
 // another slice, even another account's, when the caller can read it there.
 func (s *ChangesetService) CopyPath(ctx context.Context, req *corev1.CopyPathRequest) (*corev1.PathOperationResponse, error) {
@@ -129,8 +125,7 @@ func (s *ChangesetService) landPathOperation(ctx context.Context, subjectID stri
 	if gitslicecfg.TouchesGitslice(edit.GetOldPath()) || gitslicecfg.TouchesGitslice(edit.GetPath()) {
 		return nil, status.Error(codes.FailedPrecondition, ".gitslice configuration paths cannot be copied or moved directly; use a changeset")
 	}
-	submitter, ok := s.Changesets.(changesetSubmitBypassingRequirements)
-	if !ok {
+	if s.Changesets == nil {
 		return nil, status.Error(codes.Unimplemented, "this server can't land a copy or move directly")
 	}
 	ref, err := s.Repository.GetRef(ctx, storage.DefaultTargetRef)
@@ -197,7 +192,11 @@ func (s *ChangesetService) landPathOperation(ctx context.Context, subjectID stri
 		s.abandonPathOperation(ctx, cs.Id)
 		return nil, grpcError(err)
 	}
-	if _, err := submitter.SubmitBypassingRequirements(ctx, cs.Id, patchset.Id); err != nil {
+	if _, err := s.Changesets.SubmitChangeset(ctx, storage.SubmitInput{
+		ChangesetID:               cs.Id,
+		ExpectedCurrentPatchsetID: patchset.Id,
+		BypassRequirements:        true,
+	}); err != nil {
 		s.abandonPathOperation(ctx, cs.Id)
 		if errors.Is(err, storage.ErrConflict) {
 			return nil, status.Errorf(codes.Aborted, "%v; try again", err)

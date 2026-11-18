@@ -20,7 +20,7 @@ import (
 // read it.
 type SecretService struct {
 	Auth   storage.AuthStore
-	Slices storage.SliceStore
+	Slices storage.SliceSecretStore
 }
 
 func (s *SecretService) ListSecrets(ctx context.Context, req *corev1.ListSecretsRequest) (*corev1.ListSecretsResponse, error) {

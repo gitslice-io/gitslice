@@ -30,10 +30,10 @@ const (
 )
 
 type Authorizer struct {
-	Auth storage.AuthStore
+	Auth storage.RoleLookupStore
 }
 
-func New(auth storage.AuthStore) Authorizer {
+func New(auth storage.RoleLookupStore) Authorizer {
 	return Authorizer{Auth: auth}
 }
 

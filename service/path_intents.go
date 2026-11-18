@@ -262,7 +262,7 @@ func (s *ChangesetService) linkMatchingIntents(ctx context.Context, sliceID, aut
 	linkMatchingIntentsForStore(ctx, s.Changesets, sliceID, authorSubjectID, changesetID, title, description, changedPaths)
 }
 
-func linkMatchingIntentsForStore(ctx context.Context, store storage.ChangesetStore, sliceID, authorSubjectID, changesetID, title, description string, changedPaths []string) {
+func linkMatchingIntentsForStore(ctx context.Context, store storage.PathIntentStore, sliceID, authorSubjectID, changesetID, title, description string, changedPaths []string) {
 	if store == nil || sliceID == "" || authorSubjectID == "" || changesetID == "" {
 		return
 	}

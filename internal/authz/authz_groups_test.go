@@ -10,7 +10,6 @@ import (
 )
 
 type fakeGroupAuthStore struct {
-	storage.AuthStore
 	accountRoles map[string]string // account:subject -> role
 	sliceRoles   map[string]string // sliceID:subject -> role
 	groupRoles   map[string]string // sliceID:subject -> role

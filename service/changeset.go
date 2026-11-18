@@ -254,13 +254,12 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	return res, nil
 }
 
-// submitPatchset submits a changeset at expected, with the store's check
-// statuses when it takes them.
 func (s *ChangesetService) submitPatchset(ctx context.Context, changesetID, expected string, extraCheckStatuses map[string]string) (*corev1.SubmitChangesetResponse, error) {
-	if submitter, ok := s.Changesets.(changesetSubmitWithCheckStatuses); ok {
-		return submitter.SubmitWithCheckStatuses(ctx, changesetID, expected, extraCheckStatuses)
-	}
-	return s.Changesets.Submit(ctx, changesetID, expected)
+	return s.Changesets.SubmitChangeset(ctx, storage.SubmitInput{
+		ChangesetID:               changesetID,
+		ExpectedCurrentPatchsetID: expected,
+		ExtraCheckStatuses:        extraCheckStatuses,
+	})
 }
 
 func (s *ChangesetService) captureChangesetSubmitted(ctx context.Context, cs *corev1.Changeset) {

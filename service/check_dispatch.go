@@ -611,10 +611,6 @@ func (d *checkDispatcher) daemonOnline(ctx context.Context, daemonID string) boo
 	return err == nil && daemon.GetStatus() == "online"
 }
 
-type changesetSubmitWithCheckStatuses interface {
-	SubmitWithCheckStatuses(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string) (*corev1.SubmitChangesetResponse, error)
-}
-
 func (s *ChangesetService) skippedRequiredCheckStatuses(ctx context.Context, cs *corev1.Changeset) (map[string]string, error) {
 	patchset := currentPatchset(cs)
 	if patchset == nil {

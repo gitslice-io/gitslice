@@ -10,7 +10,6 @@ package events
 import (
 	"context"
 	"encoding/json"
-	"errors"
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/storage"
@@ -96,41 +95,6 @@ func (s *changesetStore) ReportCheckResult(ctx context.Context, changesetID, sub
 		})
 	}
 	return res, err
-}
-
-// SubmitWithCheckStatuses keeps the store's optional submit path (the
-// changeset service looks for it).
-func (s *changesetStore) SubmitWithCheckStatuses(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string) (*corev1.SubmitChangesetResponse, error) {
-	if submitter, ok := s.ChangesetStore.(interface {
-		SubmitWithCheckStatuses(context.Context, string, string, map[string]string) (*corev1.SubmitChangesetResponse, error)
-	}); ok {
-		return submitter.SubmitWithCheckStatuses(ctx, changesetID, expectedCurrentPatchsetID, extraCheckStatuses)
-	}
-	return s.ChangesetStore.Submit(ctx, changesetID, expectedCurrentPatchsetID)
-}
-
-// SubmitBypassingRequirements keeps the store's submit for a single copy or
-// move, which skips the slice's required approvals and checks.
-func (s *changesetStore) SubmitBypassingRequirements(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
-	submitter, ok := s.ChangesetStore.(interface {
-		SubmitBypassingRequirements(context.Context, string, string) (*corev1.SubmitChangesetResponse, error)
-	})
-	if !ok {
-		return nil, errors.New("this changeset store cannot submit without requirements")
-	}
-	return submitter.SubmitBypassingRequirements(ctx, changesetID, expectedCurrentPatchsetID)
-}
-
-// RecordSubmitBlockedReason preserves recording service-layer requirement blocks
-// (path owners, .gitslice approvals) through the event wrapper.
-func (s *changesetStore) RecordSubmitBlockedReason(ctx context.Context, changesetID, expectedCurrentPatchsetID, reason string) error {
-	recorder, ok := s.ChangesetStore.(interface {
-		RecordSubmitBlockedReason(context.Context, string, string, string) error
-	})
-	if !ok {
-		return nil
-	}
-	return recorder.RecordSubmitBlockedReason(ctx, changesetID, expectedCurrentPatchsetID, reason)
 }
 
 // PublishPending lands submitted changesets. The store records their

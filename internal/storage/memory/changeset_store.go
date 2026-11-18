@@ -455,11 +455,14 @@ func (s *ChangesetStore) Handoff(ctx context.Context, changesetID, newAuthorSubj
 }
 
 func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
-	return s.SubmitWithCheckStatuses(ctx, changesetID, expectedCurrentPatchsetID, nil)
+	return s.SubmitChangeset(ctx, storage.SubmitInput{
+		ChangesetID:               changesetID,
+		ExpectedCurrentPatchsetID: expectedCurrentPatchsetID,
+	})
 }
 
-func (s *ChangesetStore) SubmitWithCheckStatuses(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string) (res *corev1.SubmitChangesetResponse, err error) {
-	return s.submit(ctx, changesetID, expectedCurrentPatchsetID, extraCheckStatuses, false)
+func (s *ChangesetStore) SubmitChangeset(ctx context.Context, in storage.SubmitInput) (res *corev1.SubmitChangesetResponse, err error) {
+	return s.submit(ctx, in.ChangesetID, in.ExpectedCurrentPatchsetID, in.ExtraCheckStatuses, in.BypassRequirements)
 }
 
 // RecordSubmitBlockedReason records a service-enforced requirement block (such
@@ -475,12 +478,6 @@ func (s *ChangesetStore) RecordSubmitBlockedReason(_ context.Context, changesetI
 		cs.SubmitBlockedReason = reason
 	}
 	return nil
-}
-
-// SubmitBypassingRequirements submits without the slice's required approvals
-// and checks, for a changeset that is a single copy or move.
-func (s *ChangesetStore) SubmitBypassingRequirements(ctx context.Context, changesetID, expectedCurrentPatchsetID string) (*corev1.SubmitChangesetResponse, error) {
-	return s.submit(ctx, changesetID, expectedCurrentPatchsetID, nil, true)
 }
 
 func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string, bypassRequirements bool) (res *corev1.SubmitChangesetResponse, err error) {
