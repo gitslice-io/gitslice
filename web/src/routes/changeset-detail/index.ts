@@ -1,4 +1,6 @@
 export { ChangesetSkeleton } from "./ChangesetSkeleton";
+export { ApprovalsCard, ApprovalStatusBadge } from "./ApprovalsCard";
+export { summarizeApprovals, type ApprovalSummary } from "./approvalSummary";
 export { ChecksPanel } from "./ChecksPanel";
 export { TriggerRunsPanel } from "./TriggerRunsPanel";
 export { TriggersChecksPanel } from "./TriggersChecksPanel";

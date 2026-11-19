@@ -61,6 +61,23 @@ export function useChangesetActions({
     await invalidateChangeset();
   };
 
+  const approveMutation = useMutation({
+    mutationFn: async () => {
+      if (!canonicalChangesetId) {
+        throw new Error("This changeset did not return an id.");
+      }
+      return api.approveChangeset({
+        changesetId: canonicalChangesetId
+      });
+    },
+    onError: (error) => setActionError(errorMessage(error)),
+    onMutate: () => setActionError(""),
+    onSuccess: async () => {
+      setActionError("");
+      await invalidateChangeset();
+    }
+  });
+
   const abandonMutation = useMutation({
     mutationFn: async () => {
       if (!canonicalChangesetId) {
@@ -90,9 +107,12 @@ export function useChangesetActions({
     abandonReason,
     setAbandonReason,
     actionError,
-    actionBusy: mergeMutation.isPending || abandonMutation.isPending,
+    actionBusy:
+      mergeMutation.isPending || abandonMutation.isPending || approveMutation.isPending,
+    approvePending: approveMutation.isPending,
     mergePending: mergeMutation.isPending,
     abandonPending: abandonMutation.isPending,
+    approve: () => approveMutation.mutate(),
     merge: () => mergeMutation.mutate(),
     submitAbandon,
     saveInfo

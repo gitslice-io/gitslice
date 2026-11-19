@@ -7,34 +7,52 @@ export function ReviewActions({
   abandonPending,
   abandonReason,
   actionBusy,
+  approvePending = false,
   canAbandon = true,
+  canApprove = false,
   canMerge,
   canSubmit = true,
   mergePending,
   onAbandon,
   onAbandonReasonChange,
+  onApprove,
   onMerge,
   terminal
 }: {
   abandonPending: boolean;
   abandonReason: string;
   actionBusy: boolean;
+  approvePending?: boolean;
   canAbandon?: boolean;
+  canApprove?: boolean;
   canMerge: boolean;
   canSubmit?: boolean;
   mergePending: boolean;
   onAbandon(event: FormEvent<HTMLFormElement>): void;
   onAbandonReasonChange(value: string): void;
+  onApprove?(): void;
   onMerge(): void;
   terminal: boolean;
 }) {
+  const showApprove = Boolean(!terminal && canApprove && onApprove);
   const showAbandon = !terminal && canAbandon;
-  if (!canSubmit && !showAbandon) {
+  if (!canSubmit && !showApprove && !showAbandon) {
     return null;
   }
 
   return (
     <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+      {showApprove ? (
+        <button
+          className="h-8 rounded-md border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 px-3 py-1.5 text-xs font-semibold text-emerald-900 dark:text-emerald-200 transition hover:bg-emerald-100 dark:hover:bg-emerald-950/70 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+          disabled={actionBusy}
+          onClick={onApprove}
+          type="button"
+        >
+          {approvePending ? "Approving..." : "Approve"}
+        </button>
+      ) : null}
+
       {canSubmit ? (
         <button
           className="h-8 rounded-md bg-zinc-950 dark:bg-zinc-100 px-3 py-2 text-xs font-medium text-white dark:text-zinc-950 transition hover:bg-zinc-800 dark:hover:bg-white active:translate-y-px disabled:cursor-not-allowed disabled:opacity-60"

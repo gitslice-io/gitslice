@@ -78,6 +78,8 @@ message Changeset {
   ActorAttribution attribution = 28;
   ActorAttribution submitted_attribution = 29;
   repeated ChangesetApproval approvals = 30;
+  // Server-evaluated approval status for the current patchset (open changesets).
+  ApprovalStatus approval_status = 31;
 }
 
 message Patchset {
@@ -117,6 +119,21 @@ message ChangesetApproval {
   string username = 3;
   string created_at = 4;
   ActorAttribution attribution = 5;
+}
+
+message ApprovalRequirement {
+  // "slice_approvals", "slice_human_approvals", "gitslice_config", or "path_owners".
+  string kind = 1;
+  bool satisfied = 2;
+  int32 required = 3;
+  int32 current = 4;
+  string label = 5;
+  string detail = 6;
+}
+
+message ApprovalStatus {
+  bool satisfied = 1;
+  repeated ApprovalRequirement requirements = 2;
 }
 
 message ChangesetStack {

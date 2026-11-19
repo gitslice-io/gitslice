@@ -8,6 +8,8 @@ import { shortChangesetId } from "../../lib/objectId";
 import { displaySubmitBlockedReason } from "../stackPageUtils";
 import { isMergeableStatus, isPublishing } from "./status";
 import { StatusBadge } from "./StatusBadge";
+import { ApprovalStatusBadge } from "./ApprovalsCard";
+import type { ApprovalSummary } from "./approvalSummary";
 import { ChangesetMetaLine } from "./ChangesetMetaLine";
 import { CopyLinkButton } from "./CopyLinkButton";
 import { ErrorBox } from "./ErrorBox";
@@ -21,7 +23,10 @@ export function HeaderCard({
   abandonReason,
   actionBusy,
   actionError,
+  approvalSummary,
+  approvePending = false,
   canAbandon,
+  canApprove = false,
   canSubmit,
   changeset,
   dependentChangesets,
@@ -29,6 +34,7 @@ export function HeaderCard({
   mergePending,
   onAbandon,
   onAbandonReasonChange,
+  onApprove,
   onMerge,
   onSaveInfo,
   patchsetCompare,
@@ -38,7 +44,10 @@ export function HeaderCard({
   abandonReason: string;
   actionBusy: boolean;
   actionError: string;
+  approvalSummary?: ApprovalSummary;
+  approvePending?: boolean;
   canAbandon?: boolean;
+  canApprove?: boolean;
   canSubmit?: boolean;
   changeset: Changeset;
   dependentChangesets: { id: string; title: string }[];
@@ -46,6 +55,7 @@ export function HeaderCard({
   mergePending: boolean;
   onAbandon(event: FormEvent<HTMLFormElement>): void;
   onAbandonReasonChange(value: string): void;
+  onApprove?(): void;
   onMerge(): void;
   // Present when the viewer may edit the title and description.
   onSaveInfo?(title: string, description: string): Promise<void>;
@@ -54,7 +64,8 @@ export function HeaderCard({
 }) {
   const allowSubmit = canSubmit ?? canUseReviewActions;
   const allowAbandon = canAbandon ?? canUseReviewActions;
-  const showActions = allowSubmit || (!terminal && allowAbandon);
+  const showActions =
+    allowSubmit || (!terminal && allowAbandon) || Boolean(!terminal && canApprove && onApprove);
   // On phones the page folds its details; outside such a page the card keeps
   // its own toggle for the description.
   const pageDetails = useMobileDetails();
@@ -143,6 +154,14 @@ export function HeaderCard({
                 {changesetLabel(changeset)}
               </span>
               <StatusBadge status={changeset.status} />
+              {approvalSummary && !terminal ? (
+                <ApprovalStatusBadge
+                  className={
+                    approvalSummary.badgeTone === "none" ? folded : undefined
+                  }
+                  summary={approvalSummary}
+                />
+              ) : null}
               {changeset.parentChangesetId ? (
                 <Link
                   className={cn("inline-flex max-w-[12rem] items-center gap-1 truncate rounded border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5 py-0.5 font-medium text-slate-600 dark:text-zinc-400 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:text-zinc-950 dark:hover:text-zinc-50 md:max-w-[14rem] md:px-2 md:py-1", folded)}
@@ -216,7 +235,9 @@ export function HeaderCard({
                 abandonPending={abandonPending}
                 abandonReason={abandonReason}
                 actionBusy={actionBusy}
+                approvePending={approvePending}
                 canAbandon={allowAbandon}
+                canApprove={canApprove}
                 canMerge={
                   Boolean(changeset.currentPatchsetId) &&
                   isMergeableStatus(changeset.status)
@@ -225,6 +246,7 @@ export function HeaderCard({
                 mergePending={mergePending}
                 onAbandon={onAbandon}
                 onAbandonReasonChange={onAbandonReasonChange}
+                onApprove={onApprove}
                 onMerge={onMerge}
                 terminal={terminal}
               />

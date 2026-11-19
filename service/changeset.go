@@ -445,6 +445,7 @@ func (s *ChangesetService) getAuthorizedChangeset(ctx context.Context, subjectID
 	if err != nil {
 		return nil, err
 	}
+	s.populateApprovalStatus(ctx, cs)
 	if err := s.resolveAuthors(ctx, cs); err != nil {
 		return nil, grpcError(err)
 	}

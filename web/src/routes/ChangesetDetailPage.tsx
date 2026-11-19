@@ -33,12 +33,14 @@ import {
 } from "../queries/changesets";
 import { useSelection } from "../state/selection";
 import {
+  ApprovalsCard,
   ChangesetSkeleton,
   ConversationDrawer,
   HeaderCard,
   PageMessage,
   PatchsetComparePanel,
-  TriggersChecksPanel
+  TriggersChecksPanel,
+  summarizeApprovals
 } from "./changeset-detail";
 import { ChangesetLoadError } from "./changeset-detail/ChangesetLoadError";
 import { samePath } from "./changeset-detail/diffFiles";
@@ -63,7 +65,11 @@ export function ChangesetDetailPage() {
   const api = useApi();
   const { isLoaded, isSignedIn } = useAuth();
   const viewerSignedOut = isLoaded && !isSignedIn;
-  const { accounts: viewerAccounts } = useSelection();
+  const {
+    account: viewerAccount,
+    accounts: viewerAccounts,
+    subjectId: viewerSubjectId
+  } = useSelection();
   const params = useParams({ from: "/publicApp/cs/$id" });
   const changesetId = params.id ?? "";
   const navigate = useNavigate();
@@ -259,8 +265,10 @@ export function ChangesetDetailPage() {
     setAbandonReason,
     actionError,
     actionBusy,
+    approvePending,
     mergePending,
     abandonPending,
+    approve,
     merge,
     submitAbandon,
     saveInfo
@@ -304,6 +312,15 @@ export function ChangesetDetailPage() {
   }
 
   const terminal = isTerminalStatus(changeset.status);
+  const approvalSummary = summarizeApprovals(changeset, {
+    account: viewerAccount ?? viewerAccounts?.[0],
+    subjectId: viewerSubjectId
+  });
+  const canApprove =
+    !terminal &&
+    changesetPermissions.canReview &&
+    !changesetPermissions.isAuthor &&
+    !approvalSummary.viewerHasApproved;
   return (
     <MobileDetailsProvider
       onToggle={() => setDetailsOpen((open) => !open)}
@@ -328,13 +345,17 @@ export function ChangesetDetailPage() {
           actionBusy={actionBusy}
           actionError={actionError}
           abandonPending={abandonPending}
+          approvalSummary={approvalSummary}
+          approvePending={approvePending}
           canAbandon={changesetPermissions.canAbandon}
+          canApprove={canApprove}
           canSubmit={changesetPermissions.canSubmit}
           changeset={changeset}
           dependentChangesets={dependentChangesets}
           mergePending={mergePending}
           onAbandon={submitAbandon}
           onAbandonReasonChange={setAbandonReason}
+          onApprove={approve}
           onMerge={merge}
           onSaveInfo={changesetPermissions.canEditInfo ? saveInfo : undefined}
           patchsetCompare={
@@ -351,6 +372,20 @@ export function ChangesetDetailPage() {
           }
           terminal={terminal}
         />
+
+        <div
+          className={cn(
+            !detailsOpen && approvalSummary.satisfied && "max-lg:hidden"
+          )}
+        >
+          <ApprovalsCard
+            approvePending={approvePending}
+            canApprove={canApprove}
+            onApprove={approve}
+            summary={approvalSummary}
+            terminal={terminal}
+          />
+        </div>
 
         <div className={cn(!detailsOpen && "max-lg:hidden")}>
           <TriggersChecksPanel
