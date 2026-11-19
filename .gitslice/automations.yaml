@@ -1,0 +1,24 @@
+# Automations for the Gitslice source (design/34 & design/37).
+version: 1
+
+automations:
+  # CI: the checks of .gitslice/checks.yaml run on the account's CI runner pool
+  # for every new patchset. Each check's own paths still decide whether it runs.
+  # The web app's checks have their own automation in web/.gitslice/automations.yaml.
+  ci:
+    description: Run Go formatting, vet, unit tests, builds, and Postgres e2e checks
+    on: [changeset.created, changeset.updated, manual]
+    action:
+      check: [gofmt, vet, test, build, e2e]
+
+  # Releases: a new tag starts the Cloud Build release trigger
+  # gs-release-webhook (ops/release, design/21 "Releases"), which builds the
+  # release and stores it in R2 for gitslice.io. The URL carries its API key
+  # and secret, so it is a Gitslice secret on /gitslice/gitslice.
+  release:
+    description: Trigger Cloud Build release pipeline on new version tags
+    on: [tag.created]
+    secrets: [RELEASE_WEBHOOK_URL]
+    action:
+      http:
+        url: "${{ secrets.RELEASE_WEBHOOK_URL }}"
