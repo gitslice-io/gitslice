@@ -145,7 +145,7 @@ export function TriggerRunLog({ run }: { run: TriggerRun }) {
   );
 }
 
-function TriggerStatusBadge({ status }: { status?: string }) {
+export function TriggerStatusBadge({ status }: { status?: string }) {
   const s = (status ?? "queued").toLowerCase();
   const tone =
     s === "succeeded"

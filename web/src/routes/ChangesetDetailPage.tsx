@@ -34,12 +34,11 @@ import {
 import { useSelection } from "../state/selection";
 import {
   ChangesetSkeleton,
-  ChecksPanel,
   ConversationDrawer,
   HeaderCard,
   PageMessage,
   PatchsetComparePanel,
-  TriggerRunsPanel
+  TriggersChecksPanel
 } from "./changeset-detail";
 import { ChangesetLoadError } from "./changeset-detail/ChangesetLoadError";
 import { samePath } from "./changeset-detail/diffFiles";
@@ -354,14 +353,10 @@ export function ChangesetDetailPage() {
         />
 
         <div className={cn(!detailsOpen && "max-lg:hidden")}>
-          <ChecksPanel
+          <TriggersChecksPanel
             changesetId={canonicalChangesetId}
             patchsetId={selectedToPatchset}
             signedOut={viewerSignedOut}
-          />
-          <TriggerRunsPanel
-            changesetId={canonicalChangesetId}
-            patchsetId={selectedToPatchset}
           />
         </div>
 
