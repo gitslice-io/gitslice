@@ -159,8 +159,12 @@ export const commandGroups: CommandGroup[] = [
   },
   {
     id: "checks",
-    title: "CI checks",
+    title: "Folder policy & CI checks",
     commands: [
+      [
+        "gs policy [folder]",
+        "Inspect effective path owners, checks (including required gates), triggers, secrets, and CI runners for a folder (default: current directory)."
+      ],
       ["gs ci", "Run applicable .gitslice/checks.yaml checks locally against pending workspace edits."],
       [
         "gs check list | logs <check> | rerun <check>",
@@ -169,6 +173,10 @@ export const commandGroups: CommandGroup[] = [
       [
         "gs check allow [changeset]",
         "Allow a contributor patchset's checks to run with secrets and rerun them."
+      ],
+      [
+        "gs account ci-runners [account] | set-ci-daemon <account> <daemon-id>",
+        "List or configure an account's default CI runner pool (inherited by all slices; pass --add or --remove)."
       ]
     ]
   },
@@ -201,8 +209,8 @@ export const commandGroups: CommandGroup[] = [
     title: "Secrets",
     commands: [
       [
-        "gs secret create <NAME> --path <folder>",
-        "Store an encrypted value (from stdin) for checks, triggers, and mirrors under the folder (--slice targets a slice's folders)."
+        "gs secret create <NAME> [--path <folder>]",
+        "Store an encrypted value (from stdin) for checks, triggers, and mirrors under the folder (defaults to the current workspace folder)."
       ],
       ["gs secret ls", "List account secrets and their attached folders; raw values are never shown."],
       ["gs secret update <secret-id>", "Rotate the value (--value) or change folders (--add-path, --remove-path)."],

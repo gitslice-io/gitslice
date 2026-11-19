@@ -57,18 +57,29 @@ func (r Runner) secretCommand(opts *commandOptions) *cobra.Command {
 	var createAccount string
 	var create secretScopeFlags
 	createCmd := &cobra.Command{
-		Use:   "create <NAME> (--path <folder>... | --slice <slice>...)",
-		Short: "Create a secret, reading its value from stdin",
-		Args:  exactArgs(1, "gs secret create <NAME> [--account <account>] (--path <folder>... | --slice <slice>...) < value"),
+		Use:   "create <NAME> [--path <folder>...]",
+		Short: "Create a folder-scoped secret, reading its value from stdin",
+		Args:  exactArgs(1, "gs secret create <NAME> [--account <account>] [--path <folder>...] < value"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !create.set() {
-				return userError("scope_required", "choose the folders it applies to with --path (or --slice for a slice's folders)", "A secret reaches the CI checks defined in its folders and below them; --path /<account> applies it to the whole account.")
+			scopeFlags := create
+			targetAccount := createAccount
+			if !scopeFlags.set() {
+				folder, err := r.triggerFolder("")
+				if err != nil {
+					return userError("scope_required", "choose the folders it applies to with --path (or run inside a workspace folder)", "A secret reaches the CI checks and triggers defined in its folders and below them; --path /<account> applies it to the whole account.")
+				}
+				scopeFlags.paths = []string{folder}
+				if strings.TrimSpace(targetAccount) == "" {
+					if parts := strings.Split(strings.Trim(folder, "/"), "/"); len(parts) > 0 && parts[0] != "" {
+						targetAccount = parts[0]
+					}
+				}
 			}
-			return r.runSecretCreate(cmd.Context(), *opts, createAccount, args[0], create)
+			return r.runSecretCreate(cmd.Context(), *opts, targetAccount, args[0], scopeFlags)
 		},
 	}
-	createCmd.Flags().StringVar(&createAccount, "account", "", "the account that owns it (default: your active account)")
-	create.register(createCmd, "a folder it applies to, with everything below it, such as /acme/services (repeatable)", "the folders of a slice of the account (repeatable)")
+	createCmd.Flags().StringVar(&createAccount, "account", "", "the account that owns it (default: inferred from folder or your active account)")
+	create.register(createCmd, "a folder it applies to, with everything below it, such as /acme/services (default: current workspace folder; repeatable)", "deprecated: prefer --path; targets the folders of a slice (repeatable)")
 
 	var updateValue bool
 	var update secretScopeFlags
@@ -95,7 +106,7 @@ func (r Runner) secretCommand(opts *commandOptions) *cobra.Command {
 	deleteCmd := &cobra.Command{
 		Use:     "rm <secret-id>",
 		Aliases: []string{"delete", "remove"},
-		Short:   "Delete a secret from every slice it reaches",
+		Short:   "Delete a secret from every folder it applies to",
 		Args:    exactArgs(1, "gs secret rm <secret-id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runSecretDelete(cmd.Context(), *opts, args[0])

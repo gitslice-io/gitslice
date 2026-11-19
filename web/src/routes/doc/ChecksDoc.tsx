@@ -12,16 +12,16 @@ const quickstartSteps = [
   {
     title: "Commit a checks.yaml file",
     description:
-      "Add .gitslice/checks.yaml inside the folder you want to guard. It is versioned alongside your source code.",
+      "Add .gitslice/checks.yaml inside the folder you want to guard. Set required: true on any check (or under defaults) so it gates submit for changes touching matching paths, regardless of slice.",
     command: undefined,
     label: undefined
   },
   {
-    title: "Mark required checks on the slice",
+    title: "Attach an account CI runner",
     description:
-      "Require a check so it gates submit. Reference it by its qualified ID (<folder>/<name>, such as backend/test).",
-    command: "gs slice update <account>/<slice> --required-check backend/test",
-    label: "set required check command"
+      "Configure a default CI runner pool on the account page or via CLI. Every slice under /<account> inherits it automatically (per-slice overrides remain optional).",
+    command: "gs account set-ci-daemon <account> <daemon-id>",
+    label: "set account CI runner command"
   },
   {
     title: "Test locally, then capture a patchset",
@@ -34,11 +34,11 @@ gs check logs backend/test --follow`,
     label: "run and inspect checks commands"
   },
   {
-    title: "Optional: attach a designated CI daemon",
+    title: "Inspect effective folder policy",
     description:
-      "For checks that need files outside the slice (such as a repo-root check) or consistent server-side execution with secrets, designate a daemon in Slice Settings or via the CLI.",
-    command: "gs slice set-ci-daemon <account>/<slice> <daemon-id>",
-    label: "set CI daemon command"
+      "Run gs policy in any folder (or click Policy while browsing a folder in the web UI) to see inherited checks, triggers, owners, secrets, and CI runners together.",
+    command: "gs policy /acme/backend",
+    label: "inspect folder policy command"
   }
 ];
 
@@ -69,13 +69,17 @@ export function ChecksDoc() {
             run.
           </BulletPoint>
           <BulletPoint label="Enforced submit gates:">
-            A slice can mark checks as <em>required</em>. <InlineCode>gs submit</InlineCode> blocks
-            until every required check passes on the current patchset.
+            Mark any check <InlineCode>required: true</InlineCode> in{" "}
+            <InlineCode>.gitslice/checks.yaml</InlineCode> (evaluated against the target ref&apos;s
+            landed tree so draft edits cannot weaken it) or list it on a slice.{" "}
+            <InlineCode>gs submit</InlineCode> blocks until every required check passes on the
+            current patchset.
           </BulletPoint>
           <BulletPoint label="Flexible execution:">
             Checks run inside containers when <InlineCode>image</InlineCode> or{" "}
             <InlineCode>build</InlineCode> is set, or directly on the host otherwise. Checks that
-            need secrets or files outside the slice run on the slice&apos;s designated CI daemon.
+            need secrets or files outside the slice run on the account&apos;s default CI runner pool
+            (or a slice&apos;s optional override).
           </BulletPoint>
         </ul>
       </DocSectionCard>
@@ -120,6 +124,7 @@ defaults:
 checks:
   test:
     run: "go test ./..."   # required: shell command
+    required: true         # gate submit for changes matching this folder/paths
     paths: ["**/*.go"]     # optional: only run when matching paths change
   lint:
     run: "golangci-lint run"
@@ -131,6 +136,11 @@ checks:
           <BulletPoint label={<InlineCode>run</InlineCode>}>
             (required) — shell command executed via <InlineCode>sh -c</InlineCode> from the
             check&apos;s folder. Exit status 0 passes.
+          </BulletPoint>
+          <BulletPoint label={<InlineCode>required</InlineCode>}>
+            — set <InlineCode>required: true</InlineCode> on a check (or under{" "}
+            <InlineCode>defaults</InlineCode>) so <InlineCode>gs submit</InlineCode> blocks until it
+            passes for any changeset touching matching paths, regardless of authoring slice.
           </BulletPoint>
           <BulletPoint label={<InlineCode>paths</InlineCode>}>
             — globs relative to the folder (or <InlineCode>/</InlineCode>-rooted for account paths);

@@ -116,7 +116,10 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		"gs help <topic>",
 		// Previously missing command families now derived automatically:
 		"gs account create-org <slug>",
+		"gs account ci-runners [account]",
+		"gs account set-ci-daemon <account> <daemon-id>",
 		"gs claims list",
+		"gs policy [folder]",
 		"gs tag create <name>",
 		"gs secret ls",
 		"gs trigger ls [folder]",
@@ -360,6 +363,8 @@ func TestSchemaOutputAnnotatedCommandsBindMachineOutputAndJSONRendering(t *testi
 
 	for _, wantCanonical := range []string{
 		"gs auth status",
+		"gs account ci-runners",
+		"gs account set-ci-daemon",
 		"gs blame",
 		"gs check allow",
 		"gs feedback list",
@@ -368,6 +373,7 @@ func TestSchemaOutputAnnotatedCommandsBindMachineOutputAndJSONRendering(t *testi
 		"gs group rm",
 		"gs group show",
 		"gs intent",
+		"gs policy",
 		"gs slice create",
 		"gs slice info",
 		"gs slice members",

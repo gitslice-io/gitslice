@@ -85,14 +85,18 @@ export function TriggersDoc() {
           <BulletPoint label="Committed beside your code:">
             Put <InlineCode>.gitslice/triggers.yaml</InlineCode> in any folder. A change in that
             folder or below it is evaluated against its triggers and those of every ancestor folder,
-            regardless of which slice authored the change.
+            regardless of which slice authored the change. Inspect any folder&apos;s effective
+            triggers, checks, owners, and secrets with <InlineCode>gs policy</InlineCode> or the
+            folder <span className="font-semibold text-zinc-950 dark:text-zinc-50">Policy</span>{" "}
+            drawer in the web UI.
           </BulletPoint>
           <BulletPoint label="Three action types:">
             An <InlineCode>http</InlineCode> action posts the JSON event payload to a public HTTPS
             URL; a <InlineCode>worker</InlineCode> action runs a JavaScript module from the same{" "}
             <InlineCode>.gitslice</InlineCode> folder in an isolated Cloudflare sandbox; and a{" "}
             <InlineCode>check</InlineCode> action dispatches checks from that folder&apos;s{" "}
-            <InlineCode>.gitslice/checks.yaml</InlineCode> on the slice&apos;s CI daemon.
+            <InlineCode>.gitslice/checks.yaml</InlineCode> on the account&apos;s CI runner pool (or
+            a slice override).
           </BulletPoint>
           <BulletPoint label="Gate submit from external systems:">
             Worker scripts can report checks back to Gitslice, and any slice can mark them required

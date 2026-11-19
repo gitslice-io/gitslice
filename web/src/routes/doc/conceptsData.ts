@@ -1,13 +1,13 @@
 export const conceptCards = [
   {
-    title: "Accounts and paths",
+    title: "One monorepo per account",
     description:
-      "Every path lives under a globally unique account slug, such as /nic or /acme. Personal accounts and organizations share the same flat namespace — account kind is metadata, not a path prefix."
+      "Every account (/nic, /acme) has one unified monorepo. Checks, triggers, path owners, and secrets live on folders inside it and cascade downward — regardless of which slice you use to edit them."
   },
   {
-    title: "Slices",
+    title: "Slices (Views)",
     description:
-      "A slice is a named projection over one or more folders in the global source graph. It defines included paths, visibility (private or public), member roles, required checks, approver groups, and optional Git mirrors. CLI commands accept account/slice and account:slice interchangeably."
+      "A slice is a named view over one or more folders in an account's monorepo. It defines included paths, visibility (private or public), member roles, merge behavior, and optional Git mirrors. CLI commands accept account/slice and account:slice interchangeably."
   },
   {
     title: "Workspaces",
@@ -25,9 +25,9 @@ export const conceptCards = [
       "When work splits cleanly into stages, changesets can stack on one another inside a slice. Inspect and move through a stack with gs deps, gs up, gs down, gs switch, or start a fresh independent changeset with gs create --root."
   },
   {
-    title: "Submit validation and native commits",
+    title: "Folder-scoped submit gates",
     description:
-      "Before a changeset lands, the server enforces required CI checks, approval counts, human-approval rules, and slice path boundaries. Once accepted, Gitslice publishes an immutable native commit on refs/global/main."
+      "Before a changeset lands, the server enforces folder-level required checks (.gitslice/checks.yaml), path-owner and require_human rules (.gitslice/owners.yaml), plus any slice-level settings. Once accepted, Gitslice publishes an immutable native commit on refs/global/main."
   }
 ];
 

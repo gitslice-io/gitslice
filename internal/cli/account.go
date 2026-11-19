@@ -155,8 +155,117 @@ func (r Runner) accountCommand(opts *commandOptions) *cobra.Command {
 	setProfileCmd.Flags().StringVar(&profileName, "name", "", "display name (at most 64 characters; empty clears it)")
 	setProfileCmd.Flags().StringVar(&profileDescription, "description", "", "description (at most 280 characters)")
 	setProfileCmd.Flags().StringVar(&profileWebsite, "website", "", "an http or https URL")
-	accountCmd.AddCommand(createOrgCmd, membersCmd, setMemberCmd, removeMemberCmd, inviteCmd, invitationsCmd, acceptCmd, declineCmd, cancelInviteCmd, useCmd, currentCmd, profileCmd, setProfileCmd)
+
+	ciRunnersCmd := &cobra.Command{
+		Use:   "ci-runners [account]",
+		Short: "List an account's default CI runner pool (inherited by all slices)",
+		Args:  maxArgs(1, "gs account ci-runners [account]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			account := ""
+			if len(args) == 1 {
+				account = args[0]
+			}
+			return r.runAccountCIRunners(cmd.Context(), *opts, account)
+		},
+	}
+	var ciDaemonAdd, ciDaemonRemove bool
+	setCIDaemonCmd := &cobra.Command{
+		Use:   "set-ci-daemon <account> <daemon-id>",
+		Short: "Set an account's default CI runner, or add/remove one in its pool",
+		Long: "Set the default CI runner pool for an account. Every slice under /<account> inherits this pool\n" +
+			"unless it configures its own slice override. Pass --add to append a backup runner, --remove to\n" +
+			"remove one, or \"\" as <daemon-id> to clear the pool.",
+		Args: exactArgs(2, "gs account set-ci-daemon <account> <daemon-id> [--add|--remove]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if ciDaemonAdd && ciDaemonRemove {
+				return userError("invalid_args", "--add and --remove cannot be used together", "Run the command once for each.")
+			}
+			return r.runAccountSetCIDaemon(cmd.Context(), *opts, args[0], args[1], ciDaemonAdd, ciDaemonRemove)
+		},
+	}
+	setCIDaemonCmd.Flags().BoolVar(&ciDaemonAdd, "add", false, "add the daemon to the account's CI runner pool")
+	setCIDaemonCmd.Flags().BoolVar(&ciDaemonRemove, "remove", false, "remove the daemon from the account's CI runner pool")
+	withSchemaOutput[accountCIRunnersOutput](ciRunnersCmd, setCIDaemonCmd)
+
+	accountCmd.AddCommand(createOrgCmd, membersCmd, setMemberCmd, removeMemberCmd, inviteCmd, invitationsCmd, acceptCmd, declineCmd, cancelInviteCmd, useCmd, currentCmd, profileCmd, setProfileCmd, ciRunnersCmd, setCIDaemonCmd)
 	return accountCmd
+}
+
+type accountCIRunnersOutput struct {
+	Account     string   `json:"account"`
+	DaemonIDs   []string `json:"daemon_ids"`
+	DaemonNames []string `json:"daemon_names"`
+}
+
+func (r Runner) runAccountCIRunners(ctx context.Context, opts commandOptions, account string) error {
+	var out accountCIRunnersOutput
+	if err := r.withSession(ctx, func(s *Session) error {
+		var err error
+		if account, err = s.ResolveAccount(account); err != nil {
+			return err
+		}
+		resp, err := s.Slice().GetAccountCIDaemons(s.Ctx(), &corev1.GetAccountCIDaemonsRequest{Account: account})
+		if err != nil {
+			return accountError(err)
+		}
+		out = accountCIRunnersOutput{
+			Account:     resp.GetAccount(),
+			DaemonIDs:   append([]string(nil), resp.GetDaemonIds()...),
+			DaemonNames: append([]string(nil), resp.GetDaemonNames()...),
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return writeSchemaOutput(r, opts, out, func() error {
+		return r.printAccountCIRunners(out)
+	})
+}
+
+func (r Runner) runAccountSetCIDaemon(ctx context.Context, opts commandOptions, account, daemonID string, add, remove bool) error {
+	var out accountCIRunnersOutput
+	if err := r.withSession(ctx, func(s *Session) error {
+		resp, err := s.Slice().SetAccountCIDaemon(s.Ctx(), &corev1.SetAccountCIDaemonRequest{
+			Account:  strings.TrimSpace(account),
+			DaemonId: strings.TrimSpace(daemonID),
+			Add:      add,
+			Remove:   remove,
+		})
+		if err != nil {
+			return accountError(err)
+		}
+		out = accountCIRunnersOutput{
+			Account:     resp.GetAccount(),
+			DaemonIDs:   append([]string(nil), resp.GetDaemonIds()...),
+			DaemonNames: append([]string(nil), resp.GetDaemonNames()...),
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return writeSchemaOutput(r, opts, out, func() error {
+		return r.printAccountCIRunners(out)
+	})
+}
+
+func (r Runner) printAccountCIRunners(out accountCIRunnersOutput) error {
+	if len(out.DaemonIDs) == 0 {
+		fmt.Fprintf(r.Stdout, "no CI runners configured for %s\n", out.Account)
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "account: %s\n", out.Account)
+	for i, id := range out.DaemonIDs {
+		name := ""
+		if i < len(out.DaemonNames) {
+			name = out.DaemonNames[i]
+		}
+		if name != "" && name != id {
+			fmt.Fprintf(r.Stdout, "  %d. %s (%s)\n", i+1, name, id)
+		} else {
+			fmt.Fprintf(r.Stdout, "  %d. %s\n", i+1, id)
+		}
+	}
+	return nil
 }
 
 type invitationOutput struct {

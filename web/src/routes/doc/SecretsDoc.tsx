@@ -68,24 +68,25 @@ export function SecretsDoc() {
 
       <DocSectionCard title="Add and manage secrets">
         <p>
-          In the web app, open your account page and select{" "}
-          <span className="font-semibold text-zinc-950 dark:text-zinc-50">Secrets</span>, or use the
-          Secrets panel in a slice&apos;s{" "}
-          <span className="font-semibold text-zinc-950 dark:text-zinc-50">Settings</span>. From the
-          CLI, pipe the value via stdin so it stays out of your shell history (or omit the pipe in
-          an interactive terminal to type it hidden):
+          In the web app, open{" "}
+          <span className="font-semibold text-zinc-950 dark:text-zinc-50">Policy → Secrets</span> on
+          any folder while browsing to see inherited secrets or add one to that folder, or open{" "}
+          <span className="font-semibold text-zinc-950 dark:text-zinc-50">Secrets</span> on your
+          account page to manage every folder secret in one place. From the CLI, pipe the value via
+          stdin (omitting <InlineCode>--path</InlineCode> inside a workspace defaults to the current
+          folder):
         </p>
-        <CommandBlock label="secret management commands">{`# scope to specific folders in your active account (pass --account for another)
+        <CommandBlock label="secret management commands">{`# inside a workspace folder, defaults to the current folder
+printf %s "$TOKEN" | gs secret create WEB_TOKEN
+
+# scope to specific folders in your active account (pass --account for another)
 printf %s "$TOKEN" | gs secret create DEPLOY_TOKEN --path /acme/api --path /acme/worker
 
-# scope to the whole account
+# scope to the whole account monorepo
 printf %s "$NPM_TOKEN" | gs secret create NPM_TOKEN --path /acme
 
-# scope to the folders included by a slice
-printf %s "$TOKEN" | gs secret create WEB_TOKEN --slice web
-
 gs secret ls                                       # names, folders, last updater
-gs secret update <secret-id> --add-path /acme/web  # or --remove-path, --path, --slice
+gs secret update <secret-id> --add-path /acme/web  # or --remove-path, --path
 printf %s "$NEW" | gs secret update <secret-id> --value
 gs secret rm <secret-id>`}</CommandBlock>
         <p>
