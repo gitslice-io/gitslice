@@ -125,4 +125,79 @@ describe("FolderPolicyDrawer", () => {
     );
     expect(getFolderPolicy).not.toHaveBeenCalled();
   });
+
+  it("opens RunAutomationModal for bash automations with typed inputs, secrets, and confirmation", async () => {
+    const runTrigger = vi.fn().mockResolvedValue({ id: "trun_bash_1" });
+    const getFolderPolicy = vi.fn().mockResolvedValue({
+      folder: "/acme/infra",
+      account: "acme",
+      commitId: "commit_2",
+      ownerRules: [],
+      checks: [],
+      triggers: [
+        {
+          id: "infra/deploy-staging",
+          name: "deploy-staging",
+          folder: "/acme/infra",
+          description: "Deploy billing to staging",
+          on: ["manual"],
+          action: "bash",
+          egress: "http-gate",
+          network: ["api.cloudflare.com"],
+          secrets: ["CF_TOKEN", "SIGN_KEY"],
+          reveal: ["SIGN_KEY"],
+          bash: { runtime: "cloud", size: "basic", checkout: "folder" },
+          manual: { roles: ["admin"], requireHuman: true, confirm: "Deploy billing to staging?" },
+          inputs: [
+            { name: "version", type: "string", required: true, description: "Release tag" },
+            { name: "region", type: "choice", options: ["us-central1", "europe-west1"], defaultValue: "us-central1" },
+            { name: "dry_run", type: "boolean", defaultValue: "false", description: "Skip mutating calls" }
+          ]
+        }
+      ],
+      secrets: [],
+      canManageSecrets: true,
+      ciDaemonIds: [],
+      ciDaemonNames: [],
+      problems: []
+    });
+    const api = {
+      getFolderPolicy,
+      listTriggerRuns: vi.fn().mockResolvedValue({ runs: [] }),
+      listTriggerRunLogs: vi.fn().mockResolvedValue({ logs: [] }),
+      runTrigger
+    } as unknown as ApiClient;
+    apiMock.current = api;
+
+    renderWithQuery(<FolderPolicyDrawer api={api} folder="/acme/infra" onClose={() => {}} open />);
+
+    expect(await screen.findByText("infra/deploy-staging")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Run" }));
+
+    // Modal shows security boundary and inputs.
+    expect(await screen.findByText(/Bash container \(cloud · basic\)/)).toBeInTheDocument();
+    expect(screen.getByText("Admin only")).toBeInTheDocument();
+    expect(screen.getByText("Human only")).toBeInTheDocument();
+    expect(screen.getByText(/CF_TOKEN/)).toBeInTheDocument();
+    expect(screen.getByText(/\(sealed\)/)).toBeInTheDocument();
+    expect(screen.getByText(/\(revealed\)/)).toBeInTheDocument();
+
+    const submitBtn = screen.getByRole("button", { name: "Run automation" });
+    expect(submitBtn).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText(/version/i), { target: { value: "v1.4.2" } });
+    fireEvent.change(screen.getByLabelText(/region/i), { target: { value: "europe-west1" } });
+    fireEvent.click(screen.getByLabelText(/dry_run/i));
+    fireEvent.click(screen.getByLabelText("Deploy billing to staging?"));
+    expect(submitBtn).toBeEnabled();
+
+    fireEvent.click(submitBtn);
+    await waitFor(() =>
+      expect(runTrigger).toHaveBeenCalledWith({
+        account: "acme",
+        triggerId: "infra/deploy-staging",
+        inputs: { version: "v1.4.2", region: "europe-west1", dry_run: "true" }
+      })
+    );
+  });
 });

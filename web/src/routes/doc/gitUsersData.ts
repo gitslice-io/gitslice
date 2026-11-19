@@ -11,7 +11,7 @@ export const gitTranslations: Array<[string, string]> = [
   ["git stash / git reset", "gs checkpoint, gs rewind, and gs restore (in lazy workspaces)"],
   ["git tag", "gs tag create <name> / gs tag list"],
   ["git log / git blame", "gs log / gs blame <path>"],
-  ["GitHub Actions / CI config", ".gitslice/checks.yaml and .gitslice/triggers.yaml"],
+  ["GitHub Actions / CI config", ".gitslice/checks.yaml and .gitslice/automations.yaml"],
   ["Clone URL", "https://gitslice.io/git/<account>/<slice>.git when Git HTTP is enabled"]
 ];
 

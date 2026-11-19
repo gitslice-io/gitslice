@@ -48,12 +48,12 @@ export function TriggersDrawer({ api, folder, onClose, open }: TriggersDrawerPro
         <div className="border-b border-slate-200 dark:border-zinc-800 px-4 py-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">Triggers</h2>
+              <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50">Automations</h2>
               <p className="mt-1 break-all font-mono text-xs text-slate-500 dark:text-zinc-400">{folder}</p>
               <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
                 Defined here and in the folders above, at the head of main.{" "}
-                <Link className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300" params={{ section: "triggers" } as never} to="/doc/$section">
-                  How triggers work
+                <Link className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300" params={{ section: "automations" } as never} to="/doc/$section">
+                  How automations work
                 </Link>
               </p>
             </div>
@@ -84,8 +84,8 @@ export function TriggersDrawer({ api, folder, onClose, open }: TriggersDrawerPro
                 </SliceNotice>
               ))}
               {triggers.length === 0 && problems.length === 0 ? (
-                <SliceNotice title="No triggers apply here.">
-                  Add a .gitslice/triggers.yaml to this folder or one above it.
+                <SliceNotice title="No automations apply here.">
+                  Add a .gitslice/automations.yaml to this folder or one above it.
                 </SliceNotice>
               ) : null}
               {triggers.map((trigger) => (

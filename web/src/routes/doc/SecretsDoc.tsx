@@ -31,7 +31,7 @@ export function SecretsDoc() {
       <PageHeader
         eyebrow="Gitslice docs"
         title="Secrets"
-        description="Store tokens, API keys, and passwords encrypted in Gitslice and scope them to folders — for CI checks, triggers, Git mirrors, and local env files — without ever committing credentials."
+        description="Store tokens, API keys, and passwords encrypted in Gitslice and scope them to folders — for CI checks, automations, Git mirrors, and local env files — without ever committing credentials."
       />
 
       <DocSectionCard title="How secrets work">
@@ -42,14 +42,15 @@ export function SecretsDoc() {
             <InlineCode>/acme/services/billing</InlineCode>). Attaching it to{" "}
             <InlineCode>/acme</InlineCode> covers the entire account.
           </BulletPoint>
-          <BulletPoint label="Injected into checks, triggers, and mirrors:">
+          <BulletPoint label="Injected into checks, automations, and mirrors:">
             <DocLink section="checks">CI checks</DocLink> read secrets as environment variables
             matching the secret name (such as <InlineCode>DEPLOY_TOKEN</InlineCode>), based on the
             folder of the <InlineCode>.gitslice/checks.yaml</InlineCode> that defines the check. A
             secret overrides a check&apos;s own <InlineCode>env</InlineCode> entry of the same name.{" "}
-            <DocLink section="triggers">Triggers</DocLink> and{" "}
+            <DocLink section="automations">Automations</DocLink> and{" "}
             <DocLink section="mirrors">Git mirrors</DocLink> reference the same folder and slice
-            secrets by name. Checks only receive secrets when running on the slice&apos;s CI daemon.
+            secrets by name. Checks only receive secrets when running on the account&apos;s CI
+            runner pool (or slice override).
           </BulletPoint>
           <BulletPoint label="Closest folder wins:">
             A folder holds at most one secret per name. When multiple ancestor folders define the
@@ -60,7 +61,7 @@ export function SecretsDoc() {
           </BulletPoint>
           <BulletPoint label="Encrypted and masked in logs:">
             Values are stored encrypted, never shown in the web UI, and masked as{" "}
-            <InlineCode>***</InlineCode> in check and trigger logs (multi-line values are masked
+            <InlineCode>***</InlineCode> in check and automation logs (multi-line values are masked
             line by line; values shorter than 4 characters are not masked).
           </BulletPoint>
         </ul>
@@ -184,9 +185,9 @@ gs secret env env.prod.template --path /acme/api -o .env.prod`}</CommandBlock>
           title="CI Checks"
         />
         <NextDocCard
-          description="Use folder secrets to sign webhooks, call external CI, or authenticate scripts."
-          section="triggers"
-          title="Triggers"
+          description="Use folder secrets to sign webhooks, call external APIs, or run secure bash runbooks."
+          section="automations"
+          title="Automations"
         />
       </section>
     </div>

@@ -16,7 +16,7 @@ const lazyDocSections: Record<DocSection, ComponentType> = {
   lazy: lazy(() => import("./doc/LazyWorkspacesDoc").then((m) => ({ default: m.LazyWorkspacesDoc }))),
   checks: lazy(() => import("./doc/ChecksDoc").then((m) => ({ default: m.ChecksDoc }))),
   secrets: lazy(() => import("./doc/SecretsDoc").then((m) => ({ default: m.SecretsDoc }))),
-  triggers: lazy(() => import("./doc/TriggersDoc").then((m) => ({ default: m.TriggersDoc }))),
+  automations: lazy(() => import("./doc/AutomationsDoc").then((m) => ({ default: m.AutomationsDoc }))),
   mirrors: lazy(() => import("./doc/MirrorsDoc").then((m) => ({ default: m.MirrorsDoc }))),
   "git-users": lazy(() => import("./doc/GitUsersDoc").then((m) => ({ default: m.GitUsersDoc }))),
   cli: lazy(() => import("./doc/CliReferenceDoc").then((m) => ({ default: m.CliReferenceDoc })))

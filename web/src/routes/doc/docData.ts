@@ -5,7 +5,7 @@ export type DocSection =
   | "lazy"
   | "checks"
   | "secrets"
-  | "triggers"
+  | "automations"
   | "mirrors"
   | "git-users"
   | "cli";
@@ -47,12 +47,12 @@ export const docSections: Array<{
   {
     id: "secrets",
     title: "Secrets",
-    description: "Encrypted folder-scoped secrets for checks, triggers, mirrors, and local env files."
+    description: "Encrypted folder-scoped secrets for checks, automations, mirrors, and local env files."
   },
   {
-    id: "triggers",
-    title: "Triggers",
-    description: "Fire webhooks, sandboxed scripts, or CI checks when files in a folder change."
+    id: "automations",
+    title: "Automations",
+    description: "Run webhooks, JS workers, Cloudflare Container bash scripts, or CI checks on events or manually."
   },
   {
     id: "mirrors",
@@ -76,13 +76,16 @@ export function docPath(section: DocSection) {
 }
 
 export function normalizeSection(value: string | undefined): DocSection {
+  if (value === "triggers") {
+    return "automations";
+  }
   if (
     value === "concepts" ||
     value === "agents" ||
     value === "lazy" ||
     value === "checks" ||
     value === "secrets" ||
-    value === "triggers" ||
+    value === "automations" ||
     value === "mirrors" ||
     value === "git-users" ||
     value === "cli"

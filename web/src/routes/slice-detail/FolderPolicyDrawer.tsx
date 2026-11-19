@@ -19,6 +19,7 @@ import { cn } from "../../lib/cn";
 import { shortChangesetId } from "../../lib/objectId";
 import { secretsKey } from "../../queries/secrets";
 import { isFinalTriggerStatus, TriggerRunLog } from "../changeset-detail/TriggerRunsPanel";
+import { needsRunModal, RunAutomationModal } from "./RunAutomationModal";
 
 type PolicyTab = "automation" | "secrets" | "owners";
 
@@ -197,7 +198,7 @@ export function FolderPolicyDrawer({
                 </h2>
                 <p className="mt-1 break-all font-mono text-xs text-slate-600 dark:text-zinc-300">{folder}</p>
                 <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
-                  Effective rules, checks, triggers, and secrets for this folder at the head of main.
+                  Effective rules, checks, automations, and secrets for this folder at the head of main.
                 </p>
               </div>
               <button
@@ -298,22 +299,22 @@ export function FolderPolicyDrawer({
                       )}
                     </section>
 
-                    <section aria-label="Triggers">
+                    <section aria-label="Automations">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-zinc-400">
-                          Triggers
+                          Automations
                         </h3>
                         <Link
                           className="text-xs font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
-                          params={{ section: "triggers" } as never}
+                          params={{ section: "automations" } as never}
                           to="/doc/$section"
                         >
-                          triggers.yaml docs
+                          automations.yaml docs
                         </Link>
                       </div>
                       {triggers.length === 0 ? (
-                        <SliceNotice title="No triggers apply here.">
-                          Add a <code>.gitslice/triggers.yaml</code> to this folder or one above it.
+                        <SliceNotice title="No automations apply here.">
+                          Add a <code>.gitslice/automations.yaml</code> to this folder or one above it.
                         </SliceNotice>
                       ) : (
                         <div className="grid gap-3">
@@ -335,7 +336,7 @@ export function FolderPolicyDrawer({
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <p className="max-w-md text-xs leading-5 text-slate-600 dark:text-zinc-400">
                         Secrets defined on <span className="font-mono">{folder}</span> or inherited from an ancestor folder are
-                        injected into checks and triggers here.
+                        injected into checks and automations here.
                       </p>
                       {policy?.canManageSecrets && !addingSecret ? (
                         <Button
@@ -557,9 +558,9 @@ function CheckCard({ check, folder }: { check: FolderCheckDefinition; folder: st
               Required
             </span>
           ) : null}
-          {check.startedBy === "trigger" ? (
+          {check.startedBy === "trigger" || check.startedBy === "automation" ? (
             <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-px text-[11px] font-medium text-slate-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
-              Trigger-started
+              Automation-started
             </span>
           ) : null}
         </div>
@@ -633,6 +634,7 @@ function TriggerCard({
 }) {
   const queryClient = useQueryClient();
   const [openRun, setOpenRun] = useState("");
+  const [modalOpen, setModalOpen] = useState(false);
   const runsKey = ["triggerRunsOf", account, trigger.id];
   const runsQuery = useQuery({
     enabled: Boolean(account && trigger.id),
@@ -641,17 +643,35 @@ function TriggerCard({
     refetchInterval: (query) => (query.state.data?.some((run) => !isFinalTriggerStatus(run.status)) ? 3500 : false)
   });
   const run = useMutation({
-    mutationFn: () => api.runTrigger({ account, triggerId: trigger.id }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: runsKey })
+    mutationFn: (inputs?: Record<string, string>) =>
+      api.runTrigger(inputs && Object.keys(inputs).length > 0 ? { account, triggerId: trigger.id, inputs } : { account, triggerId: trigger.id }),
+    onSuccess: (created) => {
+      setModalOpen(false);
+      if (created?.id) {
+        setOpenRun(created.id);
+      }
+      return queryClient.invalidateQueries({ queryKey: runsKey });
+    }
   });
   const what =
     trigger.action === "http"
       ? trigger.httpUrl
       : trigger.action === "check"
         ? (trigger.checks ?? []).join(", ")
-        : trigger.worker;
+        : trigger.action === "bash"
+          ? [trigger.bash?.runtime || "base", trigger.egress || "offline", trigger.bash?.script].filter(Boolean).join(" · ")
+          : trigger.worker;
   const manual = (trigger.on ?? []).includes("manual");
   const runs = runsQuery.data ?? [];
+
+  function handleRunClick() {
+    if (needsRunModal(trigger)) {
+      run.reset();
+      setModalOpen(true);
+      return;
+    }
+    run.mutate(undefined);
+  }
 
   return (
     <section className="rounded-md border border-slate-200 dark:border-zinc-800">
@@ -661,6 +681,9 @@ function TriggerCard({
             <p className="break-all font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50">{trigger.id}</p>
             <InheritanceBadge currentFolder={folder} sourceFolder={trigger.folder ?? ""} />
           </div>
+          {trigger.description ? (
+            <p className="mt-0.5 text-xs text-slate-600 dark:text-zinc-300">{trigger.description}</p>
+          ) : null}
           <p className="mt-0.5 text-xs text-slate-600 dark:text-zinc-400">
             on {(trigger.on ?? []).join(", ")} · {trigger.action}{" "}
             <span className="break-all font-mono">{what}</span>
@@ -680,14 +703,14 @@ function TriggerCard({
           <button
             className="shrink-0 rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-950"
             disabled={run.isPending}
-            onClick={() => run.mutate()}
+            onClick={handleRunClick}
             type="button"
           >
             {run.isPending ? "Starting…" : "Run"}
           </button>
         ) : null}
       </div>
-      {run.error ? <p className="px-3 pb-2 text-xs text-rose-700 dark:text-rose-300">{run.error.message}</p> : null}
+      {!modalOpen && run.error ? <p className="px-3 pb-2 text-xs text-rose-700 dark:text-rose-300">{run.error.message}</p> : null}
       <div className="border-t border-slate-100 dark:border-zinc-800">
         {runsQuery.isPending ? null : runs.length === 0 ? (
           <p className="px-3 py-2 text-xs text-slate-500 dark:text-zinc-400">No runs yet.</p>
@@ -704,6 +727,14 @@ function TriggerCard({
           </ul>
         )}
       </div>
+      <RunAutomationModal
+        automation={trigger}
+        busy={run.isPending}
+        error={run.error?.message}
+        onClose={() => setModalOpen(false)}
+        onSubmit={(inputs) => run.mutate(inputs)}
+        open={modalOpen}
+      />
     </section>
   );
 }
@@ -730,6 +761,11 @@ function TriggerRunRow({ open, onToggle, run }: { open: boolean; onToggle(): voi
           {status.replace("_", " ")}
         </button>
         <span className="text-slate-500 dark:text-zinc-400">{run.eventKind}</span>
+        {run.triggeredBy ? (
+          <span className="text-slate-500 dark:text-zinc-400">
+            by <span className="font-mono">{run.triggeredBy}</span>
+          </span>
+        ) : null}
         {handle ? (
           <Link className="font-mono text-sky-700 underline-offset-2 hover:underline dark:text-sky-300" params={{ id: handle }} to="/cs/$id">
             {handle}

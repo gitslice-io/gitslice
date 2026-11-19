@@ -38,7 +38,7 @@ describe("TriggersDrawer", () => {
           { id: "web/ci", on: ["changeset.updated"], action: "check", checks: ["web/build"], paths: ["**/*.ts"] },
           { id: "deploy", on: ["push", "manual"], action: "http", httpUrl: "https://hooks.example.com/deploy" }
         ],
-        problems: [{ file: "/acme/web/app/.gitslice/triggers.yaml", message: "trigger x: unknown event" }]
+        problems: [{ file: "/acme/web/app/.gitslice/automations.yaml", message: "automation x: unknown event" }]
       }),
       listTriggerRuns,
       listTriggerRunLogs: vi.fn().mockResolvedValue({ logs: [] }),

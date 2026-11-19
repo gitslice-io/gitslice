@@ -163,7 +163,7 @@ export const commandGroups: CommandGroup[] = [
     commands: [
       [
         "gs policy [folder]",
-        "Inspect effective path owners, checks (including required gates), triggers, secrets, and CI runners for a folder (default: current directory)."
+        "Inspect effective path owners, checks (including required gates), automations, secrets, and CI runners for a folder (default: current directory)."
       ],
       ["gs ci", "Run applicable .gitslice/checks.yaml checks locally against pending workspace edits."],
       [
@@ -210,7 +210,7 @@ export const commandGroups: CommandGroup[] = [
     commands: [
       [
         "gs secret create <NAME> [--path <folder>]",
-        "Store an encrypted value (from stdin) for checks, triggers, and mirrors under the folder (defaults to the current workspace folder)."
+        "Store an encrypted value (from stdin) for checks, automations, and mirrors under the folder (defaults to the current workspace folder)."
       ],
       ["gs secret ls", "List account secrets and their attached folders; raw values are never shown."],
       ["gs secret update <secret-id>", "Rotate the value (--value) or change folders (--add-path, --remove-path)."],
@@ -223,15 +223,15 @@ export const commandGroups: CommandGroup[] = [
     ]
   },
   {
-    id: "triggers",
-    title: "Triggers",
+    id: "automations",
+    title: "Automations",
     commands: [
-      ["gs trigger ls [folder]", "List triggers that apply at a folder (its own and ancestor folders)."],
-      ["gs trigger runs --changeset <id>", "List trigger runs for a changeset (or --trigger, --account), newest first."],
-      ["gs trigger show <run-id>", "Inspect details and status for a single trigger run."],
-      ["gs trigger logs <run-id>", "Print a trigger run's log output."],
-      ["gs trigger run <trigger-id>", "Manually fire a trigger that listens on manual (--input key=value)."],
-      ["gs trigger rerun | cancel <run-id>", "Rerun a finished trigger for the same event, or cancel an active run."]
+      ["gs auto ls [folder]", "List automations that apply at a folder (its own and ancestor folders)."],
+      ["gs auto runs --changeset <id>", "List automation runs for a changeset (or --automation, --account), newest first."],
+      ["gs auto show <run-id>", "Inspect status, actor attribution, and inputs for a single automation run."],
+      ["gs auto logs <run-id> [--follow]", "Print or stream an automation run's stdout/stderr log output."],
+      ["gs auto run <id> [-i k=v] [--yes] [-f]", "Invoke a manual automation with typed inputs, optional confirmation, and live log streaming."],
+      ["gs auto rerun | cancel <run-id>", "Rerun a finished automation for the same event, or cancel an active run."]
     ]
   },
   {

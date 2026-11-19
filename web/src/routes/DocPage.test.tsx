@@ -92,13 +92,15 @@ describe("DocPage", () => {
     expect(screen.getByText(/gs check allow \[changeset\]/)).toBeInTheDocument();
   });
 
-  it("documents triggers: http, worker, and check actions plus reveal and signatures", async () => {
-    params.current = { section: "triggers" };
+  it("documents automations: http, worker, bash containers, check actions, manual inputs, and signatures", async () => {
+    params.current = { section: "automations" };
     render(<DocPage />);
-    expect(await screen.findByRole("heading", { level: 1, name: "Triggers" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "Automations" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "reveal" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "egress" })).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "gs.revealSecret(name)" })).toBeInTheDocument();
     expect(screen.getAllByText(/sha256=<hex>/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Bash automations on Cloudflare Containers/)).toBeInTheDocument();
   });
 
   it("documents Git migration, sync, and Go modules for Git users", async () => {

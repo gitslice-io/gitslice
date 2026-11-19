@@ -36,7 +36,7 @@ gs check logs backend/test --follow`,
   {
     title: "Inspect effective folder policy",
     description:
-      "Run gs policy in any folder (or click Policy while browsing a folder in the web UI) to see inherited checks, triggers, owners, secrets, and CI runners together.",
+      "Run gs policy in any folder (or click Policy while browsing a folder in the web UI) to see inherited checks, automations, owners, secrets, and CI runners together.",
     command: "gs policy /acme/backend",
     label: "inspect folder policy command"
   }
@@ -159,10 +159,10 @@ checks:
             — optional per check or under <InlineCode>defaults</InlineCode>. Outbound network access
             is denied by default unless <InlineCode>network: true</InlineCode> is set.
           </BulletPoint>
-          <BulletPoint label={<InlineCode>started_by: trigger</InlineCode>}>
-            — prevents a check from starting automatically on every patchset so a{" "}
-            <InlineCode>triggers.yaml</InlineCode> rule with a <InlineCode>check</InlineCode> action
-            controls when it runs (see <DocLink section="triggers">Triggers</DocLink>).
+          <BulletPoint label={<InlineCode>started_by: automation</InlineCode>}>
+            — prevents a check from starting automatically on every patchset so an{" "}
+            <InlineCode>automations.yaml</InlineCode> rule with a <InlineCode>check</InlineCode>{" "}
+            action controls when it runs (see <DocLink section="automations">Automations</DocLink>).
           </BulletPoint>
           <BulletPoint label={<InlineCode>setup</InlineCode>}>
             — change-independent commands run once to prepare the container image (such as
@@ -309,9 +309,9 @@ gs check allow [changeset]            # allow a contributor patchset to run with
 
       <section className="mt-8 grid gap-4 md:grid-cols-2">
         <NextDocCard
-          description="Control when checks run or trigger external webhooks and scripts on folder changes."
-          section="triggers"
-          title="Triggers"
+          description="Control when checks run, run bash containers, or invoke manual runbooks with folder secrets."
+          section="automations"
+          title="Automations"
         />
         <NextDocCard
           description="Configure coding agents with safe contributor roles, MCP, and CI daemons."

@@ -2,7 +2,7 @@ export const conceptCards = [
   {
     title: "One monorepo per account",
     description:
-      "Every account (/nic, /acme) has one unified monorepo. Checks, triggers, path owners, and secrets live on folders inside it and cascade downward — regardless of which slice you use to edit them."
+      "Every account (/nic, /acme) has one unified monorepo. Checks, automations, path owners, and secrets live on folders inside it and cascade downward — regardless of which slice you use to edit them."
   },
   {
     title: "Slices (Views)",

@@ -56,7 +56,7 @@ export function TriggerRunsPanel({ changesetId, patchsetId }: { changesetId: str
   return (
     <section className="mt-3 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50">
       <div className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-zinc-800 px-3 py-2.5 md:px-5">
-        <h2 className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">Triggers</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">Automations</h2>
         <span className="text-xs text-slate-500 dark:text-zinc-400">{runs.length} run{runs.length === 1 ? "" : "s"}</span>
       </div>
       {actionError ? (
