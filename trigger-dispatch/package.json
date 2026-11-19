@@ -3,8 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build:exec": "cd .. && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags='-s -w' -o trigger-dispatch/containers/gs-exec ./cmd/gs-exec",
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "npm run build:exec && wrangler deploy",
     "types": "wrangler types",
     "check": "wrangler types && tsc --noEmit",
     "test": "node --experimental-strip-types --test test/*.test.ts"

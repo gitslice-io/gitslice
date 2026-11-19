@@ -1,13 +1,52 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  // Runs trigger scripts as Dynamic Workers (design/34_triggers.md).
+  // Runs JS worker automations via Dynamic Workers and bash automations via
+  // single-run Cloudflare Containers (scheduling_policy: durable_object).
   "name": "gitslice-trigger-dispatch",
   "main": "src/index.ts",
-  "compatibility_date": "2026-10-01",
+  "compatibility_date": "2026-11-18",
   "compatibility_flags": ["nodejs_compat", "enable_ctx_exports"],
   "routes": [{ "pattern": "triggers.gitslice.io", "custom_domain": true }],
-  // Each trigger script runs in an isolate keyed by its code hash.
+  // Each worker script runs in an isolate keyed by its code hash.
   "worker_loaders": [{ "binding": "LOADER" }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "BASH_RUNNER", "class_name": "BashRunner" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["BashRunner"] }
+  ],
+  // Curated container runtimes for `action: { bash: ... }`.
+  // Build gs-exec first via `npm run build:exec` before `wrangler deploy`.
+  "containers": [
+    {
+      "class_name": "BashRunner",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "base": {
+          "dockerfile": "./containers/base.Dockerfile",
+          "build_context": "./containers"
+        },
+        "node": {
+          "dockerfile": "./containers/node.Dockerfile",
+          "build_context": "./containers"
+        },
+        "python": {
+          "dockerfile": "./containers/python.Dockerfile",
+          "build_context": "./containers"
+        },
+        "go": {
+          "dockerfile": "./containers/go.Dockerfile",
+          "build_context": "./containers"
+        },
+        "cloud": {
+          "dockerfile": "./containers/cloud.Dockerfile",
+          "build_context": "./containers"
+        }
+      }
+    }
+  ],
   "vars": {
     "GITSLICE_API": "https://api.gitslice.io"
   },

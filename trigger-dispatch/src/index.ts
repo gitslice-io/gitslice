@@ -19,9 +19,13 @@ import {
 import { PlaceholderError, seal, sealKey, verifyDispatch } from "./crypto.ts";
 import { ENTRY_MODULE, entrySource, MAX_RUN_LOG_LINE_CHARS, MAX_RUN_LOG_LINES } from "./entry.ts";
 import { GatePolicyError, prepareGateRequest } from "./gate.ts";
+import { BashRunner, GsBridge } from "./bash_runner.ts";
+
+export { BashRunner, GsBridge };
 
 export interface Env {
   LOADER: WorkerLoader;
+  BASH_RUNNER: DurableObjectNamespace<BashRunner>;
   GITSLICE_API: string;
   DISPATCH_SECRET: string;
 }
@@ -273,6 +277,28 @@ export default {
       if (!(await verifyDispatch(env.DISPATCH_SECRET, body, request.headers.get("x-gitslice-dispatch-signature")))) {
         return new Response("bad signature", { status: 401 });
       }
+      let msg: { run_id?: string; action?: string; ts?: number };
+      try {
+        msg = JSON.parse(body);
+      } catch {
+        return new Response("bad body", { status: 400 });
+      }
+      if (!msg.run_id || !msg.ts || Math.abs(Date.now() / 1000 - msg.ts) > 300) {
+        return new Response("stale or incomplete post", { status: 400 });
+      }
+      if (msg.action === "bash") {
+        const stub = env.BASH_RUNNER.get(env.BASH_RUNNER.idFromName(msg.run_id));
+        ctx.waitUntil(stub.startRun(msg.run_id));
+      } else {
+        ctx.waitUntil(startEvent(env, ctx, msg.run_id));
+      }
+      return new Response(null, { status: 202 });
+    }
+    if (request.method === "POST" && url.pathname === "/cancel") {
+      const body = await request.text();
+      if (!(await verifyDispatch(env.DISPATCH_SECRET, body, request.headers.get("x-gitslice-dispatch-signature")))) {
+        return new Response("bad signature", { status: 401 });
+      }
       let msg: { run_id?: string; ts?: number };
       try {
         msg = JSON.parse(body);
@@ -282,7 +308,8 @@ export default {
       if (!msg.run_id || !msg.ts || Math.abs(Date.now() / 1000 - msg.ts) > 300) {
         return new Response("stale or incomplete post", { status: 400 });
       }
-      ctx.waitUntil(startEvent(env, ctx, msg.run_id));
+      const stub = env.BASH_RUNNER.get(env.BASH_RUNNER.idFromName(msg.run_id));
+      ctx.waitUntil(stub.cancelRun());
       return new Response(null, { status: 202 });
     }
     const cb = url.pathname.match(/^\/cb\/(trun_[A-Za-z0-9]+)\/([0-9a-f]{32})$/);
@@ -290,7 +317,7 @@ export default {
       return callback(env, ctx, request, cb[1], cb[2]);
     }
     if (url.pathname === "/") {
-      return new Response("Gitslice trigger dispatcher\n");
+      return new Response("Gitslice automation dispatcher\n");
     }
     return new Response("not found", { status: 404 });
   },

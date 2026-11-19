@@ -65,6 +65,9 @@ export interface TriggerRun {
   folder?: string;
   status: string;
   eventKind?: string;
+  commitId?: string;
+  definitionCommitId?: string;
+  targetRef?: string;
 }
 
 const scopeEncoder = new TextEncoder();
@@ -87,6 +90,7 @@ export async function loaderIsolateKey(scope: string, network: readonly string[]
 
 export interface StartResponse {
   run: TriggerRun;
+  action?: string;
   eventJson: string;
   modules: Record<string, string>;
   mainModule: string;
@@ -94,10 +98,20 @@ export interface StartResponse {
   secrets?: Record<string, string>;
   reveal?: string[];
   network?: string[];
+  egress?: string;
   runToken: string;
   callbackUrl?: string;
   stateJson?: string;
   deadlineUnixMs: string | number;
+  bashScript?: string;
+  bashRuntime?: string;
+  bashSize?: string;
+  bashCheckout?: string;
+  bashInclude?: string[];
+  bashWorkingDir?: string;
+  bashEnv?: Record<string, string>;
+  inputs?: Record<string, string>;
+  timeoutMs?: string | number;
 }
 
 export interface Annotation {
@@ -134,5 +148,15 @@ export class Api {
       throw ApiError.fromResponse(res.status, text, `${method}: HTTP ${res.status}`);
     }
     return (text ? JSON.parse(text) : {}) as T;
+  }
+
+  async fetchArchive(runToken: string): Promise<Response> {
+    return fetch(`${this.base.replace(/\/$/, "")}/automation-archive`, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${runToken}`,
+        "user-agent": "Gitslice-Trigger-Dispatch/1.0",
+      },
+    });
   }
 }
