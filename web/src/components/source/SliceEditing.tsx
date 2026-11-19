@@ -22,5 +22,7 @@ export { useDraftChangesetController } from "./slice-editing/useDraftChangesetCo
 export { DraftChangesetPanel } from "./slice-editing/DraftChangesetPanel";
 export {
   DirectoryCreateControls,
-  InlineRenameForm
+  InlineRenameForm,
+  NewFileForm,
+  NewFolderForm
 } from "./slice-editing/SliceEntryDialogs";

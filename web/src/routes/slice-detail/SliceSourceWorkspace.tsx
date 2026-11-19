@@ -2,7 +2,7 @@ import { cn } from "../../lib/cn";
 import { SlicePanel } from "../../components/slices/SlicePageParts";
 import { SliceNotice } from "../../components/slices/SlicePageParts";
 import { entryKindLabel } from "../../components/source/sourceUtils";
-import { DirectoryCreateControls, type PendingEdit } from "../../components/source/SliceEditing";
+import type { PendingEdit } from "../../components/source/SliceEditing";
 import { DirectoryHeader } from "./DirectoryHeader";
 import { FolderWithReadme } from "./FolderWithReadme";
 import { SliceDirectoryTable } from "./SliceDirectoryTable";
@@ -152,19 +152,13 @@ export function SliceSourceWorkspace({
       <SlicePanel className={cn("p-0", rootOnPhone && "max-lg:hidden")}>
         <DirectoryHeader
           commitId={commitId}
+          createDirectory={createDirectory}
           includedPaths={includedPaths}
           onOpenHistory={onOpenHistory}
           onOpenPolicy={onOpenPolicy}
           onStageEdit={onStageEdit}
           selectedPath={selectedPath}
         />
-        {onStageEdit ? (
-          <DirectoryCreateControls
-            directoryPath={createDirectory}
-            includedPaths={includedPaths}
-            onStageEdit={onStageEdit}
-          />
-        ) : null}
         <SliceDirectoryTable
           entries={directoryEntries}
           includedPaths={includedPaths}

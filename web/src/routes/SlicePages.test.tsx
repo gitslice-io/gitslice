@@ -1131,7 +1131,8 @@ describe("slice route pages (render smoke)", () => {
     await flushAsync();
     // Your own slice: you own the account.
     expect(screen.getByText("Settings")).toBeInTheDocument();
-    expect((await screen.findAllByLabelText("Create item")).length).toBeGreaterThan(0);
+    expect(await screen.findByLabelText("Directory actions")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Create item")).not.toBeInTheDocument();
     cleanup();
 
     // Someone else's public slice: read only.
@@ -1147,7 +1148,7 @@ describe("slice route pages (render smoke)", () => {
     await waitFor(() => expect(api.resolveSlice).toHaveBeenCalled());
     await flushAsync();
     expect(screen.queryByText("Settings")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Create item")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Directory actions")).not.toBeInTheDocument();
   });
 
   it("lets an organization writer edit but not configure", async () => {
@@ -1169,7 +1170,7 @@ describe("slice route pages (render smoke)", () => {
     await waitFor(() => expect(api.resolveSlice).toHaveBeenCalled());
     await flushAsync();
     expect(screen.queryByText("Settings")).not.toBeInTheDocument();
-    expect((await screen.findAllByLabelText("Create item")).length).toBeGreaterThan(0);
+    expect(await screen.findByLabelText("Directory actions")).toBeInTheDocument();
     selectionMock.current = { ...selectionMock.current, accounts: ["nic"], memberships: selectionMock.current.memberships.slice(0, 1) };
   });
 
@@ -1217,9 +1218,9 @@ describe("slice route pages (render smoke)", () => {
     renderRoute(<SliceDetailPage />);
     await waitFor(() => expect(api.listSharedSlices).toHaveBeenCalled());
     await flushAsync();
-    // Contributors can propose changesets (Create item) without account membership,
+    // Contributors can propose changesets (Directory actions) without account membership,
     // and cannot configure slice settings.
-    expect((await screen.findAllByLabelText("Create item")).length).toBeGreaterThan(0);
+    expect(await screen.findByLabelText("Directory actions")).toBeInTheDocument();
     expect(screen.queryByText("Settings")).not.toBeInTheDocument();
     cleanup();
 
@@ -1404,8 +1405,10 @@ describe("slice route pages (render smoke)", () => {
     await waitFor(() => expect(api.resolveSlice).toHaveBeenCalled());
     await flushAsync();
 
-    // Open the directory "Create item" menu and start a new folder.
-    fireEvent.click(await screen.findByLabelText("Create item"));
+    // Open the single "Directory actions" menu and start a new folder (no duplicate dropdown).
+    expect(screen.getAllByLabelText("Directory actions")).toHaveLength(1);
+    expect(screen.queryByLabelText("Create item")).not.toBeInTheDocument();
+    fireEvent.click(await screen.findByLabelText("Directory actions"));
     fireEvent.click(await screen.findByRole("menuitem", { name: "New folder" }));
     fireEvent.change(screen.getByPlaceholderText(/docs or/i), {
       target: { value: "images" }

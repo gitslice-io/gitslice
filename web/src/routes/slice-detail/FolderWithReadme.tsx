@@ -1,5 +1,5 @@
 import type { SliceRef, TreeEntry } from "../../api/types";
-import { DirectoryCreateControls, type PendingEdit } from "../../components/source/SliceEditing";
+import type { PendingEdit } from "../../components/source/SliceEditing";
 import { SlicePanel } from "../../components/slices/SlicePageParts";
 import { DirectoryHeader } from "./DirectoryHeader";
 import { FolderReadme } from "./FolderReadme";
@@ -51,19 +51,13 @@ export function FolderWithReadme({
       <DirectoryHeader
         commitId={commitId}
         compact
+        createDirectory={createDirectory}
         includedPaths={includedPaths}
         onOpenHistory={onOpenHistory}
         onOpenPolicy={onOpenPolicy}
         onStageEdit={onStageEdit}
         selectedPath={selectedPath}
       />
-      {onStageEdit ? (
-        <DirectoryCreateControls
-          directoryPath={createDirectory}
-          includedPaths={includedPaths}
-          onStageEdit={onStageEdit}
-        />
-      ) : null}
       <FolderReadme
         canEdit={Boolean(onStageEdit)}
         commitId={commitId}

@@ -1,14 +1,16 @@
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   InlineRenameForm,
+  NewFileForm,
+  NewFolderForm,
   parentRepositoryPath,
   repositoryPathName,
-  validateEntryName,
   type PendingEdit
 } from "../../components/source/SliceEditing";
-import { ActionMenu } from "../../components/source/ActionMenu";
+import { ActionMenu, type ActionMenuItem } from "../../components/source/ActionMenu";
+import { canCreateInPath } from "../../components/source/sourceUtils";
 import { shortHash } from "../../lib/objectId";
 import { cn } from "../../lib/cn";
 import { useMobileDetailsClass } from "../../components/MobileDetails";
@@ -16,6 +18,7 @@ import { copyMoveMenuItems, useCopyMove } from "./CopyMove";
 
 interface DirectoryHeaderProps {
   commitId: string;
+  createDirectory?: string;
   includedPaths: string[];
   onOpenHistory?: () => void;
   onOpenPolicy?: () => void;
@@ -31,8 +34,11 @@ interface DirectoryHeaderProps {
 const TOP_LEVEL_SLICE_FOLDER_TITLE =
   "Top-level slice folders are managed in the slice definition (Settings).";
 
+type DirectoryActionMode = "" | "rename" | "new-file" | "new-folder";
+
 export function DirectoryHeader({
   commitId,
+  createDirectory,
   includedPaths,
   onOpenHistory,
   onOpenPolicy,
@@ -42,14 +48,22 @@ export function DirectoryHeader({
   actions,
   children
 }: DirectoryHeaderProps) {
-  const [isRenaming, setIsRenaming] = useState(false);
+  const [mode, setMode] = useState<DirectoryActionMode>("");
   const copyMove = useCopyMove();
   const foldedOnPhone = useMobileDetailsClass();
+  const targetCreateDir = createDirectory ?? selectedPath;
+  const canCreate = Boolean(
+    onStageEdit && targetCreateDir && canCreateInPath(includedPaths, targetCreateDir)
+  );
   const canRename = Boolean(selectedPath && onStageEdit);
   const canModifySelectedPath = canModifyPath(includedPaths, selectedPath);
   const modifyDisabledTitle = canModifySelectedPath
     ? undefined
     : TOP_LEVEL_SLICE_FOLDER_TITLE;
+
+  useEffect(() => {
+    setMode("");
+  }, [selectedPath, targetCreateDir]);
 
   function stageRename(name: string) {
     if (!onStageEdit) {
@@ -60,37 +74,55 @@ export function DirectoryHeader({
       oldPath: selectedPath,
       path: joinRepositoryPath(parentRepositoryPath(selectedPath), name)
     });
-    setIsRenaming(false);
+    setMode("");
   }
 
-  const ownMenu = canRename ? (
-    <ActionMenu
-      items={[
-        {
-          label: "Rename",
-          disabled: !canModifySelectedPath,
-          onSelect: () => setIsRenaming(true),
-          title: modifyDisabledTitle
-        },
-        ...copyMoveMenuItems(
-          copyMove,
-          { path: selectedPath, isDirectory: true },
+  function stageCreate(edit: PendingEdit) {
+    if (!onStageEdit) {
+      return;
+    }
+    onStageEdit(edit);
+    setMode("");
+  }
+
+  const menuItems: ActionMenuItem[] = [
+    ...(canCreate
+      ? [
+          { label: "New file", onSelect: () => setMode("new-file") },
+          { label: "New folder", onSelect: () => setMode("new-folder") }
+        ]
+      : []),
+    ...(canRename
+      ? [
           {
-            canModifySource: canModifySelectedPath,
-            disabledTitle: TOP_LEVEL_SLICE_FOLDER_TITLE
+            label: "Rename",
+            disabled: !canModifySelectedPath,
+            onSelect: () => setMode("rename"),
+            title: modifyDisabledTitle
+          },
+          ...copyMoveMenuItems(
+            copyMove,
+            { path: selectedPath, isDirectory: true },
+            {
+              canModifySource: canModifySelectedPath,
+              disabledTitle: TOP_LEVEL_SLICE_FOLDER_TITLE
+            }
+          ),
+          {
+            label: "Delete",
+            disabled: !canModifySelectedPath,
+            onSelect: () => onStageEdit?.({ kind: "delete", path: selectedPath }),
+            title: modifyDisabledTitle,
+            tone: "danger" as const
           }
-        ),
-        {
-          label: "Delete",
-          disabled: !canModifySelectedPath,
-          onSelect: () => onStageEdit?.({ kind: "delete", path: selectedPath }),
-          title: modifyDisabledTitle,
-          tone: "danger"
-        }
-      ]}
-      label="Directory actions"
-    />
-  ) : null;
+        ]
+      : [])
+  ];
+
+  const ownMenu =
+    menuItems.length > 0 ? (
+      <ActionMenu items={menuItems} label="Directory actions" />
+    ) : null;
   const rightActions = actions !== undefined ? actions : ownMenu;
   const policyButton = onOpenPolicy ? (
     <button
@@ -113,7 +145,7 @@ export function DirectoryHeader({
   ) : null;
 
   return (
-    <div className={cn("border-b border-slate-200 dark:border-zinc-800 px-4 py-4 sm:px-5", !isRenaming && foldedOnPhone)}>
+    <div className={cn("border-b border-slate-200 dark:border-zinc-800 px-4 py-4 sm:px-5", mode === "" && foldedOnPhone)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h2
@@ -140,15 +172,29 @@ export function DirectoryHeader({
         ) : null}
       </div>
       {children}
-      {actions === undefined && isRenaming && canModifySelectedPath ? (
+      {actions === undefined && mode === "rename" && canModifySelectedPath ? (
         <div className="mt-3">
           <InlineRenameForm
             directoryPath={parentRepositoryPath(selectedPath)}
-            onCancel={() => setIsRenaming(false)}
+            onCancel={() => setMode("")}
             onSave={stageRename}
             originalName={repositoryPathName(selectedPath)}
           />
         </div>
+      ) : null}
+      {actions === undefined && mode === "new-file" && canCreate ? (
+        <NewFileForm
+          directoryPath={targetCreateDir}
+          onCancel={() => setMode("")}
+          onCreate={stageCreate}
+        />
+      ) : null}
+      {actions === undefined && mode === "new-folder" && canCreate ? (
+        <NewFolderForm
+          directoryPath={targetCreateDir}
+          onCancel={() => setMode("")}
+          onCreate={stageCreate}
+        />
       ) : null}
     </div>
   );

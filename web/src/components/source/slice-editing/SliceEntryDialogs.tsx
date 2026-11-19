@@ -152,7 +152,7 @@ function EntryPathPreview({
   );
 }
 
-function NewFileForm({
+export function NewFileForm({
   directoryPath,
   onCancel,
   onCreate
@@ -208,7 +208,7 @@ function NewFileForm({
   );
 }
 
-function NewFolderForm({
+export function NewFolderForm({
   directoryPath,
   onCancel,
   onCreate
