@@ -112,3 +112,22 @@ func TestSliceCIDaemonPool(t *testing.T) {
 		t.Fatalf("cleared = %v, %v", cleared, err)
 	}
 }
+
+func TestAccountCIDaemonPool(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	ids, names, err := store.Slices().SetAccountCIDaemons(ctx, "acme", []string{"agent_b", "agent_a", "agent_b", " "})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ids) != 2 || ids[0] != "agent_b" || ids[1] != "agent_a" || names[1] != "agent_a" {
+		t.Fatalf("pool = %v / %v", ids, names)
+	}
+	byDaemon, err := store.Slices().ListAccountsByCIDaemon(ctx, []string{"agent_a"})
+	if err != nil || len(byDaemon["agent_a"]) != 1 || byDaemon["agent_a"][0] != "acme" {
+		t.Fatalf("ListAccountsByCIDaemon = %v, %v", byDaemon, err)
+	}
+	cleared, _, err := store.Slices().SetAccountCIDaemons(ctx, "acme", nil)
+	if err != nil || len(cleared) != 0 {
+		t.Fatalf("cleared = %v, %v", cleared, err)
+	}
+}

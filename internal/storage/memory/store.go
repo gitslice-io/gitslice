@@ -87,6 +87,7 @@ type backend struct {
 	retiredSlices           map[string]bool
 	sliceDefinitionVersions map[string][]*corev1.SliceDefinitionVersion
 	sliceTags               map[string]map[string]storage.SliceTag
+	accountCIDaemons        map[string][]string
 	secrets                 map[string]*memorySecret
 
 	changesets         map[string]*corev1.Changeset
@@ -196,6 +197,7 @@ func New() *Stores {
 		retiredSlices:           map[string]bool{},
 		sliceDefinitionVersions: map[string][]*corev1.SliceDefinitionVersion{},
 		sliceTags:               map[string]map[string]storage.SliceTag{},
+		accountCIDaemons:        map[string][]string{},
 		secrets:                 map[string]*memorySecret{},
 		changesets:              map[string]*corev1.Changeset{},
 		submitBlockedCodes:      map[string]storage.SubmitBlockCode{},

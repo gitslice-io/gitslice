@@ -41,7 +41,7 @@ func TestDispatchOutOfSliceChecksWithoutRunnerRecordsErroredRun(t *testing.T) {
 	if run.CheckName != "root-required" || run.Status != "errored" || run.ExitCode != -1 {
 		t.Fatalf("run = %#v, want errored root-required with exit -1", run)
 	}
-	const wantSummary = "slice has no full-tree CI runner configured; set the slice CI daemon to run out-of-slice checks"
+	const wantSummary = "no CI runner configured for this account or slice; set an account CI runner or slice CI daemon"
 	if run.Summary != wantSummary {
 		t.Fatalf("summary = %q, want %q", run.Summary, wantSummary)
 	}

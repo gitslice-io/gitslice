@@ -14,6 +14,10 @@ service SliceService {
   rpc ListSliceDefinitionVersions(ListSliceDefinitionVersionsRequest) returns (ListSliceDefinitionVersionsResponse);
   rpc UpdateSliceDefinition(UpdateSliceDefinitionRequest) returns (SliceDefinition);
   rpc SetSliceCIDaemon(SetSliceCIDaemonRequest) returns (Slice);
+  // Account-level CI runner pool: checks and folder triggers in any slice of
+  // the account run on these daemons unless the slice sets an explicit override.
+  rpc GetAccountCIDaemons(GetAccountCIDaemonsRequest) returns (AccountCIDaemonsResponse);
+  rpc SetAccountCIDaemon(SetAccountCIDaemonRequest) returns (AccountCIDaemonsResponse);
   // SetSliceSecret sets the value of the secret NAME on this slice's
   // included paths, creating one there if there is none
   // (design/33_secrets.md). It fails with FailedPrecondition when NAME comes
@@ -412,4 +416,23 @@ message SharedSlice {
 
 message ListSharedSlicesResponse {
   repeated SharedSlice slices = 1;
+}
+
+message GetAccountCIDaemonsRequest {
+  string account = 1;
+}
+
+message SetAccountCIDaemonRequest {
+  string account = 1;
+  // daemon_id replaces the account's CI runner pool when add and remove are
+  // false; "" clears it. add appends daemon_id; remove takes it out.
+  string daemon_id = 2;
+  bool add = 3;
+  bool remove = 4;
+}
+
+message AccountCIDaemonsResponse {
+  string account = 1;
+  repeated string daemon_ids = 2;
+  repeated string daemon_names = 3;
 }

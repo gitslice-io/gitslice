@@ -329,6 +329,89 @@ func (s *SliceService) SetSliceCIDaemon(ctx context.Context, req *corev1.SetSlic
 	return updated, nil
 }
 
+func (s *SliceService) GetAccountCIDaemons(ctx context.Context, req *corev1.GetAccountCIDaemonsRequest) (*corev1.AccountCIDaemonsResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	account := strings.ToLower(strings.TrimSpace(req.GetAccount()))
+	if account == "" {
+		return nil, status.Error(codes.InvalidArgument, "account is required")
+	}
+	if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead); err != nil {
+		return nil, err
+	}
+	ids, names, err := s.Slices.AccountCIDaemons(ctx, account)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.AccountCIDaemonsResponse{
+		Account:     account,
+		DaemonIds:   ids,
+		DaemonNames: names,
+	}, nil
+}
+
+func (s *SliceService) SetAccountCIDaemon(ctx context.Context, req *corev1.SetAccountCIDaemonRequest) (*corev1.AccountCIDaemonsResponse, error) {
+	subjectID, err := requireSubject(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireUnrestrictedKey(ctx, subjectID); err != nil {
+		return nil, err
+	}
+	account := strings.ToLower(strings.TrimSpace(req.GetAccount()))
+	if account == "" {
+		return nil, status.Error(codes.InvalidArgument, "account is required")
+	}
+	if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionAdmin); err != nil {
+		return nil, err
+	}
+	pool, _, err := s.Slices.AccountCIDaemons(ctx, account)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	inPool := map[string]bool{}
+	for _, id := range pool {
+		inPool[id] = true
+	}
+	daemonID := strings.TrimSpace(req.GetDaemonId())
+	var next []string
+	switch {
+	case req.GetAdd() && req.GetRemove():
+		return nil, status.Error(codes.InvalidArgument, "add and remove cannot both be set")
+	case (req.GetAdd() || req.GetRemove()) && daemonID == "":
+		return nil, status.Error(codes.InvalidArgument, "daemon_id is required to add or remove a CI daemon")
+	case req.GetAdd():
+		next = append(append(next, pool...), daemonID)
+	case req.GetRemove():
+		for _, id := range pool {
+			if id != daemonID {
+				next = append(next, id)
+			}
+		}
+	case daemonID != "":
+		next = []string{daemonID}
+	}
+	if daemonID != "" && !req.GetRemove() && !inPool[daemonID] {
+		if s.Agents == nil {
+			return nil, status.Error(codes.FailedPrecondition, "agent daemons are not available")
+		}
+		if _, _, err := manageableDaemon(ctx, s.Auth, s.Agents, subjectID, daemonID); err != nil {
+			return nil, err
+		}
+	}
+	ids, names, err := s.Slices.SetAccountCIDaemons(ctx, account, next)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.AccountCIDaemonsResponse{
+		Account:     account,
+		DaemonIds:   ids,
+		DaemonNames: names,
+	}, nil
+}
+
 func (s *SliceService) SetSliceSecret(ctx context.Context, req *corev1.SetSliceSecretRequest) (*corev1.Empty, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {

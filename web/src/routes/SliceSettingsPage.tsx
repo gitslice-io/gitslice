@@ -20,6 +20,7 @@ import {
 import { SliceSecretsPanel } from "../components/slices/SliceSecretsPanel";
 import { useSlicePermissions } from "../lib/permissions";
 import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
+import { accountCIDaemonsQuery } from "../queries/accounts";
 import { sliceRefQuery } from "../queries/slices";
 import { useSelection } from "../state/selection";
 
@@ -37,6 +38,10 @@ export function SliceSettingsPage() {
   const sliceQuery = useQuery({
     ...sliceRefQuery(api, routeAccount, routeSlice),
     enabled: Boolean(routeSliceRef)
+  });
+  const accountCIDaemons = useQuery({
+    ...accountCIDaemonsQuery(api, routeAccount),
+    enabled: Boolean(routeAccount)
   });
 
   const slice = sliceQuery.data;
@@ -152,7 +157,9 @@ export function SliceSettingsPage() {
       {canManageAccountSettings && settingsSlice ? (
         <div className="mt-8">
           <SliceSecretsPanel
-            hasCIDaemon={Boolean(slice.ciDaemonId)}
+            hasCIDaemon={Boolean(
+              slice.ciDaemonId || (accountCIDaemons.data?.daemonIds?.length ?? 0) > 0
+            )}
             includedPaths={slice.definition?.includedPaths ?? []}
             slice={settingsSlice}
           />

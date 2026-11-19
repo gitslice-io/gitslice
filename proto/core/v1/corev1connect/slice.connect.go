@@ -52,6 +52,12 @@ const (
 	// SliceServiceSetSliceCIDaemonProcedure is the fully-qualified name of the SliceService's
 	// SetSliceCIDaemon RPC.
 	SliceServiceSetSliceCIDaemonProcedure = "/gitslice.core.v1.SliceService/SetSliceCIDaemon"
+	// SliceServiceGetAccountCIDaemonsProcedure is the fully-qualified name of the SliceService's
+	// GetAccountCIDaemons RPC.
+	SliceServiceGetAccountCIDaemonsProcedure = "/gitslice.core.v1.SliceService/GetAccountCIDaemons"
+	// SliceServiceSetAccountCIDaemonProcedure is the fully-qualified name of the SliceService's
+	// SetAccountCIDaemon RPC.
+	SliceServiceSetAccountCIDaemonProcedure = "/gitslice.core.v1.SliceService/SetAccountCIDaemon"
 	// SliceServiceSetSliceSecretProcedure is the fully-qualified name of the SliceService's
 	// SetSliceSecret RPC.
 	SliceServiceSetSliceSecretProcedure = "/gitslice.core.v1.SliceService/SetSliceSecret"
@@ -115,6 +121,10 @@ type SliceServiceClient interface {
 	ListSliceDefinitionVersions(context.Context, *connect.Request[v1.ListSliceDefinitionVersionsRequest]) (*connect.Response[v1.ListSliceDefinitionVersionsResponse], error)
 	UpdateSliceDefinition(context.Context, *connect.Request[v1.UpdateSliceDefinitionRequest]) (*connect.Response[v1.SliceDefinition], error)
 	SetSliceCIDaemon(context.Context, *connect.Request[v1.SetSliceCIDaemonRequest]) (*connect.Response[v1.Slice], error)
+	// Account-level CI runner pool: checks and folder triggers in any slice of
+	// the account run on these daemons unless the slice sets an explicit override.
+	GetAccountCIDaemons(context.Context, *connect.Request[v1.GetAccountCIDaemonsRequest]) (*connect.Response[v1.AccountCIDaemonsResponse], error)
+	SetAccountCIDaemon(context.Context, *connect.Request[v1.SetAccountCIDaemonRequest]) (*connect.Response[v1.AccountCIDaemonsResponse], error)
 	// SetSliceSecret sets the value of the secret NAME on this slice's
 	// included paths, creating one there if there is none
 	// (design/33_secrets.md). It fails with FailedPrecondition when NAME comes
@@ -229,6 +239,18 @@ func NewSliceServiceClient(httpClient connect.HTTPClient, baseURL string, opts .
 			httpClient,
 			baseURL+SliceServiceSetSliceCIDaemonProcedure,
 			connect.WithSchema(sliceServiceMethods.ByName("SetSliceCIDaemon")),
+			connect.WithClientOptions(opts...),
+		),
+		getAccountCIDaemons: connect.NewClient[v1.GetAccountCIDaemonsRequest, v1.AccountCIDaemonsResponse](
+			httpClient,
+			baseURL+SliceServiceGetAccountCIDaemonsProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("GetAccountCIDaemons")),
+			connect.WithClientOptions(opts...),
+		),
+		setAccountCIDaemon: connect.NewClient[v1.SetAccountCIDaemonRequest, v1.AccountCIDaemonsResponse](
+			httpClient,
+			baseURL+SliceServiceSetAccountCIDaemonProcedure,
+			connect.WithSchema(sliceServiceMethods.ByName("SetAccountCIDaemon")),
 			connect.WithClientOptions(opts...),
 		),
 		setSliceSecret: connect.NewClient[v1.SetSliceSecretRequest, v1.Empty](
@@ -351,6 +373,8 @@ type sliceServiceClient struct {
 	listSliceDefinitionVersions *connect.Client[v1.ListSliceDefinitionVersionsRequest, v1.ListSliceDefinitionVersionsResponse]
 	updateSliceDefinition       *connect.Client[v1.UpdateSliceDefinitionRequest, v1.SliceDefinition]
 	setSliceCIDaemon            *connect.Client[v1.SetSliceCIDaemonRequest, v1.Slice]
+	getAccountCIDaemons         *connect.Client[v1.GetAccountCIDaemonsRequest, v1.AccountCIDaemonsResponse]
+	setAccountCIDaemon          *connect.Client[v1.SetAccountCIDaemonRequest, v1.AccountCIDaemonsResponse]
 	setSliceSecret              *connect.Client[v1.SetSliceSecretRequest, v1.Empty]
 	deleteSliceSecret           *connect.Client[v1.DeleteSliceSecretRequest, v1.Empty]
 	listSliceSecrets            *connect.Client[v1.ListSliceSecretsRequest, v1.ListSliceSecretsResponse]
@@ -404,6 +428,16 @@ func (c *sliceServiceClient) UpdateSliceDefinition(ctx context.Context, req *con
 // SetSliceCIDaemon calls gitslice.core.v1.SliceService.SetSliceCIDaemon.
 func (c *sliceServiceClient) SetSliceCIDaemon(ctx context.Context, req *connect.Request[v1.SetSliceCIDaemonRequest]) (*connect.Response[v1.Slice], error) {
 	return c.setSliceCIDaemon.CallUnary(ctx, req)
+}
+
+// GetAccountCIDaemons calls gitslice.core.v1.SliceService.GetAccountCIDaemons.
+func (c *sliceServiceClient) GetAccountCIDaemons(ctx context.Context, req *connect.Request[v1.GetAccountCIDaemonsRequest]) (*connect.Response[v1.AccountCIDaemonsResponse], error) {
+	return c.getAccountCIDaemons.CallUnary(ctx, req)
+}
+
+// SetAccountCIDaemon calls gitslice.core.v1.SliceService.SetAccountCIDaemon.
+func (c *sliceServiceClient) SetAccountCIDaemon(ctx context.Context, req *connect.Request[v1.SetAccountCIDaemonRequest]) (*connect.Response[v1.AccountCIDaemonsResponse], error) {
+	return c.setAccountCIDaemon.CallUnary(ctx, req)
 }
 
 // SetSliceSecret calls gitslice.core.v1.SliceService.SetSliceSecret.
@@ -505,6 +539,10 @@ type SliceServiceHandler interface {
 	ListSliceDefinitionVersions(context.Context, *connect.Request[v1.ListSliceDefinitionVersionsRequest]) (*connect.Response[v1.ListSliceDefinitionVersionsResponse], error)
 	UpdateSliceDefinition(context.Context, *connect.Request[v1.UpdateSliceDefinitionRequest]) (*connect.Response[v1.SliceDefinition], error)
 	SetSliceCIDaemon(context.Context, *connect.Request[v1.SetSliceCIDaemonRequest]) (*connect.Response[v1.Slice], error)
+	// Account-level CI runner pool: checks and folder triggers in any slice of
+	// the account run on these daemons unless the slice sets an explicit override.
+	GetAccountCIDaemons(context.Context, *connect.Request[v1.GetAccountCIDaemonsRequest]) (*connect.Response[v1.AccountCIDaemonsResponse], error)
+	SetAccountCIDaemon(context.Context, *connect.Request[v1.SetAccountCIDaemonRequest]) (*connect.Response[v1.AccountCIDaemonsResponse], error)
 	// SetSliceSecret sets the value of the secret NAME on this slice's
 	// included paths, creating one there if there is none
 	// (design/33_secrets.md). It fails with FailedPrecondition when NAME comes
@@ -615,6 +653,18 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 		SliceServiceSetSliceCIDaemonProcedure,
 		svc.SetSliceCIDaemon,
 		connect.WithSchema(sliceServiceMethods.ByName("SetSliceCIDaemon")),
+		connect.WithHandlerOptions(opts...),
+	)
+	sliceServiceGetAccountCIDaemonsHandler := connect.NewUnaryHandler(
+		SliceServiceGetAccountCIDaemonsProcedure,
+		svc.GetAccountCIDaemons,
+		connect.WithSchema(sliceServiceMethods.ByName("GetAccountCIDaemons")),
+		connect.WithHandlerOptions(opts...),
+	)
+	sliceServiceSetAccountCIDaemonHandler := connect.NewUnaryHandler(
+		SliceServiceSetAccountCIDaemonProcedure,
+		svc.SetAccountCIDaemon,
+		connect.WithSchema(sliceServiceMethods.ByName("SetAccountCIDaemon")),
 		connect.WithHandlerOptions(opts...),
 	)
 	sliceServiceSetSliceSecretHandler := connect.NewUnaryHandler(
@@ -741,6 +791,10 @@ func NewSliceServiceHandler(svc SliceServiceHandler, opts ...connect.HandlerOpti
 			sliceServiceUpdateSliceDefinitionHandler.ServeHTTP(w, r)
 		case SliceServiceSetSliceCIDaemonProcedure:
 			sliceServiceSetSliceCIDaemonHandler.ServeHTTP(w, r)
+		case SliceServiceGetAccountCIDaemonsProcedure:
+			sliceServiceGetAccountCIDaemonsHandler.ServeHTTP(w, r)
+		case SliceServiceSetAccountCIDaemonProcedure:
+			sliceServiceSetAccountCIDaemonHandler.ServeHTTP(w, r)
 		case SliceServiceSetSliceSecretProcedure:
 			sliceServiceSetSliceSecretHandler.ServeHTTP(w, r)
 		case SliceServiceDeleteSliceSecretProcedure:
@@ -812,6 +866,14 @@ func (UnimplementedSliceServiceHandler) UpdateSliceDefinition(context.Context, *
 
 func (UnimplementedSliceServiceHandler) SetSliceCIDaemon(context.Context, *connect.Request[v1.SetSliceCIDaemonRequest]) (*connect.Response[v1.Slice], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.SetSliceCIDaemon is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) GetAccountCIDaemons(context.Context, *connect.Request[v1.GetAccountCIDaemonsRequest]) (*connect.Response[v1.AccountCIDaemonsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.GetAccountCIDaemons is not implemented"))
+}
+
+func (UnimplementedSliceServiceHandler) SetAccountCIDaemon(context.Context, *connect.Request[v1.SetAccountCIDaemonRequest]) (*connect.Response[v1.AccountCIDaemonsResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.SliceService.SetAccountCIDaemon is not implemented"))
 }
 
 func (UnimplementedSliceServiceHandler) SetSliceSecret(context.Context, *connect.Request[v1.SetSliceSecretRequest]) (*connect.Response[v1.Empty], error) {

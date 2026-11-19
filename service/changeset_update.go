@@ -213,7 +213,7 @@ func (s *ChangesetService) recordBundledCheckRuns(ctx context.Context, cs *corev
 	}
 	changesetID := cs.GetId()
 	patchsetID := patchset.GetId()
-	hasDaemon := len(storage.CIDaemonPool(slice)) > 0
+	hasDaemon := s.hasCIDaemonForSlice(ctx, slice)
 	for _, bundledRun := range bundled {
 		if bundledRun == nil {
 			continue

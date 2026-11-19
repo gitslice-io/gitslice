@@ -81,6 +81,7 @@ function DaemonCard({ daemon }: { daemon: AgentDaemon }) {
   const online = daemon.status === "online";
   const runtime = daemon.runtime?.toLowerCase() === "ci" ? "checks only" : daemon.runtime;
   const ciSlices = daemon.ciSlices ?? [];
+  const ciAccounts = daemon.ciAccounts ?? [];
   const exposedTo = daemon.exposedTo ?? [];
   const manageable = daemon.manageable !== false;
   const [exposeInput, setExposeInput] = useState("");
@@ -164,31 +165,53 @@ function DaemonCard({ daemon }: { daemon: AgentDaemon }) {
         {daemon.mine === false ? " · an agent you co-own" : ""}
       </p>
       <p className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">
-        {ciSlices.length === 0 ? (
-          "Not a CI daemon of any slice"
+        {ciAccounts.length === 0 && ciSlices.length === 0 ? (
+          "Not a CI daemon of any account or slice"
         ) : (
           <>
-            CI daemon of{" "}
-            {ciSlices.map((ref, index) => {
-              const params = toSliceRouteParams(ref);
-              const label = `${ref.account}/${ref.slice}`;
-              return (
-                <span key={label}>
-                  {index > 0 ? ", " : ""}
-                  {params ? (
+            {ciAccounts.length > 0 ? (
+              <>
+                Account CI runner for{" "}
+                {ciAccounts.map((acct, index) => (
+                  <span key={acct}>
+                    {index > 0 ? ", " : ""}
                     <Link
                       className="underline decoration-slate-300 underline-offset-2 hover:decoration-slate-700"
-                      params={params}
-                      to="/slices/$account/$slice/settings"
+                      params={{ account: acct }}
+                      to="/accounts/$account"
                     >
-                      {label}
+                      @{acct}
                     </Link>
-                  ) : (
-                    label
-                  )}
-                </span>
-              );
-            })}
+                  </span>
+                ))}
+                {ciSlices.length > 0 ? " · " : ""}
+              </>
+            ) : null}
+            {ciSlices.length > 0 ? (
+              <>
+                CI daemon of{" "}
+                {ciSlices.map((ref, index) => {
+                  const params = toSliceRouteParams(ref);
+                  const label = `${ref.account}/${ref.slice}`;
+                  return (
+                    <span key={label}>
+                      {index > 0 ? ", " : ""}
+                      {params ? (
+                        <Link
+                          className="underline decoration-slate-300 underline-offset-2 hover:decoration-slate-700"
+                          params={params}
+                          to="/slices/$account/$slice/settings"
+                        >
+                          {label}
+                        </Link>
+                      ) : (
+                        label
+                      )}
+                    </span>
+                  );
+                })}
+              </>
+            ) : null}
           </>
         )}
       </p>

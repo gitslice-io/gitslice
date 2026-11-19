@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
 import type { AgentDaemon, Slice, SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { daemonName } from "../../lib/daemons";
+import { accountCIDaemonsQuery } from "../../queries/accounts";
 import { sliceDaemonsQuery } from "../../queries/agents";
 import { sliceRefKey } from "../../queries/slices";
 import { SlicePanel, getErrorMessage } from "./SlicePageParts";
@@ -34,6 +36,13 @@ export function SliceCIDaemonPanel({
     ...sliceDaemonsQuery(api, { account: routeAccount, slice: routeSlice }),
     enabled: Boolean(slice)
   });
+
+  const accountPoolQuery = useQuery({
+    ...accountCIDaemonsQuery(api, routeAccount),
+    enabled: Boolean(routeAccount)
+  });
+  const accountPoolIds = accountPoolQuery.data?.daemonIds ?? [];
+  const accountPoolNames = accountPoolQuery.data?.daemonNames ?? [];
 
   const ciDaemonMutation = useMutation({
     mutationFn: async (change: CIDaemonChange) => {
@@ -102,8 +111,15 @@ export function SliceCIDaemonPanel({
         <div className="min-w-0">
           <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">CI daemon</h2>
           <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-            Full-tree checks for this slice run on the selected online agent daemon. Add backups to make a pool:
-            each check goes to the first daemon in the list that is online.
+            By default this slice inherits{" "}
+            <Link
+              className="font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+              params={{ account: routeAccount }}
+              to="/accounts/$account"
+            >
+              @{routeAccount}
+            </Link>
+            &apos;s account CI runners. Set a daemon here only to override the account pool for this slice.
           </p>
           <p className="mt-3 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
             {pool.length > 1 ? "Pool" : "Current"}
@@ -138,6 +154,15 @@ export function SliceCIDaemonPanel({
                 {currentDaemonId}
               </code>
             </>
+          ) : accountPoolIds.length > 0 ? (
+            <p className="mt-1 text-sm text-zinc-950 dark:text-zinc-50">
+              Inherited from @{routeAccount}:{" "}
+              <span className="font-medium">
+                {accountPoolIds
+                  .map((id, i) => accountPoolNames[i] || id)
+                  .join(", ")}
+              </span>
+            </p>
           ) : (
             <p className="mt-1 text-sm text-zinc-950 dark:text-zinc-50">none</p>
           )}
@@ -153,7 +178,9 @@ export function SliceCIDaemonPanel({
               onChange={(event) => ciDaemonMutation.mutate({ daemonId: event.target.value })}
               value={currentDaemonId}
             >
-              <option value="">None</option>
+              <option value="">
+                {accountPoolIds.length > 0 ? `Inherit from @${routeAccount}` : "None"}
+              </option>
               {currentDaemonId && !currentIsOnline ? (
                 <option value={currentDaemonId}>
                   {daemonLabel(currentDaemon, currentDaemonId)} (current)

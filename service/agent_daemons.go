@@ -325,6 +325,7 @@ func (s *AgentService) attachCISlices(ctx context.Context, subjectID string, dae
 		ids[i] = d.Id
 		byID[d.Id] = d
 		d.CiSlices = nil
+		d.CiAccounts = nil
 	}
 	slices, err := s.Slices.ListByCIDaemon(ctx, ids)
 	if err != nil {
@@ -340,6 +341,31 @@ func (s *AgentService) attachCISlices(ctx context.Context, subjectID string, dae
 		}
 		if d := byID[slice.CiDaemonId]; d != nil {
 			d.CiSlices = append(d.CiSlices, slice.Ref)
+		}
+	}
+	accountsByDaemon, err := s.Slices.ListAccountsByCIDaemon(ctx, ids)
+	if err != nil {
+		return grpcError(err)
+	}
+	readableAccount := map[string]bool{}
+	for daemonID, accounts := range accountsByDaemon {
+		d := byID[daemonID]
+		if d == nil {
+			continue
+		}
+		for _, account := range accounts {
+			allowed, known := readableAccount[account]
+			if !known {
+				ok, err := canAuthorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead)
+				if err != nil {
+					return err
+				}
+				allowed = ok
+				readableAccount[account] = allowed
+			}
+			if allowed {
+				d.CiAccounts = append(d.CiAccounts, account)
+			}
 		}
 	}
 	return nil

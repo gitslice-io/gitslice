@@ -533,6 +533,14 @@ func (a connectSliceServiceAdapter) SetSliceCIDaemon(ctx context.Context, req *c
 	return connectResponse(a.svc.SetSliceCIDaemon(ctx, req.Msg))
 }
 
+func (a connectSliceServiceAdapter) GetAccountCIDaemons(ctx context.Context, req *connect.Request[corev1.GetAccountCIDaemonsRequest]) (*connect.Response[corev1.AccountCIDaemonsResponse], error) {
+	return connectResponse(a.svc.GetAccountCIDaemons(ctx, req.Msg))
+}
+
+func (a connectSliceServiceAdapter) SetAccountCIDaemon(ctx context.Context, req *connect.Request[corev1.SetAccountCIDaemonRequest]) (*connect.Response[corev1.AccountCIDaemonsResponse], error) {
+	return connectResponse(a.svc.SetAccountCIDaemon(ctx, req.Msg))
+}
+
 func (a connectSliceServiceAdapter) SetSliceSecret(ctx context.Context, req *connect.Request[corev1.SetSliceSecretRequest]) (*connect.Response[corev1.Empty], error) {
 	return connectResponse(a.svc.SetSliceSecret(ctx, req.Msg))
 }

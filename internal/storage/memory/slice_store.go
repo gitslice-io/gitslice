@@ -276,6 +276,100 @@ func (s *SliceStore) ListByCIDaemon(ctx context.Context, daemonIDs []string) ([]
 	return out, nil
 }
 
+func (s *SliceStore) AccountCIDaemons(ctx context.Context, account string) ([]string, []string, error) {
+	account = strings.ToLower(strings.TrimSpace(account))
+	if account == "" {
+		return nil, nil, fmt.Errorf("%w: account is required", storage.ErrInvalid)
+	}
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	pool := append([]string(nil), s.b.accountCIDaemons[account]...)
+	names := make([]string, len(pool))
+	for i, id := range pool {
+		names[i] = s.daemonNameLocked(id)
+	}
+	return pool, names, nil
+}
+
+func (s *SliceStore) SetAccountCIDaemons(ctx context.Context, account string, daemonIDs []string) ([]string, []string, error) {
+	account = strings.ToLower(strings.TrimSpace(account))
+	if account == "" {
+		return nil, nil, fmt.Errorf("%w: account is required", storage.ErrInvalid)
+	}
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	if !s.accountExistsLocked(account) {
+		return nil, nil, storage.ErrNotFound
+	}
+	pool := storage.NormalizeCIDaemons(daemonIDs)
+	if len(pool) == 0 {
+		delete(s.b.accountCIDaemons, account)
+	} else {
+		s.b.accountCIDaemons[account] = pool
+	}
+	names := make([]string, len(pool))
+	for i, id := range pool {
+		names[i] = s.daemonNameLocked(id)
+	}
+	return append([]string(nil), pool...), names, nil
+}
+
+func (s *SliceStore) ListAccountsByCIDaemon(ctx context.Context, daemonIDs []string) (map[string][]string, error) {
+	if len(daemonIDs) == 0 {
+		return nil, nil
+	}
+	wanted := map[string]bool{}
+	for _, id := range daemonIDs {
+		wanted[id] = true
+	}
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	out := map[string][]string{}
+	for account, pool := range s.b.accountCIDaemons {
+		for _, id := range pool {
+			if wanted[id] {
+				out[id] = append(out[id], account)
+			}
+		}
+	}
+	for id := range out {
+		sort.Strings(out[id])
+	}
+	return out, nil
+}
+
+func (s *SliceStore) accountExistsLocked(account string) bool {
+	if s.b.orgAccounts[account] {
+		return true
+	}
+	if _, ok := s.b.accountMembers[account]; ok {
+		return true
+	}
+	for _, slug := range s.b.personalAccounts {
+		if slug == account {
+			return true
+		}
+	}
+	for _, slice := range s.b.slices {
+		if slice != nil && slice.Ref != nil && strings.EqualFold(slice.Ref.Account, account) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *SliceStore) daemonNameLocked(id string) string {
+	if d := s.b.agentDaemons[id]; d != nil {
+		if d.DisplayName != "" {
+			return d.DisplayName
+		}
+		if d.Name != "" {
+			return d.Name
+		}
+	}
+	return id
+}
+
 // withCIDaemonName fills in the name the slice's CI daemon is shown by. The
 // caller holds the lock.
 func (s *SliceStore) withCIDaemonName(slice *corev1.Slice) *corev1.Slice {

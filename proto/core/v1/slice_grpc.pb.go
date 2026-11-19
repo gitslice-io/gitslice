@@ -26,6 +26,8 @@ const (
 	SliceService_ListSliceDefinitionVersions_FullMethodName = "/gitslice.core.v1.SliceService/ListSliceDefinitionVersions"
 	SliceService_UpdateSliceDefinition_FullMethodName       = "/gitslice.core.v1.SliceService/UpdateSliceDefinition"
 	SliceService_SetSliceCIDaemon_FullMethodName            = "/gitslice.core.v1.SliceService/SetSliceCIDaemon"
+	SliceService_GetAccountCIDaemons_FullMethodName         = "/gitslice.core.v1.SliceService/GetAccountCIDaemons"
+	SliceService_SetAccountCIDaemon_FullMethodName          = "/gitslice.core.v1.SliceService/SetAccountCIDaemon"
 	SliceService_SetSliceSecret_FullMethodName              = "/gitslice.core.v1.SliceService/SetSliceSecret"
 	SliceService_DeleteSliceSecret_FullMethodName           = "/gitslice.core.v1.SliceService/DeleteSliceSecret"
 	SliceService_ListSliceSecrets_FullMethodName            = "/gitslice.core.v1.SliceService/ListSliceSecrets"
@@ -57,6 +59,10 @@ type SliceServiceClient interface {
 	ListSliceDefinitionVersions(ctx context.Context, in *ListSliceDefinitionVersionsRequest, opts ...grpc.CallOption) (*ListSliceDefinitionVersionsResponse, error)
 	UpdateSliceDefinition(ctx context.Context, in *UpdateSliceDefinitionRequest, opts ...grpc.CallOption) (*SliceDefinition, error)
 	SetSliceCIDaemon(ctx context.Context, in *SetSliceCIDaemonRequest, opts ...grpc.CallOption) (*Slice, error)
+	// Account-level CI runner pool: checks and folder triggers in any slice of
+	// the account run on these daemons unless the slice sets an explicit override.
+	GetAccountCIDaemons(ctx context.Context, in *GetAccountCIDaemonsRequest, opts ...grpc.CallOption) (*AccountCIDaemonsResponse, error)
+	SetAccountCIDaemon(ctx context.Context, in *SetAccountCIDaemonRequest, opts ...grpc.CallOption) (*AccountCIDaemonsResponse, error)
 	// SetSliceSecret sets the value of the secret NAME on this slice's
 	// included paths, creating one there if there is none
 	// (design/33_secrets.md). It fails with FailedPrecondition when NAME comes
@@ -185,6 +191,24 @@ func (c *sliceServiceClient) UpdateSliceDefinition(ctx context.Context, in *Upda
 func (c *sliceServiceClient) SetSliceCIDaemon(ctx context.Context, in *SetSliceCIDaemonRequest, opts ...grpc.CallOption) (*Slice, error) {
 	out := new(Slice)
 	err := c.cc.Invoke(ctx, SliceService_SetSliceCIDaemon_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sliceServiceClient) GetAccountCIDaemons(ctx context.Context, in *GetAccountCIDaemonsRequest, opts ...grpc.CallOption) (*AccountCIDaemonsResponse, error) {
+	out := new(AccountCIDaemonsResponse)
+	err := c.cc.Invoke(ctx, SliceService_GetAccountCIDaemons_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sliceServiceClient) SetAccountCIDaemon(ctx context.Context, in *SetAccountCIDaemonRequest, opts ...grpc.CallOption) (*AccountCIDaemonsResponse, error) {
+	out := new(AccountCIDaemonsResponse)
+	err := c.cc.Invoke(ctx, SliceService_SetAccountCIDaemon_FullMethodName, in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -364,6 +388,10 @@ type SliceServiceServer interface {
 	ListSliceDefinitionVersions(context.Context, *ListSliceDefinitionVersionsRequest) (*ListSliceDefinitionVersionsResponse, error)
 	UpdateSliceDefinition(context.Context, *UpdateSliceDefinitionRequest) (*SliceDefinition, error)
 	SetSliceCIDaemon(context.Context, *SetSliceCIDaemonRequest) (*Slice, error)
+	// Account-level CI runner pool: checks and folder triggers in any slice of
+	// the account run on these daemons unless the slice sets an explicit override.
+	GetAccountCIDaemons(context.Context, *GetAccountCIDaemonsRequest) (*AccountCIDaemonsResponse, error)
+	SetAccountCIDaemon(context.Context, *SetAccountCIDaemonRequest) (*AccountCIDaemonsResponse, error)
 	// SetSliceSecret sets the value of the secret NAME on this slice's
 	// included paths, creating one there if there is none
 	// (design/33_secrets.md). It fails with FailedPrecondition when NAME comes
@@ -451,6 +479,12 @@ func (UnimplementedSliceServiceServer) UpdateSliceDefinition(context.Context, *U
 }
 func (UnimplementedSliceServiceServer) SetSliceCIDaemon(context.Context, *SetSliceCIDaemonRequest) (*Slice, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetSliceCIDaemon not implemented")
+}
+func (UnimplementedSliceServiceServer) GetAccountCIDaemons(context.Context, *GetAccountCIDaemonsRequest) (*AccountCIDaemonsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAccountCIDaemons not implemented")
+}
+func (UnimplementedSliceServiceServer) SetAccountCIDaemon(context.Context, *SetAccountCIDaemonRequest) (*AccountCIDaemonsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetAccountCIDaemon not implemented")
 }
 func (UnimplementedSliceServiceServer) SetSliceSecret(context.Context, *SetSliceSecretRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetSliceSecret not implemented")
@@ -640,6 +674,42 @@ func _SliceService_SetSliceCIDaemon_Handler(srv interface{}, ctx context.Context
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(SliceServiceServer).SetSliceCIDaemon(ctx, req.(*SetSliceCIDaemonRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SliceService_GetAccountCIDaemons_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetAccountCIDaemonsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).GetAccountCIDaemons(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_GetAccountCIDaemons_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).GetAccountCIDaemons(ctx, req.(*GetAccountCIDaemonsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SliceService_SetAccountCIDaemon_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetAccountCIDaemonRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SliceServiceServer).SetAccountCIDaemon(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SliceService_SetAccountCIDaemon_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SliceServiceServer).SetAccountCIDaemon(ctx, req.(*SetAccountCIDaemonRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -1002,6 +1072,14 @@ var SliceService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetSliceCIDaemon",
 			Handler:    _SliceService_SetSliceCIDaemon_Handler,
+		},
+		{
+			MethodName: "GetAccountCIDaemons",
+			Handler:    _SliceService_GetAccountCIDaemons_Handler,
+		},
+		{
+			MethodName: "SetAccountCIDaemon",
+			Handler:    _SliceService_SetAccountCIDaemon_Handler,
 		},
 		{
 			MethodName: "SetSliceSecret",

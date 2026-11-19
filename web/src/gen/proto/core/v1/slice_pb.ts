@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/slice.proto.
  */
 export const file_proto_core_v1_slice: GenFile = /*@__PURE__*/
-  fileDesc("Chlwcm90by9jb3JlL3YxL3NsaWNlLnByb3RvEhBnaXRzbGljZS5jb3JlLnYxIt8BCgNUYWcSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgwKBG5hbWUYAiABKAkSEQoJY29tbWl0X2lkGAMgASgJEhoKEmRlZmluaXRpb25fdmVyc2lvbhgEIAEoAxIPCgdtZXNzYWdlGAUgASgJEhIKCmNyZWF0ZWRfYnkYBiABKAkSEgoKY3JlYXRlZF9hdBgHIAEoCRI3CgthdHRyaWJ1dGlvbhgIIAEoCzIiLmdpdHNsaWNlLmNvcmUudjEuQWN0b3JBdHRyaWJ1dGlvbiJvChBDcmVhdGVUYWdSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIMCgRuYW1lGAIgASgJEhEKCWNvbW1pdF9pZBgDIAEoCRIPCgdtZXNzYWdlGAQgASgJIjwKD0xpc3RUYWdzUmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYiNwoQTGlzdFRhZ3NSZXNwb25zZRIjCgR0YWdzGAEgAygLMhUuZ2l0c2xpY2UuY29yZS52MS5UYWci7gIKBVNsaWNlEgoKAmlkGAEgASgJEicKA3JlZhgCIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSNQoKZGVmaW5pdGlvbhgDIAEoCzIhLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VEZWZpbml0aW9uEhcKD2RlZmluaXRpb25faGFzaBgEIAEoCRIUCgxjaV9kYWVtb25faWQYBSABKAkSEAoIYXJjaGl2ZWQYBiABKAgSFAoMZm9ybWVyX25hbWVzGAcgAygJEhYKDmNpX2RhZW1vbl9uYW1lGAggASgJEhMKC2Rlc2NyaXB0aW9uGAkgASgJEhcKD21lcmdlX29uX3N1Ym1pdBgKIAEoCBISCgpjcmVhdGVkX2F0GAsgASgJEhgKEGxhc3RfYWN0aXZpdHlfYXQYDCABKAkSFQoNY2lfZGFlbW9uX2lkcxgNIAMoCRIXCg9jaV9kYWVtb25fbmFtZXMYDiADKAkiygEKD1NsaWNlRGVmaW5pdGlvbhIQCghzbGljZV9pZBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgDEhYKDmluY2x1ZGVkX3BhdGhzGAMgAygJEhIKCnZpc2liaWxpdHkYBCABKAkSGgoScmVxdWlyZWRfYXBwcm92YWxzGAUgASgFEhcKD3JlcXVpcmVkX2NoZWNrcxgGIAMoCRIgChhyZXF1aXJlZF9odW1hbl9hcHByb3ZhbHMYByABKAUSEQoJYXBwcm92ZXJzGAggASgJIpICChZTbGljZURlZmluaXRpb25WZXJzaW9uEhAKCHNsaWNlX2lkGAEgASgJEg8KB3ZlcnNpb24YAiABKAMSFwoPZGVmaW5pdGlvbl9oYXNoGAMgASgJEhIKCnZpc2liaWxpdHkYBCABKAkSFgoOaW5jbHVkZWRfcGF0aHMYBSADKAkSGgoScmVxdWlyZWRfYXBwcm92YWxzGAYgASgFEhcKD3JlcXVpcmVkX2NoZWNrcxgHIAMoCRISCgpjcmVhdGVkX2F0GAggASgJEhIKCmNyZWF0ZWRfYnkYCSABKAkSIAoYcmVxdWlyZWRfaHVtYW5fYXBwcm92YWxzGAogASgFEhEKCWFwcHJvdmVycxgLIAEoCSLoAQoSQ3JlYXRlU2xpY2VSZXF1ZXN0EicKA3JlZhgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSFgoOaW5jbHVkZWRfcGF0aHMYAiADKAkSEgoKdmlzaWJpbGl0eRgDIAEoCRIaChJyZXF1aXJlZF9hcHByb3ZhbHMYBCABKAUSFwoPcmVxdWlyZWRfY2hlY2tzGAUgAygJEhMKC2Rlc2NyaXB0aW9uGAYgASgJEiAKGHJlcXVpcmVkX2h1bWFuX2FwcHJvdmFscxgHIAEoBRIRCglhcHByb3ZlcnMYCCABKAkiPgoTUmVzb2x2ZVNsaWNlUmVxdWVzdBInCgNyZWYYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmIiMKD0dldFNsaWNlUmVxdWVzdBIQCghzbGljZV9pZBgBIAEoCSJvChFMaXN0U2xpY2VzUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEg4KBmN1cnNvchgCIAEoCRIRCglwYWdlX3NpemUYAyABKAUSGAoQaW5jbHVkZV9hcmNoaXZlZBgEIAEoCBIMCgRzb3J0GAUgASgJImgKEkxpc3RTbGljZXNSZXNwb25zZRInCgZzbGljZXMYASADKAsyFy5naXRzbGljZS5jb3JlLnYxLlNsaWNlEhMKC25leHRfY3Vyc29yGAIgASgJEhQKDGFjY291bnRfa2luZBgDIAEoCSJJCiJMaXN0U2xpY2VEZWZpbml0aW9uVmVyc2lvbnNSZXF1ZXN0EhAKCHNsaWNlX2lkGAEgASgJEhEKCXBhZ2Vfc2l6ZRgCIAEoBSJhCiNMaXN0U2xpY2VEZWZpbml0aW9uVmVyc2lvbnNSZXNwb25zZRI6Cgh2ZXJzaW9ucxgBIAMoCzIoLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VEZWZpbml0aW9uVmVyc2lvbiKJAQocVXBkYXRlU2xpY2VEZWZpbml0aW9uUmVxdWVzdBIQCghzbGljZV9pZBgBIAEoCRIgChhleHBlY3RlZF9kZWZpbml0aW9uX2hhc2gYAiABKAkSNQoKZGVmaW5pdGlvbhgDIAEoCzIhLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VEZWZpbml0aW9uInQKF1NldFNsaWNlQ0lEYWVtb25SZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIRCglkYWVtb25faWQYAiABKAkSCwoDYWRkGAMgASgIEg4KBnJlbW92ZRgEIAEoCCJfChVTZXRTbGljZVNlY3JldFJlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgwKBG5hbWUYAiABKAkSDQoFdmFsdWUYAyABKAkiUwoYRGVsZXRlU2xpY2VTZWNyZXRSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIMCgRuYW1lGAIgASgJIkQKF0xpc3RTbGljZVNlY3JldHNSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiJZChhMaXN0U2xpY2VTZWNyZXRzUmVzcG9uc2USDQoFbmFtZXMYASADKAkSLgoHc2VjcmV0cxgCIAMoCzIdLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VTZWNyZXQiggEKC1NsaWNlU2VjcmV0EgwKBG5hbWUYASABKAkSEQoJc2VjcmV0X2lkGAIgASgJEhIKCmFsbF9zbGljZXMYAyABKAgSLwoLc2hhcmVkX3dpdGgYBCADKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEg0KBXBhdGhzGAUgAygJIiYKEkRlbGV0ZVNsaWNlUmVxdWVzdBIQCghzbGljZV9pZBgBIAEoCSI9ChNEZWxldGVTbGljZVJlc3BvbnNlEhAKCHNsaWNlX2lkGAEgASgJEhQKDGhpc3Rvcnlfa2VwdBgCIAEoCCJRChJSZW5hbWVTbGljZVJlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhAKCG5ld19uYW1lGAIgASgJIlYKF1NldFNsaWNlQXJjaGl2ZWRSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIQCghhcmNoaXZlZBgCIAEoCCL2AgoOU2xpY2VHaXRNaXJyb3ISKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgsKA3VybBgCIAEoCRIOCgZicmFuY2gYAyABKAkSEAoIdXNlcm5hbWUYBCABKAkSFAoMdG9rZW5fc2VjcmV0GAUgASgJEgwKBHJvb3QYBiABKAkSDwoHcGVuZGluZxgHIAEoCBIXCg9sYXN0X2F0dGVtcHRfYXQYCCABKAkSFgoObGFzdF9wdXNoZWRfYXQYCSABKAkSGgoSbGFzdF9wdXNoZWRfY29tbWl0GAogASgJEiEKGWxhc3RfcHVzaGVkX25hdGl2ZV9jb21taXQYCyABKAkSEgoKbGFzdF9lcnJvchgMIAEoCRIXCg9uZXh0X2F0dGVtcHRfYXQYDSABKAkSEAoIZmFpbHVyZXMYDiABKAUSEgoKY3JlYXRlZF9ieRgPIAEoCRISCgp1cGRhdGVkX2F0GBAgASgJIkUKGEdldFNsaWNlR2l0TWlycm9yUmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYiigEKGFNldFNsaWNlR2l0TWlycm9yUmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSCwoDdXJsGAIgASgJEg4KBmJyYW5jaBgDIAEoCRIQCgh1c2VybmFtZRgEIAEoCRIUCgx0b2tlbl9zZWNyZXQYBSABKAkiSAobRGVsZXRlU2xpY2VHaXRNaXJyb3JSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiJGChlQdXNoU2xpY2VHaXRNaXJyb3JSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiJaChxTZXRTbGljZU1lcmdlT25TdWJtaXRSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIPCgdlbmFibGVkGAIgASgIIlwKGlNldFNsaWNlRGVzY3JpcHRpb25SZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhITCgtkZXNjcmlwdGlvbhgCIAEoCSKLAQoLU2xpY2VNZW1iZXISEAoIdXNlcm5hbWUYASABKAkSEgoKc3ViamVjdF9pZBgCIAEoCRIMCgRyb2xlGAMgASgJEhQKDGRpc3BsYXlfbmFtZRgEIAEoCRIMCgRraW5kGAUgASgJEhAKCGFkZGVkX2J5GAYgASgJEhIKCmNyZWF0ZWRfYXQYByABKAkinQEKEFNsaWNlR3JvdXBNZW1iZXISEAoIZ3JvdXBfaWQYASABKAkSDwoHYWNjb3VudBgCIAEoCRIMCgRuYW1lGAMgASgJEg4KBmhhbmRsZRgEIAEoCRIMCgRyb2xlGAUgASgJEhAKCGFkZGVkX2J5GAYgASgJEhIKCmNyZWF0ZWRfYXQYByABKAkSFAoMbWVtYmVyX2NvdW50GAggASgFIkQKF0xpc3RTbGljZU1lbWJlcnNSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiKwAQoYTGlzdFNsaWNlTWVtYmVyc1Jlc3BvbnNlEikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIuCgdtZW1iZXJzGAIgAygLMh0uZ2l0c2xpY2UuY29yZS52MS5TbGljZU1lbWJlchI5Cg1ncm91cF9tZW1iZXJzGAMgAygLMiIuZ2l0c2xpY2UuY29yZS52MS5TbGljZUdyb3VwTWVtYmVyImIKFVNldFNsaWNlTWVtYmVyUmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSEAoIdXNlcm5hbWUYAiABKAkSDAoEcm9sZRgDIAEoCSJXChhSZW1vdmVTbGljZU1lbWJlclJlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhAKCHVzZXJuYW1lGAIgASgJIhkKF0xpc3RTaGFyZWRTbGljZXNSZXF1ZXN0IkMKC1NoYXJlZFNsaWNlEiYKBXNsaWNlGAEgASgLMhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRIMCgRyb2xlGAIgASgJIkkKGExpc3RTaGFyZWRTbGljZXNSZXNwb25zZRItCgZzbGljZXMYASADKAsyHS5naXRzbGljZS5jb3JlLnYxLlNoYXJlZFNsaWNlMqkSCgxTbGljZVNlcnZpY2USTAoLQ3JlYXRlU2xpY2USJC5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZVNsaWNlUmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuU2xpY2USTgoMUmVzb2x2ZVNsaWNlEiUuZ2l0c2xpY2UuY29yZS52MS5SZXNvbHZlU2xpY2VSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRJGCghHZXRTbGljZRIhLmdpdHNsaWNlLmNvcmUudjEuR2V0U2xpY2VSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRJXCgpMaXN0U2xpY2VzEiMuZ2l0c2xpY2UuY29yZS52MS5MaXN0U2xpY2VzUmVxdWVzdBokLmdpdHNsaWNlLmNvcmUudjEuTGlzdFNsaWNlc1Jlc3BvbnNlEooBChtMaXN0U2xpY2VEZWZpbml0aW9uVmVyc2lvbnMSNC5naXRzbGljZS5jb3JlLnYxLkxpc3RTbGljZURlZmluaXRpb25WZXJzaW9uc1JlcXVlc3QaNS5naXRzbGljZS5jb3JlLnYxLkxpc3RTbGljZURlZmluaXRpb25WZXJzaW9uc1Jlc3BvbnNlEmoKFVVwZGF0ZVNsaWNlRGVmaW5pdGlvbhIuLmdpdHNsaWNlLmNvcmUudjEuVXBkYXRlU2xpY2VEZWZpbml0aW9uUmVxdWVzdBohLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VEZWZpbml0aW9uElYKEFNldFNsaWNlQ0lEYWVtb24SKS5naXRzbGljZS5jb3JlLnYxLlNldFNsaWNlQ0lEYWVtb25SZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRJSCg5TZXRTbGljZVNlY3JldBInLmdpdHNsaWNlLmNvcmUudjEuU2V0U2xpY2VTZWNyZXRSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5FbXB0eRJYChFEZWxldGVTbGljZVNlY3JldBIqLmdpdHNsaWNlLmNvcmUudjEuRGVsZXRlU2xpY2VTZWNyZXRSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5FbXB0eRJpChBMaXN0U2xpY2VTZWNyZXRzEikuZ2l0c2xpY2UuY29yZS52MS5MaXN0U2xpY2VTZWNyZXRzUmVxdWVzdBoqLmdpdHNsaWNlLmNvcmUudjEuTGlzdFNsaWNlU2VjcmV0c1Jlc3BvbnNlEloKC0RlbGV0ZVNsaWNlEiQuZ2l0c2xpY2UuY29yZS52MS5EZWxldGVTbGljZVJlcXVlc3QaJS5naXRzbGljZS5jb3JlLnYxLkRlbGV0ZVNsaWNlUmVzcG9uc2USTAoLUmVuYW1lU2xpY2USJC5naXRzbGljZS5jb3JlLnYxLlJlbmFtZVNsaWNlUmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuU2xpY2USVgoQU2V0U2xpY2VBcmNoaXZlZBIpLmdpdHNsaWNlLmNvcmUudjEuU2V0U2xpY2VBcmNoaXZlZFJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLlNsaWNlElwKE1NldFNsaWNlRGVzY3JpcHRpb24SLC5naXRzbGljZS5jb3JlLnYxLlNldFNsaWNlRGVzY3JpcHRpb25SZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRJgChVTZXRTbGljZU1lcmdlT25TdWJtaXQSLi5naXRzbGljZS5jb3JlLnYxLlNldFNsaWNlTWVyZ2VPblN1Ym1pdFJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLlNsaWNlEmEKEUdldFNsaWNlR2l0TWlycm9yEiouZ2l0c2xpY2UuY29yZS52MS5HZXRTbGljZUdpdE1pcnJvclJlcXVlc3QaIC5naXRzbGljZS5jb3JlLnYxLlNsaWNlR2l0TWlycm9yEmEKEVNldFNsaWNlR2l0TWlycm9yEiouZ2l0c2xpY2UuY29yZS52MS5TZXRTbGljZUdpdE1pcnJvclJlcXVlc3QaIC5naXRzbGljZS5jb3JlLnYxLlNsaWNlR2l0TWlycm9yEl4KFERlbGV0ZVNsaWNlR2l0TWlycm9yEi0uZ2l0c2xpY2UuY29yZS52MS5EZWxldGVTbGljZUdpdE1pcnJvclJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLkVtcHR5EmMKElB1c2hTbGljZUdpdE1pcnJvchIrLmdpdHNsaWNlLmNvcmUudjEuUHVzaFNsaWNlR2l0TWlycm9yUmVxdWVzdBogLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VHaXRNaXJyb3ISRgoJQ3JlYXRlVGFnEiIuZ2l0c2xpY2UuY29yZS52MS5DcmVhdGVUYWdSZXF1ZXN0GhUuZ2l0c2xpY2UuY29yZS52MS5UYWcSUQoITGlzdFRhZ3MSIS5naXRzbGljZS5jb3JlLnYxLkxpc3RUYWdzUmVxdWVzdBoiLmdpdHNsaWNlLmNvcmUudjEuTGlzdFRhZ3NSZXNwb25zZRJpChBMaXN0U2xpY2VNZW1iZXJzEikuZ2l0c2xpY2UuY29yZS52MS5MaXN0U2xpY2VNZW1iZXJzUmVxdWVzdBoqLmdpdHNsaWNlLmNvcmUudjEuTGlzdFNsaWNlTWVtYmVyc1Jlc3BvbnNlElgKDlNldFNsaWNlTWVtYmVyEicuZ2l0c2xpY2UuY29yZS52MS5TZXRTbGljZU1lbWJlclJlcXVlc3QaHS5naXRzbGljZS5jb3JlLnYxLlNsaWNlTWVtYmVyElgKEVJlbW92ZVNsaWNlTWVtYmVyEiouZ2l0c2xpY2UuY29yZS52MS5SZW1vdmVTbGljZU1lbWJlclJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLkVtcHR5EmkKEExpc3RTaGFyZWRTbGljZXMSKS5naXRzbGljZS5jb3JlLnYxLkxpc3RTaGFyZWRTbGljZXNSZXF1ZXN0GiouZ2l0c2xpY2UuY29yZS52MS5MaXN0U2hhcmVkU2xpY2VzUmVzcG9uc2VCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw", [file_proto_core_v1_common]);
+  fileDesc("Chlwcm90by9jb3JlL3YxL3NsaWNlLnByb3RvEhBnaXRzbGljZS5jb3JlLnYxIt8BCgNUYWcSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgwKBG5hbWUYAiABKAkSEQoJY29tbWl0X2lkGAMgASgJEhoKEmRlZmluaXRpb25fdmVyc2lvbhgEIAEoAxIPCgdtZXNzYWdlGAUgASgJEhIKCmNyZWF0ZWRfYnkYBiABKAkSEgoKY3JlYXRlZF9hdBgHIAEoCRI3CgthdHRyaWJ1dGlvbhgIIAEoCzIiLmdpdHNsaWNlLmNvcmUudjEuQWN0b3JBdHRyaWJ1dGlvbiJvChBDcmVhdGVUYWdSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIMCgRuYW1lGAIgASgJEhEKCWNvbW1pdF9pZBgDIAEoCRIPCgdtZXNzYWdlGAQgASgJIjwKD0xpc3RUYWdzUmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYiNwoQTGlzdFRhZ3NSZXNwb25zZRIjCgR0YWdzGAEgAygLMhUuZ2l0c2xpY2UuY29yZS52MS5UYWci7gIKBVNsaWNlEgoKAmlkGAEgASgJEicKA3JlZhgCIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSNQoKZGVmaW5pdGlvbhgDIAEoCzIhLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VEZWZpbml0aW9uEhcKD2RlZmluaXRpb25faGFzaBgEIAEoCRIUCgxjaV9kYWVtb25faWQYBSABKAkSEAoIYXJjaGl2ZWQYBiABKAgSFAoMZm9ybWVyX25hbWVzGAcgAygJEhYKDmNpX2RhZW1vbl9uYW1lGAggASgJEhMKC2Rlc2NyaXB0aW9uGAkgASgJEhcKD21lcmdlX29uX3N1Ym1pdBgKIAEoCBISCgpjcmVhdGVkX2F0GAsgASgJEhgKEGxhc3RfYWN0aXZpdHlfYXQYDCABKAkSFQoNY2lfZGFlbW9uX2lkcxgNIAMoCRIXCg9jaV9kYWVtb25fbmFtZXMYDiADKAkiygEKD1NsaWNlRGVmaW5pdGlvbhIQCghzbGljZV9pZBgBIAEoCRIPCgd2ZXJzaW9uGAIgASgDEhYKDmluY2x1ZGVkX3BhdGhzGAMgAygJEhIKCnZpc2liaWxpdHkYBCABKAkSGgoScmVxdWlyZWRfYXBwcm92YWxzGAUgASgFEhcKD3JlcXVpcmVkX2NoZWNrcxgGIAMoCRIgChhyZXF1aXJlZF9odW1hbl9hcHByb3ZhbHMYByABKAUSEQoJYXBwcm92ZXJzGAggASgJIpICChZTbGljZURlZmluaXRpb25WZXJzaW9uEhAKCHNsaWNlX2lkGAEgASgJEg8KB3ZlcnNpb24YAiABKAMSFwoPZGVmaW5pdGlvbl9oYXNoGAMgASgJEhIKCnZpc2liaWxpdHkYBCABKAkSFgoOaW5jbHVkZWRfcGF0aHMYBSADKAkSGgoScmVxdWlyZWRfYXBwcm92YWxzGAYgASgFEhcKD3JlcXVpcmVkX2NoZWNrcxgHIAMoCRISCgpjcmVhdGVkX2F0GAggASgJEhIKCmNyZWF0ZWRfYnkYCSABKAkSIAoYcmVxdWlyZWRfaHVtYW5fYXBwcm92YWxzGAogASgFEhEKCWFwcHJvdmVycxgLIAEoCSLoAQoSQ3JlYXRlU2xpY2VSZXF1ZXN0EicKA3JlZhgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSFgoOaW5jbHVkZWRfcGF0aHMYAiADKAkSEgoKdmlzaWJpbGl0eRgDIAEoCRIaChJyZXF1aXJlZF9hcHByb3ZhbHMYBCABKAUSFwoPcmVxdWlyZWRfY2hlY2tzGAUgAygJEhMKC2Rlc2NyaXB0aW9uGAYgASgJEiAKGHJlcXVpcmVkX2h1bWFuX2FwcHJvdmFscxgHIAEoBRIRCglhcHByb3ZlcnMYCCABKAkiPgoTUmVzb2x2ZVNsaWNlUmVxdWVzdBInCgNyZWYYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmIiMKD0dldFNsaWNlUmVxdWVzdBIQCghzbGljZV9pZBgBIAEoCSJvChFMaXN0U2xpY2VzUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEg4KBmN1cnNvchgCIAEoCRIRCglwYWdlX3NpemUYAyABKAUSGAoQaW5jbHVkZV9hcmNoaXZlZBgEIAEoCBIMCgRzb3J0GAUgASgJImgKEkxpc3RTbGljZXNSZXNwb25zZRInCgZzbGljZXMYASADKAsyFy5naXRzbGljZS5jb3JlLnYxLlNsaWNlEhMKC25leHRfY3Vyc29yGAIgASgJEhQKDGFjY291bnRfa2luZBgDIAEoCSJJCiJMaXN0U2xpY2VEZWZpbml0aW9uVmVyc2lvbnNSZXF1ZXN0EhAKCHNsaWNlX2lkGAEgASgJEhEKCXBhZ2Vfc2l6ZRgCIAEoBSJhCiNMaXN0U2xpY2VEZWZpbml0aW9uVmVyc2lvbnNSZXNwb25zZRI6Cgh2ZXJzaW9ucxgBIAMoCzIoLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VEZWZpbml0aW9uVmVyc2lvbiKJAQocVXBkYXRlU2xpY2VEZWZpbml0aW9uUmVxdWVzdBIQCghzbGljZV9pZBgBIAEoCRIgChhleHBlY3RlZF9kZWZpbml0aW9uX2hhc2gYAiABKAkSNQoKZGVmaW5pdGlvbhgDIAEoCzIhLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VEZWZpbml0aW9uInQKF1NldFNsaWNlQ0lEYWVtb25SZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIRCglkYWVtb25faWQYAiABKAkSCwoDYWRkGAMgASgIEg4KBnJlbW92ZRgEIAEoCCJfChVTZXRTbGljZVNlY3JldFJlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgwKBG5hbWUYAiABKAkSDQoFdmFsdWUYAyABKAkiUwoYRGVsZXRlU2xpY2VTZWNyZXRSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIMCgRuYW1lGAIgASgJIkQKF0xpc3RTbGljZVNlY3JldHNSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiJZChhMaXN0U2xpY2VTZWNyZXRzUmVzcG9uc2USDQoFbmFtZXMYASADKAkSLgoHc2VjcmV0cxgCIAMoCzIdLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VTZWNyZXQiggEKC1NsaWNlU2VjcmV0EgwKBG5hbWUYASABKAkSEQoJc2VjcmV0X2lkGAIgASgJEhIKCmFsbF9zbGljZXMYAyABKAgSLwoLc2hhcmVkX3dpdGgYBCADKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEg0KBXBhdGhzGAUgAygJIiYKEkRlbGV0ZVNsaWNlUmVxdWVzdBIQCghzbGljZV9pZBgBIAEoCSI9ChNEZWxldGVTbGljZVJlc3BvbnNlEhAKCHNsaWNlX2lkGAEgASgJEhQKDGhpc3Rvcnlfa2VwdBgCIAEoCCJRChJSZW5hbWVTbGljZVJlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhAKCG5ld19uYW1lGAIgASgJIlYKF1NldFNsaWNlQXJjaGl2ZWRSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIQCghhcmNoaXZlZBgCIAEoCCL2AgoOU2xpY2VHaXRNaXJyb3ISKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEgsKA3VybBgCIAEoCRIOCgZicmFuY2gYAyABKAkSEAoIdXNlcm5hbWUYBCABKAkSFAoMdG9rZW5fc2VjcmV0GAUgASgJEgwKBHJvb3QYBiABKAkSDwoHcGVuZGluZxgHIAEoCBIXCg9sYXN0X2F0dGVtcHRfYXQYCCABKAkSFgoObGFzdF9wdXNoZWRfYXQYCSABKAkSGgoSbGFzdF9wdXNoZWRfY29tbWl0GAogASgJEiEKGWxhc3RfcHVzaGVkX25hdGl2ZV9jb21taXQYCyABKAkSEgoKbGFzdF9lcnJvchgMIAEoCRIXCg9uZXh0X2F0dGVtcHRfYXQYDSABKAkSEAoIZmFpbHVyZXMYDiABKAUSEgoKY3JlYXRlZF9ieRgPIAEoCRISCgp1cGRhdGVkX2F0GBAgASgJIkUKGEdldFNsaWNlR2l0TWlycm9yUmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYiigEKGFNldFNsaWNlR2l0TWlycm9yUmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSCwoDdXJsGAIgASgJEg4KBmJyYW5jaBgDIAEoCRIQCgh1c2VybmFtZRgEIAEoCRIUCgx0b2tlbl9zZWNyZXQYBSABKAkiSAobRGVsZXRlU2xpY2VHaXRNaXJyb3JSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiJGChlQdXNoU2xpY2VHaXRNaXJyb3JSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiJaChxTZXRTbGljZU1lcmdlT25TdWJtaXRSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIPCgdlbmFibGVkGAIgASgIIlwKGlNldFNsaWNlRGVzY3JpcHRpb25SZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhITCgtkZXNjcmlwdGlvbhgCIAEoCSKLAQoLU2xpY2VNZW1iZXISEAoIdXNlcm5hbWUYASABKAkSEgoKc3ViamVjdF9pZBgCIAEoCRIMCgRyb2xlGAMgASgJEhQKDGRpc3BsYXlfbmFtZRgEIAEoCRIMCgRraW5kGAUgASgJEhAKCGFkZGVkX2J5GAYgASgJEhIKCmNyZWF0ZWRfYXQYByABKAkinQEKEFNsaWNlR3JvdXBNZW1iZXISEAoIZ3JvdXBfaWQYASABKAkSDwoHYWNjb3VudBgCIAEoCRIMCgRuYW1lGAMgASgJEg4KBmhhbmRsZRgEIAEoCRIMCgRyb2xlGAUgASgJEhAKCGFkZGVkX2J5GAYgASgJEhIKCmNyZWF0ZWRfYXQYByABKAkSFAoMbWVtYmVyX2NvdW50GAggASgFIkQKF0xpc3RTbGljZU1lbWJlcnNSZXF1ZXN0EikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiKwAQoYTGlzdFNsaWNlTWVtYmVyc1Jlc3BvbnNlEikKBXNsaWNlGAEgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIuCgdtZW1iZXJzGAIgAygLMh0uZ2l0c2xpY2UuY29yZS52MS5TbGljZU1lbWJlchI5Cg1ncm91cF9tZW1iZXJzGAMgAygLMiIuZ2l0c2xpY2UuY29yZS52MS5TbGljZUdyb3VwTWVtYmVyImIKFVNldFNsaWNlTWVtYmVyUmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSEAoIdXNlcm5hbWUYAiABKAkSDAoEcm9sZRgDIAEoCSJXChhSZW1vdmVTbGljZU1lbWJlclJlcXVlc3QSKQoFc2xpY2UYASABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhAKCHVzZXJuYW1lGAIgASgJIhkKF0xpc3RTaGFyZWRTbGljZXNSZXF1ZXN0IkMKC1NoYXJlZFNsaWNlEiYKBXNsaWNlGAEgASgLMhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRIMCgRyb2xlGAIgASgJIkkKGExpc3RTaGFyZWRTbGljZXNSZXNwb25zZRItCgZzbGljZXMYASADKAsyHS5naXRzbGljZS5jb3JlLnYxLlNoYXJlZFNsaWNlIi0KGkdldEFjY291bnRDSURhZW1vbnNSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkiXAoZU2V0QWNjb3VudENJRGFlbW9uUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEhEKCWRhZW1vbl9pZBgCIAEoCRILCgNhZGQYAyABKAgSDgoGcmVtb3ZlGAQgASgIIlUKGEFjY291bnRDSURhZW1vbnNSZXNwb25zZRIPCgdhY2NvdW50GAEgASgJEhIKCmRhZW1vbl9pZHMYAiADKAkSFAoMZGFlbW9uX25hbWVzGAMgAygJMokUCgxTbGljZVNlcnZpY2USTAoLQ3JlYXRlU2xpY2USJC5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZVNsaWNlUmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuU2xpY2USTgoMUmVzb2x2ZVNsaWNlEiUuZ2l0c2xpY2UuY29yZS52MS5SZXNvbHZlU2xpY2VSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRJGCghHZXRTbGljZRIhLmdpdHNsaWNlLmNvcmUudjEuR2V0U2xpY2VSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRJXCgpMaXN0U2xpY2VzEiMuZ2l0c2xpY2UuY29yZS52MS5MaXN0U2xpY2VzUmVxdWVzdBokLmdpdHNsaWNlLmNvcmUudjEuTGlzdFNsaWNlc1Jlc3BvbnNlEooBChtMaXN0U2xpY2VEZWZpbml0aW9uVmVyc2lvbnMSNC5naXRzbGljZS5jb3JlLnYxLkxpc3RTbGljZURlZmluaXRpb25WZXJzaW9uc1JlcXVlc3QaNS5naXRzbGljZS5jb3JlLnYxLkxpc3RTbGljZURlZmluaXRpb25WZXJzaW9uc1Jlc3BvbnNlEmoKFVVwZGF0ZVNsaWNlRGVmaW5pdGlvbhIuLmdpdHNsaWNlLmNvcmUudjEuVXBkYXRlU2xpY2VEZWZpbml0aW9uUmVxdWVzdBohLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VEZWZpbml0aW9uElYKEFNldFNsaWNlQ0lEYWVtb24SKS5naXRzbGljZS5jb3JlLnYxLlNldFNsaWNlQ0lEYWVtb25SZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRJvChNHZXRBY2NvdW50Q0lEYWVtb25zEiwuZ2l0c2xpY2UuY29yZS52MS5HZXRBY2NvdW50Q0lEYWVtb25zUmVxdWVzdBoqLmdpdHNsaWNlLmNvcmUudjEuQWNjb3VudENJRGFlbW9uc1Jlc3BvbnNlEm0KElNldEFjY291bnRDSURhZW1vbhIrLmdpdHNsaWNlLmNvcmUudjEuU2V0QWNjb3VudENJRGFlbW9uUmVxdWVzdBoqLmdpdHNsaWNlLmNvcmUudjEuQWNjb3VudENJRGFlbW9uc1Jlc3BvbnNlElIKDlNldFNsaWNlU2VjcmV0EicuZ2l0c2xpY2UuY29yZS52MS5TZXRTbGljZVNlY3JldFJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLkVtcHR5ElgKEURlbGV0ZVNsaWNlU2VjcmV0EiouZ2l0c2xpY2UuY29yZS52MS5EZWxldGVTbGljZVNlY3JldFJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLkVtcHR5EmkKEExpc3RTbGljZVNlY3JldHMSKS5naXRzbGljZS5jb3JlLnYxLkxpc3RTbGljZVNlY3JldHNSZXF1ZXN0GiouZ2l0c2xpY2UuY29yZS52MS5MaXN0U2xpY2VTZWNyZXRzUmVzcG9uc2USWgoLRGVsZXRlU2xpY2USJC5naXRzbGljZS5jb3JlLnYxLkRlbGV0ZVNsaWNlUmVxdWVzdBolLmdpdHNsaWNlLmNvcmUudjEuRGVsZXRlU2xpY2VSZXNwb25zZRJMCgtSZW5hbWVTbGljZRIkLmdpdHNsaWNlLmNvcmUudjEuUmVuYW1lU2xpY2VSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRJWChBTZXRTbGljZUFyY2hpdmVkEikuZ2l0c2xpY2UuY29yZS52MS5TZXRTbGljZUFyY2hpdmVkUmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuU2xpY2USXAoTU2V0U2xpY2VEZXNjcmlwdGlvbhIsLmdpdHNsaWNlLmNvcmUudjEuU2V0U2xpY2VEZXNjcmlwdGlvblJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLlNsaWNlEmAKFVNldFNsaWNlTWVyZ2VPblN1Ym1pdBIuLmdpdHNsaWNlLmNvcmUudjEuU2V0U2xpY2VNZXJnZU9uU3VibWl0UmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuU2xpY2USYQoRR2V0U2xpY2VHaXRNaXJyb3ISKi5naXRzbGljZS5jb3JlLnYxLkdldFNsaWNlR2l0TWlycm9yUmVxdWVzdBogLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VHaXRNaXJyb3ISYQoRU2V0U2xpY2VHaXRNaXJyb3ISKi5naXRzbGljZS5jb3JlLnYxLlNldFNsaWNlR2l0TWlycm9yUmVxdWVzdBogLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VHaXRNaXJyb3ISXgoURGVsZXRlU2xpY2VHaXRNaXJyb3ISLS5naXRzbGljZS5jb3JlLnYxLkRlbGV0ZVNsaWNlR2l0TWlycm9yUmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuRW1wdHkSYwoSUHVzaFNsaWNlR2l0TWlycm9yEisuZ2l0c2xpY2UuY29yZS52MS5QdXNoU2xpY2VHaXRNaXJyb3JSZXF1ZXN0GiAuZ2l0c2xpY2UuY29yZS52MS5TbGljZUdpdE1pcnJvchJGCglDcmVhdGVUYWcSIi5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZVRhZ1JlcXVlc3QaFS5naXRzbGljZS5jb3JlLnYxLlRhZxJRCghMaXN0VGFncxIhLmdpdHNsaWNlLmNvcmUudjEuTGlzdFRhZ3NSZXF1ZXN0GiIuZ2l0c2xpY2UuY29yZS52MS5MaXN0VGFnc1Jlc3BvbnNlEmkKEExpc3RTbGljZU1lbWJlcnMSKS5naXRzbGljZS5jb3JlLnYxLkxpc3RTbGljZU1lbWJlcnNSZXF1ZXN0GiouZ2l0c2xpY2UuY29yZS52MS5MaXN0U2xpY2VNZW1iZXJzUmVzcG9uc2USWAoOU2V0U2xpY2VNZW1iZXISJy5naXRzbGljZS5jb3JlLnYxLlNldFNsaWNlTWVtYmVyUmVxdWVzdBodLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VNZW1iZXISWAoRUmVtb3ZlU2xpY2VNZW1iZXISKi5naXRzbGljZS5jb3JlLnYxLlJlbW92ZVNsaWNlTWVtYmVyUmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuRW1wdHkSaQoQTGlzdFNoYXJlZFNsaWNlcxIpLmdpdHNsaWNlLmNvcmUudjEuTGlzdFNoYXJlZFNsaWNlc1JlcXVlc3QaKi5naXRzbGljZS5jb3JlLnYxLkxpc3RTaGFyZWRTbGljZXNSZXNwb25zZUIrWilnaXRzbGljZS5pby9naXRzbGljZS9wcm90by9jb3JlL3YxO2NvcmV2MWIGcHJvdG8z", [file_proto_core_v1_common]);
 
 /**
  * @generated from message gitslice.core.v1.Tag
@@ -29,11 +29,15 @@ export type Tag = Message<"gitslice.core.v1.Tag"> & {
   name: string;
 
   /**
+   * Native commit on refs/global/main.
+   *
    * @generated from field: string commit_id = 3;
    */
   commitId: string;
 
   /**
+   * The slice definition version the tag was created under.
+   *
    * @generated from field: int64 definition_version = 4;
    */
   definitionVersion: bigint;
@@ -44,6 +48,8 @@ export type Tag = Message<"gitslice.core.v1.Tag"> & {
   message: string;
 
   /**
+   * Username of the creator, or their subject id when they have none.
+   *
    * @generated from field: string created_by = 6;
    */
   createdBy: string;
@@ -76,11 +82,15 @@ export type CreateTagRequest = Message<"gitslice.core.v1.CreateTagRequest"> & {
   slice?: SliceRef | undefined;
 
   /**
+   * Git ref syntax, for example v1.2.0 or release/2026-10.
+   *
    * @generated from field: string name = 2;
    */
   name: string;
 
   /**
+   * Defaults to the current head of refs/global/main.
+   *
    * @generated from field: string commit_id = 3;
    */
   commitId: string;
@@ -162,41 +172,65 @@ export type Slice = Message<"gitslice.core.v1.Slice"> & {
   ciDaemonId: string;
 
   /**
+   * Archived slices are read-only and left out of listings unless asked for.
+   *
    * @generated from field: bool archived = 6;
    */
   archived: boolean;
 
   /**
+   * Names the slice had before it was renamed. They still resolve to it.
+   *
    * @generated from field: repeated string former_names = 7;
    */
   formerNames: string[];
 
   /**
+   * ci_daemon_name is the name the CI daemon is shown by (its display name,
+   * else the name it registered with); "" when there is none.
+   *
    * @generated from field: string ci_daemon_name = 8;
    */
   ciDaemonName: string;
 
   /**
+   * description is a short note shown on the slice's page, such as what it
+   * holds or which project it mirrors; "" when there is none.
+   *
    * @generated from field: string description = 9;
    */
   description: string;
 
   /**
+   * merge_on_submit: a changeset whose base went stale is merged onto the
+   * latest base by the server when it is submitted (a new patchset, which
+   * reruns CI), instead of being refused (design/07 section 7.4).
+   *
    * @generated from field: bool merge_on_submit = 10;
    */
   mergeOnSubmit: boolean;
 
   /**
+   * created_at is when the slice was created. Set in listings only.
+   *
    * @generated from field: string created_at = 11;
    */
   createdAt: string;
 
   /**
+   * last_activity_at is when a changeset authored from the slice last landed,
+   * else created_at. Set in listings only, for sorting by recent activity.
+   *
    * @generated from field: string last_activity_at = 12;
    */
   lastActivityAt: string;
 
   /**
+   * ci_daemon_ids is the slice's pool of CI daemons, in order of preference
+   * (design/32_ci_dispatch_on_cloudflare.md, layer 3). A check run goes to
+   * the first one that is online and exposed to the slice; ci_daemon_id is
+   * the first of them. ci_daemon_names are their names, in the same order.
+   *
    * @generated from field: repeated string ci_daemon_ids = 13;
    */
   ciDaemonIds: string[];
@@ -254,6 +288,8 @@ export type SliceDefinition = Message<"gitslice.core.v1.SliceDefinition"> & {
   requiredHumanApprovals: number;
 
   /**
+   * Optional "@account/name" group whose approvals count toward approval gates.
+   *
    * @generated from field: string approvers = 8;
    */
   approvers: string;
@@ -439,11 +475,17 @@ export type ListSlicesRequest = Message<"gitslice.core.v1.ListSlicesRequest"> & 
   pageSize: number;
 
   /**
+   * Include archived slices, which are left out otherwise.
+   *
    * @generated from field: bool include_archived = 4;
    */
   includeArchived: boolean;
 
   /**
+   * Optional sort order: "" or "name" (default, slug ascending), "active"
+   * (home first, then most recently active), or "newest" (home first, then
+   * newest created_at).
+   *
    * @generated from field: string sort = 5;
    */
   sort: string;
@@ -471,6 +513,9 @@ export type ListSlicesResponse = Message<"gitslice.core.v1.ListSlicesResponse"> 
   nextCursor: string;
 
   /**
+   * What the account is: personal or organization. Public, like its public
+   * slices, so an account page can say so to anyone.
+   *
    * @generated from field: string account_kind = 3;
    */
   accountKind: string;
@@ -559,11 +604,16 @@ export type SetSliceCIDaemonRequest = Message<"gitslice.core.v1.SetSliceCIDaemon
   slice?: SliceRef | undefined;
 
   /**
+   * daemon_id alone makes it the slice's only CI daemon ("" clears the pool).
+   *
    * @generated from field: string daemon_id = 2;
    */
   daemonId: string;
 
   /**
+   * add appends daemon_id to the slice's pool of CI daemons, keeping the
+   * others; remove takes it out.
+   *
    * @generated from field: bool add = 3;
    */
   add: boolean;
@@ -657,6 +707,9 @@ export type ListSliceSecretsResponse = Message<"gitslice.core.v1.ListSliceSecret
   names: string[];
 
   /**
+   * Where each one comes from; filled only for the account's owners and
+   * admins.
+   *
    * @generated from field: repeated gitslice.core.v1.SliceSecret secrets = 2;
    */
   secrets: SliceSecret[];
@@ -670,6 +723,8 @@ export const ListSliceSecretsResponseSchema: GenMessage<ListSliceSecretsResponse
   messageDesc(file_proto_core_v1_slice, 19);
 
 /**
+ * SliceSecret is a secret that applies somewhere in a slice.
+ *
  * @generated from message gitslice.core.v1.SliceSecret
  */
 export type SliceSecret = Message<"gitslice.core.v1.SliceSecret"> & {
@@ -684,16 +739,22 @@ export type SliceSecret = Message<"gitslice.core.v1.SliceSecret"> & {
   secretId: string;
 
   /**
+   * Deprecated: no longer filled.
+   *
    * @generated from field: bool all_slices = 3;
    */
   allSlices: boolean;
 
   /**
+   * Deprecated: no longer filled.
+   *
    * @generated from field: repeated gitslice.core.v1.SliceRef shared_with = 4;
    */
   sharedWith: SliceRef[];
 
   /**
+   * The folders it applies to (design/33_secrets.md).
+   *
    * @generated from field: repeated string paths = 5;
    */
   paths: string[];
@@ -733,6 +794,9 @@ export type DeleteSliceResponse = Message<"gitslice.core.v1.DeleteSliceResponse"
   sliceId: string;
 
   /**
+   * True when the slice had changesets: they remain, so the slice's history
+   * stays readable on the paths it covered.
+   *
    * @generated from field: bool history_kept = 2;
    */
   historyKept: boolean;
@@ -790,6 +854,8 @@ export const SetSliceArchivedRequestSchema: GenMessage<SetSliceArchivedRequest> 
   messageDesc(file_proto_core_v1_slice, 24);
 
 /**
+ * SliceGitMirror is a slice's Git mirror setting and its last push.
+ *
  * @generated from message gitslice.core.v1.SliceGitMirror
  */
 export type SliceGitMirror = Message<"gitslice.core.v1.SliceGitMirror"> & {
@@ -799,36 +865,52 @@ export type SliceGitMirror = Message<"gitslice.core.v1.SliceGitMirror"> & {
   slice?: SliceRef | undefined;
 
   /**
+   * An https Git URL, such as https://github.com/acme/app.git.
+   *
    * @generated from field: string url = 2;
    */
   url: string;
 
   /**
+   * The remote branch the slice's default target goes to (default main).
+   *
    * @generated from field: string branch = 3;
    */
   branch: string;
 
   /**
+   * The user name sent with the token (default x-access-token, for GitHub).
+   *
    * @generated from field: string username = 4;
    */
   username: string;
 
   /**
+   * The name of the account secret holding the token, visible at the
+   * slice's folders. Empty pushes without credentials.
+   *
    * @generated from field: string token_secret = 5;
    */
   tokenSecret: string;
 
   /**
+   * The folder that becomes the repository root (the slice's one root
+   * folder), or empty when the slice's paths are pushed in full.
+   *
    * @generated from field: string root = 6;
    */
   root: string;
 
   /**
+   * pending: something is waiting to be pushed.
+   *
    * @generated from field: bool pending = 7;
    */
   pending: boolean;
 
   /**
+   * RFC 3339 times; empty when never.
+   *
    * @generated from field: string last_attempt_at = 8;
    */
   lastAttemptAt: string;
@@ -839,6 +921,9 @@ export type SliceGitMirror = Message<"gitslice.core.v1.SliceGitMirror"> & {
   lastPushedAt: string;
 
   /**
+   * The mirror's head after the last good push, and the native commit it
+   * reflects.
+   *
    * @generated from field: string last_pushed_commit = 10;
    */
   lastPushedCommit: string;
@@ -849,11 +934,15 @@ export type SliceGitMirror = Message<"gitslice.core.v1.SliceGitMirror"> & {
   lastPushedNativeCommit: string;
 
   /**
+   * The last push's error, empty after a good one.
+   *
    * @generated from field: string last_error = 12;
    */
   lastError: string;
 
   /**
+   * When a failed push is tried again.
+   *
    * @generated from field: string next_attempt_at = 13;
    */
   nextAttemptAt: string;
@@ -1018,6 +1107,8 @@ export const SetSliceDescriptionRequestSchema: GenMessage<SetSliceDescriptionReq
  */
 export type SliceMember = Message<"gitslice.core.v1.SliceMember"> & {
   /**
+   * The member's username (own account); empty if they have none.
+   *
    * @generated from field: string username = 1;
    */
   username: string;
@@ -1028,26 +1119,36 @@ export type SliceMember = Message<"gitslice.core.v1.SliceMember"> & {
   subjectId: string;
 
   /**
+   * admin, writer or reader.
+   *
    * @generated from field: string role = 3;
    */
   role: string;
 
   /**
+   * The display name on the member's account profile, when set.
+   *
    * @generated from field: string display_name = 4;
    */
   displayName: string;
 
   /**
+   * person or agent.
+   *
    * @generated from field: string kind = 5;
    */
   kind: string;
 
   /**
+   * Username of whoever gave the role.
+   *
    * @generated from field: string added_by = 6;
    */
   addedBy: string;
 
   /**
+   * RFC 3339.
+   *
    * @generated from field: string created_at = 7;
    */
   createdAt: string;
@@ -1080,11 +1181,15 @@ export type SliceGroupMember = Message<"gitslice.core.v1.SliceGroupMember"> & {
   name: string;
 
   /**
+   * "@account/name".
+   *
    * @generated from field: string handle = 4;
    */
   handle: string;
 
   /**
+   * admin, writer, contributor or reader.
+   *
    * @generated from field: string role = 5;
    */
   role: string;
@@ -1166,11 +1271,15 @@ export type SetSliceMemberRequest = Message<"gitslice.core.v1.SetSliceMemberRequ
   slice?: SliceRef | undefined;
 
   /**
+   * The username to give the role to.
+   *
    * @generated from field: string username = 2;
    */
   username: string;
 
   /**
+   * admin, writer or reader.
+   *
    * @generated from field: string role = 3;
    */
   role: string;
@@ -1193,6 +1302,8 @@ export type RemoveSliceMemberRequest = Message<"gitslice.core.v1.RemoveSliceMemb
   slice?: SliceRef | undefined;
 
   /**
+   * The member to remove; empty means the caller (leaving the slice).
+   *
    * @generated from field: string username = 2;
    */
   username: string;
@@ -1228,6 +1339,8 @@ export type SharedSlice = Message<"gitslice.core.v1.SharedSlice"> & {
   slice?: Slice | undefined;
 
   /**
+   * The caller's role on it: admin, writer or reader.
+   *
    * @generated from field: string role = 2;
    */
   role: string;
@@ -1256,6 +1369,85 @@ export type ListSharedSlicesResponse = Message<"gitslice.core.v1.ListSharedSlice
  */
 export const ListSharedSlicesResponseSchema: GenMessage<ListSharedSlicesResponse> = /*@__PURE__*/
   messageDesc(file_proto_core_v1_slice, 40);
+
+/**
+ * @generated from message gitslice.core.v1.GetAccountCIDaemonsRequest
+ */
+export type GetAccountCIDaemonsRequest = Message<"gitslice.core.v1.GetAccountCIDaemonsRequest"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.GetAccountCIDaemonsRequest.
+ * Use `create(GetAccountCIDaemonsRequestSchema)` to create a new message.
+ */
+export const GetAccountCIDaemonsRequestSchema: GenMessage<GetAccountCIDaemonsRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_slice, 41);
+
+/**
+ * @generated from message gitslice.core.v1.SetAccountCIDaemonRequest
+ */
+export type SetAccountCIDaemonRequest = Message<"gitslice.core.v1.SetAccountCIDaemonRequest"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+
+  /**
+   * daemon_id replaces the account's CI runner pool when add and remove are
+   * false; "" clears it. add appends daemon_id; remove takes it out.
+   *
+   * @generated from field: string daemon_id = 2;
+   */
+  daemonId: string;
+
+  /**
+   * @generated from field: bool add = 3;
+   */
+  add: boolean;
+
+  /**
+   * @generated from field: bool remove = 4;
+   */
+  remove: boolean;
+};
+
+/**
+ * Describes the message gitslice.core.v1.SetAccountCIDaemonRequest.
+ * Use `create(SetAccountCIDaemonRequestSchema)` to create a new message.
+ */
+export const SetAccountCIDaemonRequestSchema: GenMessage<SetAccountCIDaemonRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_slice, 42);
+
+/**
+ * @generated from message gitslice.core.v1.AccountCIDaemonsResponse
+ */
+export type AccountCIDaemonsResponse = Message<"gitslice.core.v1.AccountCIDaemonsResponse"> & {
+  /**
+   * @generated from field: string account = 1;
+   */
+  account: string;
+
+  /**
+   * @generated from field: repeated string daemon_ids = 2;
+   */
+  daemonIds: string[];
+
+  /**
+   * @generated from field: repeated string daemon_names = 3;
+   */
+  daemonNames: string[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.AccountCIDaemonsResponse.
+ * Use `create(AccountCIDaemonsResponseSchema)` to create a new message.
+ */
+export const AccountCIDaemonsResponseSchema: GenMessage<AccountCIDaemonsResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_slice, 43);
 
 /**
  * @generated from service gitslice.core.v1.SliceService
@@ -1318,6 +1510,31 @@ export const SliceService: GenService<{
     output: typeof SliceSchema;
   },
   /**
+   * Account-level CI runner pool: checks and folder triggers in any slice of
+   * the account run on these daemons unless the slice sets an explicit override.
+   *
+   * @generated from rpc gitslice.core.v1.SliceService.GetAccountCIDaemons
+   */
+  getAccountCIDaemons: {
+    methodKind: "unary";
+    input: typeof GetAccountCIDaemonsRequestSchema;
+    output: typeof AccountCIDaemonsResponseSchema;
+  },
+  /**
+   * @generated from rpc gitslice.core.v1.SliceService.SetAccountCIDaemon
+   */
+  setAccountCIDaemon: {
+    methodKind: "unary";
+    input: typeof SetAccountCIDaemonRequestSchema;
+    output: typeof AccountCIDaemonsResponseSchema;
+  },
+  /**
+   * SetSliceSecret sets the value of the secret NAME on this slice's
+   * included paths, creating one there if there is none
+   * (design/33_secrets.md). It fails with FailedPrecondition when NAME comes
+   * from a secret that also applies to other folders: change that one with
+   * SecretService instead.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.SetSliceSecret
    */
   setSliceSecret: {
@@ -1326,6 +1543,10 @@ export const SliceService: GenService<{
     output: typeof EmptySchema;
   },
   /**
+   * DeleteSliceSecret deletes the secret NAME on this slice's included paths,
+   * or takes those paths out of a secret that has others. A secret on a
+   * folder above the slice, such as the account root, cannot be removed here.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.DeleteSliceSecret
    */
   deleteSliceSecret: {
@@ -1334,6 +1555,9 @@ export const SliceService: GenService<{
     output: typeof EmptySchema;
   },
   /**
+   * ListSliceSecrets lists the names of the secrets that apply anywhere in
+   * the slice.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.ListSliceSecrets
    */
   listSliceSecrets: {
@@ -1342,6 +1566,11 @@ export const SliceService: GenService<{
     output: typeof ListSliceSecretsResponseSchema;
   },
   /**
+   * DeleteSlice removes a slice. One that has changesets is removed too when
+   * none of them is open and every path it includes is still covered by
+   * another slice: the changesets stay (history stays on the paths) and the
+   * name stays reserved.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.DeleteSlice
    */
   deleteSlice: {
@@ -1350,6 +1579,11 @@ export const SliceService: GenService<{
     output: typeof DeleteSliceResponseSchema;
   },
   /**
+   * RenameSlice gives a slice a new name in its account. History, members,
+   * settings and changesets move with it. The old name keeps resolving to the
+   * slice (Git URLs, Go import paths, workspaces) and stays reserved, so no
+   * other slice can take it. Requires admin access to the slice's account.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.RenameSlice
    */
   renameSlice: {
@@ -1358,6 +1592,10 @@ export const SliceService: GenService<{
     output: typeof SliceSchema;
   },
   /**
+   * SetSliceArchived hides a slice from listings and makes it read-only
+   * (archived), or restores it. Its history stays readable and its name stays
+   * reserved. Requires admin access to the slice's account.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.SetSliceArchived
    */
   setSliceArchived: {
@@ -1366,6 +1604,9 @@ export const SliceService: GenService<{
     output: typeof SliceSchema;
   },
   /**
+   * SetSliceDescription sets or, with "", clears a slice's description.
+   * Owners and admins of its account may change it.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.SetSliceDescription
    */
   setSliceDescription: {
@@ -1374,6 +1615,9 @@ export const SliceService: GenService<{
     output: typeof SliceSchema;
   },
   /**
+   * SetSliceMergeOnSubmit turns merging stale changesets on submit on or off
+   * (Slice.merge_on_submit). Owners and admins of its account may change it.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.SetSliceMergeOnSubmit
    */
   setSliceMergeOnSubmit: {
@@ -1382,6 +1626,11 @@ export const SliceService: GenService<{
     output: typeof SliceSchema;
   },
   /**
+   * Git mirrors (design/35_git_mirrors.md): the server pushes the slice's
+   * history and tags to a Git repository elsewhere, such as GitHub, after
+   * every landing and tag. Owners and admins of the slice's account see and
+   * change them. GetSliceGitMirror fails with NotFound when there is none.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.GetSliceGitMirror
    */
   getSliceGitMirror: {
@@ -1390,6 +1639,8 @@ export const SliceService: GenService<{
     output: typeof SliceGitMirrorSchema;
   },
   /**
+   * SetSliceGitMirror creates or replaces the slice's mirror and pushes soon.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.SetSliceGitMirror
    */
   setSliceGitMirror: {
@@ -1398,6 +1649,8 @@ export const SliceService: GenService<{
     output: typeof SliceGitMirrorSchema;
   },
   /**
+   * DeleteSliceGitMirror stops mirroring; the remote keeps what it has.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.DeleteSliceGitMirror
    */
   deleteSliceGitMirror: {
@@ -1406,6 +1659,8 @@ export const SliceService: GenService<{
     output: typeof EmptySchema;
   },
   /**
+   * PushSliceGitMirror pushes now, skipping any retry wait.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.PushSliceGitMirror
    */
   pushSliceGitMirror: {
@@ -1414,6 +1669,11 @@ export const SliceService: GenService<{
     output: typeof SliceGitMirrorSchema;
   },
   /**
+   * CreateTag names a native commit for this slice, for releases. Tags are
+   * immutable: creating an existing name again succeeds only for the same
+   * commit. Requires write access. The Git projection publishes each tag as
+   * refs/tags/<name>.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.CreateTag
    */
   createTag: {
@@ -1422,6 +1682,8 @@ export const SliceService: GenService<{
     output: typeof TagSchema;
   },
   /**
+   * ListTags lists a slice's tags, newest first. Readable like the slice.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.ListTags
    */
   listTags: {
@@ -1430,6 +1692,11 @@ export const SliceService: GenService<{
     output: typeof ListTagsResponseSchema;
   },
   /**
+   * Slice members (design/26_slice_members.md): people and agents given a
+   * role on one slice without joining its account. Anyone with a role on the
+   * slice (in the account or on the slice) lists them; the slice's admins add,
+   * change and remove them; members remove themselves.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.ListSliceMembers
    */
   listSliceMembers: {
@@ -1454,6 +1721,9 @@ export const SliceService: GenService<{
     output: typeof EmptySchema;
   },
   /**
+   * ListSharedSlices lists the slices shared with the caller, in other
+   * accounts or their own.
+   *
    * @generated from rpc gitslice.core.v1.SliceService.ListSharedSlices
    */
   listSharedSlices: {

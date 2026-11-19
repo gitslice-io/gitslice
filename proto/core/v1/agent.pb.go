@@ -48,7 +48,10 @@ type AgentDaemon struct {
 	Manageable bool `protobuf:"varint,13,opt,name=manageable,proto3" json:"manageable,omitempty"`
 	// exposed_to are the slices the daemon is exposed to, among those the caller
 	// can read. Only filled in for daemons the caller manages.
-	ExposedTo     []*SliceRef `protobuf:"bytes,12,rep,name=exposed_to,json=exposedTo,proto3" json:"exposed_to,omitempty"`
+	ExposedTo []*SliceRef `protobuf:"bytes,12,rep,name=exposed_to,json=exposedTo,proto3" json:"exposed_to,omitempty"`
+	// ci_accounts are the accounts that use this daemon in their account-level
+	// CI runner pool, among accounts the caller can read.
+	CiAccounts    []string `protobuf:"bytes,14,rep,name=ci_accounts,json=ciAccounts,proto3" json:"ci_accounts,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -170,6 +173,13 @@ func (x *AgentDaemon) GetManageable() bool {
 func (x *AgentDaemon) GetExposedTo() []*SliceRef {
 	if x != nil {
 		return x.ExposedTo
+	}
+	return nil
+}
+
+func (x *AgentDaemon) GetCiAccounts() []string {
+	if x != nil {
+		return x.CiAccounts
 	}
 	return nil
 }
@@ -3155,7 +3165,7 @@ var File_proto_core_v1_agent_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"\n" +
-	"\x19proto/core/v1/agent.proto\x12\x10gitslice.core.v1\x1a\x1aproto/core/v1/common.proto\"\xa3\x03\n" +
+	"\x19proto/core/v1/agent.proto\x12\x10gitslice.core.v1\x1a\x1aproto/core/v1/common.proto\"\xc4\x03\n" +
 	"\vAgentDaemon\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaccount\x18\x02 \x01(\tR\aaccount\x12\x12\n" +
@@ -3175,7 +3185,9 @@ const file_proto_core_v1_agent_proto_rawDesc = "" +
 	"manageable\x18\r \x01(\bR\n" +
 	"manageable\x129\n" +
 	"\n" +
-	"exposed_to\x18\f \x03(\v2\x1a.gitslice.core.v1.SliceRefR\texposedTo\"U\n" +
+	"exposed_to\x18\f \x03(\v2\x1a.gitslice.core.v1.SliceRefR\texposedTo\x12\x1f\n" +
+	"\vci_accounts\x18\x0e \x03(\tR\n" +
+	"ciAccounts\"U\n" +
 	"\x13RenameDaemonRequest\x12\x1b\n" +
 	"\tdaemon_id\x18\x01 \x01(\tR\bdaemonId\x12!\n" +
 	"\fdisplay_name\x18\x02 \x01(\tR\vdisplayName\"\xd8\x02\n" +

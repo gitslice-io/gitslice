@@ -58,10 +58,10 @@ func (d *checkDispatcher) dispatchCIChecks(ctx context.Context, cs *corev1.Chang
 		slog.Warn("failed to resolve check plan for dispatch", "changeset_id", cs.GetId(), "patchset_id", patchset.GetId(), "error", err)
 		return
 	}
-	// A daemon runs a slice's checks only while its owner keeps it exposed to
-	// the slice. Otherwise the checks error (sendChecks), without the daemon
-	// seeing the slice's secrets.
-	hasDaemon := len(storage.CIDaemonPool(slice)) > 0
+	// A daemon runs checks when configured on the slice (exposed to the slice)
+	// or inherited from the account's CI runner pool.
+	pool, _ := d.effectiveCIDaemonPool(ctx, slice)
+	hasDaemon := len(pool) > 0
 	var runnable []checks.CheckSpec
 	for _, spec := range plan.Runnable {
 		if spec.OutOfSlice {
@@ -113,7 +113,7 @@ func (d *checkDispatcher) sendChecks(ctx context.Context, cs *corev1.Changeset, 
 		}
 		created++
 		if daemonID == "" {
-			if _, err := d.Checks.UpdateCheckRunStatus(ctx, run.Id, "errored", -1, "slice has no full-tree CI runner configured; set the slice CI daemon to run out-of-slice checks"); err != nil {
+			if _, err := d.Checks.UpdateCheckRunStatus(ctx, run.Id, "errored", -1, "no CI runner configured for this account or slice; set an account CI runner or slice CI daemon"); err != nil {
 				slog.Warn("failed to mark ci check run errored without runner", "run_id", run.Id, "changeset_id", cs.Id, "patchset_id", patchset.Id, "check", spec.Name, "error", err)
 			}
 			continue
@@ -151,22 +151,44 @@ func (d *checkDispatcher) handOut(ctx context.Context, daemonID string) {
 	}
 }
 
-// pickDaemon chooses the daemon of the slice's pool that gets its check
-// runs: the first one exposed to the slice that is online, else the first
-// one exposed to it. With none exposed it returns the first daemon and why
-// it may not run them; with no pool, "".
+// effectiveCIDaemonPool returns the slice's explicit CI daemon pool if set,
+// else falls back to the account-level CI daemon pool.
+func (d *checkDispatcher) effectiveCIDaemonPool(ctx context.Context, slice *corev1.Slice) ([]string, bool) {
+	if pool := storage.CIDaemonPool(slice); len(pool) > 0 {
+		return pool, false
+	}
+	if d == nil || d.Slices == nil || slice == nil {
+		return nil, false
+	}
+	account := strings.TrimSpace(slice.GetRef().GetAccount())
+	if account == "" {
+		return nil, false
+	}
+	pool, _, err := d.Slices.AccountCIDaemons(ctx, account)
+	if err != nil || len(pool) == 0 {
+		return nil, false
+	}
+	return pool, true
+}
+
+// pickDaemon chooses the daemon of the effective CI pool (slice override or
+// account pool) that gets check runs: the first eligible one that is online,
+// else the first eligible one. With none eligible it returns the first daemon
+// and why it may not run them; with no pool, "".
 func (d *checkDispatcher) pickDaemon(ctx context.Context, slice *corev1.Slice) (string, string) {
-	pool := storage.CIDaemonPool(slice)
+	pool, fromAccount := d.effectiveCIDaemonPool(ctx, slice)
 	if len(pool) == 0 {
 		return "", ""
 	}
 	firstRefusal, fallback := "", ""
 	for _, daemonID := range pool {
-		if refusal := d.ciDaemonRefusal(ctx, slice.GetId(), daemonID); refusal != "" {
-			if firstRefusal == "" {
-				firstRefusal = refusal
+		if !fromAccount {
+			if refusal := d.ciDaemonRefusal(ctx, slice.GetId(), daemonID); refusal != "" {
+				if firstRefusal == "" {
+					firstRefusal = refusal
+				}
+				continue
 			}
-			continue
 		}
 		if d.daemonReachable(ctx, daemonID) {
 			return daemonID, ""
@@ -354,6 +376,36 @@ func (d *checkDispatcher) ciDaemonRefusal(ctx context.Context, sliceID, daemonID
 		return ""
 	}
 	return "the slice's CI daemon is not exposed to this slice (its owner may have withdrawn it); choose another CI daemon in the slice's settings, or ask the daemon's owner to expose it again"
+}
+
+// ciDaemonRefusalForSlice checks whether daemonID is still authorized to run
+// checks for slice: either explicitly exposed to slice (when slice sets its own
+// pool or has an exposure) or still listed in the account's CI runner pool.
+func (d *checkDispatcher) ciDaemonRefusalForSlice(ctx context.Context, slice *corev1.Slice, daemonID string) string {
+	daemonID = strings.TrimSpace(daemonID)
+	if d == nil || daemonID == "" || slice == nil {
+		return ""
+	}
+	if len(storage.CIDaemonPool(slice)) > 0 {
+		return d.ciDaemonRefusal(ctx, slice.GetId(), daemonID)
+	}
+	if d.Slices != nil {
+		if account := strings.TrimSpace(slice.GetRef().GetAccount()); account != "" {
+			if pool, _, err := d.Slices.AccountCIDaemons(ctx, account); err == nil {
+				for _, id := range pool {
+					if id == daemonID {
+						return ""
+					}
+				}
+			}
+		}
+	}
+	if d.Agents != nil {
+		if exposed, err := d.Agents.DaemonExposedTo(ctx, daemonID, slice.GetId()); err == nil && exposed {
+			return ""
+		}
+	}
+	return "the CI runner is no longer configured for this account or slice; choose a CI runner in account settings or slice settings"
 }
 
 func (d *checkDispatcher) cancelOpenCheckRunsBeforePatchset(ctx context.Context, changesetID, currentPatchsetID string) {

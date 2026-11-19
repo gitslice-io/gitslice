@@ -8,6 +8,18 @@ export const ACCOUNT_SLICES_PAGE_SIZE = 50;
 
 export const accountProfileKey = (account: string) => ["accountProfile", account] as const;
 
+export const accountCIDaemonsKey = (account: string) => ["accountCIDaemons", account] as const;
+
+export function accountCIDaemonsQuery(api: Pick<ApiClient, "getAccountCIDaemons">, account: string) {
+  return queryOptions({
+    queryKey: accountCIDaemonsKey(account),
+    queryFn: async () =>
+      typeof api.getAccountCIDaemons === "function"
+        ? api.getAccountCIDaemons({ account })
+        : { account, daemonIds: [], daemonNames: [] }
+  });
+}
+
 // An account's profile. Written by the account page's profile editor and read
 // by the SSR loader, so what is cached under the key is always the profile.
 export function accountProfileQuery(api: Pick<ApiClient, "getAccountProfile">, account: string) {

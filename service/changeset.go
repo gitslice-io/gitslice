@@ -343,7 +343,7 @@ func (s *ChangesetService) ReportCheckResult(ctx context.Context, req *corev1.Re
 				isController ||
 				hasCollaboratorSubject(cs, subjectID) ||
 				(patchset != nil && subjectID == strings.TrimSpace(patchset.GetAuthor()))
-			if (isAuthor && len(storage.CIDaemonPool(slice)) > 0) || s.isRequiredCheckOwnedByCIOrTrigger(ctx, cs, slice, patchset, checkName) {
+			if (isAuthor && s.hasCIDaemonForSlice(ctx, slice)) || s.isRequiredCheckOwnedByCIOrTrigger(ctx, cs, slice, patchset, checkName) {
 				return nil, status.Errorf(codes.PermissionDenied, "required check %q is gated by CI or triggers and cannot be marked passing manually", checkName)
 			}
 		}
@@ -353,6 +353,21 @@ func (s *ChangesetService) ReportCheckResult(ctx context.Context, req *corev1.Re
 		return nil, grpcError(err)
 	}
 	return res, nil
+}
+
+func (s *ChangesetService) hasCIDaemonForSlice(ctx context.Context, slice *corev1.Slice) bool {
+	if len(storage.CIDaemonPool(slice)) > 0 {
+		return true
+	}
+	if s == nil || s.Slices == nil || slice == nil {
+		return false
+	}
+	account := strings.TrimSpace(slice.GetRef().GetAccount())
+	if account == "" {
+		return false
+	}
+	pool, _, err := s.Slices.AccountCIDaemons(ctx, account)
+	return err == nil && len(pool) > 0
 }
 
 func (s *ChangesetService) isRequiredCheckOwnedByCIOrTrigger(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, checkName string) bool {
@@ -370,13 +385,14 @@ func (s *ChangesetService) isRequiredCheckOwnedByCIOrTrigger(ctx context.Context
 		}
 	}
 	if s.dispatcher != nil && slice != nil && patchset != nil {
+		hasDaemon := s.hasCIDaemonForSlice(ctx, slice)
 		if plan, err := s.dispatcher.resolveCheckPlan(ctx, slice, patchset); err == nil {
 			if spec, ok := plan.Spec(checkName); ok {
-				if len(storage.CIDaemonPool(slice)) > 0 || spec.OutOfSlice {
+				if hasDaemon || spec.OutOfSlice {
 					return true
 				}
 			}
-			if len(storage.CIDaemonPool(slice)) > 0 && checkPlanDefines(plan, checkName) {
+			if hasDaemon && checkPlanDefines(plan, checkName) {
 				return true
 			}
 		}

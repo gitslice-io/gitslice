@@ -239,9 +239,9 @@ func (d *checkDispatcher) rebuildRunChecksMessage(ctx context.Context, runs []*c
 	if err != nil {
 		return nil, err
 	}
-	// Queued runs for a daemon that is no longer exposed to the slice are not
-	// sent to it: they error, and the daemon never sees the slice's secrets.
-	if refusal := d.ciDaemonRefusal(ctx, slice.Id, first.DaemonId); refusal != "" {
+	// Queued runs for a daemon that is no longer authorized for the slice or
+	// account are not sent to it: they error, and the daemon never sees secrets.
+	if refusal := d.ciDaemonRefusalForSlice(ctx, slice, first.DaemonId); refusal != "" {
 		for _, run := range runs {
 			if _, err := d.Checks.UpdateCheckRunStatus(ctx, run.Id, "errored", -1, refusal); err != nil {
 				slog.Warn("failed to mark queued ci check run errored for an unexposed daemon", "run_id", run.Id, "error", err)

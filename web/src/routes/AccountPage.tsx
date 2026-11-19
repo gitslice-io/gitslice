@@ -10,6 +10,7 @@ import { accountProfileKey, accountProfileQuery, accountSlicesQuery } from "../q
 import { AccountAvatar, rememberAvatarVersion } from "../components/AccountAvatar";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
+import { AccountCIDaemonPanel } from "../components/slices/AccountCIDaemonPanel";
 import { AccountPeople } from "../components/slices/AccountPeople";
 import { AgentDaemons } from "../components/slices/AgentDaemons";
 import { OwnedAgents } from "../components/slices/OwnedAgents";
@@ -267,6 +268,10 @@ export function AccountPage() {
                 {slicesQuery.isFetchingNextPage ? "Loading…" : "Show more"}
               </button>
             </div>
+          ) : null}
+
+          {membership ? (
+            <AccountCIDaemonPanel account={account} canEdit={canAdmin(membership)} />
           ) : null}
 
           {membership?.kind === "personal" ? <YourAccounts memberships={memberships} /> : null}

@@ -80,6 +80,9 @@ message AgentDaemon {
   // exposed_to are the slices the daemon is exposed to, among those the caller
   // can read. Only filled in for daemons the caller manages.
   repeated SliceRef exposed_to = 12;
+  // ci_accounts are the accounts that use this daemon in their account-level
+  // CI runner pool, among accounts the caller can read.
+  repeated string ci_accounts = 14;
 }
 
 message RenameDaemonRequest {

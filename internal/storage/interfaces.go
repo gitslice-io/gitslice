@@ -147,6 +147,9 @@ type SliceStore interface {
 	UpdateDefinition(ctx context.Context, subjectID, sliceID, expectedHash string, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error)
 	SetCIDaemons(ctx context.Context, sliceID string, daemonIDs []string) (*corev1.Slice, error)
 	ListByCIDaemon(ctx context.Context, daemonIDs []string) ([]*corev1.Slice, error)
+	AccountCIDaemons(ctx context.Context, account string) (daemonIDs []string, daemonNames []string, err error)
+	SetAccountCIDaemons(ctx context.Context, account string, daemonIDs []string) (ids []string, names []string, err error)
+	ListAccountsByCIDaemon(ctx context.Context, daemonIDs []string) (map[string][]string, error)
 	Delete(ctx context.Context, sliceID string) error
 	Retire(ctx context.Context, sliceID string) error
 	ChangesetCounts(ctx context.Context, sliceID string) (total, open int, err error)
