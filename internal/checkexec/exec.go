@@ -36,6 +36,14 @@ const (
 	keptSetupImages    = 8
 )
 
+// outputWaitDelay bounds how long a check waits for its output to close
+// once its command has exited or been stopped. A process the check left
+// behind (a server started in the background, a process in its own
+// session) keeps the output pipe open, and without this bound the check
+// never finished: its daemon held the slot, so it never counted as idle
+// and never detached.
+var outputWaitDelay = 30 * time.Second
+
 type Result struct {
 	Status   string
 	ExitCode int32
@@ -289,9 +297,18 @@ func runCommand(ctx context.Context, cmd *exec.Cmd, timeout time.Duration, clean
 		cleanup()
 	}
 
+	cmdCtx.WaitDelay = outputWaitDelay
+
 	start := time.Now()
 	err := cmdCtx.Run()
 	runMs := time.Since(start).Milliseconds()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		// The command passed, but something it started still held its
+		// output open; stop what is left of its process group.
+		_ = killProcessGroup(cmdCtx)
+		output.Write([]byte(fmt.Sprintf("\ngitslice: the check exited but processes it started kept its output open for %s; stopped them\n", outputWaitDelay)))
+		err = nil
+	}
 	log := output.String()
 	if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 		_ = killProcessGroup(cmdCtx)

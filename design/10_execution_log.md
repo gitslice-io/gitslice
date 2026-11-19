@@ -9687,6 +9687,22 @@ pages are code-split, analytics waits for the page to load.
 - Test files still do not compile for Windows (FUSE, `Setpgid`, unix-only helpers); tests run on Linux and macOS only, so the check builds `gs`, not the tests.
 
 
+## 2026-11-19 — a connected daemon no longer keeps Neon awake
+
+**Why**
+- Neon had not scaled to zero since 2026-11-16 (about 1.6 transactions a second against a dozen requests an hour). One CI daemon stayed connected about 47 of 48 hours: its open `AgentService/Connect` stream counted as an in-flight request, so the activity gate never idled, and its heartbeats wrote `agent_daemons` every 20 seconds.
+- It never detached because one of its checks never ended. A check's command is killed with its process group at the timeout, but the runner then waited, without a bound, for the output pipe to close, and a process that left the group (or a background server the check started) holds it open. The daemon kept the slot, so it never counted as idle.
+
+**What changed**
+- `internal/checkexec`: checks wait at most 30 seconds (`outputWaitDelay`, `exec.Cmd.WaitDelay`) for their output after the command exits or is stopped. A passing command whose leftovers held the output still passes; the leftovers are killed and the log says so.
+- `internal/activity`: `DaemonConnectPath` is exempt from the gate. The Connect handler counts each non-heartbeat daemon message (check updates, agent events) as activity instead.
+- `service`: each daemon connection tracks the check runs sent to it. While the server is idle and the connection runs none, heartbeats write the daemon's status once an hour, with `standby_until` set past the next write, instead of on every heartbeat; claims are renewed as before while runs are in flight.
+- `AGENTS.md` "Idle When Unused" notes that a long-lived stream is not activity.
+
+**Verification**
+- New tests: `TestRunHostLeftoverProcessDoesNotHoldTheCheck` and `TestRunHostTimeoutWithEscapedProcessFinishes` (both hang without the fix), `TestDaemonHeartbeatLeavesTheDatabaseAloneWhileIdle`, `TestDaemonConnectPathIsAgentConnect`, and the gate's exempt-path test.
+- `go test` for `service`, `server`, `internal/activity`, `internal/agentd`, `internal/checkexec`, `internal/storage`; `gs` builds for darwin and windows.
+
 ## 2026-11-18 — Wave 2 architectural & code-quality refactoring sweep (R1–R10)
 
 **Why**

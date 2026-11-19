@@ -82,7 +82,7 @@ func TestNewIdleAndResetIdleStartAsleep(t *testing.T) {
 	}
 }
 
-func TestMiddlewareExemptsProbesMetricsAndOptions(t *testing.T) {
+func TestMiddlewareExemptsProbesMetricsOptionsAndDaemonStreams(t *testing.T) {
 	g := NewIdle(time.Minute)
 	called := 0
 	h := g.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -97,6 +97,7 @@ func TestMiddlewareExemptsProbesMetricsAndOptions(t *testing.T) {
 		httptest.NewRequest(http.MethodGet, "/readyz", nil),
 		httptest.NewRequest(http.MethodPost, "/grpc.health.v1.Health/Check", nil),
 		httptest.NewRequest(http.MethodPost, "/grpc.health.v1.Health/Watch", nil),
+		httptest.NewRequest(http.MethodPost, DaemonConnectPath, nil),
 	}
 	for _, req := range exempt {
 		rec := httptest.NewRecorder()

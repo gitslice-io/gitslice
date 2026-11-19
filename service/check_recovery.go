@@ -305,13 +305,20 @@ func (s *AgentService) handleCheckRunUpdate(ctx context.Context, daemonID string
 	run, err := s.Checks.GetCheckRun(ctx, update.RunId)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
+			conn.untrackRun(update.RunId)
 			ack()
 		}
 		return
 	}
 	if run.DaemonId != daemonID {
+		conn.untrackRun(update.RunId)
 		ack()
 		return
+	}
+	if !update.Final && !isFinalCheckStatus(update.Status) && (run.Status == "queued" || run.Status == "running") {
+		conn.trackRun(run.Id)
+	} else {
+		conn.untrackRun(run.Id)
 	}
 	// The process reporting on a run holds it (design/32 layer 3). A run
 	// that ended without it (canceled, or tried again elsewhere after its

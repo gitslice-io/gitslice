@@ -37,6 +37,33 @@ type daemonConn struct {
 	capacity int
 	send     chan *corev1.ServerMessage
 	done     chan struct{}
+
+	// runs holds the check runs sent to this process that have not ended,
+	// as far as this connection knows. While it holds any, heartbeats keep
+	// the runs' claims alive even when the server is otherwise idle.
+	runsMu sync.Mutex
+	runs   map[string]struct{}
+}
+
+func (c *daemonConn) trackRun(runID string) {
+	c.runsMu.Lock()
+	defer c.runsMu.Unlock()
+	if c.runs == nil {
+		c.runs = map[string]struct{}{}
+	}
+	c.runs[runID] = struct{}{}
+}
+
+func (c *daemonConn) untrackRun(runID string) {
+	c.runsMu.Lock()
+	defer c.runsMu.Unlock()
+	delete(c.runs, runID)
+}
+
+func (c *daemonConn) hasRuns() bool {
+	c.runsMu.Lock()
+	defer c.runsMu.Unlock()
+	return len(c.runs) > 0
 }
 
 func (c *daemonConn) trySend(msg *corev1.ServerMessage) bool {

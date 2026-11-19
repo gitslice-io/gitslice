@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -21,6 +22,14 @@ import (
 // each Ping with a heartbeat, keeping the daemon->server direction alive too.
 // Must stay comfortably below the shortest read/idle timeout of any proxy.
 const agentDaemonPingInterval = 20 * time.Second
+
+// idleDaemonStatusEvery is how often a connected daemon's heartbeats touch
+// the database while the server is idle (internal/activity) and the daemon
+// runs no checks. Each write keeps the daemon online until the next one is
+// due (standby_until), so the database can scale to zero in between instead
+// of taking a write every heartbeat. Cloud Run ends a stream within an hour,
+// and the reconnect registers the daemon again anyway.
+const idleDaemonStatusEvery = time.Hour
 
 // Connect is the daemon's long-lived bidirectional channel. The first message
 // must be RegisterDaemon; the server replies DaemonRegistered and then relays
@@ -118,6 +127,7 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 		s.replayDaemonCheckRuns(ctx, daemon.Id, conn)
 	}()
 
+	var idleStatusAt time.Time
 	for {
 		msg, err := stream.Recv()
 		if errors.Is(err, io.EOF) {
@@ -126,12 +136,14 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 		if err != nil {
 			return grpcError(err)
 		}
+		if msg.GetHeartbeat() == nil {
+			// The open stream is not activity (activity.DaemonConnectPath),
+			// but the work it carries is.
+			activity.Default.Begin()()
+		}
 		switch p := msg.Payload.(type) {
 		case *corev1.DaemonMessage_Heartbeat:
-			_ = s.Agents.SetDaemonStatus(ctx, daemon.Id, "online")
-			if s.Checks != nil {
-				_ = s.Checks.RenewCheckRunClaims(ctx, conn.instance, storage.CheckRunLease)
-			}
+			idleStatusAt = s.daemonHeartbeat(ctx, daemon.Id, conn, idleStatusAt, time.Now())
 		case *corev1.DaemonMessage_Detach:
 			if reg.Runtime != ciDaemonRuntime {
 				return status.Error(codes.FailedPrecondition, "only a checks-only daemon (gs agent start --ci) can detach")
@@ -181,6 +193,32 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 			s.handleCheckRunUpdate(ctx, daemon.Id, conn, p.CheckUpdate)
 		}
 	}
+}
+
+// daemonHeartbeat records a heartbeat on a daemon's Connect stream. While the
+// server is busy, or the process runs checks, it marks the daemon online and
+// renews the process's claims on its check runs. Otherwise it leaves the
+// database alone except every idleDaemonStatusEvery, when it marks the daemon
+// online until the next such write is due. It returns when it last made that
+// idle write (zero after a busy heartbeat).
+func (s *AgentService) daemonHeartbeat(ctx context.Context, daemonID string, conn *daemonConn, idleStatusAt, now time.Time) time.Time {
+	if activity.Default.Awake() || conn.hasRuns() {
+		_ = s.Agents.SetDaemonStatus(ctx, daemonID, "online")
+		if s.Checks != nil {
+			_ = s.Checks.RenewCheckRunClaims(ctx, conn.instance, storage.CheckRunLease)
+		}
+		return time.Time{}
+	}
+	if !idleStatusAt.IsZero() && now.Sub(idleStatusAt) < idleDaemonStatusEvery {
+		return idleStatusAt
+	}
+	if err := s.Agents.SetDaemonStatus(ctx, daemonID, "online"); err != nil {
+		return idleStatusAt
+	}
+	if err := s.Agents.SetDaemonStandby(ctx, daemonID, now.Add(idleDaemonStatusEvery+storage.DaemonStaleAfter)); err != nil {
+		return idleStatusAt
+	}
+	return now
 }
 
 // redeliverUnansweredUserMessages pushes the conversation's trailing

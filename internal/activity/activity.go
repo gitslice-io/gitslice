@@ -20,6 +20,13 @@ import (
 	"time"
 )
 
+// DaemonConnectPath is the agent daemons' long-lived Connect stream
+// (AgentService/Connect). An open stream is not activity: a connected daemon
+// with nothing to do would otherwise keep the server awake for as long as it
+// stays connected. The daemon's messages that carry work (check updates,
+// agent events) count as activity one by one; see service.AgentService.
+const DaemonConnectPath = "/gitslice.core.v1.AgentService/Connect"
+
 // IdleAfter is how long after the last request ends the loops keep going.
 const IdleAfter = 5 * time.Minute
 
@@ -147,15 +154,15 @@ func isExemptRequest(r *http.Request) bool {
 		return true
 	}
 	switch r.URL.Path {
-	case "/metrics", "/healthz", "/readyz":
+	case "/metrics", "/healthz", "/readyz", DaemonConnectPath:
 		return true
 	}
 	return strings.HasPrefix(r.URL.Path, "/grpc.health.v1.Health/")
 }
 
 // Middleware counts non-probe HTTP requests (gRPC, Connect, git) on the gate.
-// Health checks, readiness probes, metrics scrapes, and CORS preflights do not
-// wake background database loops.
+// Health checks, readiness probes, metrics scrapes, CORS preflights, and agent
+// daemons' Connect streams do not wake background database loops.
 func (g *Gate) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if isExemptRequest(r) {

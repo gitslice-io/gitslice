@@ -138,6 +138,10 @@ nothing.
   any safety-net poll rare (an hour, not seconds).
 - The same holds for our own services around the server (Workers, Durable
   Object alarms, daemons, dashboards): no fixed-interval calls to the API.
+- A long-lived stream is not activity. Agent daemons' Connect streams are
+  exempt from the gate (`activity.DaemonConnectPath`); only the work they
+  carry counts, and an idle connected daemon's heartbeats write to the
+  database once an hour, not every 20 seconds.
 - When adding anything periodic, check it against this rule. To verify, watch
   `pg_stat_database.xact_commit` while there are no HTTP requests: it should
   stay flat.

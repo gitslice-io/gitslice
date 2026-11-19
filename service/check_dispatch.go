@@ -277,6 +277,9 @@ func (d *checkDispatcher) sendRuns(ctx context.Context, conn *daemonConn, runs [
 		if !conn.trySend(msg) {
 			return false
 		}
+		for _, spec := range msg.GetRunChecks().GetChecks() {
+			conn.trackRun(spec.GetRunId())
+		}
 	}
 	return true
 }
