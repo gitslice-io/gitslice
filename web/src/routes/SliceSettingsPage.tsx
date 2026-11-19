@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useParams } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
 
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -14,13 +14,12 @@ import {
   SliceLoadingBlock,
   SliceNotice,
   SlicePageHeader,
+  SlicePanel,
   getErrorMessage,
   sliceDisplayName
 } from "../components/slices/SlicePageParts";
-import { SliceSecretsPanel } from "../components/slices/SliceSecretsPanel";
 import { useSlicePermissions } from "../lib/permissions";
 import { sliceBreadcrumbItems, toSliceRouteParams } from "../lib/sliceRoutes";
-import { accountCIDaemonsQuery } from "../queries/accounts";
 import { sliceRefQuery } from "../queries/slices";
 import { useSelection } from "../state/selection";
 
@@ -38,10 +37,6 @@ export function SliceSettingsPage() {
   const sliceQuery = useQuery({
     ...sliceRefQuery(api, routeAccount, routeSlice),
     enabled: Boolean(routeSliceRef)
-  });
-  const accountCIDaemons = useQuery({
-    ...accountCIDaemonsQuery(api, routeAccount),
-    enabled: Boolean(routeAccount)
   });
 
   const slice = sliceQuery.data;
@@ -114,8 +109,8 @@ export function SliceSettingsPage() {
       />
       <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
         {canManageAccountSettings
-          ? "Edit the supported slice definition fields only."
-          : "Manage access and inspect configuration for this slice."}
+          ? `A slice is a named view over folders in /${routeAccount}. Configure included paths, visibility, access, merge behavior, and Git mirrors here.`
+          : "Manage access and inspect configuration for this slice view."}
       </p>
 
       {canManageAccountSettings ? (
@@ -156,13 +151,28 @@ export function SliceSettingsPage() {
 
       {canManageAccountSettings && settingsSlice ? (
         <div className="mt-8">
-          <SliceSecretsPanel
-            hasCIDaemon={Boolean(
-              slice.ciDaemonId || (accountCIDaemons.data?.daemonIds?.length ?? 0) > 0
-            )}
-            includedPaths={slice.definition?.includedPaths ?? []}
-            slice={settingsSlice}
-          />
+          <SlicePanel>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0 max-w-2xl">
+                <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+                  Folder policy & secrets
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+                  Secrets, triggers, checks, and path owners belong to folders in{" "}
+                  <span className="font-mono">/{routeAccount}</span> rather than individual slices.
+                  Open <span className="font-medium text-zinc-900 dark:text-zinc-100">Policy</span> on any
+                  folder while browsing to inspect or add folder secrets, or manage all secrets at the account level.
+                </p>
+              </div>
+              <Link
+                className="shrink-0 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
+                params={{ account: routeAccount }}
+                to="/accounts/$account/secrets"
+              >
+                Manage folder secrets
+              </Link>
+            </div>
+          </SlicePanel>
         </div>
       ) : null}
 

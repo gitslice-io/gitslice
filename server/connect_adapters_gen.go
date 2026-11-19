@@ -665,6 +665,10 @@ type connectTriggerServiceAdapter struct {
 	svc *service.TriggerService
 }
 
+func (a connectTriggerServiceAdapter) GetFolderPolicy(ctx context.Context, req *connect.Request[corev1.GetFolderPolicyRequest]) (*connect.Response[corev1.FolderPolicyResponse], error) {
+	return connectResponse(a.svc.GetFolderPolicy(ctx, req.Msg))
+}
+
 func (a connectTriggerServiceAdapter) ListTriggers(ctx context.Context, req *connect.Request[corev1.ListTriggersRequest]) (*connect.Response[corev1.ListTriggersResponse], error) {
 	return connectResponse(a.svc.ListTriggers(ctx, req.Msg))
 }

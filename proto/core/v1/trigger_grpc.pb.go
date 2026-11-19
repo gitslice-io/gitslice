@@ -19,6 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
+	TriggerService_GetFolderPolicy_FullMethodName    = "/gitslice.core.v1.TriggerService/GetFolderPolicy"
 	TriggerService_ListTriggers_FullMethodName       = "/gitslice.core.v1.TriggerService/ListTriggers"
 	TriggerService_ListTriggerRuns_FullMethodName    = "/gitslice.core.v1.TriggerService/ListTriggerRuns"
 	TriggerService_GetTriggerRun_FullMethodName      = "/gitslice.core.v1.TriggerService/GetTriggerRun"
@@ -32,6 +33,10 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type TriggerServiceClient interface {
+	// GetFolderPolicy returns the effective folder policy at a canonical folder:
+	// path owners, checks (including required gates), triggers, secrets, and
+	// account CI runners.
+	GetFolderPolicy(ctx context.Context, in *GetFolderPolicyRequest, opts ...grpc.CallOption) (*FolderPolicyResponse, error)
 	// ListTriggers lists the triggers that apply at a folder: those defined in
 	// it and in the folders above it, at the head of a ref.
 	ListTriggers(ctx context.Context, in *ListTriggersRequest, opts ...grpc.CallOption) (*ListTriggersResponse, error)
@@ -52,6 +57,15 @@ type triggerServiceClient struct {
 
 func NewTriggerServiceClient(cc grpc.ClientConnInterface) TriggerServiceClient {
 	return &triggerServiceClient{cc}
+}
+
+func (c *triggerServiceClient) GetFolderPolicy(ctx context.Context, in *GetFolderPolicyRequest, opts ...grpc.CallOption) (*FolderPolicyResponse, error) {
+	out := new(FolderPolicyResponse)
+	err := c.cc.Invoke(ctx, TriggerService_GetFolderPolicy_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *triggerServiceClient) ListTriggers(ctx context.Context, in *ListTriggersRequest, opts ...grpc.CallOption) (*ListTriggersResponse, error) {
@@ -121,6 +135,10 @@ func (c *triggerServiceClient) CancelTriggerRun(ctx context.Context, in *CancelT
 // All implementations should embed UnimplementedTriggerServiceServer
 // for forward compatibility
 type TriggerServiceServer interface {
+	// GetFolderPolicy returns the effective folder policy at a canonical folder:
+	// path owners, checks (including required gates), triggers, secrets, and
+	// account CI runners.
+	GetFolderPolicy(context.Context, *GetFolderPolicyRequest) (*FolderPolicyResponse, error)
 	// ListTriggers lists the triggers that apply at a folder: those defined in
 	// it and in the folders above it, at the head of a ref.
 	ListTriggers(context.Context, *ListTriggersRequest) (*ListTriggersResponse, error)
@@ -139,6 +157,9 @@ type TriggerServiceServer interface {
 type UnimplementedTriggerServiceServer struct {
 }
 
+func (UnimplementedTriggerServiceServer) GetFolderPolicy(context.Context, *GetFolderPolicyRequest) (*FolderPolicyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetFolderPolicy not implemented")
+}
 func (UnimplementedTriggerServiceServer) ListTriggers(context.Context, *ListTriggersRequest) (*ListTriggersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListTriggers not implemented")
 }
@@ -170,6 +191,24 @@ type UnsafeTriggerServiceServer interface {
 
 func RegisterTriggerServiceServer(s grpc.ServiceRegistrar, srv TriggerServiceServer) {
 	s.RegisterService(&TriggerService_ServiceDesc, srv)
+}
+
+func _TriggerService_GetFolderPolicy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetFolderPolicyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TriggerServiceServer).GetFolderPolicy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TriggerService_GetFolderPolicy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TriggerServiceServer).GetFolderPolicy(ctx, req.(*GetFolderPolicyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _TriggerService_ListTriggers_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -305,6 +344,10 @@ var TriggerService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "gitslice.core.v1.TriggerService",
 	HandlerType: (*TriggerServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetFolderPolicy",
+			Handler:    _TriggerService_GetFolderPolicy_Handler,
+		},
 		{
 			MethodName: "ListTriggers",
 			Handler:    _TriggerService_ListTriggers_Handler,

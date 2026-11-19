@@ -23,6 +23,7 @@ interface FolderWithReadmeProps {
   createDirectory: string;
   includedPaths: string[];
   onOpenHistory(): void;
+  onOpenPolicy?(): void;
   onSelectPath(path: string): void;
   onStageEdit?: (edit: PendingEdit) => void;
   readme: TreeEntry;
@@ -38,6 +39,7 @@ export function FolderWithReadme({
   createDirectory,
   includedPaths,
   onOpenHistory,
+  onOpenPolicy,
   onSelectPath,
   onStageEdit,
   readme,
@@ -51,6 +53,7 @@ export function FolderWithReadme({
         compact
         includedPaths={includedPaths}
         onOpenHistory={onOpenHistory}
+        onOpenPolicy={onOpenPolicy}
         onStageEdit={onStageEdit}
         selectedPath={selectedPath}
       />

@@ -18,6 +18,7 @@ interface DirectoryHeaderProps {
   commitId: string;
   includedPaths: string[];
   onOpenHistory?: () => void;
+  onOpenPolicy?: () => void;
   onStageEdit?: (edit: PendingEdit) => void;
   selectedPath: string;
   // compact leaves out the commit line (it stays in the heading's tooltip), for
@@ -34,6 +35,7 @@ export function DirectoryHeader({
   commitId,
   includedPaths,
   onOpenHistory,
+  onOpenPolicy,
   onStageEdit,
   selectedPath,
   compact = false,
@@ -90,6 +92,16 @@ export function DirectoryHeader({
     />
   ) : null;
   const rightActions = actions !== undefined ? actions : ownMenu;
+  const policyButton = onOpenPolicy ? (
+    <button
+      className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
+      onClick={onOpenPolicy}
+      title="Owners, checks, triggers, and secrets for this folder"
+      type="button"
+    >
+      Policy
+    </button>
+  ) : null;
   const historyButton = onOpenHistory ? (
     <button
       className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
@@ -119,8 +131,9 @@ export function DirectoryHeader({
             </p>
           )}
         </div>
-        {historyButton || rightActions ? (
+        {policyButton || historyButton || rightActions ? (
           <div className="flex shrink-0 items-center gap-2">
+            {policyButton}
             {historyButton}
             {rightActions}
           </div>

@@ -41,9 +41,11 @@ function flag(value: unknown): true | undefined {
 export interface SliceDetailSearch {
   // The file or folder shown.
   path?: string;
-  // The history, Triggers and (for a file) blame views are on, in the address
-  // so the back gesture closes them instead of leaving the slice.
+  // The history, Folder Policy (and legacy ?triggers=1 alias), and (for a file)
+  // blame views are on, in the address so the back gesture closes them instead
+  // of leaving the slice.
   history?: true;
+  policy?: true;
   triggers?: true;
   blame?: true;
   // The change selected in the blame, a short commit id.
@@ -56,6 +58,7 @@ export function validateSliceDetailSearch(search: Record<string, unknown>): Slic
   return {
     ...(path ? { path } : {}),
     ...(flag(search.history) ? { history: true as const } : {}),
+    ...(flag(search.policy) ? { policy: true as const } : {}),
     ...(flag(search.triggers) ? { triggers: true as const } : {}),
     ...(flag(search.blame) ? { blame: true as const } : {}),
     ...(blameAt ? { blameAt } : {})

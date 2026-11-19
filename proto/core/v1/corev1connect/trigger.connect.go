@@ -35,6 +35,9 @@ const (
 // reflection-formatted method names, remove the leading slash and convert the remaining slash to a
 // period.
 const (
+	// TriggerServiceGetFolderPolicyProcedure is the fully-qualified name of the TriggerService's
+	// GetFolderPolicy RPC.
+	TriggerServiceGetFolderPolicyProcedure = "/gitslice.core.v1.TriggerService/GetFolderPolicy"
 	// TriggerServiceListTriggersProcedure is the fully-qualified name of the TriggerService's
 	// ListTriggers RPC.
 	TriggerServiceListTriggersProcedure = "/gitslice.core.v1.TriggerService/ListTriggers"
@@ -93,6 +96,10 @@ const (
 
 // TriggerServiceClient is a client for the gitslice.core.v1.TriggerService service.
 type TriggerServiceClient interface {
+	// GetFolderPolicy returns the effective folder policy at a canonical folder:
+	// path owners, checks (including required gates), triggers, secrets, and
+	// account CI runners.
+	GetFolderPolicy(context.Context, *connect.Request[v1.GetFolderPolicyRequest]) (*connect.Response[v1.FolderPolicyResponse], error)
 	// ListTriggers lists the triggers that apply at a folder: those defined in
 	// it and in the folders above it, at the head of a ref.
 	ListTriggers(context.Context, *connect.Request[v1.ListTriggersRequest]) (*connect.Response[v1.ListTriggersResponse], error)
@@ -118,6 +125,12 @@ func NewTriggerServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 	baseURL = strings.TrimRight(baseURL, "/")
 	triggerServiceMethods := v1.File_proto_core_v1_trigger_proto.Services().ByName("TriggerService").Methods()
 	return &triggerServiceClient{
+		getFolderPolicy: connect.NewClient[v1.GetFolderPolicyRequest, v1.FolderPolicyResponse](
+			httpClient,
+			baseURL+TriggerServiceGetFolderPolicyProcedure,
+			connect.WithSchema(triggerServiceMethods.ByName("GetFolderPolicy")),
+			connect.WithClientOptions(opts...),
+		),
 		listTriggers: connect.NewClient[v1.ListTriggersRequest, v1.ListTriggersResponse](
 			httpClient,
 			baseURL+TriggerServiceListTriggersProcedure,
@@ -165,6 +178,7 @@ func NewTriggerServiceClient(httpClient connect.HTTPClient, baseURL string, opts
 
 // triggerServiceClient implements TriggerServiceClient.
 type triggerServiceClient struct {
+	getFolderPolicy    *connect.Client[v1.GetFolderPolicyRequest, v1.FolderPolicyResponse]
 	listTriggers       *connect.Client[v1.ListTriggersRequest, v1.ListTriggersResponse]
 	listTriggerRuns    *connect.Client[v1.ListTriggerRunsRequest, v1.ListTriggerRunsResponse]
 	getTriggerRun      *connect.Client[v1.GetTriggerRunRequest, v1.TriggerRun]
@@ -172,6 +186,11 @@ type triggerServiceClient struct {
 	runTrigger         *connect.Client[v1.RunTriggerRequest, v1.TriggerRun]
 	rerunTriggerRun    *connect.Client[v1.RerunTriggerRunRequest, v1.TriggerRun]
 	cancelTriggerRun   *connect.Client[v1.CancelTriggerRunRequest, v1.TriggerRun]
+}
+
+// GetFolderPolicy calls gitslice.core.v1.TriggerService.GetFolderPolicy.
+func (c *triggerServiceClient) GetFolderPolicy(ctx context.Context, req *connect.Request[v1.GetFolderPolicyRequest]) (*connect.Response[v1.FolderPolicyResponse], error) {
+	return c.getFolderPolicy.CallUnary(ctx, req)
 }
 
 // ListTriggers calls gitslice.core.v1.TriggerService.ListTriggers.
@@ -211,6 +230,10 @@ func (c *triggerServiceClient) CancelTriggerRun(ctx context.Context, req *connec
 
 // TriggerServiceHandler is an implementation of the gitslice.core.v1.TriggerService service.
 type TriggerServiceHandler interface {
+	// GetFolderPolicy returns the effective folder policy at a canonical folder:
+	// path owners, checks (including required gates), triggers, secrets, and
+	// account CI runners.
+	GetFolderPolicy(context.Context, *connect.Request[v1.GetFolderPolicyRequest]) (*connect.Response[v1.FolderPolicyResponse], error)
 	// ListTriggers lists the triggers that apply at a folder: those defined in
 	// it and in the folders above it, at the head of a ref.
 	ListTriggers(context.Context, *connect.Request[v1.ListTriggersRequest]) (*connect.Response[v1.ListTriggersResponse], error)
@@ -232,6 +255,12 @@ type TriggerServiceHandler interface {
 // and JSON codecs. They also support gzip compression.
 func NewTriggerServiceHandler(svc TriggerServiceHandler, opts ...connect.HandlerOption) (string, http.Handler) {
 	triggerServiceMethods := v1.File_proto_core_v1_trigger_proto.Services().ByName("TriggerService").Methods()
+	triggerServiceGetFolderPolicyHandler := connect.NewUnaryHandler(
+		TriggerServiceGetFolderPolicyProcedure,
+		svc.GetFolderPolicy,
+		connect.WithSchema(triggerServiceMethods.ByName("GetFolderPolicy")),
+		connect.WithHandlerOptions(opts...),
+	)
 	triggerServiceListTriggersHandler := connect.NewUnaryHandler(
 		TriggerServiceListTriggersProcedure,
 		svc.ListTriggers,
@@ -276,6 +305,8 @@ func NewTriggerServiceHandler(svc TriggerServiceHandler, opts ...connect.Handler
 	)
 	return "/gitslice.core.v1.TriggerService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
+		case TriggerServiceGetFolderPolicyProcedure:
+			triggerServiceGetFolderPolicyHandler.ServeHTTP(w, r)
 		case TriggerServiceListTriggersProcedure:
 			triggerServiceListTriggersHandler.ServeHTTP(w, r)
 		case TriggerServiceListTriggerRunsProcedure:
@@ -298,6 +329,10 @@ func NewTriggerServiceHandler(svc TriggerServiceHandler, opts ...connect.Handler
 
 // UnimplementedTriggerServiceHandler returns CodeUnimplemented from all methods.
 type UnimplementedTriggerServiceHandler struct{}
+
+func (UnimplementedTriggerServiceHandler) GetFolderPolicy(context.Context, *connect.Request[v1.GetFolderPolicyRequest]) (*connect.Response[v1.FolderPolicyResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.TriggerService.GetFolderPolicy is not implemented"))
+}
 
 func (UnimplementedTriggerServiceHandler) ListTriggers(context.Context, *connect.Request[v1.ListTriggersRequest]) (*connect.Response[v1.ListTriggersResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.TriggerService.ListTriggers is not implemented"))

@@ -9,18 +9,19 @@ import {
 
 describe("validateSliceDetailSearch", () => {
   it("keeps a normalized path and the on/off views, however the address spelled them", () => {
-    expect(validateSliceDetailSearch({ path: "/nic/app/", history: 1, triggers: "1", blame: true, blameAt: "abc123" })).toEqual({
+    expect(validateSliceDetailSearch({ path: "/nic/app/", history: 1, policy: "1", triggers: "1", blame: true, blameAt: "abc123" })).toEqual({
       path: "/nic/app",
       history: true,
+      policy: true,
       triggers: true,
       blame: true,
       blameAt: "abc123"
     });
-    expect(validateSliceDetailSearch({ history: "true" })).toEqual({ history: true });
+    expect(validateSliceDetailSearch({ history: "true", policy: "true" })).toEqual({ history: true, policy: true });
   });
 
   it("drops what is blank, off or of the wrong type", () => {
-    expect(validateSliceDetailSearch({ path: "  ", history: 0, triggers: "false", blame: "", blameAt: 7 })).toEqual({});
+    expect(validateSliceDetailSearch({ path: "  ", history: 0, policy: "false", triggers: "false", blame: "", blameAt: 7 })).toEqual({});
     expect(validateSliceDetailSearch({ path: 42, unknown: "x" })).toEqual({});
   });
 });

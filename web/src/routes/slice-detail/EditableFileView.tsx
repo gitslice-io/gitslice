@@ -36,6 +36,7 @@ interface EditableFileViewProps {
   fileData: string;
   includedPaths: string[];
   onOpenHistory(): void;
+  onOpenPolicy?(): void;
   onSelectPath?(path: string): void;
   onStageEdit?: (edit: PendingEdit) => void;
   pendingEdits: PendingEdit[];
@@ -50,6 +51,7 @@ export function EditableFileView({
   fileData,
   includedPaths,
   onOpenHistory,
+  onOpenPolicy,
   onSelectPath,
   onStageEdit,
   pendingEdits,
@@ -125,6 +127,7 @@ export function EditableFileView({
           }
         ]
       : []),
+    ...(onOpenPolicy ? [{ label: "Folder policy", onSelect: onOpenPolicy, phoneOnly: true }] : []),
     ...(onOpenHistory ? [{ label: "History", onSelect: onOpenHistory, phoneOnly: true }] : []),
     ...(onStageEdit
       ? [
@@ -183,6 +186,16 @@ export function EditableFileView({
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2">
+              {onOpenPolicy ? (
+                <button
+                  className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98] max-sm:hidden"
+                  onClick={onOpenPolicy}
+                  title="Owners, checks, triggers, and secrets for this folder"
+                  type="button"
+                >
+                  Policy
+                </button>
+              ) : null}
               {onOpenHistory ? (
                 <button
                   className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98] max-sm:hidden"

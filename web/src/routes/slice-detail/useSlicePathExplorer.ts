@@ -29,7 +29,7 @@ export interface UseSlicePathExplorerOptions {
   routeSlice: string;
   selectedPath: string;
   historyOpen: boolean;
-  triggersOpen: boolean;
+  policyOpen: boolean;
 }
 
 export function useSlicePathExplorer({
@@ -39,7 +39,7 @@ export function useSlicePathExplorer({
   routeSlice,
   selectedPath,
   historyOpen,
-  triggersOpen
+  policyOpen
 }: UseSlicePathExplorerOptions) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -256,7 +256,7 @@ export function useSlicePathExplorer({
     });
   }, [navigate, selectedPath, sliceRouteParams]);
 
-  const openTriggers = useCallback(() => {
+  const openPolicy = useCallback(() => {
     if (!sliceRouteParams) {
       return;
     }
@@ -264,17 +264,17 @@ export function useSlicePathExplorer({
       params: sliceRouteParams,
       search: {
         ...(selectedPath ? { path: selectedPath } : {}),
-        triggers: true
+        policy: true
       },
       to: "/slices/$account/$slice"
     });
   }, [navigate, selectedPath, sliceRouteParams]);
 
-  const closeTriggers = useCallback(() => {
-    if (triggersOpen) {
+  const closePolicy = useCallback(() => {
+    if (policyOpen) {
       router.history.back();
     }
-  }, [router.history, triggersOpen]);
+  }, [policyOpen, router.history]);
 
   const closeHistory = useCallback(() => {
     if (historyOpen) {
@@ -359,8 +359,8 @@ export function useSlicePathExplorer({
     setBlame,
     openHistory,
     closeHistory,
-    openTriggers,
-    closeTriggers,
+    openPolicy,
+    closePolicy,
     openLandedPath
   };
 }

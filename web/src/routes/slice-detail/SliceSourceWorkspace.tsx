@@ -27,6 +27,7 @@ interface SliceSourceWorkspaceProps {
   isLatestLoading: boolean;
   isPathLoading: boolean;
   onOpenHistory(): void;
+  onOpenPolicy?(): void;
   onSelectPath(path: string): void;
   onStageEdit?: (edit: PendingEdit) => void;
   pathError: Error | null;
@@ -60,6 +61,7 @@ export function SliceSourceWorkspace({
   isLatestLoading,
   isPathLoading,
   onOpenHistory,
+  onOpenPolicy,
   onSelectPath,
   onStageEdit,
   pathError,
@@ -136,6 +138,7 @@ export function SliceSourceWorkspace({
           createDirectory={createDirectory}
           includedPaths={includedPaths}
           onOpenHistory={onOpenHistory}
+          onOpenPolicy={onOpenPolicy}
           onSelectPath={onSelectPath}
           onStageEdit={onStageEdit}
           readme={readme}
@@ -151,6 +154,7 @@ export function SliceSourceWorkspace({
           commitId={commitId}
           includedPaths={includedPaths}
           onOpenHistory={onOpenHistory}
+          onOpenPolicy={onOpenPolicy}
           onStageEdit={onStageEdit}
           selectedPath={selectedPath}
         />
@@ -191,6 +195,7 @@ export function SliceSourceWorkspace({
         fileData={fileData}
         includedPaths={includedPaths}
         onOpenHistory={onOpenHistory}
+        onOpenPolicy={onOpenPolicy}
         onSelectPath={onSelectPath}
         onStageEdit={onStageEdit}
         pendingEdits={pendingEdits}
@@ -206,6 +211,7 @@ export function SliceSourceWorkspace({
         commitId={commitId}
         includedPaths={includedPaths}
         onOpenHistory={onOpenHistory}
+        onOpenPolicy={onOpenPolicy}
         selectedPath={selectedPath}
       />
       <p className="mt-4 text-sm text-slate-600 dark:text-zinc-400">

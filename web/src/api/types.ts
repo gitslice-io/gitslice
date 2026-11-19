@@ -150,11 +150,17 @@ export type ListSecretsResponse = NormalizedMessage<SecretProto.ListSecretsRespo
 export type CreateSecretRequest = NormalizedRequest<SecretProto.CreateSecretRequest>;
 export type UpdateSecretRequest = NormalizedRequest<SecretProto.UpdateSecretRequest>;
 
-// Triggers
+// Triggers & folder policy
 export type TriggerDefinition = NormalizedMessage<TriggerProto.TriggerDefinition>;
 export type TriggerFileProblem = NormalizedMessage<TriggerProto.TriggerFileProblem>;
 export type TriggerRun = NormalizedMessage<TriggerProto.TriggerRun>;
 export type TriggerRunLog = NormalizedMessage<TriggerProto.TriggerRunLog>;
+export type FolderOwnerRule = NormalizedMessage<TriggerProto.FolderOwnerRule>;
+export type FolderCheckDefinition = NormalizedMessage<TriggerProto.FolderCheckDefinition>;
+export type FolderSecretEntry = NormalizedMessage<TriggerProto.FolderSecretEntry>;
+export type FolderPolicyProblem = NormalizedMessage<TriggerProto.FolderPolicyProblem>;
+export type GetFolderPolicyRequest = NormalizedRequest<TriggerProto.GetFolderPolicyRequest>;
+export type FolderPolicyResponse = NormalizedMessage<TriggerProto.FolderPolicyResponse>;
 export type ListTriggersRequest = NormalizedRequest<TriggerProto.ListTriggersRequest>;
 export type ListTriggersResponse = NormalizedMessage<TriggerProto.ListTriggersResponse>;
 export type ListTriggerRunsRequest = NormalizedRequest<TriggerProto.ListTriggerRunsRequest>;

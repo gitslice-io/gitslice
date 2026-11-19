@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/trigger.proto.
  */
 export const file_proto_core_v1_trigger: GenFile = /*@__PURE__*/
-  fileDesc("Chtwcm90by9jb3JlL3YxL3RyaWdnZXIucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEikwIKEVRyaWdnZXJEZWZpbml0aW9uEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDgoGZm9sZGVyGAMgASgJEgoKAm9uGAQgAygJEg0KBXBhdGhzGAUgAygJEg8KB2NoYW5nZXMYBiADKAkSDAoEcmVmcxgHIAMoCRIPCgdzZWNyZXRzGAggAygJEg8KB25ldHdvcmsYCSADKAkSDgoGY2hlY2tzGAogAygJEhMKC2NvbmN1cnJlbmN5GAsgASgJEhIKCnRpbWVvdXRfbXMYDCABKAMSDQoFcmV0cnkYDSABKAUSDgoGYWN0aW9uGA4gASgJEhAKCGh0dHBfdXJsGA8gASgJEg4KBndvcmtlchgQIAEoCSJDChJUcmlnZ2VyRmlsZVByb2JsZW0SDgoGZm9sZGVyGAEgASgJEgwKBGZpbGUYAiABKAkSDwoHbWVzc2FnZRgDIAEoCSKhAwoKVHJpZ2dlclJ1bhIKCgJpZBgBIAEoCRIPCgdhY2NvdW50GAIgASgJEhIKCnRyaWdnZXJfaWQYAyABKAkSDgoGZm9sZGVyGAQgASgJEg4KBmFjdGlvbhgFIAEoCRIQCghldmVudF9pZBgGIAEoCRISCgpldmVudF9raW5kGAcgASgJEhQKDGNoYW5nZXNldF9pZBgIIAEoCRITCgtwYXRjaHNldF9pZBgJIAEoCRIRCgljb21taXRfaWQYCiABKAkSEgoKdGFyZ2V0X3JlZhgLIAEoCRIcChRkZWZpbml0aW9uX2NvbW1pdF9pZBgMIAEoCRIOCgZzdGF0dXMYDSABKAkSDwoHYXR0ZW1wdBgOIAEoBRIUCgxtYXhfYXR0ZW1wdHMYDyABKAUSDQoFZXJyb3IYECABKAkSFwoPcmVzcG9uc2Vfc3RhdHVzGBEgASgFEhIKCmNyZWF0ZWRfYXQYEiABKAkSEgoKc3RhcnRlZF9hdBgTIAEoCRITCgtmaW5pc2hlZF9hdBgUIAEoCRIQCghkZWFkbGluZRgVIAEoCSIwChNMaXN0VHJpZ2dlcnNSZXF1ZXN0EgwKBHBhdGgYASABKAkSCwoDcmVmGAIgASgJIpgBChRMaXN0VHJpZ2dlcnNSZXNwb25zZRI1Cgh0cmlnZ2VycxgBIAMoCzIjLmdpdHNsaWNlLmNvcmUudjEuVHJpZ2dlckRlZmluaXRpb24SNgoIcHJvYmxlbXMYAiADKAsyJC5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJGaWxlUHJvYmxlbRIRCgljb21taXRfaWQYAyABKAkiYgoWTGlzdFRyaWdnZXJSdW5zUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEhIKCnRyaWdnZXJfaWQYAiABKAkSFAoMY2hhbmdlc2V0X2lkGAMgASgJEg0KBWxpbWl0GAQgASgFIkUKF0xpc3RUcmlnZ2VyUnVuc1Jlc3BvbnNlEioKBHJ1bnMYASADKAsyHC5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJSdW4iJgoUR2V0VHJpZ2dlclJ1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJIj4KGUxpc3RUcmlnZ2VyUnVuTG9nc1JlcXVlc3QSDgoGcnVuX2lkGAEgASgJEhEKCWFmdGVyX3NlcRgCIAEoAyJPCg1UcmlnZ2VyUnVuTG9nEgsKA3NlcRgBIAEoAxIOCgZzdHJlYW0YAiABKAkSDQoFY2h1bmsYAyABKAkSEgoKY3JlYXRlZF9hdBgEIAEoCSJLChpMaXN0VHJpZ2dlclJ1bkxvZ3NSZXNwb25zZRItCgRsb2dzGAEgAygLMh8uZ2l0c2xpY2UuY29yZS52MS5UcmlnZ2VyUnVuTG9nIssBChFSdW5UcmlnZ2VyUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEhIKCnRyaWdnZXJfaWQYAiABKAkSCwoDcmVmGAMgASgJEhQKDGNoYW5nZXNldF9pZBgEIAEoCRI/CgZpbnB1dHMYBSADKAsyLy5naXRzbGljZS5jb3JlLnYxLlJ1blRyaWdnZXJSZXF1ZXN0LklucHV0c0VudHJ5Gi0KC0lucHV0c0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiKAoWUmVydW5UcmlnZ2VyUnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkiKQoXQ2FuY2VsVHJpZ2dlclJ1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJIlwKFlN0YXJ0VHJpZ2dlclJ1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJEhYKDmRpc3BhdGNoZXJfa2V5GAIgASgJEhoKEmNhbGxiYWNrX3NpZ25hdHVyZRgDIAEoCSLqAwoXU3RhcnRUcmlnZ2VyUnVuUmVzcG9uc2USKQoDcnVuGAEgASgLMhwuZ2l0c2xpY2UuY29yZS52MS5UcmlnZ2VyUnVuEhIKCmV2ZW50X2pzb24YAiABKAkSRwoHbW9kdWxlcxgDIAMoCzI2LmdpdHNsaWNlLmNvcmUudjEuU3RhcnRUcmlnZ2VyUnVuUmVzcG9uc2UuTW9kdWxlc0VudHJ5EhMKC21haW5fbW9kdWxlGAQgASgJEhEKCWNvZGVfaGFzaBgFIAEoCRJHCgdzZWNyZXRzGAYgAygLMjYuZ2l0c2xpY2UuY29yZS52MS5TdGFydFRyaWdnZXJSdW5SZXNwb25zZS5TZWNyZXRzRW50cnkSDgoGcmV2ZWFsGAcgAygJEg8KB25ldHdvcmsYCCADKAkSEQoJcnVuX3Rva2VuGAkgASgJEhQKDGNhbGxiYWNrX3VybBgKIAEoCRISCgpzdGF0ZV9qc29uGAsgASgJEhgKEGRlYWRsaW5lX3VuaXhfbXMYDCABKAMaLgoMTW9kdWxlc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEaLgoMU2VjcmV0c0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiKwoWVHJpZ2dlclJ1blRva2VuUmVxdWVzdBIRCglydW5fdG9rZW4YASABKAkifAoXRmluaXNoVHJpZ2dlclJ1blJlcXVlc3QSEQoJcnVuX3Rva2VuGAEgASgJEg8KB291dGNvbWUYAiABKAkSDQoFZXJyb3IYAyABKAkSDAoEd2FpdBgEIAEoCBIOCgZmaW5pc2gYBSABKAgSEAoIY2FsbGJhY2sYBiABKAgiMQoRVHJpZ2dlclJ1bkxvZ0xpbmUSDgoGc3RyZWFtGAEgASgJEgwKBHRleHQYAiABKAkiYwoaQXBwZW5kVHJpZ2dlclJ1bkxvZ1JlcXVlc3QSEQoJcnVuX3Rva2VuGAEgASgJEjIKBWxpbmVzGAIgAygLMiMuZ2l0c2xpY2UuY29yZS52MS5UcmlnZ2VyUnVuTG9nTGluZSIlCg9UcmlnZ2VyUnVuU3RhdGUSEgoKc3RhdGVfanNvbhgBIAEoCSJCChlTZXRUcmlnZ2VyUnVuU3RhdGVSZXF1ZXN0EhEKCXJ1bl90b2tlbhgBIAEoCRISCgpzdGF0ZV9qc29uGAIgASgJIqoBChlDcmVhdGVUcmlnZ2VyQ2hlY2tSZXF1ZXN0EhEKCXJ1bl90b2tlbhgBIAEoCRIMCgRuYW1lGAIgASgJEg4KBnN0YXR1cxgDIAEoCRIPCgdzdW1tYXJ5GAQgASgJEhMKC2RldGFpbHNfdXJsGAUgASgJEjYKC2Fubm90YXRpb25zGAYgAygLMiEuZ2l0c2xpY2UuY29yZS52MS5DaGVja0Fubm90YXRpb24i2AEKGVVwZGF0ZVRyaWdnZXJDaGVja1JlcXVlc3QSEQoJcnVuX3Rva2VuGAEgASgJEhQKDGNoZWNrX3J1bl9pZBgCIAEoCRIOCgZzdGF0dXMYAyABKAkSFAoHc3VtbWFyeRgEIAEoCUgAiAEBEhgKC2RldGFpbHNfdXJsGAUgASgJSAGIAQESNgoLYW5ub3RhdGlvbnMYBiADKAsyIS5naXRzbGljZS5jb3JlLnYxLkNoZWNrQW5ub3RhdGlvbkIKCghfc3VtbWFyeUIOCgxfZGV0YWlsc191cmwiRQoWVHJpZ2dlclJlYWRGaWxlUmVxdWVzdBIRCglydW5fdG9rZW4YASABKAkSDAoEcGF0aBgCIAEoCRIKCgJhdBgDIAEoCSI5ChdUcmlnZ2VyUmVhZEZpbGVSZXNwb25zZRINCgVmb3VuZBgBIAEoCBIPCgdjb250ZW50GAIgASgMIkoKG1RyaWdnZXJMaXN0RGlyZWN0b3J5UmVxdWVzdBIRCglydW5fdG9rZW4YASABKAkSDAoEcGF0aBgCIAEoCRIKCgJhdBgDIAEoCSJBChVUcmlnZ2VyRGlyZWN0b3J5RW50cnkSDAoEbmFtZRgBIAEoCRIMCgRwYXRoGAIgASgJEgwKBGtpbmQYAyABKAkiZwocVHJpZ2dlckxpc3REaXJlY3RvcnlSZXNwb25zZRINCgVmb3VuZBgBIAEoCBI4CgdlbnRyaWVzGAIgAygLMicuZ2l0c2xpY2UuY29yZS52MS5UcmlnZ2VyRGlyZWN0b3J5RW50cnkyqAUKDlRyaWdnZXJTZXJ2aWNlEl0KDExpc3RUcmlnZ2VycxIlLmdpdHNsaWNlLmNvcmUudjEuTGlzdFRyaWdnZXJzUmVxdWVzdBomLmdpdHNsaWNlLmNvcmUudjEuTGlzdFRyaWdnZXJzUmVzcG9uc2USZgoPTGlzdFRyaWdnZXJSdW5zEiguZ2l0c2xpY2UuY29yZS52MS5MaXN0VHJpZ2dlclJ1bnNSZXF1ZXN0GikuZ2l0c2xpY2UuY29yZS52MS5MaXN0VHJpZ2dlclJ1bnNSZXNwb25zZRJVCg1HZXRUcmlnZ2VyUnVuEiYuZ2l0c2xpY2UuY29yZS52MS5HZXRUcmlnZ2VyUnVuUmVxdWVzdBocLmdpdHNsaWNlLmNvcmUudjEuVHJpZ2dlclJ1bhJvChJMaXN0VHJpZ2dlclJ1bkxvZ3MSKy5naXRzbGljZS5jb3JlLnYxLkxpc3RUcmlnZ2VyUnVuTG9nc1JlcXVlc3QaLC5naXRzbGljZS5jb3JlLnYxLkxpc3RUcmlnZ2VyUnVuTG9nc1Jlc3BvbnNlEk8KClJ1blRyaWdnZXISIy5naXRzbGljZS5jb3JlLnYxLlJ1blRyaWdnZXJSZXF1ZXN0GhwuZ2l0c2xpY2UuY29yZS52MS5UcmlnZ2VyUnVuElkKD1JlcnVuVHJpZ2dlclJ1bhIoLmdpdHNsaWNlLmNvcmUudjEuUmVydW5UcmlnZ2VyUnVuUmVxdWVzdBocLmdpdHNsaWNlLmNvcmUudjEuVHJpZ2dlclJ1bhJbChBDYW5jZWxUcmlnZ2VyUnVuEikuZ2l0c2xpY2UuY29yZS52MS5DYW5jZWxUcmlnZ2VyUnVuUmVxdWVzdBocLmdpdHNsaWNlLmNvcmUudjEuVHJpZ2dlclJ1bjKQCAoRVHJpZ2dlclJ1blNlcnZpY2USXwoIU3RhcnRSdW4SKC5naXRzbGljZS5jb3JlLnYxLlN0YXJ0VHJpZ2dlclJ1blJlcXVlc3QaKS5naXRzbGljZS5jb3JlLnYxLlN0YXJ0VHJpZ2dlclJ1blJlc3BvbnNlEmQKDVN0YXJ0Q2FsbGJhY2sSKC5naXRzbGljZS5jb3JlLnYxLlN0YXJ0VHJpZ2dlclJ1blJlcXVlc3QaKS5naXRzbGljZS5jb3JlLnYxLlN0YXJ0VHJpZ2dlclJ1blJlc3BvbnNlElQKCUZpbmlzaFJ1bhIpLmdpdHNsaWNlLmNvcmUudjEuRmluaXNoVHJpZ2dlclJ1blJlcXVlc3QaHC5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJSdW4SVQoMQXBwZW5kUnVuTG9nEiwuZ2l0c2xpY2UuY29yZS52MS5BcHBlbmRUcmlnZ2VyUnVuTG9nUmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuRW1wdHkSWgoLR2V0UnVuU3RhdGUSKC5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJSdW5Ub2tlblJlcXVlc3QaIS5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJSdW5TdGF0ZRJTCgtTZXRSdW5TdGF0ZRIrLmdpdHNsaWNlLmNvcmUudjEuU2V0VHJpZ2dlclJ1blN0YXRlUmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuRW1wdHkSVgoLQ3JlYXRlQ2hlY2sSKy5naXRzbGljZS5jb3JlLnYxLkNyZWF0ZVRyaWdnZXJDaGVja1JlcXVlc3QaGi5naXRzbGljZS5jb3JlLnYxLkNoZWNrUnVuElYKC1VwZGF0ZUNoZWNrEisuZ2l0c2xpY2UuY29yZS52MS5VcGRhdGVUcmlnZ2VyQ2hlY2tSZXF1ZXN0GhouZ2l0c2xpY2UuY29yZS52MS5DaGVja1J1bhJfCghSZWFkRmlsZRIoLmdpdHNsaWNlLmNvcmUudjEuVHJpZ2dlclJlYWRGaWxlUmVxdWVzdBopLmdpdHNsaWNlLmNvcmUudjEuVHJpZ2dlclJlYWRGaWxlUmVzcG9uc2USbgoNTGlzdERpcmVjdG9yeRItLmdpdHNsaWNlLmNvcmUudjEuVHJpZ2dlckxpc3REaXJlY3RvcnlSZXF1ZXN0Gi4uZ2l0c2xpY2UuY29yZS52MS5UcmlnZ2VyTGlzdERpcmVjdG9yeVJlc3BvbnNlElUKDEdldENoYW5nZXNldBIoLmdpdHNsaWNlLmNvcmUudjEuVHJpZ2dlclJ1blRva2VuUmVxdWVzdBobLmdpdHNsaWNlLmNvcmUudjEuQ2hhbmdlc2V0QitaKWdpdHNsaWNlLmlvL2dpdHNsaWNlL3Byb3RvL2NvcmUvdjE7Y29yZXYxYgZwcm90bzM", [file_proto_core_v1_changeset, file_proto_core_v1_check, file_proto_core_v1_common]);
+  fileDesc("Chtwcm90by9jb3JlL3YxL3RyaWdnZXIucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEikwIKEVRyaWdnZXJEZWZpbml0aW9uEgoKAmlkGAEgASgJEgwKBG5hbWUYAiABKAkSDgoGZm9sZGVyGAMgASgJEgoKAm9uGAQgAygJEg0KBXBhdGhzGAUgAygJEg8KB2NoYW5nZXMYBiADKAkSDAoEcmVmcxgHIAMoCRIPCgdzZWNyZXRzGAggAygJEg8KB25ldHdvcmsYCSADKAkSDgoGY2hlY2tzGAogAygJEhMKC2NvbmN1cnJlbmN5GAsgASgJEhIKCnRpbWVvdXRfbXMYDCABKAMSDQoFcmV0cnkYDSABKAUSDgoGYWN0aW9uGA4gASgJEhAKCGh0dHBfdXJsGA8gASgJEg4KBndvcmtlchgQIAEoCSJDChJUcmlnZ2VyRmlsZVByb2JsZW0SDgoGZm9sZGVyGAEgASgJEgwKBGZpbGUYAiABKAkSDwoHbWVzc2FnZRgDIAEoCSKhAwoKVHJpZ2dlclJ1bhIKCgJpZBgBIAEoCRIPCgdhY2NvdW50GAIgASgJEhIKCnRyaWdnZXJfaWQYAyABKAkSDgoGZm9sZGVyGAQgASgJEg4KBmFjdGlvbhgFIAEoCRIQCghldmVudF9pZBgGIAEoCRISCgpldmVudF9raW5kGAcgASgJEhQKDGNoYW5nZXNldF9pZBgIIAEoCRITCgtwYXRjaHNldF9pZBgJIAEoCRIRCgljb21taXRfaWQYCiABKAkSEgoKdGFyZ2V0X3JlZhgLIAEoCRIcChRkZWZpbml0aW9uX2NvbW1pdF9pZBgMIAEoCRIOCgZzdGF0dXMYDSABKAkSDwoHYXR0ZW1wdBgOIAEoBRIUCgxtYXhfYXR0ZW1wdHMYDyABKAUSDQoFZXJyb3IYECABKAkSFwoPcmVzcG9uc2Vfc3RhdHVzGBEgASgFEhIKCmNyZWF0ZWRfYXQYEiABKAkSEgoKc3RhcnRlZF9hdBgTIAEoCRITCgtmaW5pc2hlZF9hdBgUIAEoCRIQCghkZWFkbGluZRgVIAEoCSIwChNMaXN0VHJpZ2dlcnNSZXF1ZXN0EgwKBHBhdGgYASABKAkSCwoDcmVmGAIgASgJIjMKFkdldEZvbGRlclBvbGljeVJlcXVlc3QSDAoEcGF0aBgBIAEoCRILCgNyZWYYAiABKAkiWAoPRm9sZGVyT3duZXJSdWxlEg0KBXBhdGhzGAEgAygJEg4KBm93bmVycxgCIAMoCRIPCgdyZXF1aXJlGAMgASgFEhUKDXJlcXVpcmVfaHVtYW4YBCABKAUimAEKFUZvbGRlckNoZWNrRGVmaW5pdGlvbhIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEg4KBmZvbGRlchgDIAEoCRITCgtjb25maWdfcGF0aBgEIAEoCRILCgNydW4YBSABKAkSDQoFcGF0aHMYBiADKAkSEgoKc3RhcnRlZF9ieRgHIAEoCRIQCghyZXF1aXJlZBgIIAEoCCJaChFGb2xkZXJTZWNyZXRFbnRyeRIMCgRuYW1lGAEgASgJEhEKCXNlY3JldF9pZBgCIAEoCRIVCg1zb3VyY2VfZm9sZGVyGAMgASgJEg0KBXBhdGhzGAQgAygJIlIKE0ZvbGRlclBvbGljeVByb2JsZW0SDAoEa2luZBgBIAEoCRIOCgZmb2xkZXIYAiABKAkSDAoEZmlsZRgDIAEoCRIPCgdtZXNzYWdlGAQgASgJIuUDChRGb2xkZXJQb2xpY3lSZXNwb25zZRIOCgZmb2xkZXIYASABKAkSDwoHYWNjb3VudBgCIAEoCRIRCgljb21taXRfaWQYAyABKAkSGQoRb3duZXJfY29uZmlnX3BhdGgYBCABKAkSGwoTb3duZXJfc291cmNlX2ZvbGRlchgFIAEoCRI2Cgtvd25lcl9ydWxlcxgGIAMoCzIhLmdpdHNsaWNlLmNvcmUudjEuRm9sZGVyT3duZXJSdWxlEjcKBmNoZWNrcxgHIAMoCzInLmdpdHNsaWNlLmNvcmUudjEuRm9sZGVyQ2hlY2tEZWZpbml0aW9uEjUKCHRyaWdnZXJzGAggAygLMiMuZ2l0c2xpY2UuY29yZS52MS5UcmlnZ2VyRGVmaW5pdGlvbhI0CgdzZWNyZXRzGAkgAygLMiMuZ2l0c2xpY2UuY29yZS52MS5Gb2xkZXJTZWNyZXRFbnRyeRIaChJjYW5fbWFuYWdlX3NlY3JldHMYCiABKAgSFQoNY2lfZGFlbW9uX2lkcxgLIAMoCRIXCg9jaV9kYWVtb25fbmFtZXMYDCADKAkSNwoIcHJvYmxlbXMYDSADKAsyJS5naXRzbGljZS5jb3JlLnYxLkZvbGRlclBvbGljeVByb2JsZW0imAEKFExpc3RUcmlnZ2Vyc1Jlc3BvbnNlEjUKCHRyaWdnZXJzGAEgAygLMiMuZ2l0c2xpY2UuY29yZS52MS5UcmlnZ2VyRGVmaW5pdGlvbhI2Cghwcm9ibGVtcxgCIAMoCzIkLmdpdHNsaWNlLmNvcmUudjEuVHJpZ2dlckZpbGVQcm9ibGVtEhEKCWNvbW1pdF9pZBgDIAEoCSJiChZMaXN0VHJpZ2dlclJ1bnNSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSEgoKdHJpZ2dlcl9pZBgCIAEoCRIUCgxjaGFuZ2VzZXRfaWQYAyABKAkSDQoFbGltaXQYBCABKAUiRQoXTGlzdFRyaWdnZXJSdW5zUmVzcG9uc2USKgoEcnVucxgBIAMoCzIcLmdpdHNsaWNlLmNvcmUudjEuVHJpZ2dlclJ1biImChRHZXRUcmlnZ2VyUnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkiPgoZTGlzdFRyaWdnZXJSdW5Mb2dzUmVxdWVzdBIOCgZydW5faWQYASABKAkSEQoJYWZ0ZXJfc2VxGAIgASgDIk8KDVRyaWdnZXJSdW5Mb2cSCwoDc2VxGAEgASgDEg4KBnN0cmVhbRgCIAEoCRINCgVjaHVuaxgDIAEoCRISCgpjcmVhdGVkX2F0GAQgASgJIksKGkxpc3RUcmlnZ2VyUnVuTG9nc1Jlc3BvbnNlEi0KBGxvZ3MYASADKAsyHy5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJSdW5Mb2ciywEKEVJ1blRyaWdnZXJSZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSEgoKdHJpZ2dlcl9pZBgCIAEoCRILCgNyZWYYAyABKAkSFAoMY2hhbmdlc2V0X2lkGAQgASgJEj8KBmlucHV0cxgFIAMoCzIvLmdpdHNsaWNlLmNvcmUudjEuUnVuVHJpZ2dlclJlcXVlc3QuSW5wdXRzRW50cnkaLQoLSW5wdXRzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASIoChZSZXJ1blRyaWdnZXJSdW5SZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSIpChdDYW5jZWxUcmlnZ2VyUnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkiXAoWU3RhcnRUcmlnZ2VyUnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkSFgoOZGlzcGF0Y2hlcl9rZXkYAiABKAkSGgoSY2FsbGJhY2tfc2lnbmF0dXJlGAMgASgJIuoDChdTdGFydFRyaWdnZXJSdW5SZXNwb25zZRIpCgNydW4YASABKAsyHC5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJSdW4SEgoKZXZlbnRfanNvbhgCIAEoCRJHCgdtb2R1bGVzGAMgAygLMjYuZ2l0c2xpY2UuY29yZS52MS5TdGFydFRyaWdnZXJSdW5SZXNwb25zZS5Nb2R1bGVzRW50cnkSEwoLbWFpbl9tb2R1bGUYBCABKAkSEQoJY29kZV9oYXNoGAUgASgJEkcKB3NlY3JldHMYBiADKAsyNi5naXRzbGljZS5jb3JlLnYxLlN0YXJ0VHJpZ2dlclJ1blJlc3BvbnNlLlNlY3JldHNFbnRyeRIOCgZyZXZlYWwYByADKAkSDwoHbmV0d29yaxgIIAMoCRIRCglydW5fdG9rZW4YCSABKAkSFAoMY2FsbGJhY2tfdXJsGAogASgJEhIKCnN0YXRlX2pzb24YCyABKAkSGAoQZGVhZGxpbmVfdW5peF9tcxgMIAEoAxouCgxNb2R1bGVzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ARouCgxTZWNyZXRzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASIrChZUcmlnZ2VyUnVuVG9rZW5SZXF1ZXN0EhEKCXJ1bl90b2tlbhgBIAEoCSJ8ChdGaW5pc2hUcmlnZ2VyUnVuUmVxdWVzdBIRCglydW5fdG9rZW4YASABKAkSDwoHb3V0Y29tZRgCIAEoCRINCgVlcnJvchgDIAEoCRIMCgR3YWl0GAQgASgIEg4KBmZpbmlzaBgFIAEoCBIQCghjYWxsYmFjaxgGIAEoCCIxChFUcmlnZ2VyUnVuTG9nTGluZRIOCgZzdHJlYW0YASABKAkSDAoEdGV4dBgCIAEoCSJjChpBcHBlbmRUcmlnZ2VyUnVuTG9nUmVxdWVzdBIRCglydW5fdG9rZW4YASABKAkSMgoFbGluZXMYAiADKAsyIy5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJSdW5Mb2dMaW5lIiUKD1RyaWdnZXJSdW5TdGF0ZRISCgpzdGF0ZV9qc29uGAEgASgJIkIKGVNldFRyaWdnZXJSdW5TdGF0ZVJlcXVlc3QSEQoJcnVuX3Rva2VuGAEgASgJEhIKCnN0YXRlX2pzb24YAiABKAkiqgEKGUNyZWF0ZVRyaWdnZXJDaGVja1JlcXVlc3QSEQoJcnVuX3Rva2VuGAEgASgJEgwKBG5hbWUYAiABKAkSDgoGc3RhdHVzGAMgASgJEg8KB3N1bW1hcnkYBCABKAkSEwoLZGV0YWlsc191cmwYBSABKAkSNgoLYW5ub3RhdGlvbnMYBiADKAsyIS5naXRzbGljZS5jb3JlLnYxLkNoZWNrQW5ub3RhdGlvbiLYAQoZVXBkYXRlVHJpZ2dlckNoZWNrUmVxdWVzdBIRCglydW5fdG9rZW4YASABKAkSFAoMY2hlY2tfcnVuX2lkGAIgASgJEg4KBnN0YXR1cxgDIAEoCRIUCgdzdW1tYXJ5GAQgASgJSACIAQESGAoLZGV0YWlsc191cmwYBSABKAlIAYgBARI2Cgthbm5vdGF0aW9ucxgGIAMoCzIhLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tBbm5vdGF0aW9uQgoKCF9zdW1tYXJ5Qg4KDF9kZXRhaWxzX3VybCJFChZUcmlnZ2VyUmVhZEZpbGVSZXF1ZXN0EhEKCXJ1bl90b2tlbhgBIAEoCRIMCgRwYXRoGAIgASgJEgoKAmF0GAMgASgJIjkKF1RyaWdnZXJSZWFkRmlsZVJlc3BvbnNlEg0KBWZvdW5kGAEgASgIEg8KB2NvbnRlbnQYAiABKAwiSgobVHJpZ2dlckxpc3REaXJlY3RvcnlSZXF1ZXN0EhEKCXJ1bl90b2tlbhgBIAEoCRIMCgRwYXRoGAIgASgJEgoKAmF0GAMgASgJIkEKFVRyaWdnZXJEaXJlY3RvcnlFbnRyeRIMCgRuYW1lGAEgASgJEgwKBHBhdGgYAiABKAkSDAoEa2luZBgDIAEoCSJnChxUcmlnZ2VyTGlzdERpcmVjdG9yeVJlc3BvbnNlEg0KBWZvdW5kGAEgASgIEjgKB2VudHJpZXMYAiADKAsyJy5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJEaXJlY3RvcnlFbnRyeTKNBgoOVHJpZ2dlclNlcnZpY2USYwoPR2V0Rm9sZGVyUG9saWN5EiguZ2l0c2xpY2UuY29yZS52MS5HZXRGb2xkZXJQb2xpY3lSZXF1ZXN0GiYuZ2l0c2xpY2UuY29yZS52MS5Gb2xkZXJQb2xpY3lSZXNwb25zZRJdCgxMaXN0VHJpZ2dlcnMSJS5naXRzbGljZS5jb3JlLnYxLkxpc3RUcmlnZ2Vyc1JlcXVlc3QaJi5naXRzbGljZS5jb3JlLnYxLkxpc3RUcmlnZ2Vyc1Jlc3BvbnNlEmYKD0xpc3RUcmlnZ2VyUnVucxIoLmdpdHNsaWNlLmNvcmUudjEuTGlzdFRyaWdnZXJSdW5zUmVxdWVzdBopLmdpdHNsaWNlLmNvcmUudjEuTGlzdFRyaWdnZXJSdW5zUmVzcG9uc2USVQoNR2V0VHJpZ2dlclJ1bhImLmdpdHNsaWNlLmNvcmUudjEuR2V0VHJpZ2dlclJ1blJlcXVlc3QaHC5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJSdW4SbwoSTGlzdFRyaWdnZXJSdW5Mb2dzEisuZ2l0c2xpY2UuY29yZS52MS5MaXN0VHJpZ2dlclJ1bkxvZ3NSZXF1ZXN0GiwuZ2l0c2xpY2UuY29yZS52MS5MaXN0VHJpZ2dlclJ1bkxvZ3NSZXNwb25zZRJPCgpSdW5UcmlnZ2VyEiMuZ2l0c2xpY2UuY29yZS52MS5SdW5UcmlnZ2VyUmVxdWVzdBocLmdpdHNsaWNlLmNvcmUudjEuVHJpZ2dlclJ1bhJZCg9SZXJ1blRyaWdnZXJSdW4SKC5naXRzbGljZS5jb3JlLnYxLlJlcnVuVHJpZ2dlclJ1blJlcXVlc3QaHC5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJSdW4SWwoQQ2FuY2VsVHJpZ2dlclJ1bhIpLmdpdHNsaWNlLmNvcmUudjEuQ2FuY2VsVHJpZ2dlclJ1blJlcXVlc3QaHC5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJSdW4ykAgKEVRyaWdnZXJSdW5TZXJ2aWNlEl8KCFN0YXJ0UnVuEiguZ2l0c2xpY2UuY29yZS52MS5TdGFydFRyaWdnZXJSdW5SZXF1ZXN0GikuZ2l0c2xpY2UuY29yZS52MS5TdGFydFRyaWdnZXJSdW5SZXNwb25zZRJkCg1TdGFydENhbGxiYWNrEiguZ2l0c2xpY2UuY29yZS52MS5TdGFydFRyaWdnZXJSdW5SZXF1ZXN0GikuZ2l0c2xpY2UuY29yZS52MS5TdGFydFRyaWdnZXJSdW5SZXNwb25zZRJUCglGaW5pc2hSdW4SKS5naXRzbGljZS5jb3JlLnYxLkZpbmlzaFRyaWdnZXJSdW5SZXF1ZXN0GhwuZ2l0c2xpY2UuY29yZS52MS5UcmlnZ2VyUnVuElUKDEFwcGVuZFJ1bkxvZxIsLmdpdHNsaWNlLmNvcmUudjEuQXBwZW5kVHJpZ2dlclJ1bkxvZ1JlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLkVtcHR5EloKC0dldFJ1blN0YXRlEiguZ2l0c2xpY2UuY29yZS52MS5UcmlnZ2VyUnVuVG9rZW5SZXF1ZXN0GiEuZ2l0c2xpY2UuY29yZS52MS5UcmlnZ2VyUnVuU3RhdGUSUwoLU2V0UnVuU3RhdGUSKy5naXRzbGljZS5jb3JlLnYxLlNldFRyaWdnZXJSdW5TdGF0ZVJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLkVtcHR5ElYKC0NyZWF0ZUNoZWNrEisuZ2l0c2xpY2UuY29yZS52MS5DcmVhdGVUcmlnZ2VyQ2hlY2tSZXF1ZXN0GhouZ2l0c2xpY2UuY29yZS52MS5DaGVja1J1bhJWCgtVcGRhdGVDaGVjaxIrLmdpdHNsaWNlLmNvcmUudjEuVXBkYXRlVHJpZ2dlckNoZWNrUmVxdWVzdBoaLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tSdW4SXwoIUmVhZEZpbGUSKC5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJSZWFkRmlsZVJlcXVlc3QaKS5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJSZWFkRmlsZVJlc3BvbnNlEm4KDUxpc3REaXJlY3RvcnkSLS5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJMaXN0RGlyZWN0b3J5UmVxdWVzdBouLmdpdHNsaWNlLmNvcmUudjEuVHJpZ2dlckxpc3REaXJlY3RvcnlSZXNwb25zZRJVCgxHZXRDaGFuZ2VzZXQSKC5naXRzbGljZS5jb3JlLnYxLlRyaWdnZXJSdW5Ub2tlblJlcXVlc3QaGy5naXRzbGljZS5jb3JlLnYxLkNoYW5nZXNldEIrWilnaXRzbGljZS5pby9naXRzbGljZS9wcm90by9jb3JlL3YxO2NvcmV2MWIGcHJvdG8z", [file_proto_core_v1_changeset, file_proto_core_v1_check, file_proto_core_v1_common]);
 
 /**
  * TriggerDefinition is a trigger as its triggers.yaml defines it.
@@ -300,6 +300,275 @@ export const ListTriggersRequestSchema: GenMessage<ListTriggersRequest> = /*@__P
   messageDesc(file_proto_core_v1_trigger, 3);
 
 /**
+ * @generated from message gitslice.core.v1.GetFolderPolicyRequest
+ */
+export type GetFolderPolicyRequest = Message<"gitslice.core.v1.GetFolderPolicyRequest"> & {
+  /**
+   * A canonical folder, such as /acme or /acme/services/billing.
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * Default refs/global/main.
+   *
+   * @generated from field: string ref = 2;
+   */
+  ref: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.GetFolderPolicyRequest.
+ * Use `create(GetFolderPolicyRequestSchema)` to create a new message.
+ */
+export const GetFolderPolicyRequestSchema: GenMessage<GetFolderPolicyRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_trigger, 4);
+
+/**
+ * @generated from message gitslice.core.v1.FolderOwnerRule
+ */
+export type FolderOwnerRule = Message<"gitslice.core.v1.FolderOwnerRule"> & {
+  /**
+   * @generated from field: repeated string paths = 1;
+   */
+  paths: string[];
+
+  /**
+   * @generated from field: repeated string owners = 2;
+   */
+  owners: string[];
+
+  /**
+   * @generated from field: int32 require = 3;
+   */
+  require: number;
+
+  /**
+   * @generated from field: int32 require_human = 4;
+   */
+  requireHuman: number;
+};
+
+/**
+ * Describes the message gitslice.core.v1.FolderOwnerRule.
+ * Use `create(FolderOwnerRuleSchema)` to create a new message.
+ */
+export const FolderOwnerRuleSchema: GenMessage<FolderOwnerRule> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_trigger, 5);
+
+/**
+ * @generated from message gitslice.core.v1.FolderCheckDefinition
+ */
+export type FolderCheckDefinition = Message<"gitslice.core.v1.FolderCheckDefinition"> & {
+  /**
+   * "<dir>/<name>" relative to the account root (or "<name>" at account root).
+   *
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * Canonical folder that holds its .gitslice/checks.yaml (e.g. /acme or /acme/web).
+   *
+   * @generated from field: string folder = 3;
+   */
+  folder: string;
+
+  /**
+   * Canonical path to the defining checks.yaml file.
+   *
+   * @generated from field: string config_path = 4;
+   */
+  configPath: string;
+
+  /**
+   * @generated from field: string run = 5;
+   */
+  run: string;
+
+  /**
+   * @generated from field: repeated string paths = 6;
+   */
+  paths: string[];
+
+  /**
+   * @generated from field: string started_by = 7;
+   */
+  startedBy: string;
+
+  /**
+   * @generated from field: bool required = 8;
+   */
+  required: boolean;
+};
+
+/**
+ * Describes the message gitslice.core.v1.FolderCheckDefinition.
+ * Use `create(FolderCheckDefinitionSchema)` to create a new message.
+ */
+export const FolderCheckDefinitionSchema: GenMessage<FolderCheckDefinition> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_trigger, 6);
+
+/**
+ * @generated from message gitslice.core.v1.FolderSecretEntry
+ */
+export type FolderSecretEntry = Message<"gitslice.core.v1.FolderSecretEntry"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * Populated for account owners and admins only.
+   *
+   * @generated from field: string secret_id = 2;
+   */
+  secretId: string;
+
+  /**
+   * Canonical ancestor folder (or the folder itself) providing this secret.
+   * Populated for account owners and admins only.
+   *
+   * @generated from field: string source_folder = 3;
+   */
+  sourceFolder: string;
+
+  /**
+   * All canonical folders the secret applies to.
+   * Populated for account owners and admins only.
+   *
+   * @generated from field: repeated string paths = 4;
+   */
+  paths: string[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.FolderSecretEntry.
+ * Use `create(FolderSecretEntrySchema)` to create a new message.
+ */
+export const FolderSecretEntrySchema: GenMessage<FolderSecretEntry> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_trigger, 7);
+
+/**
+ * @generated from message gitslice.core.v1.FolderPolicyProblem
+ */
+export type FolderPolicyProblem = Message<"gitslice.core.v1.FolderPolicyProblem"> & {
+  /**
+   * "owners", "checks", or "triggers".
+   *
+   * @generated from field: string kind = 1;
+   */
+  kind: string;
+
+  /**
+   * @generated from field: string folder = 2;
+   */
+  folder: string;
+
+  /**
+   * @generated from field: string file = 3;
+   */
+  file: string;
+
+  /**
+   * @generated from field: string message = 4;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.FolderPolicyProblem.
+ * Use `create(FolderPolicyProblemSchema)` to create a new message.
+ */
+export const FolderPolicyProblemSchema: GenMessage<FolderPolicyProblem> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_trigger, 8);
+
+/**
+ * @generated from message gitslice.core.v1.FolderPolicyResponse
+ */
+export type FolderPolicyResponse = Message<"gitslice.core.v1.FolderPolicyResponse"> & {
+  /**
+   * @generated from field: string folder = 1;
+   */
+  folder: string;
+
+  /**
+   * @generated from field: string account = 2;
+   */
+  account: string;
+
+  /**
+   * @generated from field: string commit_id = 3;
+   */
+  commitId: string;
+
+  /**
+   * Nearest .gitslice/owners.yaml governing this folder (if any).
+   *
+   * @generated from field: string owner_config_path = 4;
+   */
+  ownerConfigPath: string;
+
+  /**
+   * @generated from field: string owner_source_folder = 5;
+   */
+  ownerSourceFolder: string;
+
+  /**
+   * @generated from field: repeated gitslice.core.v1.FolderOwnerRule owner_rules = 6;
+   */
+  ownerRules: FolderOwnerRule[];
+
+  /**
+   * @generated from field: repeated gitslice.core.v1.FolderCheckDefinition checks = 7;
+   */
+  checks: FolderCheckDefinition[];
+
+  /**
+   * @generated from field: repeated gitslice.core.v1.TriggerDefinition triggers = 8;
+   */
+  triggers: TriggerDefinition[];
+
+  /**
+   * @generated from field: repeated gitslice.core.v1.FolderSecretEntry secrets = 9;
+   */
+  secrets: FolderSecretEntry[];
+
+  /**
+   * @generated from field: bool can_manage_secrets = 10;
+   */
+  canManageSecrets: boolean;
+
+  /**
+   * @generated from field: repeated string ci_daemon_ids = 11;
+   */
+  ciDaemonIds: string[];
+
+  /**
+   * @generated from field: repeated string ci_daemon_names = 12;
+   */
+  ciDaemonNames: string[];
+
+  /**
+   * @generated from field: repeated gitslice.core.v1.FolderPolicyProblem problems = 13;
+   */
+  problems: FolderPolicyProblem[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.FolderPolicyResponse.
+ * Use `create(FolderPolicyResponseSchema)` to create a new message.
+ */
+export const FolderPolicyResponseSchema: GenMessage<FolderPolicyResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_trigger, 9);
+
+/**
  * @generated from message gitslice.core.v1.ListTriggersResponse
  */
 export type ListTriggersResponse = Message<"gitslice.core.v1.ListTriggersResponse"> & {
@@ -326,7 +595,7 @@ export type ListTriggersResponse = Message<"gitslice.core.v1.ListTriggersRespons
  * Use `create(ListTriggersResponseSchema)` to create a new message.
  */
 export const ListTriggersResponseSchema: GenMessage<ListTriggersResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 4);
+  messageDesc(file_proto_core_v1_trigger, 10);
 
 /**
  * @generated from message gitslice.core.v1.ListTriggerRunsRequest
@@ -360,7 +629,7 @@ export type ListTriggerRunsRequest = Message<"gitslice.core.v1.ListTriggerRunsRe
  * Use `create(ListTriggerRunsRequestSchema)` to create a new message.
  */
 export const ListTriggerRunsRequestSchema: GenMessage<ListTriggerRunsRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 5);
+  messageDesc(file_proto_core_v1_trigger, 11);
 
 /**
  * @generated from message gitslice.core.v1.ListTriggerRunsResponse
@@ -377,7 +646,7 @@ export type ListTriggerRunsResponse = Message<"gitslice.core.v1.ListTriggerRunsR
  * Use `create(ListTriggerRunsResponseSchema)` to create a new message.
  */
 export const ListTriggerRunsResponseSchema: GenMessage<ListTriggerRunsResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 6);
+  messageDesc(file_proto_core_v1_trigger, 12);
 
 /**
  * @generated from message gitslice.core.v1.GetTriggerRunRequest
@@ -394,7 +663,7 @@ export type GetTriggerRunRequest = Message<"gitslice.core.v1.GetTriggerRunReques
  * Use `create(GetTriggerRunRequestSchema)` to create a new message.
  */
 export const GetTriggerRunRequestSchema: GenMessage<GetTriggerRunRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 7);
+  messageDesc(file_proto_core_v1_trigger, 13);
 
 /**
  * @generated from message gitslice.core.v1.ListTriggerRunLogsRequest
@@ -416,7 +685,7 @@ export type ListTriggerRunLogsRequest = Message<"gitslice.core.v1.ListTriggerRun
  * Use `create(ListTriggerRunLogsRequestSchema)` to create a new message.
  */
 export const ListTriggerRunLogsRequestSchema: GenMessage<ListTriggerRunLogsRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 8);
+  messageDesc(file_proto_core_v1_trigger, 14);
 
 /**
  * @generated from message gitslice.core.v1.TriggerRunLog
@@ -448,7 +717,7 @@ export type TriggerRunLog = Message<"gitslice.core.v1.TriggerRunLog"> & {
  * Use `create(TriggerRunLogSchema)` to create a new message.
  */
 export const TriggerRunLogSchema: GenMessage<TriggerRunLog> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 9);
+  messageDesc(file_proto_core_v1_trigger, 15);
 
 /**
  * @generated from message gitslice.core.v1.ListTriggerRunLogsResponse
@@ -465,7 +734,7 @@ export type ListTriggerRunLogsResponse = Message<"gitslice.core.v1.ListTriggerRu
  * Use `create(ListTriggerRunLogsResponseSchema)` to create a new message.
  */
 export const ListTriggerRunLogsResponseSchema: GenMessage<ListTriggerRunLogsResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 10);
+  messageDesc(file_proto_core_v1_trigger, 16);
 
 /**
  * @generated from message gitslice.core.v1.RunTriggerRequest
@@ -508,7 +777,7 @@ export type RunTriggerRequest = Message<"gitslice.core.v1.RunTriggerRequest"> & 
  * Use `create(RunTriggerRequestSchema)` to create a new message.
  */
 export const RunTriggerRequestSchema: GenMessage<RunTriggerRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 11);
+  messageDesc(file_proto_core_v1_trigger, 17);
 
 /**
  * @generated from message gitslice.core.v1.RerunTriggerRunRequest
@@ -525,7 +794,7 @@ export type RerunTriggerRunRequest = Message<"gitslice.core.v1.RerunTriggerRunRe
  * Use `create(RerunTriggerRunRequestSchema)` to create a new message.
  */
 export const RerunTriggerRunRequestSchema: GenMessage<RerunTriggerRunRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 12);
+  messageDesc(file_proto_core_v1_trigger, 18);
 
 /**
  * @generated from message gitslice.core.v1.CancelTriggerRunRequest
@@ -542,7 +811,7 @@ export type CancelTriggerRunRequest = Message<"gitslice.core.v1.CancelTriggerRun
  * Use `create(CancelTriggerRunRequestSchema)` to create a new message.
  */
 export const CancelTriggerRunRequestSchema: GenMessage<CancelTriggerRunRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 13);
+  messageDesc(file_proto_core_v1_trigger, 19);
 
 /**
  * @generated from message gitslice.core.v1.StartTriggerRunRequest
@@ -573,7 +842,7 @@ export type StartTriggerRunRequest = Message<"gitslice.core.v1.StartTriggerRunRe
  * Use `create(StartTriggerRunRequestSchema)` to create a new message.
  */
 export const StartTriggerRunRequestSchema: GenMessage<StartTriggerRunRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 14);
+  messageDesc(file_proto_core_v1_trigger, 20);
 
 /**
  * @generated from message gitslice.core.v1.StartTriggerRunResponse
@@ -659,7 +928,7 @@ export type StartTriggerRunResponse = Message<"gitslice.core.v1.StartTriggerRunR
  * Use `create(StartTriggerRunResponseSchema)` to create a new message.
  */
 export const StartTriggerRunResponseSchema: GenMessage<StartTriggerRunResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 15);
+  messageDesc(file_proto_core_v1_trigger, 21);
 
 /**
  * @generated from message gitslice.core.v1.TriggerRunTokenRequest
@@ -676,7 +945,7 @@ export type TriggerRunTokenRequest = Message<"gitslice.core.v1.TriggerRunTokenRe
  * Use `create(TriggerRunTokenRequestSchema)` to create a new message.
  */
 export const TriggerRunTokenRequestSchema: GenMessage<TriggerRunTokenRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 16);
+  messageDesc(file_proto_core_v1_trigger, 22);
 
 /**
  * @generated from message gitslice.core.v1.FinishTriggerRunRequest
@@ -726,7 +995,7 @@ export type FinishTriggerRunRequest = Message<"gitslice.core.v1.FinishTriggerRun
  * Use `create(FinishTriggerRunRequestSchema)` to create a new message.
  */
 export const FinishTriggerRunRequestSchema: GenMessage<FinishTriggerRunRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 17);
+  messageDesc(file_proto_core_v1_trigger, 23);
 
 /**
  * @generated from message gitslice.core.v1.TriggerRunLogLine
@@ -748,7 +1017,7 @@ export type TriggerRunLogLine = Message<"gitslice.core.v1.TriggerRunLogLine"> & 
  * Use `create(TriggerRunLogLineSchema)` to create a new message.
  */
 export const TriggerRunLogLineSchema: GenMessage<TriggerRunLogLine> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 18);
+  messageDesc(file_proto_core_v1_trigger, 24);
 
 /**
  * @generated from message gitslice.core.v1.AppendTriggerRunLogRequest
@@ -770,7 +1039,7 @@ export type AppendTriggerRunLogRequest = Message<"gitslice.core.v1.AppendTrigger
  * Use `create(AppendTriggerRunLogRequestSchema)` to create a new message.
  */
 export const AppendTriggerRunLogRequestSchema: GenMessage<AppendTriggerRunLogRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 19);
+  messageDesc(file_proto_core_v1_trigger, 25);
 
 /**
  * @generated from message gitslice.core.v1.TriggerRunState
@@ -787,7 +1056,7 @@ export type TriggerRunState = Message<"gitslice.core.v1.TriggerRunState"> & {
  * Use `create(TriggerRunStateSchema)` to create a new message.
  */
 export const TriggerRunStateSchema: GenMessage<TriggerRunState> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 20);
+  messageDesc(file_proto_core_v1_trigger, 26);
 
 /**
  * @generated from message gitslice.core.v1.SetTriggerRunStateRequest
@@ -811,7 +1080,7 @@ export type SetTriggerRunStateRequest = Message<"gitslice.core.v1.SetTriggerRunS
  * Use `create(SetTriggerRunStateRequestSchema)` to create a new message.
  */
 export const SetTriggerRunStateRequestSchema: GenMessage<SetTriggerRunStateRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 21);
+  messageDesc(file_proto_core_v1_trigger, 27);
 
 /**
  * @generated from message gitslice.core.v1.CreateTriggerCheckRequest
@@ -855,7 +1124,7 @@ export type CreateTriggerCheckRequest = Message<"gitslice.core.v1.CreateTriggerC
  * Use `create(CreateTriggerCheckRequestSchema)` to create a new message.
  */
 export const CreateTriggerCheckRequestSchema: GenMessage<CreateTriggerCheckRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 22);
+  messageDesc(file_proto_core_v1_trigger, 28);
 
 /**
  * @generated from message gitslice.core.v1.UpdateTriggerCheckRequest
@@ -899,7 +1168,7 @@ export type UpdateTriggerCheckRequest = Message<"gitslice.core.v1.UpdateTriggerC
  * Use `create(UpdateTriggerCheckRequestSchema)` to create a new message.
  */
 export const UpdateTriggerCheckRequestSchema: GenMessage<UpdateTriggerCheckRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 23);
+  messageDesc(file_proto_core_v1_trigger, 29);
 
 /**
  * @generated from message gitslice.core.v1.TriggerReadFileRequest
@@ -930,7 +1199,7 @@ export type TriggerReadFileRequest = Message<"gitslice.core.v1.TriggerReadFileRe
  * Use `create(TriggerReadFileRequestSchema)` to create a new message.
  */
 export const TriggerReadFileRequestSchema: GenMessage<TriggerReadFileRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 24);
+  messageDesc(file_proto_core_v1_trigger, 30);
 
 /**
  * @generated from message gitslice.core.v1.TriggerReadFileResponse
@@ -952,7 +1221,7 @@ export type TriggerReadFileResponse = Message<"gitslice.core.v1.TriggerReadFileR
  * Use `create(TriggerReadFileResponseSchema)` to create a new message.
  */
 export const TriggerReadFileResponseSchema: GenMessage<TriggerReadFileResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 25);
+  messageDesc(file_proto_core_v1_trigger, 31);
 
 /**
  * @generated from message gitslice.core.v1.TriggerListDirectoryRequest
@@ -979,7 +1248,7 @@ export type TriggerListDirectoryRequest = Message<"gitslice.core.v1.TriggerListD
  * Use `create(TriggerListDirectoryRequestSchema)` to create a new message.
  */
 export const TriggerListDirectoryRequestSchema: GenMessage<TriggerListDirectoryRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 26);
+  messageDesc(file_proto_core_v1_trigger, 32);
 
 /**
  * @generated from message gitslice.core.v1.TriggerDirectoryEntry
@@ -1008,7 +1277,7 @@ export type TriggerDirectoryEntry = Message<"gitslice.core.v1.TriggerDirectoryEn
  * Use `create(TriggerDirectoryEntrySchema)` to create a new message.
  */
 export const TriggerDirectoryEntrySchema: GenMessage<TriggerDirectoryEntry> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 27);
+  messageDesc(file_proto_core_v1_trigger, 33);
 
 /**
  * @generated from message gitslice.core.v1.TriggerListDirectoryResponse
@@ -1030,7 +1299,7 @@ export type TriggerListDirectoryResponse = Message<"gitslice.core.v1.TriggerList
  * Use `create(TriggerListDirectoryResponseSchema)` to create a new message.
  */
 export const TriggerListDirectoryResponseSchema: GenMessage<TriggerListDirectoryResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_trigger, 28);
+  messageDesc(file_proto_core_v1_trigger, 34);
 
 /**
  * TriggerService shows the triggers that apply to folders and their runs,
@@ -1040,6 +1309,18 @@ export const TriggerListDirectoryResponseSchema: GenMessage<TriggerListDirectory
  * @generated from service gitslice.core.v1.TriggerService
  */
 export const TriggerService: GenService<{
+  /**
+   * GetFolderPolicy returns the effective folder policy at a canonical folder:
+   * path owners, checks (including required gates), triggers, secrets, and
+   * account CI runners.
+   *
+   * @generated from rpc gitslice.core.v1.TriggerService.GetFolderPolicy
+   */
+  getFolderPolicy: {
+    methodKind: "unary";
+    input: typeof GetFolderPolicyRequestSchema;
+    output: typeof FolderPolicyResponseSchema;
+  },
   /**
    * ListTriggers lists the triggers that apply at a folder: those defined in
    * it and in the folders above it, at the head of a ref.

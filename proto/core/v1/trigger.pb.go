@@ -513,6 +513,514 @@ func (x *ListTriggersRequest) GetRef() string {
 	return ""
 }
 
+type GetFolderPolicyRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// A canonical folder, such as /acme or /acme/services/billing.
+	Path string `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`
+	// Default refs/global/main.
+	Ref           string `protobuf:"bytes,2,opt,name=ref,proto3" json:"ref,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetFolderPolicyRequest) Reset() {
+	*x = GetFolderPolicyRequest{}
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetFolderPolicyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetFolderPolicyRequest) ProtoMessage() {}
+
+func (x *GetFolderPolicyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetFolderPolicyRequest.ProtoReflect.Descriptor instead.
+func (*GetFolderPolicyRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *GetFolderPolicyRequest) GetPath() string {
+	if x != nil {
+		return x.Path
+	}
+	return ""
+}
+
+func (x *GetFolderPolicyRequest) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
+type FolderOwnerRule struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Paths         []string               `protobuf:"bytes,1,rep,name=paths,proto3" json:"paths,omitempty"`
+	Owners        []string               `protobuf:"bytes,2,rep,name=owners,proto3" json:"owners,omitempty"`
+	Require       int32                  `protobuf:"varint,3,opt,name=require,proto3" json:"require,omitempty"`
+	RequireHuman  int32                  `protobuf:"varint,4,opt,name=require_human,json=requireHuman,proto3" json:"require_human,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FolderOwnerRule) Reset() {
+	*x = FolderOwnerRule{}
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FolderOwnerRule) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FolderOwnerRule) ProtoMessage() {}
+
+func (x *FolderOwnerRule) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FolderOwnerRule.ProtoReflect.Descriptor instead.
+func (*FolderOwnerRule) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *FolderOwnerRule) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
+}
+
+func (x *FolderOwnerRule) GetOwners() []string {
+	if x != nil {
+		return x.Owners
+	}
+	return nil
+}
+
+func (x *FolderOwnerRule) GetRequire() int32 {
+	if x != nil {
+		return x.Require
+	}
+	return 0
+}
+
+func (x *FolderOwnerRule) GetRequireHuman() int32 {
+	if x != nil {
+		return x.RequireHuman
+	}
+	return 0
+}
+
+type FolderCheckDefinition struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// "<dir>/<name>" relative to the account root (or "<name>" at account root).
+	Id   string `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name string `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// Canonical folder that holds its .gitslice/checks.yaml (e.g. /acme or /acme/web).
+	Folder string `protobuf:"bytes,3,opt,name=folder,proto3" json:"folder,omitempty"`
+	// Canonical path to the defining checks.yaml file.
+	ConfigPath    string   `protobuf:"bytes,4,opt,name=config_path,json=configPath,proto3" json:"config_path,omitempty"`
+	Run           string   `protobuf:"bytes,5,opt,name=run,proto3" json:"run,omitempty"`
+	Paths         []string `protobuf:"bytes,6,rep,name=paths,proto3" json:"paths,omitempty"`
+	StartedBy     string   `protobuf:"bytes,7,opt,name=started_by,json=startedBy,proto3" json:"started_by,omitempty"`
+	Required      bool     `protobuf:"varint,8,opt,name=required,proto3" json:"required,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FolderCheckDefinition) Reset() {
+	*x = FolderCheckDefinition{}
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FolderCheckDefinition) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FolderCheckDefinition) ProtoMessage() {}
+
+func (x *FolderCheckDefinition) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FolderCheckDefinition.ProtoReflect.Descriptor instead.
+func (*FolderCheckDefinition) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *FolderCheckDefinition) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *FolderCheckDefinition) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *FolderCheckDefinition) GetFolder() string {
+	if x != nil {
+		return x.Folder
+	}
+	return ""
+}
+
+func (x *FolderCheckDefinition) GetConfigPath() string {
+	if x != nil {
+		return x.ConfigPath
+	}
+	return ""
+}
+
+func (x *FolderCheckDefinition) GetRun() string {
+	if x != nil {
+		return x.Run
+	}
+	return ""
+}
+
+func (x *FolderCheckDefinition) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
+}
+
+func (x *FolderCheckDefinition) GetStartedBy() string {
+	if x != nil {
+		return x.StartedBy
+	}
+	return ""
+}
+
+func (x *FolderCheckDefinition) GetRequired() bool {
+	if x != nil {
+		return x.Required
+	}
+	return false
+}
+
+type FolderSecretEntry struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// Populated for account owners and admins only.
+	SecretId string `protobuf:"bytes,2,opt,name=secret_id,json=secretId,proto3" json:"secret_id,omitempty"`
+	// Canonical ancestor folder (or the folder itself) providing this secret.
+	// Populated for account owners and admins only.
+	SourceFolder string `protobuf:"bytes,3,opt,name=source_folder,json=sourceFolder,proto3" json:"source_folder,omitempty"`
+	// All canonical folders the secret applies to.
+	// Populated for account owners and admins only.
+	Paths         []string `protobuf:"bytes,4,rep,name=paths,proto3" json:"paths,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FolderSecretEntry) Reset() {
+	*x = FolderSecretEntry{}
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FolderSecretEntry) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FolderSecretEntry) ProtoMessage() {}
+
+func (x *FolderSecretEntry) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FolderSecretEntry.ProtoReflect.Descriptor instead.
+func (*FolderSecretEntry) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *FolderSecretEntry) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *FolderSecretEntry) GetSecretId() string {
+	if x != nil {
+		return x.SecretId
+	}
+	return ""
+}
+
+func (x *FolderSecretEntry) GetSourceFolder() string {
+	if x != nil {
+		return x.SourceFolder
+	}
+	return ""
+}
+
+func (x *FolderSecretEntry) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
+}
+
+type FolderPolicyProblem struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// "owners", "checks", or "triggers".
+	Kind          string `protobuf:"bytes,1,opt,name=kind,proto3" json:"kind,omitempty"`
+	Folder        string `protobuf:"bytes,2,opt,name=folder,proto3" json:"folder,omitempty"`
+	File          string `protobuf:"bytes,3,opt,name=file,proto3" json:"file,omitempty"`
+	Message       string `protobuf:"bytes,4,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *FolderPolicyProblem) Reset() {
+	*x = FolderPolicyProblem{}
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FolderPolicyProblem) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FolderPolicyProblem) ProtoMessage() {}
+
+func (x *FolderPolicyProblem) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FolderPolicyProblem.ProtoReflect.Descriptor instead.
+func (*FolderPolicyProblem) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *FolderPolicyProblem) GetKind() string {
+	if x != nil {
+		return x.Kind
+	}
+	return ""
+}
+
+func (x *FolderPolicyProblem) GetFolder() string {
+	if x != nil {
+		return x.Folder
+	}
+	return ""
+}
+
+func (x *FolderPolicyProblem) GetFile() string {
+	if x != nil {
+		return x.File
+	}
+	return ""
+}
+
+func (x *FolderPolicyProblem) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+type FolderPolicyResponse struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	Folder   string                 `protobuf:"bytes,1,opt,name=folder,proto3" json:"folder,omitempty"`
+	Account  string                 `protobuf:"bytes,2,opt,name=account,proto3" json:"account,omitempty"`
+	CommitId string                 `protobuf:"bytes,3,opt,name=commit_id,json=commitId,proto3" json:"commit_id,omitempty"`
+	// Nearest .gitslice/owners.yaml governing this folder (if any).
+	OwnerConfigPath   string                   `protobuf:"bytes,4,opt,name=owner_config_path,json=ownerConfigPath,proto3" json:"owner_config_path,omitempty"`
+	OwnerSourceFolder string                   `protobuf:"bytes,5,opt,name=owner_source_folder,json=ownerSourceFolder,proto3" json:"owner_source_folder,omitempty"`
+	OwnerRules        []*FolderOwnerRule       `protobuf:"bytes,6,rep,name=owner_rules,json=ownerRules,proto3" json:"owner_rules,omitempty"`
+	Checks            []*FolderCheckDefinition `protobuf:"bytes,7,rep,name=checks,proto3" json:"checks,omitempty"`
+	Triggers          []*TriggerDefinition     `protobuf:"bytes,8,rep,name=triggers,proto3" json:"triggers,omitempty"`
+	Secrets           []*FolderSecretEntry     `protobuf:"bytes,9,rep,name=secrets,proto3" json:"secrets,omitempty"`
+	CanManageSecrets  bool                     `protobuf:"varint,10,opt,name=can_manage_secrets,json=canManageSecrets,proto3" json:"can_manage_secrets,omitempty"`
+	CiDaemonIds       []string                 `protobuf:"bytes,11,rep,name=ci_daemon_ids,json=ciDaemonIds,proto3" json:"ci_daemon_ids,omitempty"`
+	CiDaemonNames     []string                 `protobuf:"bytes,12,rep,name=ci_daemon_names,json=ciDaemonNames,proto3" json:"ci_daemon_names,omitempty"`
+	Problems          []*FolderPolicyProblem   `protobuf:"bytes,13,rep,name=problems,proto3" json:"problems,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
+}
+
+func (x *FolderPolicyResponse) Reset() {
+	*x = FolderPolicyResponse{}
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *FolderPolicyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*FolderPolicyResponse) ProtoMessage() {}
+
+func (x *FolderPolicyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use FolderPolicyResponse.ProtoReflect.Descriptor instead.
+func (*FolderPolicyResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *FolderPolicyResponse) GetFolder() string {
+	if x != nil {
+		return x.Folder
+	}
+	return ""
+}
+
+func (x *FolderPolicyResponse) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
+}
+
+func (x *FolderPolicyResponse) GetCommitId() string {
+	if x != nil {
+		return x.CommitId
+	}
+	return ""
+}
+
+func (x *FolderPolicyResponse) GetOwnerConfigPath() string {
+	if x != nil {
+		return x.OwnerConfigPath
+	}
+	return ""
+}
+
+func (x *FolderPolicyResponse) GetOwnerSourceFolder() string {
+	if x != nil {
+		return x.OwnerSourceFolder
+	}
+	return ""
+}
+
+func (x *FolderPolicyResponse) GetOwnerRules() []*FolderOwnerRule {
+	if x != nil {
+		return x.OwnerRules
+	}
+	return nil
+}
+
+func (x *FolderPolicyResponse) GetChecks() []*FolderCheckDefinition {
+	if x != nil {
+		return x.Checks
+	}
+	return nil
+}
+
+func (x *FolderPolicyResponse) GetTriggers() []*TriggerDefinition {
+	if x != nil {
+		return x.Triggers
+	}
+	return nil
+}
+
+func (x *FolderPolicyResponse) GetSecrets() []*FolderSecretEntry {
+	if x != nil {
+		return x.Secrets
+	}
+	return nil
+}
+
+func (x *FolderPolicyResponse) GetCanManageSecrets() bool {
+	if x != nil {
+		return x.CanManageSecrets
+	}
+	return false
+}
+
+func (x *FolderPolicyResponse) GetCiDaemonIds() []string {
+	if x != nil {
+		return x.CiDaemonIds
+	}
+	return nil
+}
+
+func (x *FolderPolicyResponse) GetCiDaemonNames() []string {
+	if x != nil {
+		return x.CiDaemonNames
+	}
+	return nil
+}
+
+func (x *FolderPolicyResponse) GetProblems() []*FolderPolicyProblem {
+	if x != nil {
+		return x.Problems
+	}
+	return nil
+}
+
 type ListTriggersResponse struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	Triggers []*TriggerDefinition   `protobuf:"bytes,1,rep,name=triggers,proto3" json:"triggers,omitempty"`
@@ -525,7 +1033,7 @@ type ListTriggersResponse struct {
 
 func (x *ListTriggersResponse) Reset() {
 	*x = ListTriggersResponse{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[4]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -537,7 +1045,7 @@ func (x *ListTriggersResponse) String() string {
 func (*ListTriggersResponse) ProtoMessage() {}
 
 func (x *ListTriggersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[4]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -550,7 +1058,7 @@ func (x *ListTriggersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTriggersResponse.ProtoReflect.Descriptor instead.
 func (*ListTriggersResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{4}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *ListTriggersResponse) GetTriggers() []*TriggerDefinition {
@@ -587,7 +1095,7 @@ type ListTriggerRunsRequest struct {
 
 func (x *ListTriggerRunsRequest) Reset() {
 	*x = ListTriggerRunsRequest{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[5]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -599,7 +1107,7 @@ func (x *ListTriggerRunsRequest) String() string {
 func (*ListTriggerRunsRequest) ProtoMessage() {}
 
 func (x *ListTriggerRunsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[5]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -612,7 +1120,7 @@ func (x *ListTriggerRunsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTriggerRunsRequest.ProtoReflect.Descriptor instead.
 func (*ListTriggerRunsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{5}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListTriggerRunsRequest) GetAccount() string {
@@ -652,7 +1160,7 @@ type ListTriggerRunsResponse struct {
 
 func (x *ListTriggerRunsResponse) Reset() {
 	*x = ListTriggerRunsResponse{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[6]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -664,7 +1172,7 @@ func (x *ListTriggerRunsResponse) String() string {
 func (*ListTriggerRunsResponse) ProtoMessage() {}
 
 func (x *ListTriggerRunsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[6]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -677,7 +1185,7 @@ func (x *ListTriggerRunsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTriggerRunsResponse.ProtoReflect.Descriptor instead.
 func (*ListTriggerRunsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{6}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *ListTriggerRunsResponse) GetRuns() []*TriggerRun {
@@ -696,7 +1204,7 @@ type GetTriggerRunRequest struct {
 
 func (x *GetTriggerRunRequest) Reset() {
 	*x = GetTriggerRunRequest{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[7]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -708,7 +1216,7 @@ func (x *GetTriggerRunRequest) String() string {
 func (*GetTriggerRunRequest) ProtoMessage() {}
 
 func (x *GetTriggerRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[7]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -721,7 +1229,7 @@ func (x *GetTriggerRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetTriggerRunRequest.ProtoReflect.Descriptor instead.
 func (*GetTriggerRunRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{7}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GetTriggerRunRequest) GetRunId() string {
@@ -741,7 +1249,7 @@ type ListTriggerRunLogsRequest struct {
 
 func (x *ListTriggerRunLogsRequest) Reset() {
 	*x = ListTriggerRunLogsRequest{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[8]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -753,7 +1261,7 @@ func (x *ListTriggerRunLogsRequest) String() string {
 func (*ListTriggerRunLogsRequest) ProtoMessage() {}
 
 func (x *ListTriggerRunLogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[8]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -766,7 +1274,7 @@ func (x *ListTriggerRunLogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTriggerRunLogsRequest.ProtoReflect.Descriptor instead.
 func (*ListTriggerRunLogsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{8}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ListTriggerRunLogsRequest) GetRunId() string {
@@ -795,7 +1303,7 @@ type TriggerRunLog struct {
 
 func (x *TriggerRunLog) Reset() {
 	*x = TriggerRunLog{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[9]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -807,7 +1315,7 @@ func (x *TriggerRunLog) String() string {
 func (*TriggerRunLog) ProtoMessage() {}
 
 func (x *TriggerRunLog) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[9]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -820,7 +1328,7 @@ func (x *TriggerRunLog) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerRunLog.ProtoReflect.Descriptor instead.
 func (*TriggerRunLog) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{9}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *TriggerRunLog) GetSeq() int64 {
@@ -860,7 +1368,7 @@ type ListTriggerRunLogsResponse struct {
 
 func (x *ListTriggerRunLogsResponse) Reset() {
 	*x = ListTriggerRunLogsResponse{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[10]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -872,7 +1380,7 @@ func (x *ListTriggerRunLogsResponse) String() string {
 func (*ListTriggerRunLogsResponse) ProtoMessage() {}
 
 func (x *ListTriggerRunLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[10]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -885,7 +1393,7 @@ func (x *ListTriggerRunLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTriggerRunLogsResponse.ProtoReflect.Descriptor instead.
 func (*ListTriggerRunLogsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{10}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ListTriggerRunLogsResponse) GetLogs() []*TriggerRunLog {
@@ -911,7 +1419,7 @@ type RunTriggerRequest struct {
 
 func (x *RunTriggerRequest) Reset() {
 	*x = RunTriggerRequest{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[11]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -923,7 +1431,7 @@ func (x *RunTriggerRequest) String() string {
 func (*RunTriggerRequest) ProtoMessage() {}
 
 func (x *RunTriggerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[11]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -936,7 +1444,7 @@ func (x *RunTriggerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunTriggerRequest.ProtoReflect.Descriptor instead.
 func (*RunTriggerRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{11}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *RunTriggerRequest) GetAccount() string {
@@ -983,7 +1491,7 @@ type RerunTriggerRunRequest struct {
 
 func (x *RerunTriggerRunRequest) Reset() {
 	*x = RerunTriggerRunRequest{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[12]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -995,7 +1503,7 @@ func (x *RerunTriggerRunRequest) String() string {
 func (*RerunTriggerRunRequest) ProtoMessage() {}
 
 func (x *RerunTriggerRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[12]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1008,7 +1516,7 @@ func (x *RerunTriggerRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RerunTriggerRunRequest.ProtoReflect.Descriptor instead.
 func (*RerunTriggerRunRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{12}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *RerunTriggerRunRequest) GetRunId() string {
@@ -1027,7 +1535,7 @@ type CancelTriggerRunRequest struct {
 
 func (x *CancelTriggerRunRequest) Reset() {
 	*x = CancelTriggerRunRequest{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[13]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1039,7 +1547,7 @@ func (x *CancelTriggerRunRequest) String() string {
 func (*CancelTriggerRunRequest) ProtoMessage() {}
 
 func (x *CancelTriggerRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[13]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1052,7 +1560,7 @@ func (x *CancelTriggerRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelTriggerRunRequest.ProtoReflect.Descriptor instead.
 func (*CancelTriggerRunRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{13}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *CancelTriggerRunRequest) GetRunId() string {
@@ -1075,7 +1583,7 @@ type StartTriggerRunRequest struct {
 
 func (x *StartTriggerRunRequest) Reset() {
 	*x = StartTriggerRunRequest{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[14]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1087,7 +1595,7 @@ func (x *StartTriggerRunRequest) String() string {
 func (*StartTriggerRunRequest) ProtoMessage() {}
 
 func (x *StartTriggerRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[14]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1100,7 +1608,7 @@ func (x *StartTriggerRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartTriggerRunRequest.ProtoReflect.Descriptor instead.
 func (*StartTriggerRunRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{14}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *StartTriggerRunRequest) GetRunId() string {
@@ -1152,7 +1660,7 @@ type StartTriggerRunResponse struct {
 
 func (x *StartTriggerRunResponse) Reset() {
 	*x = StartTriggerRunResponse{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[15]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1164,7 +1672,7 @@ func (x *StartTriggerRunResponse) String() string {
 func (*StartTriggerRunResponse) ProtoMessage() {}
 
 func (x *StartTriggerRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[15]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1177,7 +1685,7 @@ func (x *StartTriggerRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartTriggerRunResponse.ProtoReflect.Descriptor instead.
 func (*StartTriggerRunResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{15}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *StartTriggerRunResponse) GetRun() *TriggerRun {
@@ -1273,7 +1781,7 @@ type TriggerRunTokenRequest struct {
 
 func (x *TriggerRunTokenRequest) Reset() {
 	*x = TriggerRunTokenRequest{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[16]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1285,7 +1793,7 @@ func (x *TriggerRunTokenRequest) String() string {
 func (*TriggerRunTokenRequest) ProtoMessage() {}
 
 func (x *TriggerRunTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[16]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1298,7 +1806,7 @@ func (x *TriggerRunTokenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerRunTokenRequest.ProtoReflect.Descriptor instead.
 func (*TriggerRunTokenRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{16}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *TriggerRunTokenRequest) GetRunToken() string {
@@ -1327,7 +1835,7 @@ type FinishTriggerRunRequest struct {
 
 func (x *FinishTriggerRunRequest) Reset() {
 	*x = FinishTriggerRunRequest{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[17]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1339,7 +1847,7 @@ func (x *FinishTriggerRunRequest) String() string {
 func (*FinishTriggerRunRequest) ProtoMessage() {}
 
 func (x *FinishTriggerRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[17]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1352,7 +1860,7 @@ func (x *FinishTriggerRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinishTriggerRunRequest.ProtoReflect.Descriptor instead.
 func (*FinishTriggerRunRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{17}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *FinishTriggerRunRequest) GetRunToken() string {
@@ -1407,7 +1915,7 @@ type TriggerRunLogLine struct {
 
 func (x *TriggerRunLogLine) Reset() {
 	*x = TriggerRunLogLine{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[18]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1419,7 +1927,7 @@ func (x *TriggerRunLogLine) String() string {
 func (*TriggerRunLogLine) ProtoMessage() {}
 
 func (x *TriggerRunLogLine) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[18]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1432,7 +1940,7 @@ func (x *TriggerRunLogLine) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerRunLogLine.ProtoReflect.Descriptor instead.
 func (*TriggerRunLogLine) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{18}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *TriggerRunLogLine) GetStream() string {
@@ -1459,7 +1967,7 @@ type AppendTriggerRunLogRequest struct {
 
 func (x *AppendTriggerRunLogRequest) Reset() {
 	*x = AppendTriggerRunLogRequest{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[19]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1471,7 +1979,7 @@ func (x *AppendTriggerRunLogRequest) String() string {
 func (*AppendTriggerRunLogRequest) ProtoMessage() {}
 
 func (x *AppendTriggerRunLogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[19]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1484,7 +1992,7 @@ func (x *AppendTriggerRunLogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppendTriggerRunLogRequest.ProtoReflect.Descriptor instead.
 func (*AppendTriggerRunLogRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{19}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *AppendTriggerRunLogRequest) GetRunToken() string {
@@ -1510,7 +2018,7 @@ type TriggerRunState struct {
 
 func (x *TriggerRunState) Reset() {
 	*x = TriggerRunState{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[20]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1522,7 +2030,7 @@ func (x *TriggerRunState) String() string {
 func (*TriggerRunState) ProtoMessage() {}
 
 func (x *TriggerRunState) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[20]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1535,7 +2043,7 @@ func (x *TriggerRunState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerRunState.ProtoReflect.Descriptor instead.
 func (*TriggerRunState) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{20}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *TriggerRunState) GetStateJson() string {
@@ -1556,7 +2064,7 @@ type SetTriggerRunStateRequest struct {
 
 func (x *SetTriggerRunStateRequest) Reset() {
 	*x = SetTriggerRunStateRequest{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[21]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1568,7 +2076,7 @@ func (x *SetTriggerRunStateRequest) String() string {
 func (*SetTriggerRunStateRequest) ProtoMessage() {}
 
 func (x *SetTriggerRunStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[21]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1581,7 +2089,7 @@ func (x *SetTriggerRunStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetTriggerRunStateRequest.ProtoReflect.Descriptor instead.
 func (*SetTriggerRunStateRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{21}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *SetTriggerRunStateRequest) GetRunToken() string {
@@ -1613,7 +2121,7 @@ type CreateTriggerCheckRequest struct {
 
 func (x *CreateTriggerCheckRequest) Reset() {
 	*x = CreateTriggerCheckRequest{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[22]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1625,7 +2133,7 @@ func (x *CreateTriggerCheckRequest) String() string {
 func (*CreateTriggerCheckRequest) ProtoMessage() {}
 
 func (x *CreateTriggerCheckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[22]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1638,7 +2146,7 @@ func (x *CreateTriggerCheckRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateTriggerCheckRequest.ProtoReflect.Descriptor instead.
 func (*CreateTriggerCheckRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{22}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *CreateTriggerCheckRequest) GetRunToken() string {
@@ -1698,7 +2206,7 @@ type UpdateTriggerCheckRequest struct {
 
 func (x *UpdateTriggerCheckRequest) Reset() {
 	*x = UpdateTriggerCheckRequest{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[23]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1710,7 +2218,7 @@ func (x *UpdateTriggerCheckRequest) String() string {
 func (*UpdateTriggerCheckRequest) ProtoMessage() {}
 
 func (x *UpdateTriggerCheckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[23]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1723,7 +2231,7 @@ func (x *UpdateTriggerCheckRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateTriggerCheckRequest.ProtoReflect.Descriptor instead.
 func (*UpdateTriggerCheckRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{23}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *UpdateTriggerCheckRequest) GetRunToken() string {
@@ -1781,7 +2289,7 @@ type TriggerReadFileRequest struct {
 
 func (x *TriggerReadFileRequest) Reset() {
 	*x = TriggerReadFileRequest{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[24]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1793,7 +2301,7 @@ func (x *TriggerReadFileRequest) String() string {
 func (*TriggerReadFileRequest) ProtoMessage() {}
 
 func (x *TriggerReadFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[24]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1806,7 +2314,7 @@ func (x *TriggerReadFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerReadFileRequest.ProtoReflect.Descriptor instead.
 func (*TriggerReadFileRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{24}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *TriggerReadFileRequest) GetRunToken() string {
@@ -1840,7 +2348,7 @@ type TriggerReadFileResponse struct {
 
 func (x *TriggerReadFileResponse) Reset() {
 	*x = TriggerReadFileResponse{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[25]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1852,7 +2360,7 @@ func (x *TriggerReadFileResponse) String() string {
 func (*TriggerReadFileResponse) ProtoMessage() {}
 
 func (x *TriggerReadFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[25]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1865,7 +2373,7 @@ func (x *TriggerReadFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerReadFileResponse.ProtoReflect.Descriptor instead.
 func (*TriggerReadFileResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{25}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *TriggerReadFileResponse) GetFound() bool {
@@ -1893,7 +2401,7 @@ type TriggerListDirectoryRequest struct {
 
 func (x *TriggerListDirectoryRequest) Reset() {
 	*x = TriggerListDirectoryRequest{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[26]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1905,7 +2413,7 @@ func (x *TriggerListDirectoryRequest) String() string {
 func (*TriggerListDirectoryRequest) ProtoMessage() {}
 
 func (x *TriggerListDirectoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[26]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1918,7 +2426,7 @@ func (x *TriggerListDirectoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerListDirectoryRequest.ProtoReflect.Descriptor instead.
 func (*TriggerListDirectoryRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{26}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *TriggerListDirectoryRequest) GetRunToken() string {
@@ -1954,7 +2462,7 @@ type TriggerDirectoryEntry struct {
 
 func (x *TriggerDirectoryEntry) Reset() {
 	*x = TriggerDirectoryEntry{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[27]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1966,7 +2474,7 @@ func (x *TriggerDirectoryEntry) String() string {
 func (*TriggerDirectoryEntry) ProtoMessage() {}
 
 func (x *TriggerDirectoryEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[27]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1979,7 +2487,7 @@ func (x *TriggerDirectoryEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerDirectoryEntry.ProtoReflect.Descriptor instead.
 func (*TriggerDirectoryEntry) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{27}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *TriggerDirectoryEntry) GetName() string {
@@ -2013,7 +2521,7 @@ type TriggerListDirectoryResponse struct {
 
 func (x *TriggerListDirectoryResponse) Reset() {
 	*x = TriggerListDirectoryResponse{}
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[28]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2025,7 +2533,7 @@ func (x *TriggerListDirectoryResponse) String() string {
 func (*TriggerListDirectoryResponse) ProtoMessage() {}
 
 func (x *TriggerListDirectoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_trigger_proto_msgTypes[28]
+	mi := &file_proto_core_v1_trigger_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2038,7 +2546,7 @@ func (x *TriggerListDirectoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TriggerListDirectoryResponse.ProtoReflect.Descriptor instead.
 func (*TriggerListDirectoryResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{28}
+	return file_proto_core_v1_trigger_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *TriggerListDirectoryResponse) GetFound() bool {
@@ -2116,7 +2624,52 @@ const file_proto_core_v1_trigger_proto_rawDesc = "" +
 	"\bdeadline\x18\x15 \x01(\tR\bdeadline\";\n" +
 	"\x13ListTriggersRequest\x12\x12\n" +
 	"\x04path\x18\x01 \x01(\tR\x04path\x12\x10\n" +
-	"\x03ref\x18\x02 \x01(\tR\x03ref\"\xb6\x01\n" +
+	"\x03ref\x18\x02 \x01(\tR\x03ref\">\n" +
+	"\x16GetFolderPolicyRequest\x12\x12\n" +
+	"\x04path\x18\x01 \x01(\tR\x04path\x12\x10\n" +
+	"\x03ref\x18\x02 \x01(\tR\x03ref\"~\n" +
+	"\x0fFolderOwnerRule\x12\x14\n" +
+	"\x05paths\x18\x01 \x03(\tR\x05paths\x12\x16\n" +
+	"\x06owners\x18\x02 \x03(\tR\x06owners\x12\x18\n" +
+	"\arequire\x18\x03 \x01(\x05R\arequire\x12#\n" +
+	"\rrequire_human\x18\x04 \x01(\x05R\frequireHuman\"\xd7\x01\n" +
+	"\x15FolderCheckDefinition\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
+	"\x06folder\x18\x03 \x01(\tR\x06folder\x12\x1f\n" +
+	"\vconfig_path\x18\x04 \x01(\tR\n" +
+	"configPath\x12\x10\n" +
+	"\x03run\x18\x05 \x01(\tR\x03run\x12\x14\n" +
+	"\x05paths\x18\x06 \x03(\tR\x05paths\x12\x1d\n" +
+	"\n" +
+	"started_by\x18\a \x01(\tR\tstartedBy\x12\x1a\n" +
+	"\brequired\x18\b \x01(\bR\brequired\"\x7f\n" +
+	"\x11FolderSecretEntry\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1b\n" +
+	"\tsecret_id\x18\x02 \x01(\tR\bsecretId\x12#\n" +
+	"\rsource_folder\x18\x03 \x01(\tR\fsourceFolder\x12\x14\n" +
+	"\x05paths\x18\x04 \x03(\tR\x05paths\"o\n" +
+	"\x13FolderPolicyProblem\x12\x12\n" +
+	"\x04kind\x18\x01 \x01(\tR\x04kind\x12\x16\n" +
+	"\x06folder\x18\x02 \x01(\tR\x06folder\x12\x12\n" +
+	"\x04file\x18\x03 \x01(\tR\x04file\x12\x18\n" +
+	"\amessage\x18\x04 \x01(\tR\amessage\"\x83\x05\n" +
+	"\x14FolderPolicyResponse\x12\x16\n" +
+	"\x06folder\x18\x01 \x01(\tR\x06folder\x12\x18\n" +
+	"\aaccount\x18\x02 \x01(\tR\aaccount\x12\x1b\n" +
+	"\tcommit_id\x18\x03 \x01(\tR\bcommitId\x12*\n" +
+	"\x11owner_config_path\x18\x04 \x01(\tR\x0fownerConfigPath\x12.\n" +
+	"\x13owner_source_folder\x18\x05 \x01(\tR\x11ownerSourceFolder\x12B\n" +
+	"\vowner_rules\x18\x06 \x03(\v2!.gitslice.core.v1.FolderOwnerRuleR\n" +
+	"ownerRules\x12?\n" +
+	"\x06checks\x18\a \x03(\v2'.gitslice.core.v1.FolderCheckDefinitionR\x06checks\x12?\n" +
+	"\btriggers\x18\b \x03(\v2#.gitslice.core.v1.TriggerDefinitionR\btriggers\x12=\n" +
+	"\asecrets\x18\t \x03(\v2#.gitslice.core.v1.FolderSecretEntryR\asecrets\x12,\n" +
+	"\x12can_manage_secrets\x18\n" +
+	" \x01(\bR\x10canManageSecrets\x12\"\n" +
+	"\rci_daemon_ids\x18\v \x03(\tR\vciDaemonIds\x12&\n" +
+	"\x0fci_daemon_names\x18\f \x03(\tR\rciDaemonNames\x12A\n" +
+	"\bproblems\x18\r \x03(\v2%.gitslice.core.v1.FolderPolicyProblemR\bproblems\"\xb6\x01\n" +
 	"\x14ListTriggersResponse\x12?\n" +
 	"\btriggers\x18\x01 \x03(\v2#.gitslice.core.v1.TriggerDefinitionR\btriggers\x12@\n" +
 	"\bproblems\x18\x02 \x03(\v2$.gitslice.core.v1.TriggerFileProblemR\bproblems\x12\x1b\n" +
@@ -2242,8 +2795,9 @@ const file_proto_core_v1_trigger_proto_rawDesc = "" +
 	"\x04kind\x18\x03 \x01(\tR\x04kind\"w\n" +
 	"\x1cTriggerListDirectoryResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x12A\n" +
-	"\aentries\x18\x02 \x03(\v2'.gitslice.core.v1.TriggerDirectoryEntryR\aentries2\xa8\x05\n" +
-	"\x0eTriggerService\x12]\n" +
+	"\aentries\x18\x02 \x03(\v2'.gitslice.core.v1.TriggerDirectoryEntryR\aentries2\x8d\x06\n" +
+	"\x0eTriggerService\x12c\n" +
+	"\x0fGetFolderPolicy\x12(.gitslice.core.v1.GetFolderPolicyRequest\x1a&.gitslice.core.v1.FolderPolicyResponse\x12]\n" +
 	"\fListTriggers\x12%.gitslice.core.v1.ListTriggersRequest\x1a&.gitslice.core.v1.ListTriggersResponse\x12f\n" +
 	"\x0fListTriggerRuns\x12(.gitslice.core.v1.ListTriggerRunsRequest\x1a).gitslice.core.v1.ListTriggerRunsResponse\x12U\n" +
 	"\rGetTriggerRun\x12&.gitslice.core.v1.GetTriggerRunRequest\x1a\x1c.gitslice.core.v1.TriggerRun\x12o\n" +
@@ -2277,99 +2831,112 @@ func file_proto_core_v1_trigger_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_trigger_proto_rawDescData
 }
 
-var file_proto_core_v1_trigger_proto_msgTypes = make([]protoimpl.MessageInfo, 32)
+var file_proto_core_v1_trigger_proto_msgTypes = make([]protoimpl.MessageInfo, 38)
 var file_proto_core_v1_trigger_proto_goTypes = []any{
 	(*TriggerDefinition)(nil),            // 0: gitslice.core.v1.TriggerDefinition
 	(*TriggerFileProblem)(nil),           // 1: gitslice.core.v1.TriggerFileProblem
 	(*TriggerRun)(nil),                   // 2: gitslice.core.v1.TriggerRun
 	(*ListTriggersRequest)(nil),          // 3: gitslice.core.v1.ListTriggersRequest
-	(*ListTriggersResponse)(nil),         // 4: gitslice.core.v1.ListTriggersResponse
-	(*ListTriggerRunsRequest)(nil),       // 5: gitslice.core.v1.ListTriggerRunsRequest
-	(*ListTriggerRunsResponse)(nil),      // 6: gitslice.core.v1.ListTriggerRunsResponse
-	(*GetTriggerRunRequest)(nil),         // 7: gitslice.core.v1.GetTriggerRunRequest
-	(*ListTriggerRunLogsRequest)(nil),    // 8: gitslice.core.v1.ListTriggerRunLogsRequest
-	(*TriggerRunLog)(nil),                // 9: gitslice.core.v1.TriggerRunLog
-	(*ListTriggerRunLogsResponse)(nil),   // 10: gitslice.core.v1.ListTriggerRunLogsResponse
-	(*RunTriggerRequest)(nil),            // 11: gitslice.core.v1.RunTriggerRequest
-	(*RerunTriggerRunRequest)(nil),       // 12: gitslice.core.v1.RerunTriggerRunRequest
-	(*CancelTriggerRunRequest)(nil),      // 13: gitslice.core.v1.CancelTriggerRunRequest
-	(*StartTriggerRunRequest)(nil),       // 14: gitslice.core.v1.StartTriggerRunRequest
-	(*StartTriggerRunResponse)(nil),      // 15: gitslice.core.v1.StartTriggerRunResponse
-	(*TriggerRunTokenRequest)(nil),       // 16: gitslice.core.v1.TriggerRunTokenRequest
-	(*FinishTriggerRunRequest)(nil),      // 17: gitslice.core.v1.FinishTriggerRunRequest
-	(*TriggerRunLogLine)(nil),            // 18: gitslice.core.v1.TriggerRunLogLine
-	(*AppendTriggerRunLogRequest)(nil),   // 19: gitslice.core.v1.AppendTriggerRunLogRequest
-	(*TriggerRunState)(nil),              // 20: gitslice.core.v1.TriggerRunState
-	(*SetTriggerRunStateRequest)(nil),    // 21: gitslice.core.v1.SetTriggerRunStateRequest
-	(*CreateTriggerCheckRequest)(nil),    // 22: gitslice.core.v1.CreateTriggerCheckRequest
-	(*UpdateTriggerCheckRequest)(nil),    // 23: gitslice.core.v1.UpdateTriggerCheckRequest
-	(*TriggerReadFileRequest)(nil),       // 24: gitslice.core.v1.TriggerReadFileRequest
-	(*TriggerReadFileResponse)(nil),      // 25: gitslice.core.v1.TriggerReadFileResponse
-	(*TriggerListDirectoryRequest)(nil),  // 26: gitslice.core.v1.TriggerListDirectoryRequest
-	(*TriggerDirectoryEntry)(nil),        // 27: gitslice.core.v1.TriggerDirectoryEntry
-	(*TriggerListDirectoryResponse)(nil), // 28: gitslice.core.v1.TriggerListDirectoryResponse
-	nil,                                  // 29: gitslice.core.v1.RunTriggerRequest.InputsEntry
-	nil,                                  // 30: gitslice.core.v1.StartTriggerRunResponse.ModulesEntry
-	nil,                                  // 31: gitslice.core.v1.StartTriggerRunResponse.SecretsEntry
-	(*CheckAnnotation)(nil),              // 32: gitslice.core.v1.CheckAnnotation
-	(*Empty)(nil),                        // 33: gitslice.core.v1.Empty
-	(*CheckRun)(nil),                     // 34: gitslice.core.v1.CheckRun
-	(*Changeset)(nil),                    // 35: gitslice.core.v1.Changeset
+	(*GetFolderPolicyRequest)(nil),       // 4: gitslice.core.v1.GetFolderPolicyRequest
+	(*FolderOwnerRule)(nil),              // 5: gitslice.core.v1.FolderOwnerRule
+	(*FolderCheckDefinition)(nil),        // 6: gitslice.core.v1.FolderCheckDefinition
+	(*FolderSecretEntry)(nil),            // 7: gitslice.core.v1.FolderSecretEntry
+	(*FolderPolicyProblem)(nil),          // 8: gitslice.core.v1.FolderPolicyProblem
+	(*FolderPolicyResponse)(nil),         // 9: gitslice.core.v1.FolderPolicyResponse
+	(*ListTriggersResponse)(nil),         // 10: gitslice.core.v1.ListTriggersResponse
+	(*ListTriggerRunsRequest)(nil),       // 11: gitslice.core.v1.ListTriggerRunsRequest
+	(*ListTriggerRunsResponse)(nil),      // 12: gitslice.core.v1.ListTriggerRunsResponse
+	(*GetTriggerRunRequest)(nil),         // 13: gitslice.core.v1.GetTriggerRunRequest
+	(*ListTriggerRunLogsRequest)(nil),    // 14: gitslice.core.v1.ListTriggerRunLogsRequest
+	(*TriggerRunLog)(nil),                // 15: gitslice.core.v1.TriggerRunLog
+	(*ListTriggerRunLogsResponse)(nil),   // 16: gitslice.core.v1.ListTriggerRunLogsResponse
+	(*RunTriggerRequest)(nil),            // 17: gitslice.core.v1.RunTriggerRequest
+	(*RerunTriggerRunRequest)(nil),       // 18: gitslice.core.v1.RerunTriggerRunRequest
+	(*CancelTriggerRunRequest)(nil),      // 19: gitslice.core.v1.CancelTriggerRunRequest
+	(*StartTriggerRunRequest)(nil),       // 20: gitslice.core.v1.StartTriggerRunRequest
+	(*StartTriggerRunResponse)(nil),      // 21: gitslice.core.v1.StartTriggerRunResponse
+	(*TriggerRunTokenRequest)(nil),       // 22: gitslice.core.v1.TriggerRunTokenRequest
+	(*FinishTriggerRunRequest)(nil),      // 23: gitslice.core.v1.FinishTriggerRunRequest
+	(*TriggerRunLogLine)(nil),            // 24: gitslice.core.v1.TriggerRunLogLine
+	(*AppendTriggerRunLogRequest)(nil),   // 25: gitslice.core.v1.AppendTriggerRunLogRequest
+	(*TriggerRunState)(nil),              // 26: gitslice.core.v1.TriggerRunState
+	(*SetTriggerRunStateRequest)(nil),    // 27: gitslice.core.v1.SetTriggerRunStateRequest
+	(*CreateTriggerCheckRequest)(nil),    // 28: gitslice.core.v1.CreateTriggerCheckRequest
+	(*UpdateTriggerCheckRequest)(nil),    // 29: gitslice.core.v1.UpdateTriggerCheckRequest
+	(*TriggerReadFileRequest)(nil),       // 30: gitslice.core.v1.TriggerReadFileRequest
+	(*TriggerReadFileResponse)(nil),      // 31: gitslice.core.v1.TriggerReadFileResponse
+	(*TriggerListDirectoryRequest)(nil),  // 32: gitslice.core.v1.TriggerListDirectoryRequest
+	(*TriggerDirectoryEntry)(nil),        // 33: gitslice.core.v1.TriggerDirectoryEntry
+	(*TriggerListDirectoryResponse)(nil), // 34: gitslice.core.v1.TriggerListDirectoryResponse
+	nil,                                  // 35: gitslice.core.v1.RunTriggerRequest.InputsEntry
+	nil,                                  // 36: gitslice.core.v1.StartTriggerRunResponse.ModulesEntry
+	nil,                                  // 37: gitslice.core.v1.StartTriggerRunResponse.SecretsEntry
+	(*CheckAnnotation)(nil),              // 38: gitslice.core.v1.CheckAnnotation
+	(*Empty)(nil),                        // 39: gitslice.core.v1.Empty
+	(*CheckRun)(nil),                     // 40: gitslice.core.v1.CheckRun
+	(*Changeset)(nil),                    // 41: gitslice.core.v1.Changeset
 }
 var file_proto_core_v1_trigger_proto_depIdxs = []int32{
-	0,  // 0: gitslice.core.v1.ListTriggersResponse.triggers:type_name -> gitslice.core.v1.TriggerDefinition
-	1,  // 1: gitslice.core.v1.ListTriggersResponse.problems:type_name -> gitslice.core.v1.TriggerFileProblem
-	2,  // 2: gitslice.core.v1.ListTriggerRunsResponse.runs:type_name -> gitslice.core.v1.TriggerRun
-	9,  // 3: gitslice.core.v1.ListTriggerRunLogsResponse.logs:type_name -> gitslice.core.v1.TriggerRunLog
-	29, // 4: gitslice.core.v1.RunTriggerRequest.inputs:type_name -> gitslice.core.v1.RunTriggerRequest.InputsEntry
-	2,  // 5: gitslice.core.v1.StartTriggerRunResponse.run:type_name -> gitslice.core.v1.TriggerRun
-	30, // 6: gitslice.core.v1.StartTriggerRunResponse.modules:type_name -> gitslice.core.v1.StartTriggerRunResponse.ModulesEntry
-	31, // 7: gitslice.core.v1.StartTriggerRunResponse.secrets:type_name -> gitslice.core.v1.StartTriggerRunResponse.SecretsEntry
-	18, // 8: gitslice.core.v1.AppendTriggerRunLogRequest.lines:type_name -> gitslice.core.v1.TriggerRunLogLine
-	32, // 9: gitslice.core.v1.CreateTriggerCheckRequest.annotations:type_name -> gitslice.core.v1.CheckAnnotation
-	32, // 10: gitslice.core.v1.UpdateTriggerCheckRequest.annotations:type_name -> gitslice.core.v1.CheckAnnotation
-	27, // 11: gitslice.core.v1.TriggerListDirectoryResponse.entries:type_name -> gitslice.core.v1.TriggerDirectoryEntry
-	3,  // 12: gitslice.core.v1.TriggerService.ListTriggers:input_type -> gitslice.core.v1.ListTriggersRequest
-	5,  // 13: gitslice.core.v1.TriggerService.ListTriggerRuns:input_type -> gitslice.core.v1.ListTriggerRunsRequest
-	7,  // 14: gitslice.core.v1.TriggerService.GetTriggerRun:input_type -> gitslice.core.v1.GetTriggerRunRequest
-	8,  // 15: gitslice.core.v1.TriggerService.ListTriggerRunLogs:input_type -> gitslice.core.v1.ListTriggerRunLogsRequest
-	11, // 16: gitslice.core.v1.TriggerService.RunTrigger:input_type -> gitslice.core.v1.RunTriggerRequest
-	12, // 17: gitslice.core.v1.TriggerService.RerunTriggerRun:input_type -> gitslice.core.v1.RerunTriggerRunRequest
-	13, // 18: gitslice.core.v1.TriggerService.CancelTriggerRun:input_type -> gitslice.core.v1.CancelTriggerRunRequest
-	14, // 19: gitslice.core.v1.TriggerRunService.StartRun:input_type -> gitslice.core.v1.StartTriggerRunRequest
-	14, // 20: gitslice.core.v1.TriggerRunService.StartCallback:input_type -> gitslice.core.v1.StartTriggerRunRequest
-	17, // 21: gitslice.core.v1.TriggerRunService.FinishRun:input_type -> gitslice.core.v1.FinishTriggerRunRequest
-	19, // 22: gitslice.core.v1.TriggerRunService.AppendRunLog:input_type -> gitslice.core.v1.AppendTriggerRunLogRequest
-	16, // 23: gitslice.core.v1.TriggerRunService.GetRunState:input_type -> gitslice.core.v1.TriggerRunTokenRequest
-	21, // 24: gitslice.core.v1.TriggerRunService.SetRunState:input_type -> gitslice.core.v1.SetTriggerRunStateRequest
-	22, // 25: gitslice.core.v1.TriggerRunService.CreateCheck:input_type -> gitslice.core.v1.CreateTriggerCheckRequest
-	23, // 26: gitslice.core.v1.TriggerRunService.UpdateCheck:input_type -> gitslice.core.v1.UpdateTriggerCheckRequest
-	24, // 27: gitslice.core.v1.TriggerRunService.ReadFile:input_type -> gitslice.core.v1.TriggerReadFileRequest
-	26, // 28: gitslice.core.v1.TriggerRunService.ListDirectory:input_type -> gitslice.core.v1.TriggerListDirectoryRequest
-	16, // 29: gitslice.core.v1.TriggerRunService.GetChangeset:input_type -> gitslice.core.v1.TriggerRunTokenRequest
-	4,  // 30: gitslice.core.v1.TriggerService.ListTriggers:output_type -> gitslice.core.v1.ListTriggersResponse
-	6,  // 31: gitslice.core.v1.TriggerService.ListTriggerRuns:output_type -> gitslice.core.v1.ListTriggerRunsResponse
-	2,  // 32: gitslice.core.v1.TriggerService.GetTriggerRun:output_type -> gitslice.core.v1.TriggerRun
-	10, // 33: gitslice.core.v1.TriggerService.ListTriggerRunLogs:output_type -> gitslice.core.v1.ListTriggerRunLogsResponse
-	2,  // 34: gitslice.core.v1.TriggerService.RunTrigger:output_type -> gitslice.core.v1.TriggerRun
-	2,  // 35: gitslice.core.v1.TriggerService.RerunTriggerRun:output_type -> gitslice.core.v1.TriggerRun
-	2,  // 36: gitslice.core.v1.TriggerService.CancelTriggerRun:output_type -> gitslice.core.v1.TriggerRun
-	15, // 37: gitslice.core.v1.TriggerRunService.StartRun:output_type -> gitslice.core.v1.StartTriggerRunResponse
-	15, // 38: gitslice.core.v1.TriggerRunService.StartCallback:output_type -> gitslice.core.v1.StartTriggerRunResponse
-	2,  // 39: gitslice.core.v1.TriggerRunService.FinishRun:output_type -> gitslice.core.v1.TriggerRun
-	33, // 40: gitslice.core.v1.TriggerRunService.AppendRunLog:output_type -> gitslice.core.v1.Empty
-	20, // 41: gitslice.core.v1.TriggerRunService.GetRunState:output_type -> gitslice.core.v1.TriggerRunState
-	33, // 42: gitslice.core.v1.TriggerRunService.SetRunState:output_type -> gitslice.core.v1.Empty
-	34, // 43: gitslice.core.v1.TriggerRunService.CreateCheck:output_type -> gitslice.core.v1.CheckRun
-	34, // 44: gitslice.core.v1.TriggerRunService.UpdateCheck:output_type -> gitslice.core.v1.CheckRun
-	25, // 45: gitslice.core.v1.TriggerRunService.ReadFile:output_type -> gitslice.core.v1.TriggerReadFileResponse
-	28, // 46: gitslice.core.v1.TriggerRunService.ListDirectory:output_type -> gitslice.core.v1.TriggerListDirectoryResponse
-	35, // 47: gitslice.core.v1.TriggerRunService.GetChangeset:output_type -> gitslice.core.v1.Changeset
-	30, // [30:48] is the sub-list for method output_type
-	12, // [12:30] is the sub-list for method input_type
-	12, // [12:12] is the sub-list for extension type_name
-	12, // [12:12] is the sub-list for extension extendee
-	0,  // [0:12] is the sub-list for field type_name
+	5,  // 0: gitslice.core.v1.FolderPolicyResponse.owner_rules:type_name -> gitslice.core.v1.FolderOwnerRule
+	6,  // 1: gitslice.core.v1.FolderPolicyResponse.checks:type_name -> gitslice.core.v1.FolderCheckDefinition
+	0,  // 2: gitslice.core.v1.FolderPolicyResponse.triggers:type_name -> gitslice.core.v1.TriggerDefinition
+	7,  // 3: gitslice.core.v1.FolderPolicyResponse.secrets:type_name -> gitslice.core.v1.FolderSecretEntry
+	8,  // 4: gitslice.core.v1.FolderPolicyResponse.problems:type_name -> gitslice.core.v1.FolderPolicyProblem
+	0,  // 5: gitslice.core.v1.ListTriggersResponse.triggers:type_name -> gitslice.core.v1.TriggerDefinition
+	1,  // 6: gitslice.core.v1.ListTriggersResponse.problems:type_name -> gitslice.core.v1.TriggerFileProblem
+	2,  // 7: gitslice.core.v1.ListTriggerRunsResponse.runs:type_name -> gitslice.core.v1.TriggerRun
+	15, // 8: gitslice.core.v1.ListTriggerRunLogsResponse.logs:type_name -> gitslice.core.v1.TriggerRunLog
+	35, // 9: gitslice.core.v1.RunTriggerRequest.inputs:type_name -> gitslice.core.v1.RunTriggerRequest.InputsEntry
+	2,  // 10: gitslice.core.v1.StartTriggerRunResponse.run:type_name -> gitslice.core.v1.TriggerRun
+	36, // 11: gitslice.core.v1.StartTriggerRunResponse.modules:type_name -> gitslice.core.v1.StartTriggerRunResponse.ModulesEntry
+	37, // 12: gitslice.core.v1.StartTriggerRunResponse.secrets:type_name -> gitslice.core.v1.StartTriggerRunResponse.SecretsEntry
+	24, // 13: gitslice.core.v1.AppendTriggerRunLogRequest.lines:type_name -> gitslice.core.v1.TriggerRunLogLine
+	38, // 14: gitslice.core.v1.CreateTriggerCheckRequest.annotations:type_name -> gitslice.core.v1.CheckAnnotation
+	38, // 15: gitslice.core.v1.UpdateTriggerCheckRequest.annotations:type_name -> gitslice.core.v1.CheckAnnotation
+	33, // 16: gitslice.core.v1.TriggerListDirectoryResponse.entries:type_name -> gitslice.core.v1.TriggerDirectoryEntry
+	4,  // 17: gitslice.core.v1.TriggerService.GetFolderPolicy:input_type -> gitslice.core.v1.GetFolderPolicyRequest
+	3,  // 18: gitslice.core.v1.TriggerService.ListTriggers:input_type -> gitslice.core.v1.ListTriggersRequest
+	11, // 19: gitslice.core.v1.TriggerService.ListTriggerRuns:input_type -> gitslice.core.v1.ListTriggerRunsRequest
+	13, // 20: gitslice.core.v1.TriggerService.GetTriggerRun:input_type -> gitslice.core.v1.GetTriggerRunRequest
+	14, // 21: gitslice.core.v1.TriggerService.ListTriggerRunLogs:input_type -> gitslice.core.v1.ListTriggerRunLogsRequest
+	17, // 22: gitslice.core.v1.TriggerService.RunTrigger:input_type -> gitslice.core.v1.RunTriggerRequest
+	18, // 23: gitslice.core.v1.TriggerService.RerunTriggerRun:input_type -> gitslice.core.v1.RerunTriggerRunRequest
+	19, // 24: gitslice.core.v1.TriggerService.CancelTriggerRun:input_type -> gitslice.core.v1.CancelTriggerRunRequest
+	20, // 25: gitslice.core.v1.TriggerRunService.StartRun:input_type -> gitslice.core.v1.StartTriggerRunRequest
+	20, // 26: gitslice.core.v1.TriggerRunService.StartCallback:input_type -> gitslice.core.v1.StartTriggerRunRequest
+	23, // 27: gitslice.core.v1.TriggerRunService.FinishRun:input_type -> gitslice.core.v1.FinishTriggerRunRequest
+	25, // 28: gitslice.core.v1.TriggerRunService.AppendRunLog:input_type -> gitslice.core.v1.AppendTriggerRunLogRequest
+	22, // 29: gitslice.core.v1.TriggerRunService.GetRunState:input_type -> gitslice.core.v1.TriggerRunTokenRequest
+	27, // 30: gitslice.core.v1.TriggerRunService.SetRunState:input_type -> gitslice.core.v1.SetTriggerRunStateRequest
+	28, // 31: gitslice.core.v1.TriggerRunService.CreateCheck:input_type -> gitslice.core.v1.CreateTriggerCheckRequest
+	29, // 32: gitslice.core.v1.TriggerRunService.UpdateCheck:input_type -> gitslice.core.v1.UpdateTriggerCheckRequest
+	30, // 33: gitslice.core.v1.TriggerRunService.ReadFile:input_type -> gitslice.core.v1.TriggerReadFileRequest
+	32, // 34: gitslice.core.v1.TriggerRunService.ListDirectory:input_type -> gitslice.core.v1.TriggerListDirectoryRequest
+	22, // 35: gitslice.core.v1.TriggerRunService.GetChangeset:input_type -> gitslice.core.v1.TriggerRunTokenRequest
+	9,  // 36: gitslice.core.v1.TriggerService.GetFolderPolicy:output_type -> gitslice.core.v1.FolderPolicyResponse
+	10, // 37: gitslice.core.v1.TriggerService.ListTriggers:output_type -> gitslice.core.v1.ListTriggersResponse
+	12, // 38: gitslice.core.v1.TriggerService.ListTriggerRuns:output_type -> gitslice.core.v1.ListTriggerRunsResponse
+	2,  // 39: gitslice.core.v1.TriggerService.GetTriggerRun:output_type -> gitslice.core.v1.TriggerRun
+	16, // 40: gitslice.core.v1.TriggerService.ListTriggerRunLogs:output_type -> gitslice.core.v1.ListTriggerRunLogsResponse
+	2,  // 41: gitslice.core.v1.TriggerService.RunTrigger:output_type -> gitslice.core.v1.TriggerRun
+	2,  // 42: gitslice.core.v1.TriggerService.RerunTriggerRun:output_type -> gitslice.core.v1.TriggerRun
+	2,  // 43: gitslice.core.v1.TriggerService.CancelTriggerRun:output_type -> gitslice.core.v1.TriggerRun
+	21, // 44: gitslice.core.v1.TriggerRunService.StartRun:output_type -> gitslice.core.v1.StartTriggerRunResponse
+	21, // 45: gitslice.core.v1.TriggerRunService.StartCallback:output_type -> gitslice.core.v1.StartTriggerRunResponse
+	2,  // 46: gitslice.core.v1.TriggerRunService.FinishRun:output_type -> gitslice.core.v1.TriggerRun
+	39, // 47: gitslice.core.v1.TriggerRunService.AppendRunLog:output_type -> gitslice.core.v1.Empty
+	26, // 48: gitslice.core.v1.TriggerRunService.GetRunState:output_type -> gitslice.core.v1.TriggerRunState
+	39, // 49: gitslice.core.v1.TriggerRunService.SetRunState:output_type -> gitslice.core.v1.Empty
+	40, // 50: gitslice.core.v1.TriggerRunService.CreateCheck:output_type -> gitslice.core.v1.CheckRun
+	40, // 51: gitslice.core.v1.TriggerRunService.UpdateCheck:output_type -> gitslice.core.v1.CheckRun
+	31, // 52: gitslice.core.v1.TriggerRunService.ReadFile:output_type -> gitslice.core.v1.TriggerReadFileResponse
+	34, // 53: gitslice.core.v1.TriggerRunService.ListDirectory:output_type -> gitslice.core.v1.TriggerListDirectoryResponse
+	41, // 54: gitslice.core.v1.TriggerRunService.GetChangeset:output_type -> gitslice.core.v1.Changeset
+	36, // [36:55] is the sub-list for method output_type
+	17, // [17:36] is the sub-list for method input_type
+	17, // [17:17] is the sub-list for extension type_name
+	17, // [17:17] is the sub-list for extension extendee
+	0,  // [0:17] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_trigger_proto_init() }
@@ -2380,14 +2947,14 @@ func file_proto_core_v1_trigger_proto_init() {
 	file_proto_core_v1_changeset_proto_init()
 	file_proto_core_v1_check_proto_init()
 	file_proto_core_v1_common_proto_init()
-	file_proto_core_v1_trigger_proto_msgTypes[23].OneofWrappers = []any{}
+	file_proto_core_v1_trigger_proto_msgTypes[29].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_trigger_proto_rawDesc), len(file_proto_core_v1_trigger_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   32,
+			NumMessages:   38,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

@@ -12,6 +12,10 @@ option go_package = "gitslice.io/gitslice/proto/core/v1;corev1";
 // and starts runs by hand (design/34_triggers.md). Reading needs read access
 // to the folder's account; running and canceling need write access.
 service TriggerService {
+  // GetFolderPolicy returns the effective folder policy at a canonical folder:
+  // path owners, checks (including required gates), triggers, secrets, and
+  // account CI runners.
+  rpc GetFolderPolicy(GetFolderPolicyRequest) returns (FolderPolicyResponse);
   // ListTriggers lists the triggers that apply at a folder: those defined in
   // it and in the folders above it, at the head of a ref.
   rpc ListTriggers(ListTriggersRequest) returns (ListTriggersResponse);
@@ -115,6 +119,71 @@ message ListTriggersRequest {
   string path = 1;
   // Default refs/global/main.
   string ref = 2;
+}
+
+message GetFolderPolicyRequest {
+  // A canonical folder, such as /acme or /acme/services/billing.
+  string path = 1;
+  // Default refs/global/main.
+  string ref = 2;
+}
+
+message FolderOwnerRule {
+  repeated string paths = 1;
+  repeated string owners = 2;
+  int32 require = 3;
+  int32 require_human = 4;
+}
+
+message FolderCheckDefinition {
+  // "<dir>/<name>" relative to the account root (or "<name>" at account root).
+  string id = 1;
+  string name = 2;
+  // Canonical folder that holds its .gitslice/checks.yaml (e.g. /acme or /acme/web).
+  string folder = 3;
+  // Canonical path to the defining checks.yaml file.
+  string config_path = 4;
+  string run = 5;
+  repeated string paths = 6;
+  string started_by = 7;
+  bool required = 8;
+}
+
+message FolderSecretEntry {
+  string name = 1;
+  // Populated for account owners and admins only.
+  string secret_id = 2;
+  // Canonical ancestor folder (or the folder itself) providing this secret.
+  // Populated for account owners and admins only.
+  string source_folder = 3;
+  // All canonical folders the secret applies to.
+  // Populated for account owners and admins only.
+  repeated string paths = 4;
+}
+
+message FolderPolicyProblem {
+  // "owners", "checks", or "triggers".
+  string kind = 1;
+  string folder = 2;
+  string file = 3;
+  string message = 4;
+}
+
+message FolderPolicyResponse {
+  string folder = 1;
+  string account = 2;
+  string commit_id = 3;
+  // Nearest .gitslice/owners.yaml governing this folder (if any).
+  string owner_config_path = 4;
+  string owner_source_folder = 5;
+  repeated FolderOwnerRule owner_rules = 6;
+  repeated FolderCheckDefinition checks = 7;
+  repeated TriggerDefinition triggers = 8;
+  repeated FolderSecretEntry secrets = 9;
+  bool can_manage_secrets = 10;
+  repeated string ci_daemon_ids = 11;
+  repeated string ci_daemon_names = 12;
+  repeated FolderPolicyProblem problems = 13;
 }
 
 message ListTriggersResponse {

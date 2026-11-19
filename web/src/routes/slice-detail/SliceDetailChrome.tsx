@@ -11,7 +11,6 @@ export function SliceHeaderActions({
   canConfigure,
   commitId,
   gitUrl,
-  onOpenTriggers,
   onOpenFinder
 }: {
   sliceLabel: string;
@@ -20,7 +19,6 @@ export function SliceHeaderActions({
   canConfigure: boolean;
   commitId: string;
   gitUrl: string;
-  onOpenTriggers: () => void;
   onOpenFinder: () => void;
 }) {
   return (
@@ -49,16 +47,6 @@ export function SliceHeaderActions({
         >
           Settings
         </Link>
-      ) : null}
-      {isSignedIn && sliceRouteParams ? (
-        <button
-          className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
-          onClick={onOpenTriggers}
-          title="What a change in this folder sets off"
-          type="button"
-        >
-          Triggers
-        </button>
       ) : null}
       {commitId ? (
         <button

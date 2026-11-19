@@ -39,7 +39,7 @@ import {
 import { SliceFolderNavigator } from "./slice-detail/SliceFolderNavigator";
 import { SliceSourceWorkspace } from "./slice-detail/SliceSourceWorkspace";
 import { buildGitCloneHint } from "./slice-detail/sourceTree";
-import { TriggersDrawer } from "./slice-detail/TriggersDrawer";
+import { FolderPolicyDrawer } from "./slice-detail/FolderPolicyDrawer";
 import { useGitCloneOrigin } from "./slice-detail/useGitCloneOrigin";
 import { useSlicePathExplorer } from "./slice-detail/useSlicePathExplorer";
 
@@ -54,7 +54,7 @@ export function SliceDetailPage() {
   const routeSlice = params.slice ?? "";
   const selectedPath = search.path ?? "";
   const historyOpen = Boolean(search.history);
-  const triggersOpen = Boolean(search.triggers);
+  const policyOpen = Boolean(search.policy || search.triggers);
   const blameOn = Boolean(search.blame);
   const blameAt = search.blameAt ?? "";
 
@@ -69,7 +69,7 @@ export function SliceDetailPage() {
     routeSlice,
     selectedPath,
     historyOpen,
-    triggersOpen
+    policyOpen
   });
 
   const {
@@ -109,8 +109,8 @@ export function SliceDetailPage() {
     setBlame,
     openHistory,
     closeHistory,
-    openTriggers,
-    closeTriggers,
+    openPolicy,
+    closePolicy,
     openLandedPath
   } = explorer;
 
@@ -210,6 +210,7 @@ export function SliceDetailPage() {
       isLatestLoading={latestQuery.isPending}
       isPathLoading={pathQuery.isLoading}
       onOpenHistory={openHistory}
+      onOpenPolicy={openPolicy}
       onSelectPath={selectPath}
       onStageEdit={canEdit ? stagePendingEdit : undefined}
       pathError={pathQuery.error}
@@ -262,7 +263,6 @@ export function SliceDetailPage() {
               gitUrl={gitCloneHint.url}
               isSignedIn={isSignedIn}
               onOpenFinder={() => setFinderOpen(true)}
-              onOpenTriggers={openTriggers}
               sliceLabel={sliceLabel}
               sliceRouteParams={sliceRouteParams}
             />
@@ -369,11 +369,19 @@ export function SliceDetailPage() {
               slice={sliceRef}
             />
           ) : null}
-          <TriggersDrawer
+          <FolderPolicyDrawer
             api={api}
             folder={triggersFolder(selectedPath, isFile, includedPaths)}
-            onClose={closeTriggers}
-            open={triggersOpen}
+            onClose={closePolicy}
+            open={policyOpen}
+            sliceCIDaemonNames={
+              slice.ciDaemonNames && slice.ciDaemonNames.length > 0
+                ? slice.ciDaemonNames
+                : slice.ciDaemonId
+                  ? [slice.ciDaemonName || slice.ciDaemonId]
+                  : undefined
+            }
+            sliceRouteParams={sliceRouteParams}
           />
           <HistoryDrawer
             api={api}
