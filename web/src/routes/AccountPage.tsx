@@ -77,6 +77,9 @@ export function AccountPage() {
     pages.flatMap((page: ListSlicesResponse) => page.slices ?? []),
     sort
   );
+  const homeSlice = slices.find((slice) => isHomeSlice(slice));
+  const viewSlices = homeSlice ? slices.filter((slice) => slice !== homeSlice) : slices;
+  const homeRouteParams = homeSlice ? toSliceRouteParams(homeSlice.ref) : undefined;
   const kind = membership?.kind || profile?.kind || pages[0]?.accountKind || "";
   const notFound = isNotFoundError(slicesQuery.error) || isNotFoundError(profileQuery.error);
   // An organization's owners and admins edit its profile; a person edits their own.
@@ -165,8 +168,57 @@ export function AccountPage() {
             </div>
           ) : null}
 
+          {homeSlice && homeRouteParams ? (
+            <section
+              aria-label="Monorepo"
+              className="mt-8 rounded-lg border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/50 dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-black/50 sm:p-5"
+            >
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">Monorepo</h2>
+                    <span className="rounded border border-slate-200 bg-slate-50 px-1.5 py-px font-mono text-xs font-semibold text-slate-700 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200">
+                      /{account}
+                    </span>
+                    <VisibilityBadge visibility={homeSlice.definition?.visibility} />
+                  </div>
+                  <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-600 dark:text-zinc-400">
+                    One unified source tree for everything in <span className="font-mono">/{account}</span>. Checks, triggers,
+                    path owners, and secrets live on folders inside it.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Link
+                    className="rounded-md bg-zinc-950 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+                    params={homeRouteParams}
+                    to="/slices/$account/$slice"
+                  >
+                    Browse /{account}
+                  </Link>
+                  <Link
+                    className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
+                    search={{ slice: `${account}:${homeRouteParams.slice}` }}
+                    to="/changesets"
+                  >
+                    Changesets
+                  </Link>
+                  <Link
+                    className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
+                    params={homeRouteParams}
+                    search={{ policy: true }}
+                    to="/slices/$account/$slice"
+                  >
+                    Folder policy
+                  </Link>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
           <div className="mb-2 mt-8 flex items-center justify-between gap-3">
-            <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">Slices</h2>
+            <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+              {homeSlice ? "Slices (Views)" : "Slices"}
+            </h2>
             <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
               Sort
               <select
@@ -189,9 +241,9 @@ export function AccountPage() {
           </div>
           <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
             {membership?.kind === "personal"
-              ? "Your slices. Others see only the public ones."
+              ? `Focused views, checkouts, access boundaries, and Git mirrors over /${account}. Others see only the public ones.`
               : membership
-                ? `Slices of ${account}, which you belong to. Others see only the public ones.`
+                ? `Slices of ${account}, which you belong to — focused views, access boundaries, and Git mirrors over /${account}. Others see only the public ones.`
                 : `Public slices owned by ${account}.`}
           </p>
           {slicesQuery.isPending ? (
@@ -204,13 +256,17 @@ export function AccountPage() {
             <SliceNotice title={membership ? "No slices yet" : "No public slices"}>
               {membership ? `${account} has no slices yet.` : `${account} has no public slices.`}
             </SliceNotice>
+          ) : viewSlices.length === 0 ? (
+            <SliceNotice title="No additional slice views yet">
+              Browse everything in <span className="font-mono">/{account}</span> above, or create a slice view to scope checkouts,
+              share specific folders, or mirror a folder to Git.
+            </SliceNotice>
           ) : (
             <ul className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-black/50">
-              {slices.map((slice) => {
+              {viewSlices.map((slice) => {
                 const routeParams = toSliceRouteParams(slice.ref);
                 const name = slice.ref?.slice ?? slice.id ?? "slice";
                 const paths = slice.definition?.includedPaths ?? [];
-                const home = isHomeSlice(slice);
                 // The date the list is sorted by, when it is sorted by one.
                 const when = sort === "active" ? slice.lastActivityAt || slice.createdAt : sort === "newest" ? slice.createdAt : "";
                 const body = (
@@ -218,15 +274,10 @@ export function AccountPage() {
                     <span className="min-w-0">
                       <span className="flex items-center gap-2">
                         <span className="truncate font-medium text-zinc-950 dark:text-zinc-50">{name}</span>
-                        {home ? (
-                          <span className="shrink-0 rounded border border-slate-200 bg-slate-50 px-1.5 py-px text-[11px] font-semibold text-slate-600 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300">
-                            Home
-                          </span>
-                        ) : null}
                       </span>
                       {paths.length > 0 ? (
-                        <span className="block truncate text-xs text-slate-500 dark:text-zinc-400">
-                          {home ? `${formatPathPreview(paths)} · everything in ${account}` : formatPathPreview(paths)}
+                        <span className="block truncate font-mono text-xs text-slate-500 dark:text-zinc-400">
+                          {formatPathPreview(paths)}
                         </span>
                       ) : null}
                       {when ? (

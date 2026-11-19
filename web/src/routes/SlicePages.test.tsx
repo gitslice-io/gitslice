@@ -898,7 +898,7 @@ describe("slice route pages (render smoke)", () => {
     expectHealthy();
   });
 
-  it("puts the home slice first and sorts the rest as the viewer picks", async () => {
+  it("features the home monorepo above slice views and sorts the views as the viewer picks", async () => {
     routerMock.params = { account: "sunny" };
     const api = makeApi();
     const slice = (name: string, path: string, createdAt: string, lastActivityAt: string) => ({
@@ -919,19 +919,23 @@ describe("slice route pages (render smoke)", () => {
     renderRoute(<AccountPage />);
 
     await screen.findByText("botparley");
+    const monorepo = screen.getByRole("region", { name: "Monorepo" });
+    expect(within(monorepo).getByRole("link", { name: "Browse /sunny" })).toBeInTheDocument();
+    expect(within(monorepo).getByRole("link", { name: "Folder policy" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Slices (Views)" })).toBeInTheDocument();
+
     const names = () =>
       screen
         .getAllByRole("listitem")
         .map((item) => item.querySelector("span span span")?.textContent)
         .filter((name) => ["home", "botparley", "rental-price"].includes(name ?? ""));
-    expect(names()).toEqual(["home", "botparley", "rental-price"]);
-    expect(screen.getByText("/sunny · everything in sunny").closest("li")).toHaveTextContent("homeHome");
+    expect(names()).toEqual(["botparley", "rental-price"]);
 
     fireEvent.change(screen.getByLabelText("Sort"), { target: { value: "newest" } });
-    await waitFor(() => expect(names()).toEqual(["home", "rental-price", "botparley"]));
+    await waitFor(() => expect(names()).toEqual(["rental-price", "botparley"]));
     expect(api.listSlices).toHaveBeenCalledWith(expect.objectContaining({ account: "sunny", sort: "newest" }));
     fireEvent.change(screen.getByLabelText("Sort"), { target: { value: "active" } });
-    await waitFor(() => expect(names()).toEqual(["home", "botparley", "rental-price"]));
+    await waitFor(() => expect(names()).toEqual(["botparley", "rental-price"]));
     expect(api.listSlices).toHaveBeenCalledWith(expect.objectContaining({ account: "sunny", sort: "active" }));
     expect(window.localStorage.getItem("gitslice.sliceSort")).toBe("active");
     window.localStorage.removeItem("gitslice.sliceSort");
