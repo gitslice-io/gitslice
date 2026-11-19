@@ -32,9 +32,10 @@ const ConfigName = ".gitslice/owners.yaml"
 
 // Rule is one entry of an owners file.
 type Rule struct {
-	Paths   []string
-	Owners  []string
-	Require int
+	Paths        []string
+	Owners       []string
+	Require      int
+	RequireHuman int
 }
 
 // File is a parsed owners file, for the folder Dir (an absolute slice folder
@@ -54,9 +55,10 @@ type MatchResult struct {
 type rawFile struct {
 	Version int `yaml:"version"`
 	Owners  []struct {
-		Paths   []string `yaml:"paths"`
-		Owners  []string `yaml:"owners"`
-		Require *int     `yaml:"require"`
+		Paths        []string `yaml:"paths"`
+		Owners       []string `yaml:"owners"`
+		Require      *int     `yaml:"require"`
+		RequireHuman *int     `yaml:"require_human"`
 	} `yaml:"owners"`
 }
 
@@ -126,11 +128,19 @@ func Parse(dir string, data []byte) (*File, error) {
 			}
 			req = *r.Require
 		}
+		reqHuman := 0
+		if r.RequireHuman != nil {
+			if *r.RequireHuman < 0 {
+				return nil, fmt.Errorf("%s: rule %d: require_human must not be negative", cfgLabel, i+1)
+			}
+			reqHuman = *r.RequireHuman
+		}
 
 		out.Rules = append(out.Rules, Rule{
-			Paths:   cleanPaths,
-			Owners:  cleanOwners,
-			Require: req,
+			Paths:        cleanPaths,
+			Owners:       cleanOwners,
+			Require:      req,
+			RequireHuman: reqHuman,
 		})
 	}
 	return out, nil

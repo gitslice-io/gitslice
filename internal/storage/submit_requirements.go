@@ -164,6 +164,46 @@ func EvaluateSubmitRequirementsWithGroup(req *corev1.SubmitRequirements, exclude
 	return reason
 }
 
+// MergeRequiredChecks returns a shallow copy of req with extraChecks appended
+// and deduplicated, preserving slice-level checks first. When extraChecks is
+// empty it returns req unchanged.
+func MergeRequiredChecks(req *corev1.SubmitRequirements, extraChecks []string) *corev1.SubmitRequirements {
+	if len(extraChecks) == 0 {
+		return req
+	}
+	out := &corev1.SubmitRequirements{}
+	seen := map[string]struct{}{}
+	if req != nil {
+		out.RequiredApprovals = req.RequiredApprovals
+		out.RequiredHumanApprovals = req.RequiredHumanApprovals
+		out.Approvers = req.Approvers
+		out.SourceSliceDefinitionHash = req.SourceSliceDefinitionHash
+		for _, name := range req.RequiredChecks {
+			trimmed := strings.TrimSpace(name)
+			if trimmed == "" {
+				continue
+			}
+			if _, ok := seen[trimmed]; ok {
+				continue
+			}
+			seen[trimmed] = struct{}{}
+			out.RequiredChecks = append(out.RequiredChecks, trimmed)
+		}
+	}
+	for _, name := range extraChecks {
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out.RequiredChecks = append(out.RequiredChecks, trimmed)
+	}
+	return out
+}
+
 // EvaluateSubmitRequirementsWithCode evaluates approval, human approval, and
 // required check policies for a changeset and returns both a typed
 // SubmitBlockCode and the human-readable failure reason.

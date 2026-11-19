@@ -234,7 +234,7 @@ func (s *ChangesetService) evaluatePathOwnerRequirements(
 			continue
 		}
 		m, ok, lookupErr := owners.LookupMatchWithResolver(ctx, resolver, rootTree, "", p)
-		if lookupErr != nil || !ok || m.Rule.Require <= 0 {
+		if lookupErr != nil || !ok || (m.Rule.Require <= 0 && m.Rule.RequireHuman <= 0) {
 			continue
 		}
 		key := ruleKey{configPath: m.ConfigPath, ruleIndex: m.RuleIndex}
@@ -262,19 +262,32 @@ func (s *ChangesetService) evaluatePathOwnerRequirements(
 		res := s.evaluateOwnerRule(ctx, authorIDs, approverIDs, ownerRuleSpec{
 			ownerSubjects: ownerSubjects,
 			require:       g.match.Rule.Require,
+			requireHuman:  g.match.Rule.RequireHuman,
 			selfBySubject: false,
 		})
 		if res.err != nil {
 			continue
 		}
-		out = append(out, &corev1.ApprovalRequirement{
-			Kind:      "path_owners",
-			Satisfied: res.count >= g.match.Rule.Require,
-			Required:  int32(g.match.Rule.Require),
-			Current:   int32(res.count),
-			Label:     fmt.Sprintf("Path owners (%s)", strings.Join(g.match.Rule.Owners, ", ")),
-			Detail:    summarizeMatchedPaths(g.paths),
-		})
+		if g.match.Rule.Require > 0 {
+			out = append(out, &corev1.ApprovalRequirement{
+				Kind:      "path_owners",
+				Satisfied: res.count >= g.match.Rule.Require,
+				Required:  int32(g.match.Rule.Require),
+				Current:   int32(res.count),
+				Label:     fmt.Sprintf("Path owners (%s)", strings.Join(g.match.Rule.Owners, ", ")),
+				Detail:    summarizeMatchedPaths(g.paths),
+			})
+		}
+		if g.match.Rule.RequireHuman > 0 {
+			out = append(out, &corev1.ApprovalRequirement{
+				Kind:      "path_owners_human",
+				Satisfied: res.humanCount >= g.match.Rule.RequireHuman,
+				Required:  int32(g.match.Rule.RequireHuman),
+				Current:   int32(res.humanCount),
+				Label:     fmt.Sprintf("Human path owners (%s)", strings.Join(g.match.Rule.Owners, ", ")),
+				Detail:    summarizeMatchedPaths(g.paths),
+			})
+		}
 	}
 	return out
 }

@@ -36,17 +36,19 @@ func (s *ChangesetService) submitHeadCommitID(ctx context.Context, cs *corev1.Ch
 type ownerRuleSpec struct {
 	ownerSubjects map[string]bool
 	require       int
+	requireHuman  int
 	selfBySubject bool
 }
 
 type ownerEvalResult struct {
-	count int
-	err   error
+	count      int
+	humanCount int
+	err        error
 }
 
 func (s *ChangesetService) evaluateOwnerRule(ctx context.Context, authorIDs, approverIDs []string, spec ownerRuleSpec) ownerEvalResult {
-	if spec.require <= 0 {
-		return ownerEvalResult{count: 0}
+	if spec.require <= 0 && spec.requireHuman <= 0 {
+		return ownerEvalResult{}
 	}
 	needIDs := make([]string, 0, len(spec.ownerSubjects)+len(authorIDs)+len(approverIDs))
 	ownerIDs := make([]string, 0, len(spec.ownerSubjects))
@@ -83,7 +85,10 @@ func (s *ChangesetService) evaluateOwnerRule(ctx context.Context, authorIDs, app
 		CountSelfAuthorApproval: true,
 		SelfOwnBySubject:        spec.selfBySubject,
 	})
-	return ownerEvalResult{count: int(eval.ControllerCount)}
+	return ownerEvalResult{
+		count:      int(eval.ControllerCount),
+		humanCount: int(eval.HumanCount),
+	}
 }
 
 // requireGitsliceApproval enforces the implicit .gitslice/** ownership rule:
@@ -271,7 +276,7 @@ func (s *ChangesetService) checkPathOwnersAtCommit(ctx context.Context, headComm
 		if err != nil {
 			return "", fmt.Errorf("%w: %v", storage.ErrInvalid, err)
 		}
-		if !ok || m.Rule.Require <= 0 {
+		if !ok || (m.Rule.Require <= 0 && m.Rule.RequireHuman <= 0) {
 			continue
 		}
 		key := ruleKey{configPath: m.ConfigPath, ruleIndex: m.RuleIndex}
@@ -298,13 +303,17 @@ func (s *ChangesetService) checkPathOwnersAtCommit(ctx context.Context, headComm
 		res := s.evaluateOwnerRule(ctx, authors, approvers, ownerRuleSpec{
 			ownerSubjects: ownerSubjects,
 			require:       g.match.Rule.Require,
+			requireHuman:  g.match.Rule.RequireHuman,
 			selfBySubject: false,
 		})
 		if res.err != nil {
 			return "", res.err
 		}
-		if res.count < g.match.Rule.Require {
+		if g.match.Rule.Require > 0 && res.count < g.match.Rule.Require {
 			return formatPathOwnerBlockReason(g.paths, g.match, res.count), nil
+		}
+		if g.match.Rule.RequireHuman > 0 && res.humanCount < g.match.Rule.RequireHuman {
+			return formatPathOwnerHumanBlockReason(g.paths, g.match, res.humanCount), nil
 		}
 	}
 	return "", nil
@@ -366,19 +375,28 @@ func (s *ChangesetService) resolveRuleOwnerSubjects(ctx context.Context, ownerRe
 }
 
 func formatPathOwnerBlockReason(matchedPaths []string, m owners.MatchResult, count int) string {
-	pathDesc := ""
-	switch len(matchedPaths) {
-	case 0:
-		pathDesc = "owned paths"
-	case 1:
-		pathDesc = matchedPaths[0]
-	case 2:
-		pathDesc = matchedPaths[0] + ", " + matchedPaths[1]
-	default:
-		pathDesc = fmt.Sprintf("%s (+%d more)", matchedPaths[0], len(matchedPaths)-1)
-	}
+	pathDesc := formatMatchedPathList(matchedPaths)
 	return fmt.Sprintf("path owner approvals not satisfied for %s (%s): requires %d approval(s) from %s, has %d",
 		pathDesc, m.ConfigPath, m.Rule.Require, strings.Join(m.Rule.Owners, ", "), count)
+}
+
+func formatPathOwnerHumanBlockReason(matchedPaths []string, m owners.MatchResult, humanCount int) string {
+	pathDesc := formatMatchedPathList(matchedPaths)
+	return fmt.Sprintf("path owner human approvals not satisfied for %s (%s): requires %d human approval(s) from %s, has %d",
+		pathDesc, m.ConfigPath, m.Rule.RequireHuman, strings.Join(m.Rule.Owners, ", "), humanCount)
+}
+
+func formatMatchedPathList(matchedPaths []string) string {
+	switch len(matchedPaths) {
+	case 0:
+		return "owned paths"
+	case 1:
+		return matchedPaths[0]
+	case 2:
+		return matchedPaths[0] + ", " + matchedPaths[1]
+	default:
+		return fmt.Sprintf("%s (+%d more)", matchedPaths[0], len(matchedPaths)-1)
+	}
 }
 
 // validateOwnersConfigEdits validates any uploaded or copied .gitslice/owners.yaml

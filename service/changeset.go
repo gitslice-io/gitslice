@@ -225,13 +225,13 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	if err != nil {
 		return nil, err
 	}
-	extraCheckStatuses, err := s.submitExtras(ctx, cs)
+	extra, err := s.submitExtras(ctx, cs)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	ctx, _ = withCapturedAttribution(ctx, s.Auth, subjectID)
 	emitSubmitted := cs.Status != "pending_publish" && cs.Status != "submitted"
-	res, err := s.submitPatchset(ctx, cs.Id, acceptedExpectedPatchset(cs, req.ExpectedCurrentPatchsetId), extraCheckStatuses)
+	res, err := s.submitPatchset(ctx, cs.Id, acceptedExpectedPatchset(cs, req.ExpectedCurrentPatchsetId), extra)
 	if isStaleBase(err) {
 		if mergedRes, mergedErr, applied := s.mergeAndSubmit(ctx, cs); applied {
 			if mergedErr != nil {
@@ -254,11 +254,12 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 	return res, nil
 }
 
-func (s *ChangesetService) submitPatchset(ctx context.Context, changesetID, expected string, extraCheckStatuses map[string]string) (*corev1.SubmitChangesetResponse, error) {
+func (s *ChangesetService) submitPatchset(ctx context.Context, changesetID, expected string, extra submitExtraResult) (*corev1.SubmitChangesetResponse, error) {
 	return s.Changesets.SubmitChangeset(ctx, storage.SubmitInput{
 		ChangesetID:               changesetID,
 		ExpectedCurrentPatchsetID: expected,
-		ExtraCheckStatuses:        extraCheckStatuses,
+		ExtraCheckStatuses:        extra.CheckStatuses,
+		ExtraRequiredChecks:       extra.RequiredChecks,
 	})
 }
 
@@ -335,9 +336,9 @@ func (s *ChangesetService) ReportCheckResult(ctx context.Context, req *corev1.Re
 		return nil, grpcError(err)
 	}
 	checkName := strings.TrimSpace(req.GetCheckName())
-	if isRequiredSliceCheck(slice, checkName) {
+	patchset := currentPatchset(cs)
+	if s.isRequiredCheck(ctx, cs, slice, patchset, checkName) {
 		if normalized, ok := storage.NormalizeCheckStatus(req.GetStatus()); ok && normalized == storage.CheckStatusPass {
-			patchset := currentPatchset(cs)
 			isController, _ := isControllerOfSubject(ctx, s.Auth, subjectID, cs.GetAuthor())
 			isAuthor := subjectID == strings.TrimSpace(cs.GetAuthor()) ||
 				isController ||
@@ -353,6 +354,38 @@ func (s *ChangesetService) ReportCheckResult(ctx context.Context, req *corev1.Re
 		return nil, grpcError(err)
 	}
 	return res, nil
+}
+
+// isRequiredCheck reports whether checkName is required either by the slice
+// definition or by a folder `.gitslice/checks.yaml` (`required: true`) on the
+// target ref's landed tree (or the patchset's check plan).
+func (s *ChangesetService) isRequiredCheck(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, checkName string) bool {
+	checkName = strings.TrimSpace(checkName)
+	if checkName == "" {
+		return false
+	}
+	if isRequiredSliceCheck(slice, checkName) {
+		return true
+	}
+	if cs != nil && patchset != nil {
+		if headCommitID, err := s.submitHeadCommitID(ctx, cs); err == nil && strings.TrimSpace(headCommitID) != "" {
+			if folderRequired, err := s.folderRequiredChecksAtCommit(ctx, cs, patchset, headCommitID); err == nil {
+				for _, name := range folderRequired {
+					if name == checkName {
+						return true
+					}
+				}
+			}
+		}
+		if s.dispatcher != nil && slice != nil {
+			if plan, err := s.dispatcher.resolveCheckPlan(ctx, slice, patchset); err == nil {
+				if spec, ok := plan.Spec(checkName); ok && spec.Required {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (s *ChangesetService) hasCIDaemonForSlice(ctx context.Context, slice *corev1.Slice) bool {

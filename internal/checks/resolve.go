@@ -62,6 +62,7 @@ type CheckSpec struct {
 	CPUs             string
 	Timeout          time.Duration
 	OutOfSlice       bool
+	Required         bool
 	// Scope is set by whoever runs the check, not by the checks file: the
 	// slice it runs for. Caches and built images of different scopes are
 	// kept apart.
@@ -338,7 +339,133 @@ func buildCheckSpec(definingDir, localName string, check Check, services map[str
 		CPUs:             check.CPUs,
 		Timeout:          check.Timeout,
 		OutOfSlice:       materializeOutOfSlice(materializePaths, includedPaths),
+		Required:         check.Required,
 	}, nil
+}
+
+// FolderCheck is a check defined in a .gitslice/checks.yaml file along a
+// folder's ancestor chain.
+type FolderCheck struct {
+	ID         string
+	LocalName  string
+	SourceDir  string // logical dir relative to account root ("" for root)
+	ConfigPath string // logical path to the defining checks.yaml
+	Check      Check
+}
+
+// FolderCheckProblem describes a .gitslice/checks.yaml parse failure along a
+// folder's ancestor chain.
+type FolderCheckProblem struct {
+	ConfigPath string
+	SourceDir  string
+	Message    string
+}
+
+// ListForFolder lists all checks defined in .gitslice/checks.yaml files from
+// the account root down to logicalFolder (inclusive).
+func ListForFolder(ctx context.Context, resolver *gitslicecfg.Resolver[*File], rootTreeID, logicalFolder string) ([]FolderCheck, []FolderCheckProblem, error) {
+	if resolver == nil {
+		return nil, nil, fmt.Errorf("checks resolver is required")
+	}
+	dir := ""
+	trimmed := strings.TrimSpace(logicalFolder)
+	if trimmed != "" && trimmed != "/" {
+		cleaned, err := cleanLogicalPath(trimmed)
+		if err != nil {
+			return nil, nil, fmt.Errorf("clean logical folder %q: %w", logicalFolder, err)
+		}
+		if cleaned != "/" {
+			dir = cleaned
+		}
+	}
+	ancestors := ancestorDirs(dir)
+	// Walk from account root down to logicalFolder so shallower configs appear first.
+	for i, j := 0, len(ancestors)-1; i < j; i, j = i+1, j-1 {
+		ancestors[i], ancestors[j] = ancestors[j], ancestors[i]
+	}
+	var out []FolderCheck
+	var problems []FolderCheckProblem
+	for _, d := range ancestors {
+		checksPath := checksFilePath(d)
+		file, exists, err := resolver.Resolve(ctx, rootTreeID, checksPath)
+		if err != nil {
+			var pe *parseError
+			if errors.As(err, &pe) {
+				problems = append(problems, FolderCheckProblem{
+					ConfigPath: checksPath,
+					SourceDir:  d,
+					Message:    err.Error(),
+				})
+				continue
+			}
+			return nil, nil, fmt.Errorf("read checks file %s: %w", checksPath, err)
+		}
+		if !exists || file == nil {
+			continue
+		}
+		for _, localName := range sortedCheckNames(file.Checks) {
+			out = append(out, FolderCheck{
+				ID:         qualifiedID(d, localName),
+				LocalName:  localName,
+				SourceDir:  d,
+				ConfigPath: checksPath,
+				Check:      file.Checks[localName],
+			})
+		}
+	}
+	return out, problems, nil
+}
+
+// RequiredForPaths returns the sorted qualified IDs of checks marked
+// `required: true` in .gitslice/checks.yaml files on changedPaths' ancestor
+// directories whose paths filter matches changedPaths.
+//
+// Callers enforcing submit gates should pass the target ref's landed root tree
+// so unapproved draft edits cannot disable required checks.
+func RequiredForPaths(ctx context.Context, resolver *gitslicecfg.Resolver[*File], rootTreeID string, changedPaths []string) ([]string, error) {
+	if resolver == nil || len(changedPaths) == 0 {
+		return nil, nil
+	}
+	cleanChanged, err := cleanLogicalPaths(changedPaths)
+	if err != nil {
+		return nil, fmt.Errorf("clean changed paths: %w", err)
+	}
+	sort.Strings(cleanChanged)
+	dirs := discoverDirs(cleanChanged)
+	seen := map[string]struct{}{}
+	var required []string
+	for _, dir := range dirs {
+		checksPath := checksFilePath(dir)
+		file, exists, err := resolver.Resolve(ctx, rootTreeID, checksPath)
+		if err != nil {
+			var pe *parseError
+			if errors.As(err, &pe) {
+				continue
+			}
+			return nil, fmt.Errorf("read checks file %s: %w", checksPath, err)
+		}
+		if !exists || file == nil {
+			continue
+		}
+		for _, localName := range sortedCheckNames(file.Checks) {
+			chk := file.Checks[localName]
+			if !chk.Required {
+				continue
+			}
+			matches, err := checkMatchesChangedPaths(dir, chk.Paths, cleanChanged)
+			if err != nil || !matches {
+				continue
+			}
+			id := qualifiedID(dir, localName)
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			required = append(required, id)
+		}
+	}
+	sort.Strings(required)
+	return required, nil
 }
 
 func resolveImageBuild(definingDir string, b *Build) (*ImageBuild, error) {

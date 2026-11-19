@@ -51,6 +51,8 @@ type Defaults struct {
 	CPUs    string
 	// StartedBy is StartedByPatchset or StartedByTrigger.
 	StartedBy string
+	// Required makes checks in this file gate submit by default when matched.
+	Required bool
 }
 
 // Who starts a check (design/34_triggers.md): every new patchset, or only a
@@ -77,6 +79,7 @@ type Check struct {
 	CPUs        string
 	Timeout     time.Duration // optional, overrides Defaults.Timeout
 	StartedBy   string        // StartedByPatchset (default) or StartedByTrigger
+	Required    bool          // when true (on target head), passing result is required to submit
 }
 
 type rawFile struct {
@@ -112,6 +115,7 @@ type rawDefaults struct {
 	Memory    string            `yaml:"memory"`
 	CPUs      string            `yaml:"cpus"`
 	StartedBy string            `yaml:"started_by"`
+	Required  bool              `yaml:"required"`
 }
 
 type rawCheck struct {
@@ -131,6 +135,7 @@ type rawCheck struct {
 	CPUs        string            `yaml:"cpus"`
 	Timeout     string            `yaml:"timeout"`
 	StartedBy   string            `yaml:"started_by"`
+	Required    *bool             `yaml:"required"`
 }
 
 type parseError struct {
@@ -248,6 +253,7 @@ func parseDefaults(raw rawDefaults) (Defaults, error) {
 	}
 	return Defaults{
 		StartedBy: startedBy,
+		Required:  raw.Required,
 		Image:     raw.Image,
 		Build:     build,
 		Setup:     copyStringSlice(raw.Setup),
@@ -341,6 +347,11 @@ func parseCheck(name string, raw rawCheck, defaults Defaults, services map[strin
 		network = *raw.Network
 	}
 
+	required := defaults.Required
+	if raw.Required != nil {
+		required = *raw.Required
+	}
+
 	memory := defaults.Memory
 	if raw.Memory != "" {
 		if _, err := ParseMemoryBytes(raw.Memory); err != nil {
@@ -391,6 +402,7 @@ func parseCheck(name string, raw rawCheck, defaults Defaults, services map[strin
 		CPUs:        cpus,
 		Timeout:     timeout,
 		StartedBy:   startedBy,
+		Required:    required,
 	}, nil
 }
 

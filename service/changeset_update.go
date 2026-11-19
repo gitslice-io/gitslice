@@ -88,11 +88,11 @@ func (s *ChangesetService) UpdateChangeset(ctx context.Context, req *corev1.Upda
 	}
 	createdPatchset := priorPatchsetID == "" || patchset.Id != priorPatchsetID
 	if createdPatchset {
-		s.recordBundledCheckRuns(ctx, cs, slice, patchset, req.BundledCheckRuns)
+		acceptedBundled := s.recordBundledCheckRuns(ctx, cs, slice, patchset, req.BundledCheckRuns)
 		if s.dispatcher != nil {
 			s.dispatcher.cancelOpenCheckRunsBeforePatchset(ctx, cs.Id, patchset.Id)
 		}
-		s.dispatchCIChecks(ctx, cs, slice, patchset, req.BundledCheckRuns)
+		s.dispatchCIChecks(ctx, cs, slice, patchset, acceptedBundled)
 	}
 	if patchset.Author != "" && s.Auth != nil {
 		username, err := newSubjectDirectory(s.Auth).username(ctx, patchset.Author)
@@ -207,20 +207,22 @@ func requireEditBlobsAccessible(ctx context.Context, blobs storage.BlobStore, sl
 	return nil
 }
 
-func (s *ChangesetService) recordBundledCheckRuns(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, bundled []*corev1.BundledCheckRun) {
+func (s *ChangesetService) recordBundledCheckRuns(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, bundled []*corev1.BundledCheckRun) []*corev1.BundledCheckRun {
 	if len(bundled) == 0 || s.Checks == nil || cs == nil || patchset == nil {
-		return
+		return nil
 	}
 	changesetID := cs.GetId()
 	patchsetID := patchset.GetId()
 	hasDaemon := s.hasCIDaemonForSlice(ctx, slice)
+	accepted := make([]*corev1.BundledCheckRun, 0, len(bundled))
 	for _, bundledRun := range bundled {
 		if bundledRun == nil {
 			continue
 		}
-		if isRequiredSliceCheck(slice, bundledRun.GetName()) && (hasDaemon || s.isRequiredCheckOwnedByCIOrTrigger(ctx, cs, slice, patchset, bundledRun.GetName())) {
+		if s.isRequiredCheck(ctx, cs, slice, patchset, bundledRun.GetName()) && (hasDaemon || s.isRequiredCheckOwnedByCIOrTrigger(ctx, cs, slice, patchset, bundledRun.GetName())) {
 			continue
 		}
+		accepted = append(accepted, bundledRun)
 		run, err := s.Checks.CreateCheckRun(ctx, storage.CheckRunInput{
 			ChangesetID: changesetID,
 			PatchsetID:  patchsetID,
@@ -251,6 +253,7 @@ func (s *ChangesetService) recordBundledCheckRuns(ctx context.Context, cs *corev
 			}
 		}
 	}
+	return accepted
 }
 
 // applyAuthoringConversation stamps the agent conversation that produced a

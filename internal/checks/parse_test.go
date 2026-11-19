@@ -444,3 +444,35 @@ func stringSlicesEqual(a, b []string) bool {
 	}
 	return true
 }
+
+func TestParseRequiredField(t *testing.T) {
+	file, err := Parse([]byte(`
+version: 1
+defaults:
+  required: true
+checks:
+  inherited:
+    run: go test ./...
+  opted_out:
+    run: go vet ./...
+    required: false
+  explicit_true:
+    run: go build ./...
+    required: true
+`))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !file.Defaults.Required {
+		t.Fatal("Defaults.Required = false, want true")
+	}
+	if !file.Checks["inherited"].Required {
+		t.Fatal("inherited.Required = false, want true (from defaults)")
+	}
+	if file.Checks["opted_out"].Required {
+		t.Fatal("opted_out.Required = true, want false (explicit override)")
+	}
+	if !file.Checks["explicit_true"].Required {
+		t.Fatal("explicit_true.Required = false, want true")
+	}
+}

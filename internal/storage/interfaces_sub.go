@@ -13,6 +13,7 @@ type SubmitInput struct {
 	ChangesetID               string
 	ExpectedCurrentPatchsetID string
 	ExtraCheckStatuses        map[string]string
+	ExtraRequiredChecks       []string
 	BypassRequirements        bool
 }
 

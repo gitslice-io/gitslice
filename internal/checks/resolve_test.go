@@ -418,6 +418,97 @@ func runnableNames(plan *Plan) []string {
 	return out
 }
 
+func TestRequiredForPathsAndListForFolder(t *testing.T) {
+	files := fakeTreeReader{
+		"/.gitslice/checks.yaml": []byte(`
+version: 1
+checks:
+  lint:
+    run: lint
+    required: true
+  optional_root:
+    run: echo hi
+`),
+		"web/.gitslice/checks.yaml": []byte(`
+version: 1
+checks:
+  build:
+    run: npm run build
+    required: true
+    paths: ["src/**"]
+  docs:
+    run: npm run docs
+    required: false
+`),
+		"broken/.gitslice/checks.yaml": []byte(`
+version: 1
+checks:
+  bad:
+    run: echo x
+    timeout: nope
+`),
+	}
+	resolver := NewResolver(files)
+
+	// Touching web/src/app.tsx triggers both root lint and web/build.
+	got, err := RequiredForPaths(context.Background(), resolver, "tree_1", []string{"web/src/app.tsx"})
+	if err != nil {
+		t.Fatalf("RequiredForPaths(web/src/app.tsx): %v", err)
+	}
+	if want := []string{"lint", "web/build"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("RequiredForPaths(web/src/app.tsx) = %#v, want %#v", got, want)
+	}
+
+	// Touching web/README.md does not match web/build's paths: ["src/**"], so only root lint is required.
+	got, err = RequiredForPaths(context.Background(), resolver, "tree_1", []string{"web/README.md"})
+	if err != nil {
+		t.Fatalf("RequiredForPaths(web/README.md): %v", err)
+	}
+	if want := []string{"lint"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("RequiredForPaths(web/README.md) = %#v, want %#v", got, want)
+	}
+
+	// Plan sets CheckSpec.Required accurately.
+	plan, err := ResolveWithResolver(context.Background(), resolver, "tree_1", []string{"web/src/app.tsx"}, []string{"/"}, nil)
+	if err != nil {
+		t.Fatalf("ResolveWithResolver: %v", err)
+	}
+	if spec, ok := plan.Spec("web/build"); !ok || !spec.Required {
+		t.Fatalf("plan.Spec(web/build) = %+v, %v, want Required=true", spec, ok)
+	}
+	if spec, ok := plan.Spec("optional_root"); !ok || spec.Required {
+		t.Fatalf("plan.Spec(optional_root) = %+v, %v, want Required=false", spec, ok)
+	}
+
+	// ListForFolder lists ancestor checks from root down to web.
+	listed, problems, err := ListForFolder(context.Background(), resolver, "tree_1", "web/src")
+	if err != nil {
+		t.Fatalf("ListForFolder(web/src): %v", err)
+	}
+	if len(problems) != 0 {
+		t.Fatalf("ListForFolder(web/src) unexpected problems: %+v", problems)
+	}
+	var ids []string
+	for _, c := range listed {
+		ids = append(ids, c.ID)
+	}
+	if want := []string{"lint", "optional_root", "web/build", "web/docs"}; !reflect.DeepEqual(ids, want) {
+		t.Fatalf("ListForFolder(web/src) ids = %#v, want %#v", ids, want)
+	}
+
+	// ListForFolder reports parse problems without dropping valid ancestors.
+	listedBroken, problemsBroken, err := ListForFolder(context.Background(), resolver, "tree_1", "broken")
+	if err != nil {
+		t.Fatalf("ListForFolder(broken): %v", err)
+	}
+	if len(listedBroken) != 2 {
+		t.Fatalf("ListForFolder(broken) checks = %d, want 2 ancestor checks", len(listedBroken))
+	}
+	if len(problemsBroken) != 1 || problemsBroken[0].SourceDir != "broken" {
+		t.Fatalf("ListForFolder(broken) problems = %+v, want 1 problem in broken", problemsBroken)
+	}
+}
+
 func skippedNames(plan *Plan) []string {
 	out := make([]string, 0, len(plan.Skipped))
 	for _, check := range plan.Skipped {

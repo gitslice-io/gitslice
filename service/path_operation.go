@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gitslice.io/gitslice/internal/analytics"
@@ -167,6 +168,11 @@ func (s *ChangesetService) landPathOperation(ctx context.Context, subjectID stri
 	}
 	if err := s.requirePathOwnersForDirectOperation(ctx, baseCommitID, subjectID, touchedPaths); err != nil {
 		return nil, err
+	}
+	if len(readable) > 0 {
+		if folderRequired, err := s.folderRequiredChecksForPaths(ctx, slice.GetRef().GetAccount(), baseCommitID, touchedPaths); err == nil && len(folderRequired) > 0 {
+			return nil, status.Errorf(codes.FailedPrecondition, "destination folder requires checks (%s); use a changeset to copy paths from outside the slice", strings.Join(folderRequired, ", "))
+		}
 	}
 	cs, err := s.Changesets.Create(ctx, subjectID, &corev1.CreateChangesetRequest{
 		AuthoringSlice: slice.Ref,

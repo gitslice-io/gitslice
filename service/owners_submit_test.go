@@ -516,3 +516,107 @@ func TestPathOwnersEnforcedOnRenamesDeletesAndDirectPathOperations(t *testing.T)
 		t.Fatalf("unowned MovePath failed: %v", err)
 	}
 }
+
+func TestPathOwnersRequireHumanEnforcedAtSubmitAndStatus(t *testing.T) {
+	mem, h := newMemoryHandlers()
+	alice := asUser(t, h, "owner_alice", "alice")
+	bobby := asUser(t, h, "user_bobby", "bobby")
+	aliceID, _ := authctx.SubjectID(alice)
+
+	if _, err := h.Auth.CreateOrganization(alice, &corev1.CreateOrganizationRequest{Slug: "finops"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Auth.InviteAccountMember(alice, &corev1.InviteAccountMemberRequest{Account: "finops", Username: "bobby", Role: "writer"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Auth.RespondToInvitation(bobby, &corev1.RespondToInvitationRequest{Account: "finops", Accept: true}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Claimed agent controlled by alice (the owner).
+	aliceBot, err := h.Auth.CreateDelegatedAgent(alice, &corev1.CreateDelegatedAgentRequest{Username: "alice-finbot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	homeRef := &corev1.SliceRef{Account: "finops", Slice: "home"}
+	if _, err := h.Slice.SetSliceMember(alice, &corev1.SetSliceMemberRequest{Slice: homeRef, Username: "alice-finbot", Role: "writer"}); err != nil {
+		t.Fatal(err)
+	}
+	aliceBotCtx := authctx.WithPrincipal(context.Background(), authctx.Principal{
+		SubjectID: aliceBot.AgentSubjectId, SubjectKind: "agent", ControllerSubjectID: aliceID,
+	})
+
+	headCommit := commitSliceFile(t, alice, h, mem, homeRef, "/finops/.gitslice/owners.yaml", `version: 1
+owners:
+  - paths: ["billing/**"]
+    owners: ["alice"]
+    require: 1
+    require_human: 1
+`)
+
+	// 1. Claimed agent controlled by owner alice satisfies require:1 (controller match)
+	//    but MUST NOT satisfy require_human:1 without a human owner approval!
+	csBot, psBot := proposeEdits(t, aliceBotCtx, h, homeRef, headCommit, "bot billing change",
+		upsertEdit(t, aliceBotCtx, h, homeRef, "/finops/billing/rate.go", "package billing\n"),
+	)
+	gotCS, err := h.Changeset.GetChangeset(alice, &corev1.GetChangesetRequest{ChangesetId: csBot.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotCS.GetApprovalStatus().GetSatisfied() {
+		t.Fatalf("expected approvalStatus unsatisfied for agent author under require_human:1, got %+v", gotCS.GetApprovalStatus())
+	}
+	foundHumanReq := false
+	for _, r := range gotCS.GetApprovalStatus().GetRequirements() {
+		if r.GetKind() == "path_owners_human" {
+			foundHumanReq = true
+			if r.GetSatisfied() || r.GetRequired() != 1 || r.GetCurrent() != 0 {
+				t.Fatalf("unexpected path_owners_human requirement: %+v", r)
+			}
+		}
+	}
+	if !foundHumanReq {
+		t.Fatalf("expected path_owners_human requirement in %+v", gotCS.GetApprovalStatus().GetRequirements())
+	}
+
+	_, err = h.Changeset.SubmitChangeset(aliceBotCtx, &corev1.SubmitChangesetRequest{
+		ChangesetId: csBot.Id, ExpectedCurrentPatchsetId: psBot.Id,
+	})
+	wantCode(t, err, codes.FailedPrecondition, "agent author cannot self-satisfy require_human")
+	if !strings.Contains(err.Error(), "human approval(s)") {
+		t.Fatalf("expected human approval block reason, got: %v", err)
+	}
+
+	// Non-owner human bobby approving does not satisfy owner require_human.
+	if _, err := h.Changeset.ApproveChangeset(bobby, &corev1.ApproveChangesetRequest{ChangesetId: csBot.Id}); err != nil {
+		t.Fatal(err)
+	}
+	_, err = h.Changeset.SubmitChangeset(aliceBotCtx, &corev1.SubmitChangesetRequest{
+		ChangesetId: csBot.Id, ExpectedCurrentPatchsetId: psBot.Id,
+	})
+	wantCode(t, err, codes.FailedPrecondition, "non-owner human cannot satisfy owner require_human")
+
+	// Human owner alice approving satisfies require_human:1 -> submit succeeds!
+	if _, err := h.Changeset.ApproveChangeset(alice, &corev1.ApproveChangesetRequest{ChangesetId: csBot.Id}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Changeset.SubmitChangeset(aliceBotCtx, &corev1.SubmitChangesetRequest{
+		ChangesetId: csBot.Id, ExpectedCurrentPatchsetId: psBot.Id,
+	}); err != nil {
+		t.Fatalf("submit after human owner approved failed: %v", err)
+	}
+
+	// 2. Human owner alice authoring directly self-satisfies require_human:1.
+	ref, err := h.Repository.GetRef(alice, &corev1.GetRefRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	csHuman, psHuman := proposeEdits(t, alice, h, homeRef, ref.CommitId, "human owner billing change",
+		upsertEdit(t, alice, h, homeRef, "/finops/billing/invoice.go", "package billing\n"),
+	)
+	if _, err := h.Changeset.SubmitChangeset(alice, &corev1.SubmitChangesetRequest{
+		ChangesetId: csHuman.Id, ExpectedCurrentPatchsetId: psHuman.Id,
+	}); err != nil {
+		t.Fatalf("human owner authoring directly should self-satisfy require_human:1, got: %v", err)
+	}
+}

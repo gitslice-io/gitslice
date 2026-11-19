@@ -19,7 +19,7 @@ func (s *ChangesetStore) Submit(ctx context.Context, changesetID, expectedCurren
 }
 
 func (s *ChangesetStore) SubmitChangeset(ctx context.Context, in storage.SubmitInput) (res *corev1.SubmitChangesetResponse, err error) {
-	return s.submit(ctx, in.ChangesetID, in.ExpectedCurrentPatchsetID, in.ExtraCheckStatuses, in.BypassRequirements)
+	return s.submit(ctx, in.ChangesetID, in.ExpectedCurrentPatchsetID, in.ExtraCheckStatuses, in.ExtraRequiredChecks, in.BypassRequirements)
 }
 
 // RecordSubmitBlockedReason records a service-enforced requirement block (such
@@ -46,7 +46,7 @@ func (s *ChangesetStore) RecordSubmitBlockedReason(_ context.Context, changesetI
 	return nil
 }
 
-func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string, bypassRequirements bool) (res *corev1.SubmitChangesetResponse, err error) {
+func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurrentPatchsetID string, extraCheckStatuses map[string]string, extraRequiredChecks []string, bypassRequirements bool) (res *corev1.SubmitChangesetResponse, err error) {
 	defer func() {
 		storage.RecordSubmitResult(err)
 	}()
@@ -142,7 +142,8 @@ func (s *ChangesetStore) submit(ctx context.Context, changesetID, expectedCurren
 	if latestReq.GetApprovers() != "" && !bypassRequirements {
 		approverGroupMembers = s.b.groupMemberSubjectIDsLocked(latestReq.GetApprovers())
 	}
-	if code, reason := storage.EvaluateSubmitRequirementsWithCode(latestReq, excludedAuthors, approvers, checkStatuses, approverGroupMembers); reason != "" && !bypassRequirements {
+	evalReq := storage.MergeRequiredChecks(latestReq, extraRequiredChecks)
+	if code, reason := storage.EvaluateSubmitRequirementsWithCode(evalReq, excludedAuthors, approvers, checkStatuses, approverGroupMembers); reason != "" && !bypassRequirements {
 		return nil, s.b.blockSubmitLocked(cs, code, reason)
 	}
 

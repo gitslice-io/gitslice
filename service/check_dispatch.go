@@ -70,7 +70,7 @@ func (d *checkDispatcher) dispatchCIChecks(ctx context.Context, cs *corev1.Chang
 		}
 		// Never let client-supplied bundled check runs suppress required CI checks
 		// on a slice configured with a CI daemon.
-		if hasDaemon && isRequiredSliceCheck(slice, spec.Name) {
+		if hasDaemon && (isRequiredSliceCheck(slice, spec.Name) || spec.Required) {
 			runnable = append(runnable, spec)
 			continue
 		}

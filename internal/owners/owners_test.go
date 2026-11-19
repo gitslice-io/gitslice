@@ -296,3 +296,40 @@ func TestParseGroupRef(t *testing.T) {
 		}
 	}
 }
+
+func TestParseRequireHuman(t *testing.T) {
+	f, err := Parse("/acme/payments", []byte(`
+version: 1
+owners:
+  - paths: ["billing/**"]
+    owners: ["@acme/billing", "alice"]
+    require: 1
+    require_human: 1
+  - paths: ["deploy/**"]
+    owners: ["alice"]
+    require: 0
+    require_human: 1
+`))
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if len(f.Rules) != 2 {
+		t.Fatalf("rules = %d, want 2", len(f.Rules))
+	}
+	if f.Rules[0].Require != 1 || f.Rules[0].RequireHuman != 1 {
+		t.Fatalf("rule[0] = %+v, want Require=1 RequireHuman=1", f.Rules[0])
+	}
+	if f.Rules[1].Require != 0 || f.Rules[1].RequireHuman != 1 {
+		t.Fatalf("rule[1] = %+v, want Require=0 RequireHuman=1", f.Rules[1])
+	}
+
+	if _, err := Parse("/acme/payments", []byte(`
+version: 1
+owners:
+  - paths: ["billing/**"]
+    owners: ["alice"]
+    require_human: -1
+`)); err == nil {
+		t.Fatal("expected error for negative require_human")
+	}
+}

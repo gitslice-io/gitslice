@@ -75,7 +75,7 @@ func (d *checkDispatcher) dispatchAllowedPatchsetChecks(ctx context.Context, cs 
 		if handled[spec.Name] || existingCI[spec.Name] != nil {
 			continue
 		}
-		if !spec.OutOfSlice && !isRequiredSliceCheck(slice, spec.Name) && existingAny[spec.Name] != nil {
+		if !spec.OutOfSlice && !isRequiredSliceCheck(slice, spec.Name) && !spec.Required && existingAny[spec.Name] != nil {
 			continue
 		}
 		run, err := d.enqueueCheckRun(ctx, cs, slice, patchset, spec, daemonID, nil, "")
