@@ -25,6 +25,7 @@ interface DiffViewerProps {
   onFileNeeded?(path: string): void;
   onFileRetry?(path: string): void;
   onViewFile?(file: DiffFile): void;
+  pathPrefix?: string;
   viewedScope?: string;
   viewMode?: ViewMode;
   onViewModeChange?(mode: ViewMode): void;
@@ -55,6 +56,7 @@ export function DiffViewer({
   onFileNeeded,
   onFileRetry,
   onViewFile,
+  pathPrefix,
   viewedScope,
   viewMode: viewModeProp,
   onViewModeChange
@@ -127,19 +129,19 @@ export function DiffViewer({
 
   return (
     <>
-      <section className="mt-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50 md:mt-3">
-        <div className="sticky top-[var(--page-header-height,3rem)] z-20 border-b border-slate-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-900/95 px-3 py-2 backdrop-blur md:px-5 md:py-3 lg:static lg:z-auto lg:bg-white dark:lg:bg-zinc-900 lg:py-3 lg:backdrop-blur-none">
+      <section className="mt-2.5 min-w-0 md:mt-3">
+        <div className="sticky top-[var(--page-header-height,3rem)] z-20 mb-2.5 border-b border-slate-200/80 dark:border-zinc-800/80 bg-slate-50/95 dark:bg-zinc-950/95 py-1.5 backdrop-blur lg:static lg:z-auto lg:mb-3 lg:border-b-0 lg:bg-transparent dark:lg:bg-transparent lg:py-0 lg:backdrop-blur-none">
           <div className="flex items-center justify-between gap-2 md:gap-3">
             <div className="min-w-0 flex-1 lg:flex-none">
-              <div className="hidden flex-wrap items-baseline gap-x-2 gap-y-0.5 lg:flex">
-                <h2 className="truncate text-sm font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 md:text-base">
+              <div className="hidden flex-wrap items-baseline gap-x-2.5 gap-y-0.5 lg:flex">
+                <h2 className="truncate text-sm font-semibold tracking-normal text-zinc-950 dark:text-zinc-50">
                   Files
                 </h2>
-                <span className="text-xs text-slate-500 dark:text-zinc-400 md:text-sm">
+                <span className="text-xs text-slate-500 dark:text-zinc-400">
                   {isLoading ? "Loading…" : `${changedCount} changed`}
                 </span>
                 {!isLoading && files.length > 0 ? (
-                  <span className="flex gap-1.5 font-mono text-xs">
+                  <span className="flex gap-1.5 font-mono text-xs tabular-nums">
                     <span className="text-emerald-700 dark:text-emerald-300">+{totalAdditions}</span>
                     <span className="text-rose-700 dark:text-rose-300">-{totalDeletions}</span>
                   </span>
@@ -171,7 +173,7 @@ export function DiffViewer({
                 </div>
               )}
             </div>
-            <div className="flex shrink-0 items-center justify-end gap-1.5 md:gap-2">
+            <div className="hidden shrink-0 items-center justify-end gap-1.5 md:flex md:gap-2">
               {!isLoading && hasTextualDiff ? (
                 <ViewModeToggle value={viewMode} onChange={changeViewMode} />
               ) : null}
@@ -182,11 +184,9 @@ export function DiffViewer({
         {isLoading ? (
           <DiffSkeleton />
         ) : isError ? (
-          <div className="p-5 md:p-6">
-            <DiffErrorBox message={errorMessage(error)} />
-          </div>
+          <DiffErrorBox message={errorMessage(error)} />
         ) : hasTextualDiff ? (
-          <div className="grid gap-3 p-2 sm:p-3 md:p-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[19rem_minmax(0,1fr)] lg:gap-4">
             <aside className="hidden lg:sticky lg:top-20 lg:block lg:self-start">
               <ChangedFilesTree
                 activeId={activeId}
@@ -195,7 +195,7 @@ export function DiffViewer({
                 viewedIds={viewedIds}
               />
             </aside>
-            <div className="grid grid-cols-1 min-w-0 gap-3 md:gap-4">
+            <div className="grid min-w-0 grid-cols-1 gap-2.5 md:gap-3">
               {files.map((file) => (
                 <DiffFilePanel
                   collapsed={isCollapsed(file)}
@@ -209,6 +209,7 @@ export function DiffViewer({
                   onToggleCollapsed={() => toggleCollapsed(file)}
                   onToggleViewed={() => toggleViewed(file)}
                   onViewFile={onViewFile}
+                  pathPrefix={pathPrefix}
                   refCallback={(node) => {
                     setPanelRef(file.id, node);
                   }}
@@ -220,10 +221,8 @@ export function DiffViewer({
             </div>
           </div>
         ) : (
-          <div className="p-5 md:p-6">
-            <div className="rounded-lg border border-dashed border-slate-300 dark:border-zinc-700 bg-slate-50 dark:bg-zinc-950 px-4 py-6 text-sm text-slate-600 dark:text-zinc-400">
-              No textual changes to display.
-            </div>
+          <div className="rounded-lg border border-dashed border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-4 py-6 text-sm text-slate-600 dark:text-zinc-400">
+            No textual changes to display.
           </div>
         )}
       </section>

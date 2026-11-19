@@ -190,3 +190,43 @@ select {
     transition-duration: 0.01ms;
   }
 }
+
+/* Native <details> disclosure used for the unified changeset readiness bar. */
+.readiness-details > summary {
+  list-style: none;
+}
+
+.readiness-details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.readiness-details .readiness-chevron {
+  rotate: 0deg;
+}
+
+.readiness-details[open] .readiness-chevron {
+  rotate: 90deg;
+}
+
+.readiness-details::details-content {
+  interpolate-size: allow-keywords;
+  overflow: clip;
+  contain: layout;
+}
+
+.readiness-details:not([open])::details-content {
+  block-size: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .readiness-details .readiness-chevron {
+    transition: rotate 0.18s ease;
+  }
+
+  .readiness-details::details-content {
+    transition: block-size, content-visibility, display;
+    transition-duration: 0.2s;
+    transition-timing-function: ease-out;
+    transition-behavior: allow-discrete;
+  }
+}

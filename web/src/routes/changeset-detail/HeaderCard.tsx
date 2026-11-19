@@ -38,6 +38,7 @@ export function HeaderCard({
   onMerge,
   onSaveInfo,
   patchsetCompare,
+  readiness,
   terminal
 }: {
   abandonPending: boolean;
@@ -60,6 +61,7 @@ export function HeaderCard({
   // Present when the viewer may edit the title and description.
   onSaveInfo?(title: string, description: string): Promise<void>;
   patchsetCompare?: ReactNode;
+  readiness?: ReactNode;
   terminal: boolean;
 }) {
   const allowSubmit = canSubmit ?? canUseReviewActions;
@@ -154,7 +156,7 @@ export function HeaderCard({
                 {changesetLabel(changeset)}
               </span>
               <StatusBadge status={changeset.status} />
-              {approvalSummary && !terminal ? (
+              {approvalSummary && !terminal && !readiness ? (
                 <ApprovalStatusBadge
                   className={
                     approvalSummary.badgeTone === "none" ? folded : undefined
@@ -263,6 +265,7 @@ export function HeaderCard({
           <ErrorBox className="mt-4 md:mt-5" message={actionError} />
         ) : null}
       </div>
+      {readiness}
       {patchsetCompare ? (
         <div className={cn("border-t border-slate-100 dark:border-zinc-800 px-3 py-2 md:px-5 md:py-2.5", folded)}>
           {patchsetCompare}

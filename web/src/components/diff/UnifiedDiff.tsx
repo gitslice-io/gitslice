@@ -7,7 +7,8 @@ import {
   type ExpandFn,
   gapKey,
   rangeIndexes,
-  unifiedSegments
+  unifiedSegments,
+  visibleUnifiedLines
 } from "./diffViewShared";
 import { ExpandSeparator } from "./ExpandSeparator";
 
@@ -20,9 +21,13 @@ export function UnifiedDiff({
   onExpand: ExpandFn;
   revealed: Record<string, RevealState>;
 }) {
+  const displayLines = useMemo(
+    () => visibleUnifiedLines(file.lines),
+    [file.lines]
+  );
   const segments = useMemo(
-    () => unifiedSegments(file.id, file.lines, revealed),
-    [file.id, file.lines, revealed]
+    () => unifiedSegments(file.id, displayLines, revealed),
+    [file.id, displayLines, revealed]
   );
 
   return (
@@ -41,7 +46,7 @@ export function UnifiedDiff({
           ) : (
             <Fragment key={`block-${segment.start}`}>
               {rangeIndexes(segment.start, segment.end).map((index) => {
-                const line = file.lines[index];
+                const line = displayLines[index];
                 return (
                   <span
                     className={cn(

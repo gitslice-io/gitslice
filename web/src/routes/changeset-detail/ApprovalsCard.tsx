@@ -1,4 +1,5 @@
 import { Timestamp } from "../../components/Timestamp";
+import { stripPathPrefix } from "../../components/diff/diffViewShared";
 import { cn } from "../../lib/cn";
 import type { ApprovalSummary } from "./approvalSummary";
 import { formatActorAttribution } from "./ChangesetMetaLine";
@@ -49,7 +50,9 @@ export function ApprovalStatusBadge({
 interface ApprovalsCardProps {
   approvePending?: boolean;
   canApprove?: boolean;
+  embedded?: boolean;
   onApprove?: () => void;
+  pathPrefix?: string;
   summary: ApprovalSummary;
   terminal?: boolean;
 }
@@ -57,7 +60,9 @@ interface ApprovalsCardProps {
 export function ApprovalsCard({
   approvePending = false,
   canApprove = false,
+  embedded = false,
   onApprove,
+  pathPrefix,
   summary,
   terminal = false
 }: ApprovalsCardProps) {
@@ -65,61 +70,66 @@ export function ApprovalsCard({
     return null;
   }
 
-  const showApproveButton = Boolean(!terminal && canApprove && onApprove && !summary.viewerHasApproved);
+  const showApproveButton = Boolean(
+    !embedded && !terminal && canApprove && onApprove && !summary.viewerHasApproved
+  );
 
-  return (
-    <section
-      aria-label="Approvals"
-      className="mt-3 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-zinc-800 px-3 py-2.5 md:px-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
-            Approvals
-          </h2>
-          {summary.hasRequirements ? (
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold md:text-xs",
-                summary.satisfied
-                  ? "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-200"
-                  : "border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200"
-              )}
+  const content = (
+    <>
+      {!embedded ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-zinc-800 px-3 py-2.5 md:px-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
+              Approvals
+            </h2>
+            {summary.hasRequirements ? (
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold md:text-xs",
+                  summary.satisfied
+                    ? "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-200"
+                    : "border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200"
+                )}
+              >
+                {summary.satisfied ? "All requirements met" : "Waiting for approvals"}
+              </span>
+            ) : (
+              <span className="inline-flex items-center rounded-md border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 dark:text-emerald-200 md:text-xs">
+                Approved
+              </span>
+            )}
+          </div>
+          {showApproveButton ? (
+            <button
+              className="rounded-md border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 text-xs font-semibold text-emerald-900 dark:text-emerald-200 transition hover:bg-emerald-100 dark:hover:bg-emerald-950/70 disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={approvePending}
+              onClick={onApprove}
+              type="button"
             >
-              {summary.satisfied ? "All requirements met" : "Waiting for approvals"}
+              {approvePending ? "Approving..." : "Approve"}
+            </button>
+          ) : summary.viewerHasApproved ? (
+            <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
+              You approved this patchset
             </span>
-          ) : (
-            <span className="inline-flex items-center rounded-md border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30 px-2 py-0.5 text-[11px] font-semibold text-emerald-800 dark:text-emerald-200 md:text-xs">
-              Approved
-            </span>
-          )}
+          ) : null}
         </div>
-        {showApproveButton ? (
-          <button
-            className="rounded-md border border-emerald-300 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 text-xs font-semibold text-emerald-900 dark:text-emerald-200 transition hover:bg-emerald-100 dark:hover:bg-emerald-950/70 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={approvePending}
-            onClick={onApprove}
-            type="button"
-          >
-            {approvePending ? "Approving..." : "Approve"}
-          </button>
-        ) : summary.viewerHasApproved ? (
-          <span className="text-xs font-medium text-emerald-700 dark:text-emerald-300">
-            You approved this patchset
-          </span>
-        ) : null}
-      </div>
+      ) : null}
 
       {summary.requirements.length > 0 ? (
         <ul className="divide-y divide-slate-100 dark:divide-zinc-800">
           {summary.requirements.map((req, index) => {
             const met = Boolean(req.satisfied);
+            const detailText = req.detail ? stripPathPrefix(req.detail, pathPrefix) : "";
             return (
               <li
-                className="flex items-start justify-between gap-3 px-3 py-2.5 md:px-5"
+                className={cn(
+                  "flex items-start justify-between gap-3 px-3 py-2 md:px-5",
+                  !embedded && "py-2.5"
+                )}
                 key={`${req.kind ?? "req"}-${req.label ?? index}`}
               >
-                <div className="flex min-w-0 items-start gap-2.5">
+                <div className="flex min-w-0 items-start gap-2">
                   <span
                     aria-hidden="true"
                     className={cn(
@@ -146,22 +156,22 @@ export function ApprovalsCard({
                     )}
                   </span>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-zinc-950 dark:text-zinc-50">
+                    <p className="text-xs font-medium text-zinc-950 dark:text-zinc-50 sm:text-sm">
                       {req.label || "Approval required"}
                     </p>
-                    {req.detail ? (
-                      <p className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">
-                        {req.detail}
+                    {detailText ? (
+                      <p className="mt-0.5 truncate font-mono text-[11px] text-slate-500 dark:text-zinc-400">
+                        {detailText}
                       </p>
                     ) : null}
                   </div>
                 </div>
                 <span
                   className={cn(
-                    "shrink-0 rounded-md border px-2 py-0.5 font-mono text-xs font-semibold tabular-nums",
+                    "shrink-0 font-mono text-xs font-semibold tabular-nums",
                     met
-                      ? "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-200"
-                      : "border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200"
+                      ? "text-emerald-700 dark:text-emerald-300"
+                      : "text-amber-800 dark:text-amber-200"
                   )}
                 >
                   {req.current ?? 0}/{req.required ?? 0}
@@ -175,9 +185,9 @@ export function ApprovalsCard({
       {summary.currentApprovals.length > 0 ? (
         <div
           className={cn(
-            "flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-xs text-slate-600 dark:text-zinc-400 md:px-5",
+            "flex flex-wrap items-center gap-x-2.5 gap-y-1 px-3 py-2 text-xs text-slate-600 dark:text-zinc-400 md:px-5",
             summary.requirements.length > 0 &&
-              "border-t border-slate-100 dark:border-zinc-800 bg-slate-50/60 dark:bg-zinc-950/40"
+              "border-t border-slate-100 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-950/30"
           )}
         >
           <span className="font-medium text-slate-500 dark:text-zinc-400">Approved by</span>
@@ -203,6 +213,19 @@ export function ApprovalsCard({
           })}
         </div>
       ) : null}
+    </>
+  );
+
+  if (embedded) {
+    return <div aria-label="Approvals">{content}</div>;
+  }
+
+  return (
+    <section
+      aria-label="Approvals"
+      className="mt-3 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50"
+    >
+      {content}
     </section>
   );
 }

@@ -13,7 +13,9 @@ import {
   type ViewMode,
   largeDiffLineLimit,
   errorMessage,
-  estimatedDiffBodyHeight
+  estimatedDiffBodyHeight,
+  splitDisplayPath,
+  stripPathPrefix
 } from "./diffViewShared";
 import { ChangeKindBadge } from "./ChangeKindBadge";
 import { UnifiedDiff } from "./UnifiedDiff";
@@ -30,6 +32,7 @@ export function DiffFilePanel({
   onToggleCollapsed,
   onToggleViewed,
   onViewFile,
+  pathPrefix,
   refCallback,
   revealed,
   viewed = false,
@@ -47,6 +50,7 @@ export function DiffFilePanel({
   onToggleCollapsed?(): void;
   onToggleViewed?(): void;
   onViewFile?(file: DiffFile): void;
+  pathPrefix?: string;
   refCallback(node: HTMLElement | null): void;
   revealed: Record<string, RevealState>;
   viewed?: boolean;
@@ -55,6 +59,9 @@ export function DiffFilePanel({
   const [showLargeDiff, setShowLargeDiff] = useState(false);
   const status = fileState?.status ?? "loaded";
   const isLargeDiff = file.lines.length > largeDiffLineLimit;
+  const { dir, name } = splitDisplayPath(file.path, pathPrefix);
+  const displayOldPath = file.oldPath ? stripPathPrefix(file.oldPath, pathPrefix) : undefined;
+  const fullTitle = file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path;
 
   useEffect(() => {
     setShowLargeDiff(false);
@@ -62,25 +69,25 @@ export function DiffFilePanel({
 
   return (
     <article
-      className="scroll-mt-32 overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 lg:scroll-mt-28"
+      className="min-w-0 scroll-mt-28 overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 lg:scroll-mt-24"
       id={file.id}
       ref={refCallback}
     >
-      <div className="flex flex-col gap-1.5 border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-4 sm:py-3">
-        <div className="flex min-w-0 items-center gap-2">
+      <div className="flex flex-col gap-1 border-b border-slate-200/80 dark:border-zinc-800 bg-slate-50/80 dark:bg-zinc-950/80 px-2.5 py-2 sm:flex-row sm:items-center sm:justify-between sm:gap-2 sm:px-3.5 sm:py-2">
+        <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
           {onToggleCollapsed ? (
             <button
               aria-controls={`${file.id}-body`}
               aria-expanded={!collapsed}
               aria-label={`${collapsed ? "Expand" : "Collapse"} ${file.path}`}
-              className="-my-1.5 -ml-1.5 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-200/70 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+              className="-my-1 -ml-1 inline-flex size-7 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-200/70 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
               onClick={onToggleCollapsed}
               title={collapsed ? "Show the diff" : "Hide the diff"}
               type="button"
             >
               <svg
                 aria-hidden="true"
-                className={cn("size-4 transition-transform", collapsed && "-rotate-90")}
+                className={cn("size-3.5 transition-transform", collapsed && "-rotate-90")}
                 fill="none"
                 stroke="currentColor"
                 strokeLinecap="round"
@@ -92,60 +99,86 @@ export function DiffFilePanel({
               </svg>
             </button>
           ) : null}
-          <ChangeKindBadge kind={file.changeKind} />
-          <h3 className="min-w-0 truncate font-mono text-xs font-semibold text-zinc-950 dark:text-zinc-50 sm:text-sm">
-            {file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path}
+          <ChangeKindBadge compact kind={file.changeKind} />
+          <h3
+            className="flex min-w-0 flex-1 items-baseline overflow-hidden font-mono text-xs sm:text-[13px]"
+            title={fullTitle}
+          >
+            {displayOldPath ? (
+              <span className="truncate font-semibold text-zinc-950 dark:text-zinc-50">
+                {displayOldPath} {"->"} {dir}{name}
+              </span>
+            ) : (
+              <>
+                {dir ? (
+                  <span className="min-w-0 shrink truncate text-slate-500 dark:text-zinc-400">
+                    {dir}
+                  </span>
+                ) : null}
+                <span className="min-w-0 max-w-full shrink-0 truncate font-semibold text-zinc-950 dark:text-zinc-50">
+                  {name}
+                </span>
+              </>
+            )}
           </h3>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {status === "loaded" ? (
-            <div className="flex gap-2 font-mono text-xs">
-              <span className="rounded bg-emerald-50 dark:bg-emerald-950/30 px-1.5 py-0.5 text-emerald-800 dark:text-emerald-200 sm:px-2 sm:py-1">
-                +{file.additions}
+        <div className="flex shrink-0 items-center justify-between gap-2 pl-6 sm:justify-end sm:pl-0">
+          <div className="flex items-center gap-2">
+            {status === "loaded" && (file.additions > 0 || file.deletions > 0) ? (
+              <div className="flex items-center gap-1.5 font-mono text-xs tabular-nums">
+                {file.additions > 0 ? (
+                  <span className="font-medium text-emerald-700 dark:text-emerald-300">
+                    +{file.additions}
+                  </span>
+                ) : null}
+                {file.deletions > 0 ? (
+                  <span className="font-medium text-rose-700 dark:text-rose-300">
+                    -{file.deletions}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
+            {generated ? (
+              <span
+                className="rounded border border-slate-300/80 bg-slate-100 px-1.5 py-0.5 text-[11px] font-medium text-slate-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                title="Written by a tool, so it starts collapsed"
+              >
+                Generated
               </span>
-              <span className="rounded bg-rose-50 dark:bg-rose-950/30 px-1.5 py-0.5 text-rose-800 dark:text-rose-200 sm:px-2 sm:py-1">
-                -{file.deletions}
-              </span>
-            </div>
-          ) : null}
-          {generated ? (
-            <span
-              className="rounded border border-slate-300 bg-slate-100 px-1.5 py-0.5 text-[11px] font-semibold text-slate-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-              title="Written by a tool, so it starts collapsed"
-            >
-              Generated
-            </span>
-          ) : null}
-          {onViewFile ? (
-            <button
-              className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98] sm:px-2 sm:py-1"
-              onClick={() => onViewFile({ ...file, changeKind: fileState?.changeKind ?? file.changeKind, oldPath: file.oldPath ?? fileState?.oldPath })}
-              title="Read the whole file, before or after this change"
-              type="button"
-            >
-              View file
-            </button>
-          ) : null}
-          {onToggleViewed && status === "loaded" ? (
-            <label
-              className={cn(
-                "inline-flex min-h-8 cursor-pointer select-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition sm:px-2",
-                viewed
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200"
-                  : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
-              )}
-              title="Mark this file as reviewed (v). It stays marked until the file changes."
-            >
-              <input
-                aria-label={`Viewed ${file.path}`}
-                checked={viewed}
-                className="size-3.5 accent-emerald-600"
-                onChange={onToggleViewed}
-                type="checkbox"
-              />
-              Viewed
-            </label>
-          ) : null}
+            ) : null}
+          </div>
+          <div className="flex items-center gap-1.5">
+            {onViewFile ? (
+              <button
+                className="rounded-md px-2 py-1 text-xs font-medium text-slate-600 transition hover:bg-slate-200/70 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+                onClick={() => onViewFile({ ...file, changeKind: fileState?.changeKind ?? file.changeKind, oldPath: file.oldPath ?? fileState?.oldPath })}
+                title="Read the whole file, before or after this change"
+                type="button"
+              >
+                View file
+              </button>
+            ) : null}
+            {onToggleViewed && status === "loaded" ? (
+              <label
+                className={cn(
+                  "inline-flex min-h-7 cursor-pointer select-none items-center gap-1.5 rounded-md px-2 text-xs font-medium transition",
+                  viewed
+                    ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-200"
+                    : "text-slate-600 hover:bg-slate-200/70 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+                )}
+                title="Mark this file as reviewed (v). It stays marked until the file changes."
+              >
+                <input
+                  aria-label={`Viewed ${file.path}`}
+                  checked={viewed}
+                  className="size-3.5 accent-emerald-600"
+                  onChange={onToggleViewed}
+                  type="checkbox"
+                />
+                Viewed
+              </label>
+            ) : null}
+          </div>
         </div>
       </div>
       <div id={`${file.id}-body`}>

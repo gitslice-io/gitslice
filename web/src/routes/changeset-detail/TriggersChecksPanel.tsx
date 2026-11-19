@@ -27,11 +27,20 @@ const POLL_MS = 3500;
 
 interface TriggersChecksPanelProps {
   changesetId: string;
+  embedded?: boolean;
   patchsetId: string;
   signedOut?: boolean;
 }
 
-function SignInNotice() {
+function SignInNotice({ embedded = false }: { embedded?: boolean }) {
+  if (embedded) {
+    return (
+      <div className="flex items-center justify-between gap-3 px-3 py-2.5 text-xs text-slate-500 dark:text-zinc-400 md:px-5">
+        <span className="font-semibold uppercase tracking-normal">Triggers &amp; Checks</span>
+        <span>Sign in to see checks</span>
+      </div>
+    );
+  }
   return (
     <section className="mt-3 rounded-lg border border-dashed border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-3 md:px-5">
       <div className="flex items-center justify-between gap-3">
@@ -46,6 +55,7 @@ function SignInNotice() {
 
 export function TriggersChecksPanel({
   changesetId,
+  embedded = false,
   patchsetId,
   signedOut = false
 }: TriggersChecksPanelProps) {
@@ -133,11 +143,11 @@ export function TriggersChecksPanel({
   }
 
   if (signedOut) {
-    return <SignInNotice />;
+    return <SignInNotice embedded={embedded} />;
   }
 
   if (checksQuery.isError && isUnauthenticatedError(checksQuery.error)) {
-    return <SignInNotice />;
+    return <SignInNotice embedded={embedded} />;
   }
 
   const totalTriggers = grouped.primaryTriggers.length + grouped.skippedTriggers.length;
@@ -153,6 +163,13 @@ export function TriggersChecksPanel({
   }
 
   if (checksQuery.isError && totalTriggers === 0) {
+    if (embedded) {
+      return (
+        <div className="bg-rose-50/70 dark:bg-rose-950/25 px-3 py-2.5 text-xs text-rose-900 dark:text-rose-200 md:px-5">
+          {errorMessage(checksQuery.error)}
+        </div>
+      );
+    }
     return (
       <section className="mt-3 rounded-lg border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/30 px-3 py-3 text-sm text-rose-900 dark:text-rose-200 md:px-5">
         <h2 className="font-semibold">Checks</h2>
@@ -162,6 +179,9 @@ export function TriggersChecksPanel({
   }
 
   if (totalTriggers === 0 && totalChecks === 0) {
+    if (embedded) {
+      return null;
+    }
     return (
       <section className="mt-3 rounded-lg border border-dashed border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-3 md:px-5">
         <div className="flex items-center justify-between gap-3">
@@ -198,31 +218,33 @@ export function TriggersChecksPanel({
   const toggleTriggerLog = (runId: string) =>
     setOpenTriggerLogId((current) => (current === runId ? "" : runId));
 
-  return (
-    <section className="mt-3 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-zinc-800 px-3 py-2.5 md:px-5">
-        <div className="min-w-0">
-          <h2 className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
-            {heading}
-          </h2>
-          <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-zinc-400">
-            Patchset {patchsetId}
-          </p>
+  const panelBody = (
+    <>
+      {!embedded ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 dark:border-zinc-800 px-3 py-2.5 md:px-5">
+          <div className="min-w-0">
+            <h2 className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
+              {heading}
+            </h2>
+            <p className="mt-0.5 truncate text-xs text-slate-500 dark:text-zinc-400">
+              Patchset {patchsetId}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {summaryParts.length > 0 ? (
+              <span className="text-xs text-slate-500 dark:text-zinc-400">
+                {summaryParts.join(" · ")}
+              </span>
+            ) : null}
+            {hasLive ? (
+              <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 text-xs font-semibold text-amber-900 dark:text-amber-200">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
+                Live
+              </span>
+            ) : null}
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          {summaryParts.length > 0 ? (
-            <span className="text-xs text-slate-500 dark:text-zinc-400">
-              {summaryParts.join(" · ")}
-            </span>
-          ) : null}
-          {hasLive ? (
-            <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 text-xs font-semibold text-amber-900 dark:text-amber-200">
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-amber-500" />
-              Live
-            </span>
-          ) : null}
-        </div>
-      </div>
+      ) : null}
 
       {actionError ? (
         <p
@@ -330,6 +352,16 @@ export function TriggersChecksPanel({
           ) : null}
         </div>
       ) : null}
+    </>
+  );
+
+  if (embedded) {
+    return <div>{panelBody}</div>;
+  }
+
+  return (
+    <section className="mt-3 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50">
+      {panelBody}
     </section>
   );
 }

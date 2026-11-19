@@ -26,6 +26,71 @@ export type ViewMode = "unified" | "split";
 
 export const minDiffBodyPlaceholderHeight = 48;
 
+const GIT_HEADER_META_PREFIXES = [
+  "diff --git ",
+  "index ",
+  "--- ",
+  "+++ ",
+  "new file mode ",
+  "deleted file mode ",
+  "old mode ",
+  "new mode ",
+  "similarity index ",
+  "dissimilarity index ",
+  "rename from ",
+  "rename to ",
+  "copy from ",
+  "copy to "
+];
+
+export function isGitHeaderMetaLine(line: DiffLine): boolean {
+  if (line.kind !== "meta") {
+    return false;
+  }
+  return GIT_HEADER_META_PREFIXES.some((prefix) => line.text.startsWith(prefix));
+}
+
+// Omit redundant git patch preamble headers (diff --git, ---, +++, new file mode)
+// in unified diff view since the file card header already displays path & status.
+// Keeps meaningful stubs (Binary files differ, Diff too large) and falls back to
+// the original lines when a file contains only header metadata (e.g. empty file).
+export function visibleUnifiedLines(lines: readonly DiffLine[]): DiffLine[] {
+  const filtered = lines.filter((line) => !isGitHeaderMetaLine(line));
+  return filtered.length > 0 ? filtered : [...lines];
+}
+
+export function stripPathPrefix(filePath: string, pathPrefix?: string): string {
+  if (!pathPrefix) {
+    return filePath;
+  }
+  const normalizedPrefix = pathPrefix.replace(/^\/+/, "").replace(/\/+$/, "");
+  if (!normalizedPrefix) {
+    return filePath;
+  }
+  const normalizedPath = filePath.replace(/^\/+/, "");
+  const prefixWithSlash = `${normalizedPrefix}/`;
+  if (normalizedPath.startsWith(prefixWithSlash)) {
+    return normalizedPath.slice(prefixWithSlash.length);
+  }
+  return filePath;
+}
+
+export function splitDisplayPath(
+  filePath: string,
+  pathPrefix?: string
+): { dir: string; name: string; display: string } {
+  const display = stripPathPrefix(filePath, pathPrefix);
+  const slashIndex = display.lastIndexOf("/");
+  if (slashIndex === -1) {
+    return { dir: "", name: display, display };
+  }
+  return {
+    dir: display.slice(0, slashIndex + 1),
+    name: display.slice(slashIndex + 1),
+    display
+  };
+}
+
 // The segments a file shows in unified view: runs of lines, and the folded
 // gaps between them. What the renderer draws and what a placeholder is sized
 // from, so the two cannot drift apart.
@@ -76,7 +141,7 @@ const bodyPadding = 12;
 export function estimatedDiffBodyHeight(file: DiffFile, viewMode: ViewMode) {
   const unified = viewMode === "unified";
   const segments = unified
-    ? unifiedSegments(file.id, file.lines, {})
+    ? unifiedSegments(file.id, visibleUnifiedLines(file.lines), {})
     : splitSegments(file.id, file.rows, {});
   const rowHeight = unified ? unifiedLineHeight : splitRowHeight;
   let height = bodyPadding;

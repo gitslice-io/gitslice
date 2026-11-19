@@ -33,13 +33,12 @@ import {
 } from "../queries/changesets";
 import { useSelection } from "../state/selection";
 import {
-  ApprovalsCard,
   ChangesetSkeleton,
   ConversationDrawer,
   HeaderCard,
   PageMessage,
   PatchsetComparePanel,
-  TriggersChecksPanel,
+  ReadinessStrip,
   summarizeApprovals
 } from "./changeset-detail";
 import { ChangesetLoadError } from "./changeset-detail/ChangesetLoadError";
@@ -312,6 +311,10 @@ export function ChangesetDetailPage() {
   }
 
   const terminal = isTerminalStatus(changeset.status);
+  const pathPrefix =
+    authoringSlice?.account && authoringSlice?.slice
+      ? `/${authoringSlice.account}/${authoringSlice.slice}/`
+      : undefined;
   const approvalSummary = summarizeApprovals(changeset, {
     account: viewerAccount ?? viewerAccounts?.[0],
     subjectId: viewerSubjectId
@@ -370,30 +373,18 @@ export function ChangesetDetailPage() {
               toPatchset={selectedToPatchset}
             />
           }
+          readiness={
+            <ReadinessStrip
+              approvalSummary={approvalSummary}
+              changesetId={canonicalChangesetId}
+              patchsetId={selectedToPatchset}
+              pathPrefix={pathPrefix}
+              signedOut={viewerSignedOut}
+              terminal={terminal}
+            />
+          }
           terminal={terminal}
         />
-
-        <div
-          className={cn(
-            !detailsOpen && approvalSummary.satisfied && "max-lg:hidden"
-          )}
-        >
-          <ApprovalsCard
-            approvePending={approvePending}
-            canApprove={canApprove}
-            onApprove={approve}
-            summary={approvalSummary}
-            terminal={terminal}
-          />
-        </div>
-
-        <div className={cn(!detailsOpen && "max-lg:hidden")}>
-          <TriggersChecksPanel
-            changesetId={canonicalChangesetId}
-            patchsetId={selectedToPatchset}
-            signedOut={viewerSignedOut}
-          />
-        </div>
 
         <div className={cn(isWide && conversationOpen && "flex items-start gap-3")}>
           <div className={cn(isWide && conversationOpen && "min-w-0 flex-1")}>
@@ -409,6 +400,7 @@ export function ChangesetDetailPage() {
               onFileRetry={retryFileDiff}
               onViewFile={openFileView}
               onViewModeChange={setDiffViewMode}
+              pathPrefix={pathPrefix}
               viewedScope={canonicalChangesetId}
               viewMode={diffViewMode}
             />
