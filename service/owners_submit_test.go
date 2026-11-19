@@ -421,21 +421,33 @@ owners:
 	wantCode(t, err, codes.FailedPrecondition, "unclaimed owner authoring")
 
 	// Case E: Implicit .gitslice/** rule blocks alice's slice-writer delegated agent (not account admin),
-	// AND controller-dedups alice's approval on aliceBot1's .gitslice change, requiring admin2!
+	// blocks a sibling agent under the same controller from approving on alice's behalf,
+	// and allows alice (human org owner/admin) to explicitly approve her own agent's .gitslice/ change!
 	csGS, psGS := proposeEdits(t, aBot1Ctx, h, homeRef, headCommit, "bot edits checks",
 		upsertEdit(t, aBot1Ctx, h, homeRef, "/corp/.gitslice/checks.yaml", "version: 1\nchecks: {}\n"),
 	)
 	_, err = h.Changeset.SubmitChangeset(aBot1Ctx, &corev1.SubmitChangesetRequest{ChangesetId: csGS.Id, ExpectedCurrentPatchsetId: psGS.Id})
 	wantCode(t, err, codes.FailedPrecondition, "writer delegated agent touching .gitslice/")
-	if _, err := h.Changeset.ApproveChangeset(alice, &corev1.ApproveChangesetRequest{ChangesetId: csGS.Id}); err != nil {
+	if _, err := h.Changeset.ApproveChangeset(aBot2Ctx, &corev1.ApproveChangesetRequest{ChangesetId: csGS.Id}); err != nil {
 		t.Fatal(err)
 	}
 	_, err = h.Changeset.SubmitChangeset(aBot1Ctx, &corev1.SubmitChangesetRequest{ChangesetId: csGS.Id, ExpectedCurrentPatchsetId: psGS.Id})
-	wantCode(t, err, codes.FailedPrecondition, "alice controller approving own bot .gitslice/ change")
-	if _, err := h.Changeset.ApproveChangeset(admin2, &corev1.ApproveChangesetRequest{ChangesetId: csGS.Id}); err != nil {
+	wantCode(t, err, codes.FailedPrecondition, "sibling agent approving same-controller bot .gitslice/ change")
+	if _, err := h.Changeset.ApproveChangeset(alice, &corev1.ApproveChangesetRequest{ChangesetId: csGS.Id}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.Changeset.SubmitChangeset(aBot1Ctx, &corev1.SubmitChangesetRequest{ChangesetId: csGS.Id, ExpectedCurrentPatchsetId: psGS.Id}); err != nil {
+		t.Fatalf("human org owner approving own bot .gitslice/ change failed: %v", err)
+	}
+
+	// Distinct account admin approving bot .gitslice/ change also succeeds.
+	csGS2, psGS2 := proposeEdits(t, aBot1Ctx, h, homeRef, headCommit, "bot edits checks 2",
+		upsertEdit(t, aBot1Ctx, h, homeRef, "/corp/.gitslice/checks2.yaml", "version: 1\nchecks: {}\n"),
+	)
+	if _, err := h.Changeset.ApproveChangeset(admin2, &corev1.ApproveChangesetRequest{ChangesetId: csGS2.Id}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Changeset.SubmitChangeset(aBot1Ctx, &corev1.SubmitChangesetRequest{ChangesetId: csGS2.Id, ExpectedCurrentPatchsetId: psGS2.Id}); err != nil {
 		t.Fatalf("distinct account admin approving bot .gitslice/ change failed: %v", err)
 	}
 }

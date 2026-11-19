@@ -41,6 +41,49 @@ func TestEvaluateControllerApprovalsOwnerAndGroupModes(t *testing.T) {
 		t.Fatalf(".gitslice subject self-approval count = %d, want 0", got.ControllerCount)
 	}
 
+	// .gitslice mode: non-admin agent authors, human admin owner (same controller) explicitly approves -> 1.
+	got = EvaluateControllerApprovals(ControllerApprovalInput{
+		Authors:                 []Subject{aliceAgent},
+		Approvers:               []Subject{alice},
+		AllowedSubjects:         []Subject{alice},
+		AllowedSubjectIDs:       map[string]bool{"user_alice": true},
+		RestrictToAllowed:       true,
+		CountSelfAuthorApproval: true,
+		SelfOwnBySubject:        true,
+	})
+	if got.ControllerCount != 1 || got.HumanCount != 1 {
+		t.Fatalf(".gitslice human owner approving own agent = %+v, want ControllerCount=1 HumanCount=1", got)
+	}
+
+	// .gitslice mode: sibling agent under same controller cannot approve on the human owner's behalf, even if allowed.
+	aliceAgent2 := testAgentSubject("agent_alice_2", "user_alice")
+	got = EvaluateControllerApprovals(ControllerApprovalInput{
+		Authors:                 []Subject{aliceAgent},
+		Approvers:               []Subject{aliceAgent2},
+		AllowedSubjects:         []Subject{alice, aliceAgent2},
+		AllowedSubjectIDs:       map[string]bool{"user_alice": true, "agent_alice_2": true},
+		RestrictToAllowed:       true,
+		CountSelfAuthorApproval: true,
+		SelfOwnBySubject:        true,
+	})
+	if got.ControllerCount != 0 || got.HumanCount != 0 {
+		t.Fatalf(".gitslice sibling agent approving same-controller agent = %+v, want ControllerCount=0 HumanCount=0", got)
+	}
+
+	// .gitslice mode: human admin authoring directly AND approving never double-counts.
+	got = EvaluateControllerApprovals(ControllerApprovalInput{
+		Authors:                 []Subject{alice},
+		Approvers:               []Subject{alice},
+		AllowedSubjects:         []Subject{alice},
+		AllowedSubjectIDs:       map[string]bool{"user_alice": true},
+		RestrictToAllowed:       true,
+		CountSelfAuthorApproval: true,
+		SelfOwnBySubject:        true,
+	})
+	if got.ControllerCount != 1 || got.HumanCount != 1 {
+		t.Fatalf(".gitslice human admin self-author + approve = %+v, want ControllerCount=1 HumanCount=1", got)
+	}
+
 	// Unclaimed co-author blocks self-approval credit, requiring an external owner controller.
 	got = EvaluateControllerApprovals(ControllerApprovalInput{
 		Authors:                 []Subject{alice, unclaimed},

@@ -103,6 +103,17 @@ func EvaluateControllerApprovals(in ControllerApprovalInput) ControllerApprovalR
 		// changeset authored by their own agent (different subject ID, same
 		// controller) to satisfy require_human, without double-counting either
 		// ControllerCount or any human who directly authored the changeset.
+		// Under SelfOwnBySubject rules (such as .gitslice/** admin approval),
+		// an explicit human approval from an allowed subject also satisfies
+		// that controller's approval when a non-allowed agent under the same
+		// controller authored the changeset — while sibling agents still do not
+		// count and the controller is never double-counted.
+		countedControllers := make(map[string]struct{}, len(eligible)+len(excludedControllers))
+		for _, a := range eligible {
+			if ctrl := strings.TrimSpace(a.ControllerSubjectID); ctrl != "" {
+				countedControllers[ctrl] = struct{}{}
+			}
+		}
 		seenHumans := make(map[string]struct{}, len(eligible)+len(candidates))
 		for _, a := range eligible {
 			if strings.EqualFold(strings.TrimSpace(a.Kind), "user") {
@@ -121,9 +132,14 @@ func EvaluateControllerApprovals(in ControllerApprovalInput) ControllerApprovalR
 				continue
 			}
 			seenHumans[id] = struct{}{}
+			if in.SelfOwnBySubject {
+				countedControllers[ctrl] = struct{}{}
+			}
 		}
 		if allAuthorsClaimed && allAuthorsOwn {
-			res.ControllerCount += int32(len(excludedControllers))
+			for ctrl := range excludedControllers {
+				countedControllers[ctrl] = struct{}{}
+			}
 			if allAuthorsHuman {
 				for _, author := range in.Authors {
 					if id := strings.TrimSpace(author.ID); id != "" && strings.EqualFold(strings.TrimSpace(author.Kind), "user") {
@@ -132,6 +148,7 @@ func EvaluateControllerApprovals(in ControllerApprovalInput) ControllerApprovalR
 				}
 			}
 		}
+		res.ControllerCount = int32(len(countedControllers))
 		res.HumanCount = int32(len(seenHumans))
 	}
 	return res

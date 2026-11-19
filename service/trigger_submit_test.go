@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"gitslice.io/gitslice/internal/authctx"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 )
@@ -46,6 +47,45 @@ func TestGitsliceChangesNeedAnAdminApproval(t *testing.T) {
 	own, _ := createStandaloneChangesetWithPatchset(t, alice, h, ref.CommitId, "own", "/acme/payment/.gitslice/automations.yaml", "version: 1\nautomations: {}\n")
 	if _, err := h.Changeset.SubmitChangeset(alice, &corev1.SubmitChangesetRequest{ChangesetId: own.Id}); err != nil {
 		t.Fatalf("an owner submitting a .gitslice change: %v", err)
+	}
+
+	// A claimed non-admin agent controlled by the human owner is blocked on
+	// .gitslice/ edits until its human owner explicitly approves; once approved,
+	// both GetChangeset approval_status and SubmitChangeset succeed.
+	agentResp, err := h.Auth.CreateDelegatedAgent(alice, &corev1.CreateDelegatedAgentRequest{Username: "alice-bot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mem.AddAccountRole(agentResp.AgentSubjectId, "acme", "writer")
+	agentCtx := authctx.WithPrincipal(context.Background(), authctx.Principal{
+		SubjectID:           agentResp.AgentSubjectId,
+		SubjectKind:         "agent",
+		ControllerSubjectID: "user_alice",
+	})
+	ref, _ = h.Repository.GetRef(agentCtx, &corev1.GetRefRequest{})
+	agentCS, _ := createStandaloneChangesetWithPatchset(t, agentCtx, h, ref.CommitId, "agent config", "/acme/payment/.gitslice/agent_checks.yaml", "version: 1\nchecks: {}\n")
+	gotBefore, err := h.Changeset.GetChangeset(alice, &corev1.GetChangesetRequest{ChangesetId: agentCS.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotBefore.GetApprovalStatus().GetSatisfied() {
+		t.Fatalf("expected agent .gitslice changeset to need approval before human owner approves, got %+v", gotBefore.GetApprovalStatus())
+	}
+	_, err = h.Changeset.SubmitChangeset(agentCtx, &corev1.SubmitChangesetRequest{ChangesetId: agentCS.Id})
+	wantCode(t, err, codes.FailedPrecondition, "non-admin claimed agent submitting .gitslice change")
+
+	if _, err := h.Changeset.ApproveChangeset(alice, &corev1.ApproveChangesetRequest{ChangesetId: agentCS.Id}); err != nil {
+		t.Fatal(err)
+	}
+	gotAfter, err := h.Changeset.GetChangeset(alice, &corev1.GetChangesetRequest{ChangesetId: agentCS.Id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !gotAfter.GetApprovalStatus().GetSatisfied() {
+		t.Fatalf("expected human owner approval to satisfy .gitslice requirement, got %+v", gotAfter.GetApprovalStatus())
+	}
+	if _, err := h.Changeset.SubmitChangeset(agentCtx, &corev1.SubmitChangesetRequest{ChangesetId: agentCS.Id}); err != nil {
+		t.Fatalf("submit after human owner approved own agent .gitslice change: %v", err)
 	}
 }
 
