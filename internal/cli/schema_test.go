@@ -122,7 +122,7 @@ func TestSchemaCommandEmitsMachineReadableContract(t *testing.T) {
 		"gs policy [folder]",
 		"gs tag create <name>",
 		"gs secret ls",
-		"gs trigger ls [folder]",
+		"gs automation ls [folder]",
 		"gs slice mirror <slice|account:slice>",
 		"gs slice secret set <slice|account:slice> <NAME> [value]",
 		"gs slice set-ci-daemon <slice|account:slice> <daemon-id>",

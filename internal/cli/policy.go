@@ -49,7 +49,7 @@ type folderPolicyOutput struct {
 	OwnerSourceFolder string                      `json:"owner_source_folder,omitempty"`
 	OwnerRules        []folderOwnerRuleOutput     `json:"owner_rules,omitempty"`
 	Checks            []folderCheckOutput         `json:"checks,omitempty"`
-	Triggers          []triggerOutput             `json:"triggers,omitempty"`
+	Automations       []triggerOutput             `json:"automations,omitempty"`
 	Secrets           []folderSecretOutput        `json:"secrets,omitempty"`
 	CanManageSecrets  bool                        `json:"can_manage_secrets,omitempty"`
 	CIDaemonIDs       []string                    `json:"ci_daemon_ids,omitempty"`
@@ -58,16 +58,16 @@ type folderPolicyOutput struct {
 }
 
 // policyCommand shows everything bound to a folder at the head of a ref:
-// path owners, checks (including required gates), triggers, effective secrets,
-// and the account's default CI runner pool.
+// path owners, checks (including required gates), automations, effective
+// secrets, and the account's default CI runner pool.
 func (r Runner) policyCommand(opts *commandOptions) *cobra.Command {
 	var ref string
 	cmd := &cobra.Command{
 		Use:   "policy [folder]",
-		Short: "Show effective owners, checks, triggers, secrets, and CI runners for a folder (default: current directory)",
+		Short: "Show effective owners, checks, automations, secrets, and CI runners for a folder (default: current directory)",
 		Long: "Inspect the effective policy of a canonical folder (such as /acme/services/billing) or the current\n" +
 			"directory inside a workspace: nearest .gitslice/owners.yaml rules, inherited .gitslice/checks.yaml\n" +
-			"checks (including required gates), inherited .gitslice/triggers.yaml triggers, effective secrets,\n" +
+			"checks (including required gates), inherited .gitslice/automations.yaml automations, effective secrets,\n" +
 			"and the account's default CI runner pool.",
 		Args: maxArgs(1, "gs policy [folder] [--ref <ref>]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -137,20 +137,7 @@ func folderPolicyFromProto(resp *corev1.FolderPolicyResponse) folderPolicyOutput
 		})
 	}
 	for _, t := range resp.GetTriggers() {
-		out.Triggers = append(out.Triggers, triggerOutput{
-			ID:          t.GetId(),
-			Folder:      t.GetFolder(),
-			On:          append([]string(nil), t.GetOn()...),
-			Paths:       append([]string(nil), t.GetPaths()...),
-			Changes:     append([]string(nil), t.GetChanges()...),
-			Action:      t.GetAction(),
-			Worker:      t.GetWorker(),
-			URL:         t.GetHttpUrl(),
-			Checks:      append([]string(nil), t.GetChecks()...),
-			Secrets:     append([]string(nil), t.GetSecrets()...),
-			Network:     append([]string(nil), t.GetNetwork()...),
-			Concurrency: t.GetConcurrency(),
-		})
+		out.Automations = append(out.Automations, triggerDefToOutput(t))
 	}
 	for _, sec := range resp.GetSecrets() {
 		out.Secrets = append(out.Secrets, folderSecretOutput{
@@ -202,8 +189,8 @@ func (r Runner) printFolderPolicy(out folderPolicyOutput) error {
 			if chk.Required {
 				tags = append(tags, "required")
 			}
-			if chk.StartedBy == "trigger" {
-				tags = append(tags, "trigger-started")
+			if chk.StartedBy == "trigger" || chk.StartedBy == "automation" {
+				tags = append(tags, "automation-started")
 			}
 			if chk.Folder != "" && chk.Folder != out.Folder {
 				tags = append(tags, "from "+chk.Folder)
@@ -216,18 +203,12 @@ func (r Runner) printFolderPolicy(out folderPolicyOutput) error {
 		}
 	}
 
-	fmt.Fprintln(r.Stdout, "\nTriggers:")
-	if len(out.Triggers) == 0 {
+	fmt.Fprintln(r.Stdout, "\nAutomations:")
+	if len(out.Automations) == 0 {
 		fmt.Fprintln(r.Stdout, "  (none)")
 	} else {
-		for _, t := range out.Triggers {
-			what := t.Worker
-			if t.Action == "http" {
-				what = t.URL
-			} else if t.Action == "check" {
-				what = strings.Join(t.Checks, ",")
-			}
-			fmt.Fprintf(r.Stdout, "  %s\ton %s\t%s %s\n", t.ID, strings.Join(t.On, ","), t.Action, what)
+		for _, t := range out.Automations {
+			fmt.Fprintf(r.Stdout, "  %s\ton %s\t%s %s\n", t.ID, strings.Join(t.On, ","), t.Action, automationActionSummary(t))
 		}
 	}
 

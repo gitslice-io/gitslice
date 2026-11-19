@@ -133,7 +133,7 @@ func TestTriggerErrorPreservesUnavailableAndMapsUnimplemented(t *testing.T) {
 	// Unimplemented still maps to unsupported with trigger-specific message.
 	unimpl := r.enhanceCommandError(triggerError(status.Error(codes.Unimplemented, "unknown service")))
 	var unimplCmd commandError
-	if !errors.As(unimpl, &unimplCmd) || unimplCmd.Code != "unsupported" || unimplCmd.Message != "this server does not run triggers" || unimplCmd.Hint != "Upgrade the server." {
+	if !errors.As(unimpl, &unimplCmd) || unimplCmd.Code != "unsupported" || unimplCmd.Message != "this server does not run automations" || unimplCmd.Hint != "Upgrade the server." {
 		t.Fatalf("trigger Unimplemented = %+v", unimplCmd)
 	}
 }

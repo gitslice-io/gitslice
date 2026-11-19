@@ -1,10 +1,14 @@
 package cli
 
 import (
+	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"gitslice.io/gitslice/internal/model"
@@ -13,24 +17,25 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-// triggerCommand shows triggers and their runs, and runs them by hand
-// (design/34_triggers.md).
+// triggerCommand shows folder automations and their runs, and runs manual
+// automations by hand (design/34_triggers.md).
 func (r Runner) triggerCommand(opts *commandOptions) *cobra.Command {
-	triggerCmd := &cobra.Command{
-		Use:   "trigger",
-		Short: "Show the triggers of a folder and their runs; run one by hand",
-		Long: "A trigger is defined in <folder>/.gitslice/triggers.yaml and fires for changes in that folder and\n" +
-			"below: an HTTP call, or a script run on Cloudflare that may report checks. See gs help triggers.",
-		RunE: requireSubcommand("trigger"),
+	autoCmd := &cobra.Command{
+		Use:     "automation",
+		Aliases: []string{"auto", "automations"},
+		Short:   "Show folder automations and their runs; run manual automations",
+		Long: "An automation is defined in <folder>/.gitslice/automations.yaml and runs on folder events or manually:\n" +
+			"an HTTP call, a JS worker on Cloudflare, a bash container on Cloudflare, or folder checks. See gs help automations.",
+		RunE: requireSubcommand("automation"),
 	}
-	markSchemaGroup(triggerCmd)
+	markSchemaGroup(autoCmd)
 
 	var lsRef string
 	lsCmd := &cobra.Command{
 		Use:     "ls [folder]",
 		Aliases: []string{"list"},
-		Short:   "List the triggers that apply at a folder (default: the current one)",
-		Args:    maxArgs(1, "gs trigger ls [folder] [--ref <ref>]"),
+		Short:   "List the automations that apply at a folder (default: the current one)",
+		Args:    maxArgs(1, "gs automation ls [folder] [--ref <ref>]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			folder := ""
 			if len(args) == 1 {
@@ -41,109 +46,203 @@ func (r Runner) triggerCommand(opts *commandOptions) *cobra.Command {
 	}
 	lsCmd.Flags().StringVar(&lsRef, "ref", "", "read the definitions at this ref (default refs/global/main)")
 
-	var runsAccount, runsTrigger, runsChangeset string
+	var runsAccount, runsAuto, runsChangeset string
 	var runsLimit int
 	runsCmd := &cobra.Command{
 		Use:   "runs",
-		Short: "List trigger runs of a changeset, a trigger or an account, newest first",
-		Args:  noArgs("gs trigger runs [--changeset <id>] [--trigger <id>] [--account <account>] [--limit n]"),
+		Short: "List automation runs of a changeset, an automation or an account, newest first",
+		Args:  noArgs("gs automation runs [--changeset <id>] [--automation <id>] [--account <account>] [--limit n]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runTriggerRuns(cmd.Context(), *opts, runsAccount, runsTrigger, runsChangeset, runsLimit)
+			return r.runTriggerRuns(cmd.Context(), *opts, runsAccount, runsAuto, runsChangeset, runsLimit)
 		},
 	}
 	runsCmd.Flags().StringVar(&runsChangeset, "changeset", "", "runs about this changeset")
-	runsCmd.Flags().StringVar(&runsTrigger, "trigger", "", "runs of this trigger id, such as services/billing/ci")
+	runsCmd.Flags().StringVar(&runsAuto, "automation", "", "runs of this automation id, such as services/billing/deploy")
 	runsCmd.Flags().StringVar(&runsAccount, "account", "", "the account (default: your active account)")
 	runsCmd.Flags().IntVar(&runsLimit, "limit", 20, "how many runs")
 
 	showCmd := &cobra.Command{
 		Use:   "show <run-id>",
-		Short: "Show a trigger run",
-		Args:  exactArgs(1, "gs trigger show <run-id>"),
+		Short: "Show an automation run",
+		Args:  exactArgs(1, "gs automation show <run-id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runTriggerShow(cmd.Context(), *opts, args[0])
 		},
 	}
 
+	var logsFollow bool
 	logsCmd := &cobra.Command{
 		Use:   "logs <run-id>",
-		Short: "Print a trigger run's log",
-		Args:  exactArgs(1, "gs trigger logs <run-id>"),
+		Short: "Print an automation run's log",
+		Args:  exactArgs(1, "gs automation logs <run-id> [--follow]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runTriggerLogs(cmd.Context(), *opts, args[0])
+			return r.runTriggerLogs(cmd.Context(), *opts, args[0], logsFollow)
 		},
 	}
+	logsCmd.Flags().BoolVarP(&logsFollow, "follow", "f", false, "stream logs until the run finishes")
 
 	var runAccount, runRef, runChangeset string
 	var runInputs []string
+	var runYes, runFollow bool
 	runCmd := &cobra.Command{
-		Use:   "run <trigger-id>",
-		Short: "Run a trigger that listens for manual",
-		Args:  exactArgs(1, "gs trigger run <trigger-id> [--account <account>] [--ref <ref>] [--changeset <id>] [--input key=value]..."),
+		Use:   "run <automation-id>",
+		Short: "Run an automation that listens for manual",
+		Args:  exactArgs(1, "gs automation run <automation-id> [--account <account>] [--ref <ref>] [--changeset <id>] [-i key=value]... [--yes] [--follow]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runTriggerRun(cmd.Context(), *opts, runAccount, args[0], runRef, runChangeset, runInputs)
+			return r.runTriggerRun(cmd.Context(), *opts, runAccount, args[0], runRef, runChangeset, runInputs, runYes, runFollow)
 		},
 	}
 	runCmd.Flags().StringVar(&runAccount, "account", "", "the account (default: your active account)")
 	runCmd.Flags().StringVar(&runRef, "ref", "", "run the definition at this ref (default refs/global/main)")
 	runCmd.Flags().StringVar(&runChangeset, "changeset", "", "a changeset the run is about; its checks may be reported")
-	runCmd.Flags().StringArrayVar(&runInputs, "input", nil, "key=value passed as event.inputs (repeatable)")
+	runCmd.Flags().StringArrayVarP(&runInputs, "input", "i", nil, "key=value passed as automation input (repeatable)")
+	runCmd.Flags().BoolVarP(&runYes, "yes", "y", false, "confirm manual.confirm prompt without asking")
+	runCmd.Flags().BoolVarP(&runFollow, "follow", "f", false, "stream logs until the run finishes and exit non-zero on failure")
 
 	rerunCmd := &cobra.Command{
 		Use:   "rerun <run-id>",
-		Short: "Run a finished run's trigger again for the same event",
-		Args:  exactArgs(1, "gs trigger rerun <run-id>"),
+		Short: "Run a finished automation run again for the same event",
+		Args:  exactArgs(1, "gs automation rerun <run-id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runTriggerRunAction(cmd.Context(), *opts, args[0], "rerun")
 		},
 	}
 	cancelCmd := &cobra.Command{
 		Use:   "cancel <run-id>",
-		Short: "Cancel a run that has not finished",
-		Args:  exactArgs(1, "gs trigger cancel <run-id>"),
+		Short: "Cancel an automation run that has not finished",
+		Args:  exactArgs(1, "gs automation cancel <run-id>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runTriggerRunAction(cmd.Context(), *opts, args[0], "cancel")
 		},
 	}
 
-	triggerCmd.AddCommand(lsCmd, runsCmd, showCmd, logsCmd, runCmd, rerunCmd, cancelCmd)
-	return triggerCmd
+	autoCmd.AddCommand(lsCmd, runsCmd, showCmd, logsCmd, runCmd, rerunCmd, cancelCmd)
+	return autoCmd
+}
+
+type automationInputOutput struct {
+	Name        string   `json:"name"`
+	Type        string   `json:"type"`
+	Description string   `json:"description,omitempty"`
+	Required    bool     `json:"required,omitempty"`
+	Default     string   `json:"default,omitempty"`
+	Options     []string `json:"options,omitempty"`
+	Pattern     string   `json:"pattern,omitempty"`
+}
+
+type automationManualOutput struct {
+	Roles        []string `json:"roles,omitempty"`
+	RequireHuman bool     `json:"require_human,omitempty"`
+	Confirm      string   `json:"confirm,omitempty"`
+}
+
+type automationBashOutput struct {
+	Runtime    string   `json:"runtime,omitempty"`
+	Size       string   `json:"size,omitempty"`
+	Checkout   string   `json:"checkout,omitempty"`
+	Script     string   `json:"script,omitempty"`
+	WorkingDir string   `json:"working_dir,omitempty"`
+	Include    []string `json:"include,omitempty"`
 }
 
 type triggerOutput struct {
-	ID          string   `json:"id"`
-	Folder      string   `json:"folder"`
-	On          []string `json:"on"`
-	Paths       []string `json:"paths,omitempty"`
-	Changes     []string `json:"changes,omitempty"`
-	Action      string   `json:"action"`
-	Worker      string   `json:"worker,omitempty"`
-	URL         string   `json:"url,omitempty"`
-	Checks      []string `json:"checks,omitempty"`
-	Secrets     []string `json:"secrets,omitempty"`
-	Network     []string `json:"network,omitempty"`
-	Concurrency string   `json:"concurrency"`
+	ID          string                  `json:"id"`
+	Folder      string                  `json:"folder"`
+	Description string                  `json:"description,omitempty"`
+	On          []string                `json:"on"`
+	Paths       []string                `json:"paths,omitempty"`
+	Changes     []string                `json:"changes,omitempty"`
+	Action      string                  `json:"action"`
+	Worker      string                  `json:"worker,omitempty"`
+	URL         string                  `json:"url,omitempty"`
+	Bash        *automationBashOutput   `json:"bash,omitempty"`
+	Egress      string                  `json:"egress,omitempty"`
+	Checks      []string                `json:"checks,omitempty"`
+	Secrets     []string                `json:"secrets,omitempty"`
+	Reveal      []string                `json:"reveal,omitempty"`
+	Network     []string                `json:"network,omitempty"`
+	Inputs      []automationInputOutput `json:"inputs,omitempty"`
+	Manual      *automationManualOutput `json:"manual,omitempty"`
+	Concurrency string                  `json:"concurrency"`
+}
+
+func triggerDefToOutput(t *corev1.TriggerDefinition) triggerOutput {
+	out := triggerOutput{
+		ID: t.GetId(), Folder: t.GetFolder(), Description: t.GetDescription(),
+		On: append([]string(nil), t.GetOn()...), Paths: append([]string(nil), t.GetPaths()...),
+		Changes: append([]string(nil), t.GetChanges()...), Action: t.GetAction(),
+		Worker: t.GetWorker(), URL: t.GetHttpUrl(), Egress: t.GetEgress(),
+		Checks: append([]string(nil), t.GetChecks()...), Secrets: append([]string(nil), t.GetSecrets()...),
+		Reveal: append([]string(nil), t.GetReveal()...), Network: append([]string(nil), t.GetNetwork()...),
+		Concurrency: t.GetConcurrency(),
+	}
+	if b := t.GetBash(); b != nil {
+		out.Bash = &automationBashOutput{
+			Runtime: b.GetRuntime(), Size: b.GetSize(), Checkout: b.GetCheckout(),
+			Script: b.GetScript(), WorkingDir: b.GetWorkingDir(), Include: append([]string(nil), b.GetInclude()...),
+		}
+	}
+	if m := t.GetManual(); m != nil {
+		out.Manual = &automationManualOutput{
+			Roles: append([]string(nil), m.GetRoles()...), RequireHuman: m.GetRequireHuman(), Confirm: m.GetConfirm(),
+		}
+	}
+	for _, in := range t.GetInputs() {
+		out.Inputs = append(out.Inputs, automationInputOutput{
+			Name: in.GetName(), Type: in.GetType(), Description: in.GetDescription(),
+			Required: in.GetRequired(), Default: in.GetDefaultValue(), Options: append([]string(nil), in.GetOptions()...),
+			Pattern: in.GetPattern(),
+		})
+	}
+	return out
+}
+
+func automationActionSummary(t triggerOutput) string {
+	switch t.Action {
+	case "http":
+		return t.URL
+	case "check":
+		return strings.Join(t.Checks, ",")
+	case "bash":
+		parts := []string{}
+		if t.Bash != nil && t.Bash.Runtime != "" {
+			parts = append(parts, t.Bash.Runtime)
+		}
+		if t.Egress != "" {
+			parts = append(parts, t.Egress)
+		}
+		if t.Bash != nil && t.Bash.Script != "" {
+			parts = append(parts, t.Bash.Script)
+		}
+		return strings.Join(parts, " ")
+	default:
+		return t.Worker
+	}
 }
 
 type triggerRunOutput struct {
-	ID          string `json:"id"`
-	Trigger     string `json:"trigger"`
-	Status      string `json:"status"`
-	Event       string `json:"event"`
-	EventID     string `json:"event_id"`
-	Action      string `json:"action"`
-	Changeset   string `json:"changeset,omitempty"`
-	Attempt     int32  `json:"attempt"`
-	MaxAttempts int32  `json:"max_attempts"`
-	Error       string `json:"error,omitempty"`
-	CreatedAt   string `json:"created_at"`
-	FinishedAt  string `json:"finished_at,omitempty"`
-	Definition  string `json:"definition_commit,omitempty"`
+	ID              string            `json:"id"`
+	Automation      string            `json:"automation"`
+	Status          string            `json:"status"`
+	Event           string            `json:"event"`
+	EventID         string            `json:"event_id"`
+	Action          string            `json:"action"`
+	TriggeredBy     string            `json:"triggered_by,omitempty"`
+	TriggeredByKind string            `json:"triggered_by_kind,omitempty"`
+	Inputs          map[string]string `json:"inputs,omitempty"`
+	Changeset       string            `json:"changeset,omitempty"`
+	Attempt         int32             `json:"attempt"`
+	MaxAttempts     int32             `json:"max_attempts"`
+	Error           string            `json:"error,omitempty"`
+	CreatedAt       string            `json:"created_at"`
+	FinishedAt      string            `json:"finished_at,omitempty"`
+	Definition      string            `json:"definition_commit,omitempty"`
 }
 
 func triggerRunToOutput(run *corev1.TriggerRun) triggerRunOutput {
 	return triggerRunOutput{
-		ID: run.Id, Trigger: run.TriggerId, Status: run.Status, Event: run.EventKind, EventID: run.EventId, Action: run.Action,
+		ID: run.Id, Automation: run.TriggerId, Status: run.Status, Event: run.EventKind, EventID: run.EventId, Action: run.Action,
+		TriggeredBy: run.TriggeredBy, TriggeredByKind: run.TriggeredByKind, Inputs: run.Inputs,
 		Changeset: model.ShortChangesetID(run.ChangesetId), Attempt: run.Attempt, MaxAttempts: run.MaxAttempts,
 		Error: run.Error, CreatedAt: run.CreatedAt, FinishedAt: run.FinishedAt, Definition: run.DefinitionCommitId,
 	}
@@ -193,33 +292,28 @@ func (r Runner) runTriggerList(ctx context.Context, opts commandOptions, rawFold
 	}
 	out := make([]triggerOutput, 0, len(resp.Triggers))
 	for _, t := range resp.Triggers {
-		out = append(out, triggerOutput{ID: t.Id, Folder: t.Folder, On: t.On, Paths: t.Paths, Changes: t.Changes, Action: t.Action,
-			Worker: t.Worker, URL: t.HttpUrl, Checks: t.Checks, Secrets: t.Secrets, Network: t.Network, Concurrency: t.Concurrency})
+		out = append(out, triggerDefToOutput(t))
 	}
 	if opts.jsonOutput() {
 		problems := make([]map[string]string, 0, len(resp.Problems))
 		for _, p := range resp.Problems {
 			problems = append(problems, map[string]string{"file": p.File, "message": p.Message})
 		}
-		return r.writeJSONOutput(opts, map[string]any{"folder": folder, "commit": resp.CommitId, "triggers": out, "problems": problems})
+		return r.writeJSONOutput(opts, map[string]any{"folder": folder, "commit": resp.CommitId, "automations": out, "problems": problems})
 	}
 	if opts.Quiet {
 		return nil
 	}
 	if len(out) == 0 && len(resp.Problems) == 0 {
-		fmt.Fprintf(r.Stdout, "no triggers apply at %s\n", folder)
+		fmt.Fprintf(r.Stdout, "no automations apply at %s\n", folder)
 		return nil
 	}
 	for _, t := range out {
-		what := t.Worker
-		if t.Action == "http" {
-			what = t.URL
-		}
-		line := fmt.Sprintf("%s\ton %s\t%s %s", t.ID, strings.Join(t.On, ","), t.Action, what)
+		line := fmt.Sprintf("%s\ton %s\t%s %s", t.ID, strings.Join(t.On, ","), t.Action, automationActionSummary(t))
 		if len(t.Paths) > 0 {
 			line += "\tpaths " + strings.Join(t.Paths, ",")
 		}
-		if len(t.Checks) > 0 {
+		if t.Action != "check" && len(t.Checks) > 0 {
 			line += "\tchecks " + strings.Join(t.Checks, ",")
 		}
 		fmt.Fprintln(r.Stdout, line)
@@ -230,10 +324,10 @@ func (r Runner) runTriggerList(ctx context.Context, opts commandOptions, rawFold
 	return nil
 }
 
-func (r Runner) runTriggerRuns(ctx context.Context, opts commandOptions, account, trigger, changeset string, limit int) error {
+func (r Runner) runTriggerRuns(ctx context.Context, opts commandOptions, account, automation, changeset string, limit int) error {
 	var resp *corev1.ListTriggerRunsResponse
 	if err := r.withSession(ctx, func(s *Session) error {
-		req := &corev1.ListTriggerRunsRequest{TriggerId: strings.TrimSpace(trigger), Limit: int32(limit)}
+		req := &corev1.ListTriggerRunsRequest{TriggerId: strings.TrimSpace(automation), Limit: int32(limit)}
 		if changeset != "" {
 			id, err := s.fullTriggerChangesetID(changeset)
 			if err != nil {
@@ -263,11 +357,14 @@ func (r Runner) runTriggerRuns(ctx context.Context, opts commandOptions, account
 		return nil
 	}
 	if len(out) == 0 {
-		fmt.Fprintln(r.Stdout, "no trigger runs")
+		fmt.Fprintln(r.Stdout, "no automation runs")
 		return nil
 	}
 	for _, run := range out {
-		line := fmt.Sprintf("%s\t%s\t%s\t%s\t%s", run.ID, run.Status, run.Trigger, run.Event, run.CreatedAt)
+		line := fmt.Sprintf("%s\t%s\t%s\t%s\t%s", run.ID, run.Status, run.Automation, run.Event, run.CreatedAt)
+		if run.TriggeredBy != "" {
+			line += "\tby " + run.TriggeredBy
+		}
 		if run.Error != "" {
 			line += "\t" + oneLineSummary(run.Error)
 		}
@@ -292,8 +389,27 @@ func (r Runner) runTriggerShow(ctx context.Context, opts commandOptions, runID s
 	if opts.Quiet {
 		return nil
 	}
-	fmt.Fprintf(r.Stdout, "run: %s\ntrigger: %s (%s)\nstatus: %s\nevent: %s %s\nattempt: %d of %d\ncreated: %s\n",
-		out.ID, out.Trigger, out.Action, out.Status, out.Event, out.EventID, out.Attempt, out.MaxAttempts, out.CreatedAt)
+	fmt.Fprintf(r.Stdout, "run: %s\nautomation: %s (%s)\nstatus: %s\nevent: %s %s\nattempt: %d of %d\ncreated: %s\n",
+		out.ID, out.Automation, out.Action, out.Status, out.Event, out.EventID, out.Attempt, out.MaxAttempts, out.CreatedAt)
+	if out.TriggeredBy != "" {
+		actor := out.TriggeredBy
+		if out.TriggeredByKind != "" {
+			actor += " (" + out.TriggeredByKind + ")"
+		}
+		fmt.Fprintf(r.Stdout, "triggered_by: %s\n", actor)
+	}
+	if len(out.Inputs) > 0 {
+		keys := make([]string, 0, len(out.Inputs))
+		for k := range out.Inputs {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			parts = append(parts, k+"="+out.Inputs[k])
+		}
+		fmt.Fprintf(r.Stdout, "inputs: %s\n", strings.Join(parts, " "))
+	}
 	if out.Changeset != "" {
 		fmt.Fprintf(r.Stdout, "changeset: %s\n", out.Changeset)
 	}
@@ -306,7 +422,11 @@ func (r Runner) runTriggerShow(ctx context.Context, opts commandOptions, runID s
 	return nil
 }
 
-func (r Runner) runTriggerLogs(ctx context.Context, opts commandOptions, runID string) error {
+func (r Runner) runTriggerLogs(ctx context.Context, opts commandOptions, runID string, follow bool) error {
+	if follow && !opts.jsonOutput() {
+		_, err := r.followAutomationRun(ctx, runID)
+		return err
+	}
 	var all []*corev1.TriggerRunLog
 	if err := r.withSession(ctx, func(s *Session) error {
 		var after int64
@@ -332,16 +452,70 @@ func (r Runner) runTriggerLogs(ctx context.Context, opts commandOptions, runID s
 		return r.writeJSONOutput(opts, map[string]any{"logs": lines})
 	}
 	for _, l := range all {
-		if l.Stream == "stderr" {
-			fmt.Fprint(r.stderr(), l.Chunk)
-		} else {
-			fmt.Fprint(r.Stdout, l.Chunk)
-		}
+		r.printRunLogChunk(l)
 	}
 	return nil
 }
 
-func (r Runner) runTriggerRun(ctx context.Context, opts commandOptions, account, triggerID, ref, changeset string, rawInputs []string) error {
+func (r Runner) printRunLogChunk(l *corev1.TriggerRunLog) {
+	if l.Stream == "stderr" {
+		fmt.Fprint(r.stderr(), l.Chunk)
+	} else {
+		fmt.Fprint(r.Stdout, l.Chunk)
+	}
+}
+
+func (r Runner) followAutomationRun(ctx context.Context, runID string) (*corev1.TriggerRun, error) {
+	runID = strings.TrimSpace(runID)
+	var after int64
+	var finalRun *corev1.TriggerRun
+	err := r.withSession(ctx, func(s *Session) error {
+		for {
+			resp, err := s.Trigger().ListTriggerRunLogs(s.Ctx(), &corev1.ListTriggerRunLogsRequest{RunId: runID, AfterSeq: after})
+			if err != nil {
+				return triggerError(err)
+			}
+			for _, l := range resp.Logs {
+				r.printRunLogChunk(l)
+				after = l.Seq
+			}
+			run, err := s.Trigger().GetTriggerRun(s.Ctx(), &corev1.GetTriggerRunRequest{RunId: runID})
+			if err != nil {
+				return triggerError(err)
+			}
+			finalRun = run
+			if automationRunFinal(run.Status) {
+				// Drain any final lines emitted right before status flipped.
+				tail, terr := s.Trigger().ListTriggerRunLogs(s.Ctx(), &corev1.ListTriggerRunLogsRequest{RunId: runID, AfterSeq: after})
+				if terr == nil {
+					for _, l := range tail.Logs {
+						r.printRunLogChunk(l)
+						after = l.Seq
+					}
+				}
+				return nil
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(1500 * time.Millisecond):
+			}
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+	if finalRun != nil && finalRun.Status != "succeeded" {
+		msg := fmt.Sprintf("automation run %s ended with status %s", finalRun.Id, finalRun.Status)
+		if finalRun.Error != "" {
+			msg += ": " + finalRun.Error
+		}
+		return finalRun, userError("automation_failed", msg, "")
+	}
+	return finalRun, nil
+}
+
+func (r Runner) runTriggerRun(ctx context.Context, opts commandOptions, account, triggerID, ref, changeset string, rawInputs []string, yes, follow bool) error {
 	inputs := map[string]string{}
 	for _, raw := range rawInputs {
 		key, value, ok := strings.Cut(raw, "=")
@@ -350,13 +524,19 @@ func (r Runner) runTriggerRun(ctx context.Context, opts commandOptions, account,
 		}
 		inputs[strings.TrimSpace(key)] = value
 	}
+	triggerID = strings.TrimSpace(triggerID)
 	var run *corev1.TriggerRun
 	if err := r.withSession(ctx, func(s *Session) error {
 		var err error
 		if account, err = s.ResolveAccount(account); err != nil {
 			return err
 		}
-		req := &corev1.RunTriggerRequest{Account: account, TriggerId: strings.TrimSpace(triggerID), Ref: ref, Inputs: inputs}
+		if def := lookupAutomationDef(s, account, triggerID, ref); def != nil {
+			if err := r.promptMissingInputsAndConfirm(opts, def, inputs, yes); err != nil {
+				return err
+			}
+		}
+		req := &corev1.RunTriggerRequest{Account: account, TriggerId: triggerID, Ref: ref, Inputs: inputs}
 		if changeset != "" {
 			if req.ChangesetId, err = s.fullTriggerChangesetID(changeset); err != nil {
 				return err
@@ -367,7 +547,95 @@ func (r Runner) runTriggerRun(ctx context.Context, opts commandOptions, account,
 	}); err != nil {
 		return err
 	}
+	if follow && !opts.jsonOutput() {
+		if !opts.Quiet {
+			fmt.Fprintf(r.stderr(), "started run %s of %s\n", run.Id, run.TriggerId)
+		}
+		_, err := r.followAutomationRun(ctx, run.Id)
+		return err
+	}
 	return r.printTriggerRun(opts, "queued", run)
+}
+
+func automationRunFinal(status string) bool {
+	switch status {
+	case "succeeded", "failed", "errored", "canceled", "timed_out":
+		return true
+	}
+	return false
+}
+
+func automationFolderOf(account, automationID string) string {
+	id := strings.Trim(strings.TrimSpace(automationID), "/")
+	root := "/" + strings.Trim(account, "/")
+	if i := strings.LastIndex(id, "/"); i >= 0 {
+		return root + "/" + id[:i]
+	}
+	return root
+}
+
+func lookupAutomationDef(s *Session, account, automationID, ref string) *corev1.TriggerDefinition {
+	folder := automationFolderOf(account, automationID)
+	resp, err := s.Trigger().ListTriggers(s.Ctx(), &corev1.ListTriggersRequest{Path: folder, Ref: ref})
+	if err != nil {
+		return nil
+	}
+	for _, def := range resp.GetTriggers() {
+		if def.GetId() == automationID {
+			return def
+		}
+	}
+	return nil
+}
+
+func (r Runner) promptMissingInputsAndConfirm(opts commandOptions, def *corev1.TriggerDefinition, inputs map[string]string, yes bool) error {
+	reader := bufio.NewReader(r.stdin())
+	interactive := !opts.NonInteractive && isTerminal(r.stdin())
+
+	for _, spec := range def.GetInputs() {
+		if _, ok := inputs[spec.GetName()]; ok {
+			continue
+		}
+		if !spec.GetRequired() || spec.GetDefaultValue() != "" {
+			continue
+		}
+		if !interactive {
+			return userError("invalid_argument", fmt.Sprintf("required input %q is missing", spec.GetName()), fmt.Sprintf("Pass --input %s=<value>.", spec.GetName()))
+		}
+		prompt := spec.GetName()
+		if len(spec.GetOptions()) > 0 {
+			prompt += " (" + strings.Join(spec.GetOptions(), "|") + ")"
+		}
+		if spec.GetDescription() != "" {
+			prompt += " - " + spec.GetDescription()
+		}
+		fmt.Fprintf(r.stderr(), "%s: ", prompt)
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return err
+		}
+		val := strings.TrimSpace(line)
+		if val == "" {
+			return userError("invalid_argument", fmt.Sprintf("required input %q is empty", spec.GetName()), "")
+		}
+		inputs[spec.GetName()] = val
+	}
+
+	if confirm := def.GetManual().GetConfirm(); confirm != "" && !yes {
+		if !interactive {
+			return userError("confirmation_required", confirm, "Pass --yes to confirm non-interactively.")
+		}
+		fmt.Fprintf(r.stderr(), "%s [y/N]: ", confirm)
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			return err
+		}
+		ans := strings.ToLower(strings.TrimSpace(line))
+		if ans != "y" && ans != "yes" {
+			return userError("canceled", "automation run canceled", "")
+		}
+	}
+	return nil
 }
 
 func (r Runner) runTriggerRunAction(ctx context.Context, opts commandOptions, runID, action string) error {
@@ -412,7 +680,7 @@ func (s *Session) fullTriggerChangesetID(handle string) (string, error) {
 
 var triggerErrorHints = domainErrorOverrides{
 	codes.Unimplemented: {
-		Message: "this server does not run triggers",
+		Message: "this server does not run automations",
 		Hint:    "Upgrade the server.",
 	},
 }

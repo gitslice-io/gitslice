@@ -184,31 +184,42 @@ that bound slice as the authoring slice.
 `,
 	},
 	{
-		Name:    "triggers",
-		Summary: "Run an HTTP call or a script when files in a folder change",
-		Body: `Triggers
+		Name:    "automations",
+		Summary: "Run HTTP hooks, JS workers, bash containers, or checks on folder events or manually",
+		Body: `Automations
 
-A trigger lives in <folder>/.gitslice/triggers.yaml and fires for changes in
-that folder and below: when a commit lands (push), a changeset is created or
-updated, approved, landed or abandoned, a check finishes, a tag is created,
-or by hand (manual). Its action is an HTTP POST of the event; a JavaScript
-module under the same .gitslice folder that runs on Cloudflare and may report
-checks that gate submit; or check: [names], which runs checks of the folder's
-checks.yaml on the slice's CI daemon (mark them started_by: trigger so they
-do not also start with every patchset).
+An automation lives in <folder>/.gitslice/automations.yaml and runs on events
+affecting that folder and below (push, tag.created, changeset.*,
+check_run.completed) or manually (on: [manual]) with typed inputs and
+folder-scoped secrets. Its action is:
+  - http:   signed HTTP POST of the event payload
+  - worker: JavaScript ES module under .gitslice/ on Cloudflare Dynamic Workers
+  - bash:   bash command or script in an ephemeral Cloudflare Container
+  - check:  runs checks from the folder's checks.yaml on the CI runner pool
+            (mark them started_by: automation so they wait for the automation)
 
   version: 1
-  triggers:
-    ci:
-      on: [changeset.created, changeset.updated]
-      paths: ["**/*.go", "!**/*_test.go"]   # folder-relative, "/" for the account root
-      changes: [added, modified, moved]      # default: any change
-      checks: [ci]                           # reports the check <folder>/ci
-      secrets: [CI_TOKEN]                    # secrets at the folder (gs help secrets)
-      network: [api.buildkite.com]           # the only hosts the script may reach
-      timeout: 2h                            # how long it may wait for callbacks
+  automations:
+    deploy-staging:
+      description: Deploy billing service to staging
+      on: [manual]
+      manual:
+        roles: [admin, writer]               # or [admin]
+        require_human: true                  # block agent accounts
+        confirm: "Deploy billing to staging?"
+      inputs:
+        version: { type: string, required: true }
+        region:  { type: choice, options: [us-central1, europe-west1], default: us-central1 }
+      secrets: [CLOUDFLARE_API_TOKEN]
+      network: [api.cloudflare.com]          # http-gate: sealed secrets unwrapped at egress
       action:
-        worker: triggers/ci.js               # inside .gitslice/
+        bash:
+          runtime: cloud                     # base | node | python | go | cloud
+          size: basic                        # lite | basic | standard-1 | standard-2
+          checkout: folder                   # none | folder | account
+          run: |
+            curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              https://api.cloudflare.com/client/v4/user/tokens/verify
     notify:
       on: [push]
       refs: [main]
@@ -218,25 +229,20 @@ do not also start with every patchset).
           url: https://hooks.example.com/x?t=${{ secrets.HOOK_TOKEN }}
           sign: HOOK_TOKEN                   # X-Gitslice-Signature-256
 
-  gs trigger ls [folder]                 # triggers that apply at a folder
-  gs trigger runs --changeset <id>       # runs of a changeset (or --trigger, --account)
-  gs trigger show <run-id>
-  gs trigger logs <run-id>
-  gs trigger run <trigger-id> [--input k=v]   # triggers that list manual
-  gs trigger rerun <run-id>
-  gs trigger cancel <run-id>
+  gs auto ls [folder]                        # automations applying at a folder
+  gs auto runs --changeset <id>              # runs of a changeset (or --automation, --account)
+  gs auto show <run-id>
+  gs auto logs <run-id> [--follow]
+  gs auto run <id> [-i k=v]... [--yes] [-f]  # invoke a manual automation
+  gs auto rerun <run-id>
+  gs auto cancel <run-id>
 
-For changeset events the definitions come from the head of the target ref,
-not from the changeset, so a changed trigger takes effect when it lands.
-Changes under any .gitslice folder need an owner's or admin's approval.
-
-A script exports onEvent(event, gs) and, to hear back from outside systems,
-onCallback(request, gs). gs.checks.create/update report checks;
-gs.secret(NAME) is a placeholder the runtime swaps for the value only on
-requests to network hosts; gs.callbackUrl(data) is where outside systems call
-back; gs.state keeps 64 KiB of JSON between calls; console.log goes to the
-run's log. A run that reports a check waits until the check has a result or
-the timeout. See https://gitslice.io/doc/triggers.
+Definitions and scripts always come from the head of the target ref (never an
+unsubmitted draft), and any change under .gitslice/ requires account owner or
+admin approval. For bash actions, secrets are sealed behind Gate in http-gate
+mode (when network: is set); raw TCP tools (psql, ssh, aws, gcloud) opt into
+egress: direct and reveal: [SECRET] and read secrets via $NAME or
+$GITSLICE_SECRETS_DIR/<NAME> (/run/secrets). See https://gitslice.io/doc/automations.
 `,
 	},
 	{

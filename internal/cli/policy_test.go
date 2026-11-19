@@ -36,7 +36,7 @@ func TestPrintFolderPolicyAndAccountCIRunners(t *testing.T) {
 		CiDaemonIds:      []string{"daemon_1"},
 		CiDaemonNames:    []string{"org-ci"},
 		Problems: []*corev1.FolderPolicyProblem{
-			{Kind: "triggers", Folder: "/acme/web", File: "/acme/web/.gitslice/triggers.yaml", Message: "bad syntax"},
+			{Kind: "triggers", Folder: "/acme/web", File: "/acme/web/.gitslice/automations.yaml", Message: "bad syntax"},
 		},
 	}
 
@@ -62,7 +62,7 @@ func TestPrintFolderPolicyAndAccountCIRunners(t *testing.T) {
 			t.Fatalf("printFolderPolicy output missing %q:\n%s", want, text)
 		}
 	}
-	if !strings.Contains(stderr.String(), "problem (triggers) /acme/web/.gitslice/triggers.yaml: bad syntax") {
+	if !strings.Contains(stderr.String(), "problem (triggers) /acme/web/.gitslice/automations.yaml: bad syntax") {
 		t.Fatalf("stderr missing problem: %q", stderr.String())
 	}
 
@@ -114,5 +114,30 @@ func TestSecretCreateDefaultsToWorkspaceFolder(t *testing.T) {
 	}
 	if folder != "/acme/web" {
 		t.Fatalf("folder = %q, want /acme/web", folder)
+	}
+}
+
+func TestAutomationPromptNonInteractiveChecks(t *testing.T) {
+	def := &corev1.TriggerDefinition{
+		Id: "infra/deploy",
+		Inputs: []*corev1.AutomationInputSpec{
+			{Name: "version", Type: "string", Required: true},
+		},
+		Manual: &corev1.AutomationManualPolicy{
+			Confirm: "Deploy to prod?",
+		},
+	}
+	r := Runner{Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}
+	// Missing required input fails non-interactively with invalid_argument.
+	if err := r.promptMissingInputsAndConfirm(commandOptions{NonInteractive: true}, def, map[string]string{}, false); !isUserErrorCode(err, "invalid_argument") {
+		t.Fatalf("missing input err = %v, want invalid_argument", err)
+	}
+	// Missing --yes fails non-interactively with confirmation_required.
+	if err := r.promptMissingInputsAndConfirm(commandOptions{NonInteractive: true}, def, map[string]string{"version": "v1"}, false); !isUserErrorCode(err, "confirmation_required") {
+		t.Fatalf("confirm err = %v, want confirmation_required", err)
+	}
+	// Passing --yes succeeds.
+	if err := r.promptMissingInputsAndConfirm(commandOptions{NonInteractive: true}, def, map[string]string{"version": "v1"}, true); err != nil {
+		t.Fatalf("with --yes err = %v", err)
 	}
 }
