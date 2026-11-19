@@ -160,9 +160,9 @@ func TestContributorCapabilitiesAndBoundaries(t *testing.T) {
 		}
 	}
 
-	// Commit base files, triggers.yaml, and a trigger run for trigger capability checks.
+	// Commit base files, automations.yaml, and a trigger run for automation capability checks.
 	triggersYAML := `version: 1
-triggers:
+automations:
   notify:
     on: [manual]
     action:
@@ -170,7 +170,7 @@ triggers:
         url: https://example.com/hook
 `
 	baseCommit := commitFileViaAlice(t, alice, handlers, mem, paymentRef, "/acme/payment/base.txt", "hello\n")
-	baseCommit = commitFileViaAlice(t, alice, handlers, mem, paymentRef, "/acme/payment/.gitslice/triggers.yaml", triggersYAML)
+	baseCommit = commitFileViaAlice(t, alice, handlers, mem, paymentRef, "/acme/payment/.gitslice/automations.yaml", triggersYAML)
 	if _, err := mem.Triggers.CreateTriggerRuns(context.Background(), []storage.TriggerRun{{
 		ID:        "tr_authz_1",
 		Account:   "acme",

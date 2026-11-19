@@ -34,9 +34,9 @@ checks:
     run: "echo lint"
     paths: ["**/*.go"]
 `, "checks")
-	submitDirectFile(t, ctx, clients, "/acme/payment/.gitslice/triggers.yaml", `
+	submitDirectFile(t, ctx, clients, "/acme/payment/.gitslice/automations.yaml", `
 version: 1
-triggers:
+automations:
   ci:
     on: [changeset.created, changeset.updated]
     action:

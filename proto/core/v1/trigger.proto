@@ -55,7 +55,44 @@ service TriggerRunService {
   rpc GetChangeset(TriggerRunTokenRequest) returns (Changeset);
 }
 
-// TriggerDefinition is a trigger as its triggers.yaml defines it.
+// AutomationInputSpec declares one typed input for a manual automation.
+message AutomationInputSpec {
+  string name = 1;
+  // "string", "choice", "boolean", or "number".
+  string type = 2;
+  string description = 3;
+  bool required = 4;
+  string default_value = 5;
+  repeated string options = 6;
+  string pattern = 7;
+}
+
+// AutomationManualPolicy governs who may invoke a manual automation and
+// whether UI/CLI should ask for explicit confirmation.
+message AutomationManualPolicy {
+  // Allowed roles: "admin", "writer". Empty defaults to both.
+  repeated string roles = 1;
+  bool require_human = 2;
+  string confirm = 3;
+}
+
+// AutomationBashAction defines a bash command or script executed in an
+// isolated Cloudflare Container.
+message AutomationBashAction {
+  string run = 1;
+  string script = 2;
+  // "base", "node", "python", "go", or "cloud".
+  string runtime = 3;
+  // "lite", "basic", "standard-1", or "standard-2".
+  string size = 4;
+  // "none", "folder", or "account".
+  string checkout = 5;
+  repeated string include = 6;
+  string working_dir = 7;
+  map<string, string> env = 8;
+}
+
+// TriggerDefinition is an automation as its automations.yaml defines it.
 message TriggerDefinition {
   // "<folder>/<name>", the folder relative to the account root.
   string id = 1;
@@ -73,11 +110,18 @@ message TriggerDefinition {
   string concurrency = 11;
   int64 timeout_ms = 12;
   int32 retry = 13;
-  // "http" or "worker".
+  // "http", "worker", "check", or "bash".
   string action = 14;
   // The URL as written (secrets stay as ${{ secrets.NAME }}), or the script.
   string http_url = 15;
   string worker = 16;
+  string description = 17;
+  repeated AutomationInputSpec inputs = 18;
+  AutomationManualPolicy manual = 19;
+  repeated string reveal = 20;
+  // "offline", "http-gate", or "direct" (bash actions only).
+  string egress = 21;
+  AutomationBashAction bash = 22;
 }
 
 message TriggerFileProblem {
@@ -112,6 +156,10 @@ message TriggerRun {
   string started_at = 19;
   string finished_at = 20;
   string deadline = 21;
+  // For manual runs: actor username or subject id, and kind ("human" or "agent").
+  string triggered_by = 22;
+  string triggered_by_kind = 23;
+  map<string, string> inputs = 24;
 }
 
 message ListTriggersRequest {
@@ -273,6 +321,18 @@ message StartTriggerRunResponse {
   string callback_url = 10;
   string state_json = 11;
   int64 deadline_unix_ms = 12;
+  // Action kind ("worker" or "bash") and bash execution parameters.
+  string action = 13;
+  string egress = 14;
+  string bash_script = 15;
+  string bash_runtime = 16;
+  string bash_size = 17;
+  string bash_checkout = 18;
+  repeated string bash_include = 19;
+  string bash_working_dir = 20;
+  map<string, string> bash_env = 21;
+  map<string, string> inputs = 22;
+  int64 timeout_ms = 23;
 }
 
 message TriggerRunTokenRequest {

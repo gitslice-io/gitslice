@@ -40,10 +40,13 @@ type TriggerRun struct {
 	TriggerID string
 	// Folder is the canonical folder that holds the trigger's .gitslice.
 	Folder string
-	// Action is "http" or "worker".
+	// Action is "http", "worker", "check", or "bash".
 	Action    string
 	EventID   string
 	EventKind string
+	// For manual runs: actor username or subject id, and kind ("human" or "agent").
+	TriggeredBy     string
+	TriggeredByKind string
 	// What the event is about, when it is about these.
 	ChangesetID string
 	PatchsetID  string
@@ -127,11 +130,14 @@ type TriggerStore interface {
 	OpenTriggerRuns(ctx context.Context, account, triggerID, changesetID string) ([]TriggerRun, error)
 	// CountActiveTriggerRuns counts the account's running and waiting runs.
 	CountActiveTriggerRuns(ctx context.Context, account string) (int, error)
+	// CountActiveTriggerRunsByAction counts the account's running and waiting
+	// runs of one action kind (for example, "bash").
+	CountActiveTriggerRunsByAction(ctx context.Context, account, action string) (int, error)
 	// SetTriggerRunState replaces the state of an unfinished run.
 	SetTriggerRunState(ctx context.Context, id string, state []byte) error
 	AppendTriggerRunLog(ctx context.Context, id, stream, chunk string) (int64, error)
 	ListTriggerRunLogs(ctx context.Context, id string, afterSeq int64, limit int) ([]TriggerRunLog, error)
-	// HasTriggerFiles reports whether any .gitslice/triggers.yaml exists at
+	// HasTriggerFiles reports whether any .gitslice/automations.yaml exists at
 	// the head of any ref.
 	HasTriggerFiles(ctx context.Context) (bool, error)
 	// PruneTriggerRuns deletes finished runs older than before.

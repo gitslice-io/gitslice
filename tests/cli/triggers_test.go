@@ -23,8 +23,8 @@ func TestTriggerCommands(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "triggers.yaml"), []byte(`version: 1
-triggers:
+	if err := os.WriteFile(filepath.Join(dir, "automations.yaml"), []byte(`version: 1
+automations:
   hello:
     on: [manual, push]
     paths: ["**/*.go"]
@@ -57,7 +57,7 @@ triggers:
 		t.Fatalf("trigger show = %q", out)
 	}
 	_, stderr := runCLIFails(t, home, payment, "trigger", "run", "payment/missing", "--account", "acme")
-	if !strings.Contains(stderr, "no trigger payment/missing") {
-		t.Fatalf("trigger run of a missing trigger: %s", stderr)
+	if !strings.Contains(stderr, "no automation payment/missing") {
+		t.Fatalf("trigger run of a missing automation: %s", stderr)
 	}
 }

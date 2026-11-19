@@ -26,6 +26,8 @@ const (
 	MaxDepth = 3
 	// MaxActivePerAccount bounds an account's running and waiting runs.
 	MaxActivePerAccount = 20
+	// MaxActiveBashPerAccount bounds an account's concurrent bash containers.
+	MaxActiveBashPerAccount = 4
 	// RunLease is how long a started run may go without a sign of life.
 	RunLease = 2 * time.Minute
 
@@ -285,7 +287,7 @@ func (e *Engine) fanOut(ctx context.Context, event storage.Event, entities stora
 		var runs []storage.TriggerRun
 		for _, problem := range problems {
 			runs = append(runs, storage.TriggerRun{
-				Account: info.account, TriggerID: ID("/"+info.account, problem.Folder, ".gitslice/triggers.yaml"),
+				Account: info.account, TriggerID: ID("/"+info.account, problem.Folder, FileName),
 				Folder: problem.Folder, Action: "", EventID: eventID, EventKind: kind,
 				ChangesetID: info.changesetID, PatchsetID: info.patchsetID, CommitID: info.commitID,
 				TargetRef: info.ref, DefinitionCommitID: headCommit, Status: storage.TriggerRunErrored,
@@ -294,9 +296,9 @@ func (e *Engine) fanOut(ctx context.Context, event storage.Event, entities stora
 		}
 		for _, m := range matches {
 			if info.account+":"+m.ID == parentTrigger {
-				continue // a trigger never sets itself off
+				continue // an automation never sets itself off
 			}
-			run, err := e.newRun(info, m, kind, eventID, headCommit, envelope, depth, event.ActorSubjectID, nil)
+			run, err := e.newRun(info, m, kind, eventID, headCommit, envelope, depth, event.ActorSubjectID, "", "", nil)
 			if err != nil {
 				return err
 			}
@@ -312,10 +314,10 @@ func (e *Engine) fanOut(ctx context.Context, event storage.Event, entities stora
 	return nil
 }
 
-// newRun builds a queued run of a matched trigger, with its payload: the
-// event payload plus the trigger, the changes it matched, the commit its
-// definition was read from, and how deep in a chain of triggers it is.
-func (e *Engine) newRun(info *eventInfo, m Match, kind, eventID, headCommit string, envelope []byte, depth int, actor string, inputs map[string]string) (storage.TriggerRun, error) {
+// newRun builds a queued run of a matched automation, with its payload: the
+// event payload plus the automation, the changes it matched, the commit its
+// definition was read from, and how deep in a chain of automations it is.
+func (e *Engine) newRun(info *eventInfo, m Match, kind, eventID, headCommit string, envelope []byte, depth int, actor, triggeredBy, triggeredByKind string, inputs map[string]string) (storage.TriggerRun, error) {
 	payload := map[string]any{}
 	if len(envelope) > 0 {
 		if err := json.Unmarshal(envelope, &payload); err != nil {
@@ -324,7 +326,9 @@ func (e *Engine) newRun(info *eventInfo, m Match, kind, eventID, headCommit stri
 	}
 	payload["id"] = eventID
 	payload["event"] = kind
-	payload["trigger"] = map[string]string{"id": m.ID, "name": m.Name, "folder": m.Folder}
+	meta := map[string]string{"id": m.ID, "name": m.Name, "folder": m.Folder}
+	payload["automation"] = meta
+	payload["trigger"] = meta
 	changes := m.Changes
 	if changes == nil {
 		changes = []Change{}
@@ -336,8 +340,11 @@ func (e *Engine) newRun(info *eventInfo, m Match, kind, eventID, headCommit stri
 		sender = map[string]any{}
 	}
 	sender["kind"] = "user"
+	if triggeredByKind != "" {
+		sender["kind"] = triggeredByKind
+	}
 	if strings.HasPrefix(actor, ActorPrefix) {
-		sender["kind"] = "trigger"
+		sender["kind"] = "automation"
 	}
 	sender["depth"] = depth
 	payload["sender"] = sender
@@ -361,7 +368,8 @@ func (e *Engine) newRun(info *eventInfo, m Match, kind, eventID, headCommit stri
 	}
 	return storage.TriggerRun{
 		Account: info.account, TriggerID: m.ID, Folder: m.Folder, Action: m.Trigger.Action.Kind,
-		EventID: eventID, EventKind: kind, ChangesetID: info.changesetID, PatchsetID: info.patchsetID,
+		EventID: eventID, EventKind: kind, TriggeredBy: triggeredBy, TriggeredByKind: triggeredByKind,
+		ChangesetID: info.changesetID, PatchsetID: info.patchsetID,
 		CommitID: info.commitID, TargetRef: info.ref, DefinitionCommitID: headCommit,
 		Spec: spec, Payload: body, Status: storage.TriggerRunQueued, MaxAttempts: maxAttempts,
 	}, nil
@@ -386,11 +394,14 @@ func (e *Engine) Cancel(ctx context.Context, run storage.TriggerRun, reason stri
 		return nil, err
 	}
 	e.CloseChecks(ctx, *updated, "canceled", reason)
+	if updated.Action == ActionBash && e.DispatchConfigured() {
+		go e.postCancel(updated.ID)
+	}
 	return updated, nil
 }
 
-// Drain settles expired runs, sends due http actions, posts due worker runs
-// to the dispatcher, and prunes old runs hourly.
+// Drain settles expired runs, sends due http actions, posts due worker and
+// bash runs to the dispatcher, and prunes old runs hourly.
 func (e *Engine) Drain(ctx context.Context) {
 	e.settleExpired(ctx)
 	due, err := e.stores.Triggers.ClaimDueTriggerRuns(ctx, dueBatch, postHold)
@@ -413,7 +424,7 @@ func (e *Engine) Drain(ctx context.Context) {
 			switch run.Action {
 			case ActionHTTP:
 				e.sendHTTP(ctx, run)
-			case ActionWorker:
+			case ActionWorker, ActionBash:
 				e.post(ctx, run)
 			case ActionCheck:
 				e.launch(ctx, run)

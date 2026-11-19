@@ -43,7 +43,7 @@ func TestGitsliceChangesNeedAnAdminApproval(t *testing.T) {
 
 	// An owner lands one alone.
 	ref, _ = h.Repository.GetRef(alice, &corev1.GetRefRequest{})
-	own, _ := createStandaloneChangesetWithPatchset(t, alice, h, ref.CommitId, "own", "/acme/payment/.gitslice/triggers.yaml", "version: 1\ntriggers: {}\n")
+	own, _ := createStandaloneChangesetWithPatchset(t, alice, h, ref.CommitId, "own", "/acme/payment/.gitslice/automations.yaml", "version: 1\nautomations: {}\n")
 	if _, err := h.Changeset.SubmitChangeset(alice, &corev1.SubmitChangesetRequest{ChangesetId: own.Id}); err != nil {
 		t.Fatalf("an owner submitting a .gitslice change: %v", err)
 	}

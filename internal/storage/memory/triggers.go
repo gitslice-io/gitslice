@@ -238,6 +238,14 @@ func (s *TriggerStore) CountActiveTriggerRuns(ctx context.Context, account strin
 	})), nil
 }
 
+func (s *TriggerStore) CountActiveTriggerRunsByAction(ctx context.Context, account, action string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.list(func(r *storage.TriggerRun) bool {
+		return r.Account == account && r.Action == action && (r.Status == storage.TriggerRunRunning || r.Status == storage.TriggerRunWaiting)
+	})), nil
+}
+
 func (s *TriggerStore) SetTriggerRunState(ctx context.Context, id string, state []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

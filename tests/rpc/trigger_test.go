@@ -99,9 +99,9 @@ func TestRPCTriggers(t *testing.T) {
 	}
 	submitDirectFile(t, ctx, clients, "/acme/payment/.gitslice/triggers/lib.js", "export const label = 'ci';\n", "trigger lib")
 	submitDirectFile(t, ctx, clients, "/acme/payment/.gitslice/triggers/ci.js", "import { label } from './lib.js';\nexport default { async onEvent(event, gs) {} };\n", "trigger script")
-	submitDirectFile(t, ctx, clients, "/acme/payment/.gitslice/triggers.yaml", `
+	submitDirectFile(t, ctx, clients, "/acme/payment/.gitslice/automations.yaml", `
 version: 1
-triggers:
+automations:
   notify:
     on: [push]
     paths: ["**/*.go"]

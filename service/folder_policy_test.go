@@ -42,8 +42,8 @@ checks:
     run: npm run build
     paths: ["src/**"]
 `)
-	commitSliceFile(t, alice, h, mem, homeRef, "/polorg/web/.gitslice/triggers.yaml", `version: 1
-triggers:
+	commitSliceFile(t, alice, h, mem, homeRef, "/polorg/web/.gitslice/automations.yaml", `version: 1
+automations:
   deploy:
     on: [push, manual]
     action:

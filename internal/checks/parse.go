@@ -55,11 +55,14 @@ type Defaults struct {
 	Required bool
 }
 
-// Who starts a check (design/34_triggers.md): every new patchset, or only a
-// trigger whose action names it.
+// Who starts a check (design/34_triggers.md): every new patchset, or only an
+// automation whose check action names it.
 const (
-	StartedByPatchset = "patchset"
-	StartedByTrigger  = "trigger"
+	StartedByPatchset   = "patchset"
+	StartedByAutomation = "automation"
+	// StartedByTrigger is accepted for existing checks.yaml files during
+	// rollout and normalized to StartedByAutomation.
+	StartedByTrigger = "trigger"
 )
 
 type Check struct {
@@ -413,8 +416,10 @@ func parseStartedBy(owner, value, fallback string) (string, error) {
 			return StartedByPatchset, nil
 		}
 		return fallback, nil
-	case StartedByPatchset, StartedByTrigger:
-		return value, nil
+	case StartedByPatchset:
+		return StartedByPatchset, nil
+	case StartedByAutomation, StartedByTrigger:
+		return StartedByTrigger, nil
 	}
-	return "", fmt.Errorf("%s started_by %q (use patchset or trigger)", owner, value)
+	return "", fmt.Errorf("%s started_by %q (use patchset or automation)", owner, value)
 }

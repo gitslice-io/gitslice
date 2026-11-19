@@ -58,13 +58,16 @@ const (
 const (
 	ActionHTTP   = "http"
 	ActionWorker = "worker"
-	// ActionCheck runs checks.yaml checks of the trigger's folder on the
-	// slice's CI daemon.
+	// ActionCheck runs checks.yaml checks of the automation's folder on the
+	// account's CI runner pool (or a slice override).
 	ActionCheck = "check"
+	// ActionBash runs a bash command or script inside an ephemeral Cloudflare
+	// Container.
+	ActionBash = "bash"
 )
 
-// RunTokenSecret is the name a trigger lists in reveal to hand its run token
-// to an outside system.
+// RunTokenSecret is the name an automation lists in reveal to hand its run
+// token to an outside system.
 const RunTokenSecret = "RUN_TOKEN"
 
 // Limits.
@@ -74,33 +77,38 @@ const (
 	MaxRetry       = 5
 )
 
-// FileName is where triggers live in a folder.
-const FileName = ".gitslice/triggers.yaml"
+// FileName is where automations live in a folder.
+const FileName = ".gitslice/automations.yaml"
 
-// File is one parsed triggers.yaml.
+// File is one parsed automations.yaml.
 type File struct {
 	Version  int
 	Triggers map[string]Trigger // keyed by local name
 }
 
-// Trigger is one entry of a triggers file.
+// Trigger is one entry of an automations file.
 type Trigger struct {
-	On          []string `json:"on"`
-	Paths       []string `json:"paths,omitempty"`
-	Changes     []string `json:"changes,omitempty"`
-	Refs        []string `json:"refs,omitempty"`
-	Secrets     []string `json:"secrets,omitempty"`
-	Reveal      []string `json:"reveal,omitempty"`
-	Network     []string `json:"network,omitempty"`
-	Checks      []string `json:"checks,omitempty"`
-	Concurrency string   `json:"concurrency"`
-	// Timeout bounds how long a run may wait for callbacks.
+	Description string               `json:"description,omitempty"`
+	On          []string             `json:"on"`
+	Paths       []string             `json:"paths,omitempty"`
+	Changes     []string             `json:"changes,omitempty"`
+	Refs        []string             `json:"refs,omitempty"`
+	Inputs      map[string]InputSpec `json:"inputs,omitempty"`
+	Manual      *ManualPolicy        `json:"manual,omitempty"`
+	Secrets     []string             `json:"secrets,omitempty"`
+	Reveal      []string             `json:"reveal,omitempty"`
+	Network     []string             `json:"network,omitempty"`
+	Egress      string               `json:"egress,omitempty"`
+	Checks      []string             `json:"checks,omitempty"`
+	Concurrency string               `json:"concurrency"`
+	// Timeout bounds how long a run may execute or wait for callbacks.
 	Timeout time.Duration `json:"timeout"`
 	Retry   int           `json:"retry,omitempty"`
 	Action  Action        `json:"action"`
 }
 
-// Action is what a trigger does: an HTTP call or a script.
+// Action is what an automation does: an HTTP call, a worker script, checks, or
+// bash in a Cloudflare Container.
 type Action struct {
 	Kind string      `json:"kind"`
 	HTTP *HTTPAction `json:"http,omitempty"`
@@ -108,10 +116,12 @@ type Action struct {
 	Worker string `json:"worker,omitempty"`
 	// Check names checks of the folder's checks.yaml.
 	Check []string `json:"check,omitempty"`
+	// Bash runs a bash command or script in a Cloudflare Container.
+	Bash *BashAction `json:"bash,omitempty"`
 }
 
 // HTTPAction posts the event envelope to a URL. URL and header values may
-// hold ${{ secrets.NAME }} for secrets the trigger lists.
+// hold ${{ secrets.NAME }} for secrets the automation lists.
 type HTTPAction struct {
 	URL     string            `json:"url"`
 	Headers map[string]string `json:"headers,omitempty"`
@@ -119,35 +129,40 @@ type HTTPAction struct {
 	Sign string `json:"sign,omitempty"`
 }
 
-// ParseError is a triggers file that cannot be used.
+// ParseError is an automations file that cannot be used.
 type ParseError struct{ Message string }
 
 func (e *ParseError) Error() string { return e.Message }
 
 type rawFile struct {
-	Version  *int                  `yaml:"version"`
-	Triggers map[string]rawTrigger `yaml:"triggers"`
+	Version     *int                  `yaml:"version"`
+	Automations map[string]rawTrigger `yaml:"automations"`
 }
 
 type rawTrigger struct {
-	On          []string   `yaml:"on"`
-	Paths       []string   `yaml:"paths"`
-	Changes     []string   `yaml:"changes"`
-	Refs        []string   `yaml:"refs"`
-	Secrets     []string   `yaml:"secrets"`
-	Reveal      []string   `yaml:"reveal"`
-	Network     []string   `yaml:"network"`
-	Checks      []string   `yaml:"checks"`
-	Concurrency string     `yaml:"concurrency"`
-	Timeout     string     `yaml:"timeout"`
-	Retry       *int       `yaml:"retry"`
-	Action      *rawAction `yaml:"action"`
+	Description string                  `yaml:"description"`
+	On          []string                `yaml:"on"`
+	Paths       []string                `yaml:"paths"`
+	Changes     []string                `yaml:"changes"`
+	Refs        []string                `yaml:"refs"`
+	Inputs      map[string]rawInputSpec `yaml:"inputs"`
+	Manual      *rawManualPolicy        `yaml:"manual"`
+	Secrets     []string                `yaml:"secrets"`
+	Reveal      []string                `yaml:"reveal"`
+	Network     []string                `yaml:"network"`
+	Egress      string                  `yaml:"egress"`
+	Checks      []string                `yaml:"checks"`
+	Concurrency string                  `yaml:"concurrency"`
+	Timeout     string                  `yaml:"timeout"`
+	Retry       *int                    `yaml:"retry"`
+	Action      *rawAction              `yaml:"action"`
 }
 
 type rawAction struct {
-	HTTP   *rawHTTP `yaml:"http"`
-	Worker string   `yaml:"worker"`
-	Check  []string `yaml:"check"`
+	HTTP   *rawHTTP       `yaml:"http"`
+	Worker string         `yaml:"worker"`
+	Check  []string       `yaml:"check"`
+	Bash   *rawBashAction `yaml:"bash"`
 }
 
 type rawHTTP struct {
@@ -164,13 +179,13 @@ var (
 	SecretRef = regexp.MustCompile(`\$\{\{\s*secrets\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}`)
 )
 
-// Parse parses and validates one triggers.yaml.
+// Parse parses and validates one automations.yaml.
 func Parse(data []byte) (*File, error) {
 	var raw rawFile
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)
 	if err := dec.Decode(&raw); err != nil {
-		return nil, &ParseError{Message: fmt.Sprintf("parse triggers yaml: %v", err)}
+		return nil, &ParseError{Message: fmt.Sprintf("parse automations yaml: %v", err)}
 	}
 	if raw.Version == nil {
 		return nil, &ParseError{Message: "version is required"}
@@ -178,22 +193,22 @@ func Parse(data []byte) (*File, error) {
 	if *raw.Version != 1 {
 		return nil, &ParseError{Message: fmt.Sprintf("unsupported version %d", *raw.Version)}
 	}
-	if raw.Triggers == nil {
-		return nil, &ParseError{Message: "triggers is required"}
+	if raw.Automations == nil {
+		return nil, &ParseError{Message: "automations is required"}
 	}
-	out := &File{Version: 1, Triggers: make(map[string]Trigger, len(raw.Triggers))}
-	names := make([]string, 0, len(raw.Triggers))
-	for name := range raw.Triggers {
+	out := &File{Version: 1, Triggers: make(map[string]Trigger, len(raw.Automations))}
+	names := make([]string, 0, len(raw.Automations))
+	for name := range raw.Automations {
 		names = append(names, name)
 	}
 	sort.Strings(names)
 	for _, name := range names {
 		if !localNamePattern.MatchString(name) {
-			return nil, &ParseError{Message: fmt.Sprintf("trigger %q: names use letters, digits, _ and -", name)}
+			return nil, &ParseError{Message: fmt.Sprintf("automation %q: names use letters, digits, _ and -", name)}
 		}
-		trigger, err := parseTrigger(raw.Triggers[name])
+		trigger, err := parseTrigger(raw.Automations[name])
 		if err != nil {
-			return nil, &ParseError{Message: fmt.Sprintf("trigger %s: %v", name, err)}
+			return nil, &ParseError{Message: fmt.Sprintf("automation %s: %v", name, err)}
 		}
 		out.Triggers[name] = trigger
 	}
@@ -202,6 +217,10 @@ func Parse(data []byte) (*File, error) {
 
 func parseTrigger(raw rawTrigger) (Trigger, error) {
 	var t Trigger
+	t.Description = strings.TrimSpace(raw.Description)
+	if len(t.Description) > MaxDescriptionLen {
+		return t, fmt.Errorf("description is longer than %d bytes", MaxDescriptionLen)
+	}
 	if len(raw.On) == 0 {
 		return t, fmt.Errorf("on is required")
 	}
@@ -247,6 +266,19 @@ func parseTrigger(raw rawTrigger) (Trigger, error) {
 		}
 		t.Secrets = appendUnique(t.Secrets, name)
 	}
+	inputs, err := parseInputs(raw.Inputs)
+	if err != nil {
+		return t, err
+	}
+	if len(inputs) > 0 && !contains(t.On, EventManual) {
+		return t, fmt.Errorf("inputs require manual in on")
+	}
+	t.Inputs = inputs
+	manual, err := parseManualPolicy(raw.Manual, t.On)
+	if err != nil {
+		return t, err
+	}
+	t.Manual = manual
 	for _, name := range raw.Reveal {
 		if name != RunTokenSecret && !contains(t.Secrets, name) {
 			return t, fmt.Errorf("reveal %s: list it in secrets first", name)
@@ -260,6 +292,7 @@ func parseTrigger(raw rawTrigger) (Trigger, error) {
 		}
 		t.Network = appendUnique(t.Network, host)
 	}
+	t.Egress = strings.TrimSpace(raw.Egress)
 	for _, name := range raw.Checks {
 		if !localNamePattern.MatchString(name) {
 			return t, fmt.Errorf("check %q: names use letters, digits, _ and -", name)
@@ -279,29 +312,18 @@ func parseTrigger(raw rawTrigger) (Trigger, error) {
 	default:
 		return t, fmt.Errorf("concurrency %q (use cancel-superseded, serial or parallel)", raw.Concurrency)
 	}
-	t.Timeout = DefaultTimeout
-	if raw.Timeout != "" {
-		timeout, err := parseDuration(raw.Timeout)
-		if err != nil {
-			return t, fmt.Errorf("timeout: %v", err)
-		}
-		if timeout <= 0 || timeout > MaxTimeout {
-			return t, fmt.Errorf("timeout must be between 1s and 7d")
-		}
-		t.Timeout = timeout
-	}
 	if raw.Action == nil {
 		return t, fmt.Errorf("action is required")
 	}
 	kinds := 0
-	for _, set := range []bool{raw.Action.HTTP != nil, raw.Action.Worker != "", raw.Action.Check != nil} {
+	for _, set := range []bool{raw.Action.HTTP != nil, raw.Action.Worker != "", raw.Action.Check != nil, raw.Action.Bash != nil} {
 		if set {
 			kinds++
 		}
 	}
 	switch {
 	case kinds > 1:
-		return t, fmt.Errorf("action takes one of http, worker or check")
+		return t, fmt.Errorf("action takes one of http, worker, check or bash")
 	case raw.Action.Check != nil:
 		if len(raw.Action.Check) == 0 {
 			return t, fmt.Errorf("action.check names no checks")
@@ -311,7 +333,7 @@ func parseTrigger(raw rawTrigger) (Trigger, error) {
 				return t, fmt.Errorf("action.check %q: names use letters, digits, _ and -", name)
 			}
 			t.Action.Check = appendUnique(t.Action.Check, name)
-			// The trigger reports these checks.
+			// The automation reports these checks.
 			t.Checks = appendUnique(t.Checks, name)
 		}
 		t.Action.Kind = ActionCheck
@@ -320,8 +342,8 @@ func parseTrigger(raw rawTrigger) (Trigger, error) {
 				return t, fmt.Errorf("a check action runs on a patchset: use changeset.created, changeset.updated or manual, not %s", event)
 			}
 		}
-		if len(t.Network) > 0 || len(t.Reveal) > 0 || len(t.Secrets) > 0 || raw.Retry != nil {
-			return t, fmt.Errorf("secrets, network, reveal and retry do not apply to a check action (checks get the secrets of their folder)")
+		if len(t.Network) > 0 || len(t.Reveal) > 0 || len(t.Secrets) > 0 || t.Egress != "" || raw.Retry != nil {
+			return t, fmt.Errorf("secrets, network, reveal, egress and retry do not apply to a check action (checks get the secrets of their folder)")
 		}
 	case raw.Action.HTTP != nil:
 		action, err := parseHTTP(*raw.Action.HTTP, t.Secrets)
@@ -329,17 +351,52 @@ func parseTrigger(raw rawTrigger) (Trigger, error) {
 			return t, err
 		}
 		t.Action = Action{Kind: ActionHTTP, HTTP: action}
-		if len(t.Network) > 0 || len(t.Reveal) > 0 || raw.Retry != nil {
-			return t, fmt.Errorf("network, reveal and retry apply to worker actions only")
+		if len(t.Network) > 0 || len(t.Reveal) > 0 || t.Egress != "" || raw.Retry != nil {
+			return t, fmt.Errorf("network, reveal, egress and retry do not apply to http actions")
 		}
 	case raw.Action.Worker != "":
+		if t.Egress != "" {
+			return t, fmt.Errorf("egress applies to bash actions only")
+		}
 		script, err := cleanScriptPath(raw.Action.Worker)
 		if err != nil {
 			return t, err
 		}
 		t.Action = Action{Kind: ActionWorker, Worker: script}
+	case raw.Action.Bash != nil:
+		bash, egress, err := parseBashAction(*raw.Action.Bash, t)
+		if err != nil {
+			return t, err
+		}
+		t.Egress = egress
+		t.Action = Action{Kind: ActionBash, Bash: bash}
 	default:
-		return t, fmt.Errorf("action needs http, worker or check")
+		return t, fmt.Errorf("action needs http, worker, check or bash")
+	}
+	if t.Action.Kind == ActionBash {
+		t.Timeout = DefaultBashTimeout
+		if raw.Timeout != "" {
+			timeout, err := parseDuration(raw.Timeout)
+			if err != nil {
+				return t, fmt.Errorf("timeout: %v", err)
+			}
+			if timeout <= 0 || timeout > MaxBashTimeout {
+				return t, fmt.Errorf("bash timeout must be between 1s and %s", MaxBashTimeout)
+			}
+			t.Timeout = timeout
+		}
+	} else {
+		t.Timeout = DefaultTimeout
+		if raw.Timeout != "" {
+			timeout, err := parseDuration(raw.Timeout)
+			if err != nil {
+				return t, fmt.Errorf("timeout: %v", err)
+			}
+			if timeout <= 0 || timeout > MaxTimeout {
+				return t, fmt.Errorf("timeout must be between 1s and 7d")
+			}
+			t.Timeout = timeout
+		}
 	}
 	if raw.Retry != nil {
 		if *raw.Retry < 0 || *raw.Retry > MaxRetry {

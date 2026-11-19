@@ -233,12 +233,12 @@ func secretValues(secrets map[string]string) []string {
 	return out
 }
 
-// post hands a worker run to the dispatcher, which claims it with StartRun.
-// A post that is lost is posted again when its hold ends.
+// post hands a worker or bash run to the dispatcher, which claims it with
+// StartRun. A post that is lost is posted again when its hold ends.
 func (e *Engine) post(ctx context.Context, run storage.TriggerRun) {
 	if !e.DispatchConfigured() {
 		_, _ = e.stores.Triggers.UpdateTriggerRun(ctx, run.ID, []string{storage.TriggerRunQueued}, storage.TriggerRunUpdate{
-			Status: storage.TriggerRunErrored, Error: "this server runs no trigger scripts: GITSLICE_TRIGGER_DISPATCH_URL is not set",
+			Status: storage.TriggerRunErrored, Error: "this server runs no automation workers or containers: GITSLICE_TRIGGER_DISPATCH_URL is not set",
 		})
 		return
 	}
@@ -258,7 +258,12 @@ func (e *Engine) post(ctx context.Context, run storage.TriggerRun) {
 	if active, err := e.stores.Triggers.CountActiveTriggerRuns(ctx, run.Account); err != nil || active >= MaxActivePerAccount {
 		return
 	}
-	body, _ := json.Marshal(map[string]any{"run_id": run.ID, "ts": time.Now().Unix()})
+	if run.Action == ActionBash {
+		if activeBash, err := e.stores.Triggers.CountActiveTriggerRunsByAction(ctx, run.Account, ActionBash); err != nil || activeBash >= MaxActiveBashPerAccount {
+			return
+		}
+	}
+	body, _ := json.Marshal(map[string]any{"run_id": run.ID, "action": run.Action, "ts": time.Now().Unix()})
 	res, err := outbound.PostSignedJSON(ctx, outbound.PostJSONRequest{
 		Client:           e.dispatch,
 		URL:              e.opts.DispatchURL + "/run",
@@ -269,11 +274,29 @@ func (e *Engine) post(ctx context.Context, run storage.TriggerRun) {
 		MaxResponseBytes: maxResponse,
 	})
 	if err != nil {
-		slog.Warn("post trigger run to dispatcher", "run", run.ID, "error", err)
+		slog.Warn("post automation run to dispatcher", "run", run.ID, "action", run.Action, "error", err)
 		return
 	}
 	if res.StatusCode/100 != 2 {
-		slog.Warn("dispatcher refused trigger run", "run", run.ID, "status", res.StatusCode, "body", string(res.Body))
+		slog.Warn("dispatcher refused automation run", "run", run.ID, "action", run.Action, "status", res.StatusCode, "body", string(res.Body))
+	}
+}
+
+func (e *Engine) postCancel(runID string) {
+	ctx, cancel := context.WithTimeout(context.Background(), dispatchWindow)
+	defer cancel()
+	body, _ := json.Marshal(map[string]any{"run_id": runID, "ts": time.Now().Unix()})
+	_, err := outbound.PostSignedJSON(ctx, outbound.PostJSONRequest{
+		Client:           e.dispatch,
+		URL:              e.opts.DispatchURL + "/cancel",
+		Body:             body,
+		UserAgent:        userAgent,
+		SignHeader:       "X-Gitslice-Dispatch-Signature",
+		Signature:        e.sign("dispatch", string(body)),
+		MaxResponseBytes: maxResponse,
+	})
+	if err != nil {
+		slog.Warn("post automation cancel to dispatcher", "run", runID, "error", err)
 	}
 }
 
@@ -323,9 +346,35 @@ func (e *Engine) settleExpired(ctx context.Context) {
 	}
 }
 
-// NewManualRun queues a run of one trigger by hand, at the head of ref,
+// ResolveManual finds a manual-capable automation at the head of ref and
+// returns its definition and definition commit id.
+func (e *Engine) ResolveManual(ctx context.Context, account, triggerID, ref string) (Match, string, error) {
+	if ref == "" {
+		ref = DefaultRef
+	}
+	treeID, headCommit, err := e.headTree(ctx, ref)
+	if err != nil {
+		return Match{}, "", err
+	}
+	matches, problems, err := Resolve(ctx, e.opts.Tree, treeID, Event{Kind: EventManual, Account: account, Ref: ref, Only: triggerID})
+	if err != nil {
+		return Match{}, "", err
+	}
+	if len(matches) == 0 {
+		for _, problem := range problems {
+			return Match{}, "", fmt.Errorf("%w: %s: %s", storage.ErrInvalid, problem.File, problem.Message)
+		}
+		return Match{}, "", fmt.Errorf("%w: no automation %s at the head of %s", storage.ErrNotFound, triggerID, ref)
+	}
+	if !contains(matches[0].Trigger.On, EventManual) {
+		return Match{}, "", fmt.Errorf("%w: automation %s does not listen for manual", storage.ErrInvalid, triggerID)
+	}
+	return matches[0], headCommit, nil
+}
+
+// NewManualRun queues a run of one automation by hand, at the head of ref,
 // optionally about a changeset.
-func (e *Engine) NewManualRun(ctx context.Context, account, triggerID, ref, changesetID string, inputs map[string]string, actor string, envelope []byte) (*storage.TriggerRun, error) {
+func (e *Engine) NewManualRun(ctx context.Context, account, triggerID, ref, changesetID string, inputs map[string]string, actor, triggeredBy, triggeredByKind string, envelope []byte) (*storage.TriggerRun, error) {
 	if ref == "" {
 		ref = DefaultRef
 	}
@@ -340,28 +389,19 @@ func (e *Engine) NewManualRun(ctx context.Context, account, triggerID, ref, chan
 		}
 		info.patchsetID, info.commitID = cs.GetCurrentPatchsetId(), cs.GetCommitId()
 	}
-	treeID, headCommit, err := e.headTree(ctx, ref)
+	match, headCommit, err := e.ResolveManual(ctx, account, triggerID, ref)
 	if err != nil {
 		return nil, err
 	}
-	matches, problems, err := Resolve(ctx, e.opts.Tree, treeID, Event{Kind: EventManual, Account: account, Ref: ref, Only: triggerID})
+	validatedInputs, err := ValidateInputs(match.Trigger.Inputs, inputs)
 	if err != nil {
-		return nil, err
-	}
-	if len(matches) == 0 {
-		for _, problem := range problems {
-			return nil, fmt.Errorf("%w: %s: %s", storage.ErrInvalid, problem.File, problem.Message)
-		}
-		return nil, fmt.Errorf("%w: no trigger %s at the head of %s", storage.ErrNotFound, triggerID, ref)
-	}
-	if !contains(matches[0].Trigger.On, EventManual) {
-		return nil, fmt.Errorf("%w: trigger %s does not listen for manual", storage.ErrInvalid, triggerID)
+		return nil, fmt.Errorf("%w: %v", storage.ErrInvalid, err)
 	}
 	id, err := objectid.RandomID("evt_manual")
 	if err != nil {
 		return nil, err
 	}
-	run, err := e.newRun(info, matches[0], EventManual, id, headCommit, envelope, 0, actor, inputs)
+	run, err := e.newRun(info, match, EventManual, id, headCommit, envelope, 0, actor, triggeredBy, triggeredByKind, validatedInputs)
 	if err != nil {
 		return nil, err
 	}

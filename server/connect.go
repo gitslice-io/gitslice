@@ -42,6 +42,14 @@ func newPrincipalConnectHandler(resolve principalResolver, handlers *service.Han
 	mux.Handle("/og/", limiters.httpIPMiddleware()(newSocialImageHandler(handlers.Slice)))
 	// Account pictures; public, like the profile they belong to.
 	mux.Handle("/avatars/", limiters.httpIPMiddleware()(newAvatarImageHandler(handlers.Auth)))
+	// Bash automation checkout archive; authenticated by per-run bearer token.
+	mux.Handle("/automation-archive", limiters.httpIPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if handlers.TriggerRun == nil {
+			http.Error(w, "automations are not enabled on this server", http.StatusServiceUnavailable)
+			return
+		}
+		handlers.TriggerRun.ServeArchiveHTTP(w, r)
+	})))
 	mountConnectServices(mount, handlers, limiters, opts...)
 	return mux
 }

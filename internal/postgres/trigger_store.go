@@ -18,7 +18,8 @@ type TriggerStore struct {
 }
 
 const triggerRunColumns = `trigger_runs.id, accounts.slug, trigger_runs.trigger_id, trigger_runs.folder, trigger_runs.action,
-	trigger_runs.event_id, trigger_runs.event_kind, trigger_runs.changeset_id, trigger_runs.patchset_id, trigger_runs.commit_id,
+	trigger_runs.event_id, trigger_runs.event_kind, trigger_runs.triggered_by, trigger_runs.triggered_by_kind,
+	trigger_runs.changeset_id, trigger_runs.patchset_id, trigger_runs.commit_id,
 	trigger_runs.target_ref, trigger_runs.definition_commit_id, trigger_runs.spec, trigger_runs.payload, trigger_runs.state,
 	trigger_runs.status, trigger_runs.attempt, trigger_runs.max_attempts, trigger_runs.error, trigger_runs.response_status,
 	trigger_runs.lease_until, trigger_runs.next_attempt_at, trigger_runs.deadline, trigger_runs.created_at,
@@ -31,7 +32,8 @@ func scanTriggerRun(row scanner) (*storage.TriggerRun, error) {
 	var state []byte
 	var lease, started, finished, deadline sql.NullTime
 	if err := row.Scan(&run.ID, &run.Account, &run.TriggerID, &run.Folder, &run.Action,
-		&run.EventID, &run.EventKind, &run.ChangesetID, &run.PatchsetID, &run.CommitID,
+		&run.EventID, &run.EventKind, &run.TriggeredBy, &run.TriggeredByKind,
+		&run.ChangesetID, &run.PatchsetID, &run.CommitID,
 		&run.TargetRef, &run.DefinitionCommitID, &run.Spec, &run.Payload, &state,
 		&run.Status, &run.Attempt, &run.MaxAttempts, &run.Error, &run.ResponseStatus,
 		&lease, &run.NextAttemptAt, &deadline, &run.CreatedAt,
@@ -89,14 +91,14 @@ func (s *TriggerStore) CreateTriggerRuns(ctx context.Context, runs []storage.Tri
 			state = run.State
 		}
 		res, err := tx.ExecContext(ctx, `
-			insert into trigger_runs(id, account_id, trigger_id, folder, action, event_id, event_kind, changeset_id, patchset_id,
-				commit_id, target_ref, definition_commit_id, spec, payload, state, status, max_attempts, error, finished_at)
-			select $1, accounts.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18,
-				case when $16 in ('succeeded', 'failed', 'errored', 'canceled', 'timed_out') then now() end
+			insert into trigger_runs(id, account_id, trigger_id, folder, action, event_id, event_kind, triggered_by, triggered_by_kind,
+				changeset_id, patchset_id, commit_id, target_ref, definition_commit_id, spec, payload, state, status, max_attempts, error, finished_at)
+			select $1, accounts.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
+				case when $18 in ('succeeded', 'failed', 'errored', 'canceled', 'timed_out') then now() end
 			from accounts where accounts.slug = $2
 			on conflict (account_id, trigger_id, event_id) do nothing
-		`, id, run.Account, run.TriggerID, run.Folder, run.Action, run.EventID, run.EventKind, run.ChangesetID, run.PatchsetID,
-			run.CommitID, run.TargetRef, run.DefinitionCommitID, jsonOrEmpty(run.Spec), jsonOrEmpty(run.Payload), state, status, maxAttempts, run.Error)
+		`, id, run.Account, run.TriggerID, run.Folder, run.Action, run.EventID, run.EventKind, run.TriggeredBy, run.TriggeredByKind,
+			run.ChangesetID, run.PatchsetID, run.CommitID, run.TargetRef, run.DefinitionCommitID, jsonOrEmpty(run.Spec), jsonOrEmpty(run.Payload), state, status, maxAttempts, run.Error)
 		if err != nil {
 			return nil, err
 		}
@@ -251,6 +253,15 @@ func (s *TriggerStore) CountActiveTriggerRuns(ctx context.Context, account strin
 	return n, err
 }
 
+func (s *TriggerStore) CountActiveTriggerRunsByAction(ctx context.Context, account, action string) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `
+		select count(*) from trigger_runs join accounts on accounts.id = trigger_runs.account_id
+		where accounts.slug = $1 and trigger_runs.action = $2 and trigger_runs.status in ('running', 'waiting')
+	`, account, action).Scan(&n)
+	return n, err
+}
+
 func (s *TriggerStore) SetTriggerRunState(ctx context.Context, id string, state []byte) error {
 	var value any
 	if len(state) > 0 {
@@ -327,7 +338,7 @@ func (s *TriggerStore) ListTriggerRunLogs(ctx context.Context, id string, afterS
 func (s *TriggerStore) HasTriggerFiles(ctx context.Context) (bool, error) {
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
-		select exists(select 1 from current_path_entities where path like '%/.gitslice/triggers.yaml')
+		select exists(select 1 from current_path_entities where path like '%/.gitslice/automations.yaml')
 	`).Scan(&exists)
 	return exists, err
 }

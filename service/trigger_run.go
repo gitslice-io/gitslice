@@ -148,21 +148,20 @@ func (s *TriggerRunService) StartCallback(ctx context.Context, req *corev1.Start
 	return resp, nil
 }
 
-// startResponse gathers what the dispatcher needs to call the script: the
-// event, the modules, the secrets, the run token and the state.
+// startResponse gathers what the dispatcher needs to execute a worker or bash
+// automation: the event, modules or bash script, secrets, run token and state.
 func (s *TriggerRunService) startResponse(ctx context.Context, run *storage.TriggerRun) (*corev1.StartTriggerRunResponse, error) {
 	var spec triggers.RunSpec
-	if err := json.Unmarshal(run.Spec, &spec); err != nil || spec.Trigger.Action.Kind != triggers.ActionWorker {
-		return nil, status.Errorf(codes.FailedPrecondition, "run %s has no script", run.ID)
+	if err := json.Unmarshal(run.Spec, &spec); err != nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "run %s has an unreadable spec", run.ID)
+	}
+	kind := spec.Trigger.Action.Kind
+	if kind != triggers.ActionWorker && kind != triggers.ActionBash {
+		return nil, status.Errorf(codes.FailedPrecondition, "run %s has no worker or bash action", run.ID)
 	}
 	tree, err := s.Repository.RootTreeForCommit(ctx, run.DefinitionCommitID)
 	if err != nil {
 		return nil, grpcError(err)
-	}
-	dotGitslice := run.Folder + "/.gitslice"
-	modules, err := loadTriggerModules(ctx, s.Tree, tree, dotGitslice, spec.Trigger.Action.Worker)
-	if err != nil {
-		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
 	secrets, missing, err := s.Engine.SecretsFor(ctx, run.Folder, spec.Trigger.Secrets)
 	if err != nil {
@@ -175,31 +174,72 @@ func (s *TriggerRunService) startResponse(ctx context.Context, run *storage.Trig
 	if deadline.IsZero() {
 		deadline = time.Now().Add(spec.Trigger.Timeout)
 	}
-	hash := sha256.New()
-	fmt.Fprintf(hash, "account\x00%s\x00folder\x00%s\x00", run.Account, run.Folder)
-	names := make([]string, 0, len(modules))
-	for name := range modules {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		fmt.Fprintf(hash, "%s\x00%s\x00", name, modules[name])
-	}
-	fmt.Fprintf(hash, "network\x00%s", strings.Join(spec.Trigger.Network, ","))
-	return &corev1.StartTriggerRunResponse{
+	resp := &corev1.StartTriggerRunResponse{
 		Run:            triggerRunProto(*run),
+		Action:         kind,
 		EventJson:      string(run.Payload),
-		Modules:        modules,
-		MainModule:     spec.Trigger.Action.Worker,
-		CodeHash:       hex.EncodeToString(hash.Sum(nil)),
 		Secrets:        secrets,
 		Reveal:         spec.Trigger.Reveal,
 		Network:        spec.Trigger.Network,
+		Egress:         spec.Trigger.Egress,
 		RunToken:       s.Engine.RunToken(run.ID, deadline.Add(time.Hour)),
 		CallbackUrl:    s.Engine.CallbackURL(run.ID),
 		StateJson:      string(run.State),
 		DeadlineUnixMs: deadline.UnixMilli(),
-	}, nil
+		Inputs:         spec.Inputs,
+		TimeoutMs:      spec.Trigger.Timeout.Milliseconds(),
+	}
+	dotGitslice := run.Folder + "/.gitslice"
+	hash := sha256.New()
+	fmt.Fprintf(hash, "account\x00%s\x00folder\x00%s\x00action\x00%s\x00", run.Account, run.Folder, kind)
+	if kind == triggers.ActionWorker {
+		modules, err := loadTriggerModules(ctx, s.Tree, tree, dotGitslice, spec.Trigger.Action.Worker)
+		if err != nil {
+			return nil, status.Error(codes.FailedPrecondition, err.Error())
+		}
+		names := make([]string, 0, len(modules))
+		for name := range modules {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			fmt.Fprintf(hash, "%s\x00%s\x00", name, modules[name])
+		}
+		fmt.Fprintf(hash, "network\x00%s", strings.Join(spec.Trigger.Network, ","))
+		resp.Modules = modules
+		resp.MainModule = spec.Trigger.Action.Worker
+		resp.CodeHash = hex.EncodeToString(hash.Sum(nil))
+		return resp, nil
+	}
+
+	bash := spec.Trigger.Action.Bash
+	if bash == nil {
+		return nil, status.Errorf(codes.FailedPrecondition, "run %s has no bash action", run.ID)
+	}
+	scriptBody := bash.Run
+	if bash.Script != "" {
+		rawScript, err := s.Tree.ReadFile(ctx, tree, dotGitslice+"/"+bash.Script)
+		if errors.Is(err, triggers.ErrNotFound) {
+			return nil, status.Errorf(codes.FailedPrecondition, "bash script %s/%s not found", dotGitslice, bash.Script)
+		}
+		if err != nil {
+			return nil, status.Error(codes.FailedPrecondition, err.Error())
+		}
+		if len(rawScript) > triggers.MaxBashRunBytes {
+			return nil, status.Errorf(codes.FailedPrecondition, "bash script %s exceeds %d KiB", bash.Script, triggers.MaxBashRunBytes>>10)
+		}
+		scriptBody = string(rawScript)
+	}
+	fmt.Fprintf(hash, "runtime\x00%s\x00egress\x00%s\x00network\x00%s\x00script\x00%s", bash.Runtime, spec.Trigger.Egress, strings.Join(spec.Trigger.Network, ","), scriptBody)
+	resp.CodeHash = hex.EncodeToString(hash.Sum(nil))
+	resp.BashScript = scriptBody
+	resp.BashRuntime = bash.Runtime
+	resp.BashSize = bash.Size
+	resp.BashCheckout = bash.Checkout
+	resp.BashInclude = bash.Include
+	resp.BashWorkingDir = bash.WorkingDir
+	resp.BashEnv = bash.Env
+	return resp, nil
 }
 
 // loadTriggerModules reads a script and the modules it imports by relative

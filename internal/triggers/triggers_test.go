@@ -22,7 +22,7 @@ func (m mapTree) ReadFile(_ context.Context, _ string, p string) ([]byte, error)
 
 const billingTriggers = `
 version: 1
-triggers:
+automations:
   notify:
     on: [push]
     refs: [main]
@@ -63,31 +63,32 @@ func TestParse(t *testing.T) {
 	}
 
 	for name, bad := range map[string]string{
-		"no version":         "triggers: {}",
-		"unknown field":      "version: 1\ntriggers:\n  a:\n    on: [push]\n    nope: 1\n    action: {worker: a.js}",
-		"bad event":          "version: 1\ntriggers:\n  a:\n    on: [pushed]\n    action: {worker: a.js}",
-		"schedule":           "version: 1\ntriggers:\n  a:\n    on: [schedule]\n    action: {worker: a.js}",
-		"two actions":        "version: 1\ntriggers:\n  a:\n    on: [push]\n    action: {worker: a.js, http: {url: 'https://x.io'}}",
-		"escaping script":    "version: 1\ntriggers:\n  a:\n    on: [push]\n    action: {worker: ../a.js}",
-		"not js":             "version: 1\ntriggers:\n  a:\n    on: [push]\n    action: {worker: a.py}",
-		"ftp url":            "version: 1\ntriggers:\n  a:\n    on: [push]\n    action: {http: {url: 'ftp://x.io'}}",
-		"unlisted secret":    "version: 1\ntriggers:\n  a:\n    on: [push]\n    action: {http: {url: 'https://x.io/${{ secrets.T }}'}}",
-		"reveal unlisted":    "version: 1\ntriggers:\n  a:\n    on: [push]\n    reveal: [T]\n    action: {worker: a.js}",
-		"bad host":           "version: 1\ntriggers:\n  a:\n    on: [push]\n    network: ['10.0.0.1']\n    action: {worker: a.js}",
-		"localhost host":     "version: 1\ntriggers:\n  a:\n    on: [push]\n    network: [localhost]\n    action: {worker: a.js}",
-		"wildcard localhost": "version: 1\ntriggers:\n  a:\n    on: [push]\n    network: ['*.localhost']\n    action: {worker: a.js}",
-		"internal host":      "version: 1\ntriggers:\n  a:\n    on: [push]\n    network: [metadata.google.internal]\n    action: {worker: a.js}",
-		"wildcard internal":  "version: 1\ntriggers:\n  a:\n    on: [push]\n    network: ['*.internal']\n    action: {worker: a.js}",
-		"local mDNS host":    "version: 1\ntriggers:\n  a:\n    on: [push]\n    network: ['*.local']\n    action: {worker: a.js}",
-		"ipv6 literal":       "version: 1\ntriggers:\n  a:\n    on: [push]\n    network: ['[::1]']\n    action: {worker: a.js}",
-		"raw ipv6 literal":   "version: 1\ntriggers:\n  a:\n    on: [push]\n    network: ['::1']\n    action: {worker: a.js}",
-		"network on http":    "version: 1\ntriggers:\n  a:\n    on: [push]\n    network: [x.io]\n    action: {http: {url: 'https://x.io'}}",
-		"long timeout":       "version: 1\ntriggers:\n  a:\n    on: [push]\n    timeout: 8d\n    action: {worker: a.js}",
-		"retry too high":     "version: 1\ntriggers:\n  a:\n    on: [push]\n    retry: 6\n    action: {worker: a.js}",
-		"bad change kind":    "version: 1\ntriggers:\n  a:\n    on: [push]\n    changes: [renamed]\n    action: {worker: a.js}",
-		"bad trigger name":   "version: 1\ntriggers:\n  a b:\n    on: [push]\n    action: {worker: a.js}",
-		"glob with ascent":   "version: 1\ntriggers:\n  a:\n    on: [push]\n    paths: ['../x']\n    action: {worker: a.js}",
-		"header line break":  "version: 1\ntriggers:\n  a:\n    on: [push]\n    action: {http: {url: 'https://x.io', headers: {X: \"a\\nb\"}}}",
+		"no version":         "automations: {}",
+		"legacy key":         "version: 1\ntriggers: {}",
+		"unknown field":      "version: 1\nautomations:\n  a:\n    on: [push]\n    nope: 1\n    action: {worker: a.js}",
+		"bad event":          "version: 1\nautomations:\n  a:\n    on: [pushed]\n    action: {worker: a.js}",
+		"schedule":           "version: 1\nautomations:\n  a:\n    on: [schedule]\n    action: {worker: a.js}",
+		"two actions":        "version: 1\nautomations:\n  a:\n    on: [push]\n    action: {worker: a.js, http: {url: 'https://x.io'}}",
+		"escaping script":    "version: 1\nautomations:\n  a:\n    on: [push]\n    action: {worker: ../a.js}",
+		"not js":             "version: 1\nautomations:\n  a:\n    on: [push]\n    action: {worker: a.py}",
+		"ftp url":            "version: 1\nautomations:\n  a:\n    on: [push]\n    action: {http: {url: 'ftp://x.io'}}",
+		"unlisted secret":    "version: 1\nautomations:\n  a:\n    on: [push]\n    action: {http: {url: 'https://x.io/${{ secrets.T }}'}}",
+		"reveal unlisted":    "version: 1\nautomations:\n  a:\n    on: [push]\n    reveal: [T]\n    action: {worker: a.js}",
+		"bad host":           "version: 1\nautomations:\n  a:\n    on: [push]\n    network: ['10.0.0.1']\n    action: {worker: a.js}",
+		"localhost host":     "version: 1\nautomations:\n  a:\n    on: [push]\n    network: [localhost]\n    action: {worker: a.js}",
+		"wildcard localhost": "version: 1\nautomations:\n  a:\n    on: [push]\n    network: ['*.localhost']\n    action: {worker: a.js}",
+		"internal host":      "version: 1\nautomations:\n  a:\n    on: [push]\n    network: [metadata.google.internal]\n    action: {worker: a.js}",
+		"wildcard internal":  "version: 1\nautomations:\n  a:\n    on: [push]\n    network: ['*.internal']\n    action: {worker: a.js}",
+		"local mDNS host":    "version: 1\nautomations:\n  a:\n    on: [push]\n    network: ['*.local']\n    action: {worker: a.js}",
+		"ipv6 literal":       "version: 1\nautomations:\n  a:\n    on: [push]\n    network: ['[::1]']\n    action: {worker: a.js}",
+		"raw ipv6 literal":   "version: 1\nautomations:\n  a:\n    on: [push]\n    network: ['::1']\n    action: {worker: a.js}",
+		"network on http":    "version: 1\nautomations:\n  a:\n    on: [push]\n    network: [x.io]\n    action: {http: {url: 'https://x.io'}}",
+		"long timeout":       "version: 1\nautomations:\n  a:\n    on: [push]\n    timeout: 8d\n    action: {worker: a.js}",
+		"retry too high":     "version: 1\nautomations:\n  a:\n    on: [push]\n    retry: 6\n    action: {worker: a.js}",
+		"bad change kind":    "version: 1\nautomations:\n  a:\n    on: [push]\n    changes: [renamed]\n    action: {worker: a.js}",
+		"bad trigger name":   "version: 1\nautomations:\n  a b:\n    on: [push]\n    action: {worker: a.js}",
+		"glob with ascent":   "version: 1\nautomations:\n  a:\n    on: [push]\n    paths: ['../x']\n    action: {worker: a.js}",
+		"header line break":  "version: 1\nautomations:\n  a:\n    on: [push]\n    action: {http: {url: 'https://x.io', headers: {X: \"a\\nb\"}}}",
 	} {
 		if _, err := Parse([]byte(bad)); err == nil {
 			t.Fatalf("Parse(%s) = nil error", name)
@@ -97,15 +98,15 @@ func TestParse(t *testing.T) {
 
 func TestResolve(t *testing.T) {
 	tree := mapTree{
-		"/acme/services/billing/.gitslice/triggers.yaml": billingTriggers,
-		"/acme/.gitslice/triggers.yaml": `
+		"/acme/services/billing/.gitslice/automations.yaml": billingTriggers,
+		"/acme/.gitslice/automations.yaml": `
 version: 1
-triggers:
+automations:
   everything:
     on: [push, tag.created]
     action: {worker: all.js}
 `,
-		"/acme/services/.gitslice/triggers.yaml": "version: 1\ntriggers: [",
+		"/acme/services/.gitslice/automations.yaml": "version: 1\nautomations: [",
 	}
 	ctx := context.Background()
 
@@ -221,7 +222,7 @@ func ids(matches []Match) []string {
 
 func TestParseCheckAction(t *testing.T) {
 	file, err := Parse([]byte(`version: 1
-triggers:
+automations:
   ci:
     on: [changeset.created, changeset.updated]
     action:
@@ -235,10 +236,10 @@ triggers:
 		t.Fatalf("ci = %+v", ci)
 	}
 	for name, bad := range map[string]string{
-		"on push":     "version: 1\ntriggers:\n  a:\n    on: [push]\n    action: {check: [test]}",
-		"no checks":   "version: 1\ntriggers:\n  a:\n    on: [changeset.updated]\n    action: {check: []}",
-		"with secret": "version: 1\ntriggers:\n  a:\n    on: [changeset.updated]\n    secrets: [X]\n    action: {check: [test]}",
-		"two kinds":   "version: 1\ntriggers:\n  a:\n    on: [changeset.updated]\n    action: {check: [test], worker: a.js}",
+		"on push":     "version: 1\nautomations:\n  a:\n    on: [push]\n    action: {check: [test]}",
+		"no checks":   "version: 1\nautomations:\n  a:\n    on: [changeset.updated]\n    action: {check: []}",
+		"with secret": "version: 1\nautomations:\n  a:\n    on: [changeset.updated]\n    secrets: [X]\n    action: {check: [test]}",
+		"two kinds":   "version: 1\nautomations:\n  a:\n    on: [changeset.updated]\n    action: {check: [test], worker: a.js}",
 	} {
 		if _, err := Parse([]byte(bad)); err == nil {
 			t.Fatalf("Parse(%s) = nil error", name)

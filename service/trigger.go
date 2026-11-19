@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -179,15 +180,39 @@ func (s *TriggerService) RunTrigger(ctx context.Context, req *corev1.RunTriggerR
 		return nil, err
 	}
 	account := strings.TrimSpace(req.GetAccount())
-	if account == "" || strings.TrimSpace(req.GetTriggerId()) == "" {
+	triggerID := strings.TrimSpace(req.GetTriggerId())
+	if account == "" || triggerID == "" {
 		return nil, status.Error(codes.InvalidArgument, "account and trigger_id are required")
 	}
-	if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionUseSecrets); err != nil {
+	ref := strings.TrimSpace(req.GetRef())
+	if err := requireDefaultTargetRef(ref); err != nil {
 		return nil, err
 	}
+	folder := triggers.FolderOf(account, triggerID)
+	if err := s.ensureTriggerFolderAccess(ctx, subjectID, account, folder, authz.ActionUseSecrets); err != nil {
+		return nil, err
+	}
+	match, _, err := s.Engine.ResolveManual(ctx, account, triggerID, ref)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if match.Folder != folder {
+		if err := s.ensureTriggerFolderAccess(ctx, subjectID, account, match.Folder, authz.ActionUseSecrets); err != nil {
+			return nil, err
+		}
+	}
+	if match.Trigger.Manual != nil && !match.Trigger.Manual.AllowsWriter() {
+		if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionAdmin); err != nil {
+			return nil, status.Errorf(codes.PermissionDenied, "automation %s requires an account admin to run manually", triggerID)
+		}
+	}
+	triggeredBy, triggeredByKind := s.resolveActor(ctx, subjectID)
+	if match.Trigger.Manual != nil && match.Trigger.Manual.RequireHuman && triggeredByKind == "agent" {
+		return nil, status.Errorf(codes.PermissionDenied, "automation %s requires a human actor to run manually", triggerID)
+	}
 	envelope := map[string]any{"created_at": time.Now().UTC().Format(time.RFC3339)}
-	if sender := newSubjectDirectory(s.Auth).bestEffortUsername(ctx, subjectID); sender != "" {
-		envelope["sender"] = map[string]any{"username": sender}
+	if triggeredBy != "" {
+		envelope["sender"] = map[string]any{"username": triggeredBy, "kind": triggeredByKind}
 	}
 	if id := strings.TrimSpace(req.GetChangesetId()); id != "" {
 		cs, err := s.authorizedChangeset(ctx, subjectID, id, authz.ActionRead)
@@ -198,11 +223,35 @@ func (s *TriggerService) RunTrigger(ctx context.Context, req *corev1.RunTriggerR
 			"status": cs.GetStatus(), "target_ref": cs.GetTargetRef(), "patchset_id": cs.GetCurrentPatchsetId(), "commit_id": cs.GetCommitId()}
 	}
 	body, _ := json.Marshal(envelope)
-	run, err := s.Engine.NewManualRun(ctx, account, strings.TrimSpace(req.GetTriggerId()), strings.TrimSpace(req.GetRef()), strings.TrimSpace(req.GetChangesetId()), req.GetInputs(), subjectID, body)
+	run, err := s.Engine.NewManualRun(ctx, account, triggerID, ref, strings.TrimSpace(req.GetChangesetId()), req.GetInputs(), subjectID, triggeredBy, triggeredByKind, body)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	return triggerRunProto(*run), nil
+}
+
+func (s *TriggerService) resolveActor(ctx context.Context, subjectID string) (string, string) {
+	kind := "human"
+	if strings.HasPrefix(subjectID, "agent_") {
+		kind = "agent"
+	}
+	username := ""
+	if s.Auth != nil {
+		if subjects, err := s.Auth.SubjectsByIDs(ctx, []string{subjectID}); err == nil {
+			if subj, ok := subjects[subjectID]; ok {
+				if subj.Kind == "agent" {
+					kind = "agent"
+				} else if subj.Kind != "" {
+					kind = "human"
+				}
+			}
+		}
+	}
+	username = newSubjectDirectory(s.Auth).bestEffortUsername(ctx, subjectID)
+	if username == "" {
+		username = subjectID
+	}
+	return username, kind
 }
 
 func (s *TriggerService) RerunTriggerRun(ctx context.Context, req *corev1.RerunTriggerRunRequest) (*corev1.TriggerRun, error) {
@@ -322,8 +371,8 @@ func (s *TriggerService) authorizedChangeset(ctx context.Context, subjectID, cha
 func triggerDefinitionProto(m triggers.Match) *corev1.TriggerDefinition {
 	t := m.Trigger
 	out := &corev1.TriggerDefinition{
-		Id: m.ID, Name: m.Name, Folder: m.Folder, On: t.On, Paths: t.Paths, Changes: t.Changes, Refs: t.Refs,
-		Secrets: t.Secrets, Network: t.Network, Concurrency: t.Concurrency, TimeoutMs: t.Timeout.Milliseconds(),
+		Id: m.ID, Name: m.Name, Folder: m.Folder, Description: t.Description, On: t.On, Paths: t.Paths, Changes: t.Changes, Refs: t.Refs,
+		Secrets: t.Secrets, Reveal: t.Reveal, Network: t.Network, Egress: t.Egress, Concurrency: t.Concurrency, TimeoutMs: t.Timeout.Milliseconds(),
 		Retry: int32(t.Retry), Action: t.Action.Kind, Worker: t.Action.Worker,
 	}
 	for _, check := range t.Checks {
@@ -332,13 +381,44 @@ func triggerDefinitionProto(m triggers.Match) *corev1.TriggerDefinition {
 	if t.Action.HTTP != nil {
 		out.HttpUrl = t.Action.HTTP.URL
 	}
+	if t.Action.Bash != nil {
+		b := t.Action.Bash
+		out.Bash = &corev1.AutomationBashAction{
+			Run: b.Run, Script: b.Script, Runtime: b.Runtime, Size: b.Size,
+			Checkout: b.Checkout, Include: b.Include, WorkingDir: b.WorkingDir, Env: b.Env,
+		}
+	}
+	if t.Manual != nil {
+		out.Manual = &corev1.AutomationManualPolicy{
+			Roles: t.Manual.Roles, RequireHuman: t.Manual.RequireHuman, Confirm: t.Manual.Confirm,
+		}
+	}
+	if len(t.Inputs) > 0 {
+		names := make([]string, 0, len(t.Inputs))
+		for name := range t.Inputs {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			in := t.Inputs[name]
+			out.Inputs = append(out.Inputs, &corev1.AutomationInputSpec{
+				Name: name, Type: in.Type, Description: in.Description, Required: in.Required,
+				DefaultValue: in.Default, Options: in.Options, Pattern: in.Pattern,
+			})
+		}
+	}
 	return out
 }
 
 func triggerRunProto(run storage.TriggerRun) *corev1.TriggerRun {
+	var spec triggers.RunSpec
+	if len(run.Spec) > 0 {
+		_ = json.Unmarshal(run.Spec, &spec)
+	}
 	return &corev1.TriggerRun{
 		Id: run.ID, Account: run.Account, TriggerId: run.TriggerID, Folder: run.Folder, Action: run.Action,
-		EventId: run.EventID, EventKind: run.EventKind, ChangesetId: run.ChangesetID, PatchsetId: run.PatchsetID,
+		EventId: run.EventID, EventKind: run.EventKind, TriggeredBy: run.TriggeredBy, TriggeredByKind: run.TriggeredByKind,
+		Inputs: spec.Inputs, ChangesetId: run.ChangesetID, PatchsetId: run.PatchsetID,
 		CommitId: run.CommitID, TargetRef: run.TargetRef, DefinitionCommitId: run.DefinitionCommitID,
 		Status: run.Status, Attempt: int32(run.Attempt), MaxAttempts: int32(run.MaxAttempts), Error: run.Error,
 		ResponseStatus: int32(run.ResponseStatus), CreatedAt: formatTime(run.CreatedAt), StartedAt: formatTime(run.StartedAt),
