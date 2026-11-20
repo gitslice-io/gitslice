@@ -54,12 +54,12 @@ func TestRepositoryDeployRunbooksMatchOpsBuild(t *testing.T) {
 		if a.Manual == nil || len(a.Manual.Roles) == 0 {
 			t.Errorf("%s: needs manual.roles", name)
 		}
-		// Either the worker .gitslice/ops/runbook.js (which waits for the
-		// build's report) or a plain post to the webhook.
-		if a.Action.Worker != "ops/runbook.js" && (a.Action.HTTP == nil || a.Action.HTTP.URL != "${{ secrets.OPS_WEBHOOK_URL }}") {
-			t.Errorf("%s: action must be worker ops/runbook.js or post to OPS_WEBHOOK_URL", name)
+		// The worker .gitslice/ops/runbook.js posts to the webhook and waits
+		// for the build's report.
+		if a.Action.Worker != "ops/runbook.js" {
+			t.Errorf("%s: action must be worker ops/runbook.js", name)
 		}
-		if a.Action.Worker != "" && (!slices.Contains(a.Network, "cloudbuild.googleapis.com") || !slices.Contains(a.Secrets, "OPS_WEBHOOK_QUERY")) {
+		if !slices.Contains(a.Network, "cloudbuild.googleapis.com") || !slices.Contains(a.Secrets, "OPS_WEBHOOK_QUERY") {
 			t.Errorf("%s: the worker needs network [cloudbuild.googleapis.com] and secret OPS_WEBHOOK_QUERY", name)
 		}
 		if !strings.Contains(string(build), "gitslice/"+name+")") {

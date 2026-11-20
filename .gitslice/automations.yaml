@@ -23,23 +23,25 @@ automations:
       http:
         url: "${{ secrets.RELEASE_WEBHOOK_URL }}"
 
-  # Deployment runbooks. Each posts its run to the Cloud Build webhook
-  # trigger gs-ops-webhook (ops/automation), which holds the Google Cloud
-  # credentials and runs only the operation named by the automation's id.
-  # Anyone who can submit to this slice (writer or admin) can run them with
-  # `gs auto run <name>` or from the folder's Automation tab, and no secret
-  # is shown to them. The run's own status only says the webhook took it;
-  # the build's log is in Cloud Build (gs-ops-webhook).
+  # Deployment runbooks. Each runs the worker ops/runbook.js, which hands
+  # the run to the Cloud Build webhook trigger gs-ops-webhook (ops/automation)
+  # with the run's callback URL. The build holds the Google Cloud credentials,
+  # runs only the operation named by the automation's id, and reports its
+  # progress and result back to the run. Anyone who can submit to this slice
+  # (writer or admin) can run them with `gs auto run <name> --follow` or from
+  # the folder's Automation tab; no secret is shown to them, and the run
+  # fails when the operation fails.
   deploy-server:
     description: Build and deploy the server (Cloud Run gitslice-prod) from main of the GitHub mirror, then move all traffic to the new revision
     on: [manual]
     manual:
       roles: [admin, writer]
       confirm: "Deploy main to production (gitslice-prod)?"
-    secrets: [OPS_WEBHOOK_URL]
+    secrets: [OPS_WEBHOOK_QUERY]
+    network: [cloudbuild.googleapis.com]
+    timeout: 40m
     action:
-      http:
-        url: "${{ secrets.OPS_WEBHOOK_URL }}"
+      worker: ops/runbook.js
 
   rollback-server:
     description: Send all production traffic to an earlier server revision; the next deploy-server moves it back to the newest
@@ -53,20 +55,22 @@ automations:
     manual:
       roles: [admin, writer]
       confirm: "Send all production traffic to this revision?"
-    secrets: [OPS_WEBHOOK_URL]
+    secrets: [OPS_WEBHOOK_QUERY]
+    network: [cloudbuild.googleapis.com]
+    timeout: 15m
     action:
-      http:
-        url: "${{ secrets.OPS_WEBHOOK_URL }}"
+      worker: ops/runbook.js
 
   publish-releases:
     description: Build and publish every vX.Y.Z tag that is not on gitslice.io/releases yet (the daily release reconcile, now)
     on: [manual]
     manual:
       roles: [admin, writer]
-    secrets: [OPS_WEBHOOK_URL]
+    secrets: [OPS_WEBHOOK_QUERY]
+    network: [cloudbuild.googleapis.com]
+    timeout: 15m
     action:
-      http:
-        url: "${{ secrets.OPS_WEBHOOK_URL }}"
+      worker: ops/runbook.js
 
   # Checks the runbook path end to end without touching production: the
   # worker hands the run to gs-ops-webhook, and the build reports back.

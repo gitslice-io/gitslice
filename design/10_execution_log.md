@@ -9743,3 +9743,17 @@ pages are code-split, analytics waits for the page to load.
 
 **Verification**
 - All 10 changesets verified green across local `-race` Go suites, live-PG `internal/postgres`/`service`/`tests/rpc`/`tests/cli`, `TestCmdGSBinaryDoesNotLinkServerStorageStack`, `TestSchemaOutputAnnotatedCommandsBindMachineOutputAndJSONRendering`, `agents/` & `trigger-dispatch/` `tsc --noEmit` + `node --test`, `web/` `tsc -b` + `npm run build` + `vitest`, and remote CI (`build`, `e2e`, `gofmt`, `test`, `vet`).
+
+## 2026-11-20 — runbooks report their result through a worker
+
+The runbook automations used to post straight to the Cloud Build webhook, so
+a run succeeded when the webhook accepted it and `--follow` never showed the
+deploy. They now run the worker `.gitslice/ops/runbook.js`: it posts the run
+to `gs-ops-webhook` with `gs.callbackUrl()` and calls `gs.waitForCallback()`;
+the build posts progress lines and, from an exit trap, its outcome, which the
+worker logs and turns into `gs.finish()` or a thrown error. No server change
+was needed. The dispatcher's gate never lets a secret supply a whole URL (it
+could change the origin), so the webhook URL is public in the script and its
+`key=...&secret=...` is the secret `OPS_WEBHOOK_QUERY`; `OPS_WEBHOOK_URL` is
+unused. `gitslice/ops-selftest` checks the path without changing anything.
+

@@ -1,7 +1,8 @@
 # Cloud Build config of the webhook trigger gs-ops-webhook (project
 # unified-surfer-486904-i6). The manual automations in .gitslice/automations.yaml
-# post their run to the trigger's URL (Gitslice secret OPS_WEBHOOK_URL), so an
-# agent can deploy without Google Cloud credentials or any other secret: the
+# run the worker .gitslice/ops/runbook.js, which posts the run to the
+# trigger's URL (its key and secret are the Gitslice secret OPS_WEBHOOK_QUERY)
+# with a callback URL for the build's report, so an agent can deploy without Google Cloud credentials or any other secret: the
 # automation's manual policy decides who may run it, and this build holds the
 # credentials (the Compute default service account).
 #

@@ -285,17 +285,20 @@ gs auto run gitslice/publish-releases --account gitslice --follow
 agent cannot. The ids are `<folder under the account>/<name>`; `gs auto ls
 /gitslice/gitslice` lists them.
 
-Each run posts to the Cloud Build webhook trigger `gs-ops-webhook`
-(`ops/automation/`). That build holds the credentials and runs only the
-operation named by the automation's id. The automation run succeeds when
-the webhook accepts it; whether the deploy worked shows in the build (Cloud
-Build, trigger `gs-ops-webhook`) and in the result: the new revision and
-`/readyz` for a deploy, gitslice.io/releases for a release.
+Each run executes the worker `.gitslice/ops/runbook.js`, which hands it to
+the Cloud Build webhook trigger `gs-ops-webhook` (`ops/automation/`) with
+the run's callback URL. That build holds the credentials, runs only the
+operation named by the automation's id, and reports back: `--follow` shows
+its progress lines (deploy build link, new revision, `/readyz`) and exits
+non-zero when the operation fails. A build that never reports ends the run
+at the automation's `timeout`. `gitslice/ops-selftest` checks this path
+without changing anything.
 
 - `deploy-server` builds the GitHub mirror, which trails Gitslice by about
   10 minutes. Run it once the change you want is on GitHub `main`.
 - A new operation needs a case in `ops/automation/cloudbuild.yaml`, an
-  automation posting to `OPS_WEBHOOK_URL`, and a re-import of the trigger
+  automation like the others (worker `ops/runbook.js`, secret
+  `OPS_WEBHOOK_QUERY`, network `cloudbuild.googleapis.com`), and a re-import of the trigger
   (see the file's header). `internal/triggers/repo_automations_test.go`
   checks that the two match.
 - Not covered yet: Workers deploys (`trigger-dispatch`, `doorbell`, a manual
