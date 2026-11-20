@@ -67,3 +67,16 @@ automations:
     action:
       http:
         url: "${{ secrets.OPS_WEBHOOK_URL }}"
+
+  # Checks the runbook path end to end without touching production: the
+  # worker hands the run to gs-ops-webhook, and the build reports back.
+  ops-selftest:
+    description: Check that the deployment runbooks reach Cloud Build and get its report back; changes nothing
+    on: [manual]
+    manual:
+      roles: [admin, writer]
+    secrets: [OPS_WEBHOOK_URL]
+    network: [cloudbuild.googleapis.com]
+    timeout: 10m
+    action:
+      worker: ops/runbook.js

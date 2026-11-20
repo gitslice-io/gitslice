@@ -22,7 +22,7 @@ build:
     - -c
     - "import json, os, shlex\npayload = json.loads(os.environ[\"PAYLOAD\"])\ndef field(path):\n    v = payload\n    for k in path.split(\".\"):\n        v = v.get(k) if isinstance(v, dict) else None\n\
       \    return v if isinstance(v, str) else \"\"\nwith open(\"/workspace/op.env\", \"w\") as f:\n    for name, path in [(\"OP\", \"automation.id\"), (\"SENDER\", \"sender.username\"), (\"REVISION\",\
-      \ \"inputs.revision\")]:\n        f.write(f\"{name}={shlex.quote(field(path))}\\n\")\n"
+      \ \"inputs.revision\"), (\"CALLBACK\", \"callback\")]:\n        f.write(f\"{name}={shlex.quote(field(path))}\\n\")\n"
   - id: op
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
     entrypoint: bash
@@ -31,21 +31,26 @@ build:
     - SERVICE=gitslice-prod
     - REGION=us-west1
     - DEPLOY_TRIGGER=rmgpgab-gitslice-prod-us-west1-gitslice-io-gitslice--maovz
+    - BUILD=$BUILD_ID
     args:
     - -c
-    - "set -euo pipefail\n. /workspace/op.env\necho \"operation $$OP, run by $${SENDER:-unknown}\"\nservice_url() {\n  gcloud run services describe \"$$SERVICE\" --region \"$$REGION\" --project \"$$PROJECT\"\
-      \ --format='value(status.url)'\n}\nready() {\n  curl -fsS -o /dev/null --retry 5 --retry-delay 5 --retry-all-errors \"$$(service_url)/readyz\"\n}\ncase \"$$OP\" in\n  gitslice/deploy-server)\n   \
-      \ # Builds main of the GitHub mirror, like the daily deploy.\n    id=\"$$(gcloud builds triggers run \"$$DEPLOY_TRIGGER\" --branch=main --region=global \\\n      --project \"$$PROJECT\" --format='value(metadata.build.id)')\"\
-      \n    echo \"deploy build $$id: https://console.cloud.google.com/cloud-build/builds/$$id?project=$$PROJECT\"\n    while :; do\n      status=\"$$(gcloud builds describe \"$$id\" --region=global --project\
-      \ \"$$PROJECT\" --format='value(status)')\"\n      case \"$$status\" in\n        SUCCESS) break ;;\n        FAILURE|CANCELLED|TIMEOUT|INTERNAL_ERROR|EXPIRED) echo \"deploy build $$id ended $$status\"\
-      \ >&2; exit 1 ;;\n      esac\n      sleep 20\n    done\n    # A rollback pins traffic to one revision; a deploy sends it back\n    # to the newest.\n    gcloud run services update-traffic \"$$SERVICE\"\
-      \ --region \"$$REGION\" --project \"$$PROJECT\" --to-latest --quiet\n    ready\n    echo \"deployed $$(gcloud run services describe \"$$SERVICE\" --region \"$$REGION\" --project \"$$PROJECT\" \\\n\
-      \      --format='value(status.latestReadyRevisionName)'); /readyz answers\"\n    ;;\n  gitslice/rollback-server)\n    if [[ ! \"$$REVISION\" =~ ^gitslice-prod-[0-9]{5}-[a-z0-9]{3}$ ]]; then\n    \
-      \  echo \"revision must look like gitslice-prod-00147-xpj, got '$$REVISION'\" >&2; exit 1\n    fi\n    gcloud run revisions describe \"$$REVISION\" --region \"$$REGION\" --project \"$$PROJECT\" --format='value(name)'\
-      \ >/dev/null\n    gcloud run services update-traffic \"$$SERVICE\" --region \"$$REGION\" --project \"$$PROJECT\" \\\n      --to-revisions=\"$$REVISION=100\" --quiet\n    ready\n    echo \"all traffic\
-      \ on $$REVISION; /readyz answers. The next deploy-server moves it to the newest revision.\"\n    ;;\n  gitslice/publish-releases)\n    # The daily reconcile: builds every vX.Y.Z tag not yet in R2.\n\
-      \    gcloud scheduler jobs run gs-release --location us-central1 --project \"$$PROJECT\"\n    echo \"started the release reconcile (Cloud Build trigger gs-release-webhook)\"\n    ;;\n  gitslice/ops-selftest)\n\
-      \    echo \"ok\"\n    ;;\n  *)\n    echo \"not an operation: '$$OP'\" >&2; exit 1\n    ;;\nesac\n"
+    - "set -euo pipefail\n. /workspace/op.env\n# A run started by the worker (.gitslice/ops/runbook.js) passes its\n# callback URL: progress lines and the result go back to the run, so\n# `gs auto run --follow`\
+      \ shows them. Never echo the URL.\njson() { printf '\"%s\"' \"$$(printf '%s' \"$$1\" | sed 's/\\\\/\\\\\\\\/g; s/\"/\\\\\"/g')\"; }\npost() {\n  [ -n \"$${CALLBACK:-}\" ] || return 0\n  curl -fsS\
+      \ -m 20 --retry 3 --retry-all-errors -o /dev/null -H 'Content-Type: application/json' \\\n    --data \"$$1\" \"$$CALLBACK\" || echo \"warning: could not report to the automation run\" >&2\n}\nsay()\
+      \ { echo \"$$1\"; post \"{\\\"lines\\\":[$$(json \"$$1\")]}\"; }\nfinish() {\n  rc=$$?\n  if [ \"$$rc\" = 0 ]; then outcome=succeeded; else outcome=failed; fi\n  post \"{\\\"outcome\\\":\\\"$$outcome\\\
+      \",\\\"lines\\\":[$$(json \"Cloud Build $$BUILD: $$outcome\")]}\"\n}\ntrap finish EXIT\nsay \"operation $$OP, run by $${SENDER:-unknown}\"\nservice_url() {\n  gcloud run services describe \"$$SERVICE\"\
+      \ --region \"$$REGION\" --project \"$$PROJECT\" --format='value(status.url)'\n}\nready() {\n  curl -fsS -o /dev/null --retry 5 --retry-delay 5 --retry-all-errors \"$$(service_url)/readyz\"\n}\ncase\
+      \ \"$$OP\" in\n  gitslice/deploy-server)\n    # Builds main of the GitHub mirror, like the daily deploy.\n    id=\"$$(gcloud builds triggers run \"$$DEPLOY_TRIGGER\" --branch=main --region=global\
+      \ \\\n      --project \"$$PROJECT\" --format='value(metadata.build.id)')\"\n    say \"deploy build $$id: https://console.cloud.google.com/cloud-build/builds/$$id?project=$$PROJECT\"\n    while :;\
+      \ do\n      status=\"$$(gcloud builds describe \"$$id\" --region=global --project \"$$PROJECT\" --format='value(status)')\"\n      case \"$$status\" in\n        SUCCESS) break ;;\n        FAILURE|CANCELLED|TIMEOUT|INTERNAL_ERROR|EXPIRED)\
+      \ echo \"deploy build $$id ended $$status\" >&2; exit 1 ;;\n      esac\n      sleep 20\n    done\n    # A rollback pins traffic to one revision; a deploy sends it back\n    # to the newest.\n    gcloud\
+      \ run services update-traffic \"$$SERVICE\" --region \"$$REGION\" --project \"$$PROJECT\" --to-latest --quiet\n    ready\n    say \"deployed $$(gcloud run services describe \"$$SERVICE\" --region\
+      \ \"$$REGION\" --project \"$$PROJECT\" \\\n      --format='value(status.latestReadyRevisionName)'); /readyz answers\"\n    ;;\n  gitslice/rollback-server)\n    if [[ ! \"$$REVISION\" =~ ^gitslice-prod-[0-9]{5}-[a-z0-9]{3}$\
+      \ ]]; then\n      say \"revision must look like gitslice-prod-00147-xpj, got '$$REVISION'\" >&2; exit 1\n    fi\n    gcloud run revisions describe \"$$REVISION\" --region \"$$REGION\" --project \"\
+      $$PROJECT\" --format='value(name)' >/dev/null\n    gcloud run services update-traffic \"$$SERVICE\" --region \"$$REGION\" --project \"$$PROJECT\" \\\n      --to-revisions=\"$$REVISION=100\" --quiet\n\
+      \    ready\n    say \"all traffic on $$REVISION; /readyz answers. The next deploy-server moves it to the newest revision.\"\n    ;;\n  gitslice/publish-releases)\n    # The daily reconcile: builds\
+      \ every vX.Y.Z tag not yet in R2.\n    gcloud scheduler jobs run gs-release --location us-central1 --project \"$$PROJECT\"\n    say \"started the release reconcile (Cloud Build trigger gs-release-webhook)\"\
+      \n    ;;\n  gitslice/ops-selftest)\n    say \"ok\"\n    ;;\n  *)\n    say \"not an operation: '$$OP'\" >&2; exit 1\n    ;;\nesac\n"
   timeout: 2400s
   options:
     logging: CLOUD_LOGGING_ONLY
