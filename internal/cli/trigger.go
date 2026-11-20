@@ -58,7 +58,7 @@ func (r Runner) triggerCommand(opts *commandOptions) *cobra.Command {
 	}
 	runsCmd.Flags().StringVar(&runsChangeset, "changeset", "", "runs about this changeset")
 	runsCmd.Flags().StringVar(&runsAuto, "automation", "", "runs of this automation id, such as services/billing/deploy")
-	runsCmd.Flags().StringVar(&runsAccount, "account", "", "the account (default: your active account)")
+	runsCmd.Flags().StringVar(&runsAccount, "account", "", "the account (default: the workspace's account, else your active account)")
 	runsCmd.Flags().IntVar(&runsLimit, "limit", 20, "how many runs")
 
 	showCmd := &cobra.Command{
@@ -120,7 +120,7 @@ Before an automation lands, try it in one of two ways:
 			return r.runTriggerRun(cmd.Context(), *opts, runAccount, args[0], runRef, runChangeset, runFromChangeset, runInputs, runYes, runFollow)
 		},
 	}
-	runCmd.Flags().StringVar(&runAccount, "account", "", "the account (default: your active account)")
+	runCmd.Flags().StringVar(&runAccount, "account", "", "the account (default: the workspace's account, else your active account)")
 	runCmd.Flags().StringVar(&runRef, "ref", "", "run the definition at this ref (default refs/global/main)")
 	runCmd.Flags().StringVar(&runChangeset, "changeset", "", "a changeset the run is about; its checks may be reported")
 	runCmd.Flags().StringArrayVarP(&runInputs, "input", "i", nil, "key=value passed as automation input (repeatable)")
@@ -311,8 +311,26 @@ func (r Runner) triggerFolder(raw string) (string, error) {
 	return folder, nil
 }
 
+// automationFolder resolves a folder for automation commands: canonical path,
+// current workspace subfolder, or — when invoked from the workspace root of a
+// single-path slice — that slice's included path.
+func (r Runner) automationFolder(raw string) (string, error) {
+	folder, err := r.triggerFolder(raw)
+	if err == nil {
+		return folder, nil
+	}
+	if strings.TrimSpace(raw) == "" {
+		if ws, werr := r.readWorkspaceConfig(); werr == nil && len(ws.IncludedPaths) == 1 {
+			if canonical, perr := paths.CanonicalPrefix(ws.IncludedPaths[0]); perr == nil {
+				return canonical, nil
+			}
+		}
+	}
+	return "", err
+}
+
 func (r Runner) runTriggerList(ctx context.Context, opts commandOptions, rawFolder, ref string) error {
-	folder, err := r.triggerFolder(rawFolder)
+	folder, err := r.automationFolder(rawFolder)
 	if err != nil {
 		return err
 	}
@@ -370,8 +388,12 @@ func (r Runner) runTriggerRuns(ctx context.Context, opts commandOptions, account
 			req.ChangesetId = id
 		} else {
 			var err error
-			if req.Account, err = s.ResolveAccount(account); err != nil {
+			if req.Account, err = r.resolveAutomationAccount(s, account); err != nil {
 				return err
+			}
+			if req.TriggerId != "" && !strings.Contains(req.TriggerId, "/") {
+				resolvedID, _ := r.resolveAutomationIDAndDef(s, req.Account, req.TriggerId, "", false)
+				req.TriggerId = resolvedID
 			}
 		}
 		var err error
@@ -570,13 +592,15 @@ func (r Runner) runTriggerRun(ctx context.Context, opts commandOptions, account,
 	var run *corev1.TriggerRun
 	if err := r.withSession(ctx, func(s *Session) error {
 		var err error
-		if account, err = s.ResolveAccount(account); err != nil {
+		if account, err = r.resolveAutomationAccount(s, account); err != nil {
 			return err
 		}
+		resolvedID, def := r.resolveAutomationIDAndDef(s, account, triggerID, ref, fromChangeset != "")
+		triggerID = resolvedID
 		if fromChangeset == "" {
 			// The landed definition's prompts; a changeset's definition is
 			// checked by the server alone.
-			if def := lookupAutomationDef(s, account, triggerID, ref); def != nil {
+			if def != nil {
 				if err := r.promptMissingInputsAndConfirm(opts, def, inputs, yes); err != nil {
 					return err
 				}
@@ -620,6 +644,68 @@ func automationFolderOf(account, automationID string) string {
 		return root + "/" + id[:i]
 	}
 	return root
+}
+
+func (r Runner) resolveAutomationAccount(s *Session, raw string) (string, error) {
+	if strings.TrimSpace(raw) != "" {
+		return s.ResolveAccount(raw)
+	}
+	if ws, err := r.readWorkspaceConfig(); err == nil && strings.TrimSpace(ws.Account) != "" {
+		return normalizeCLISlug(ws.Account, "account")
+	}
+	return s.ResolveAccount("")
+}
+
+func (r Runner) resolveWorkspaceAutomationFolder(account string) string {
+	folder, err := r.automationFolder("")
+	if err != nil {
+		return ""
+	}
+	prefix := "/" + strings.Trim(account, "/")
+	if folder == prefix || strings.HasPrefix(folder, prefix+"/") {
+		return folder
+	}
+	return ""
+}
+
+func (r Runner) resolveAutomationIDAndDef(s *Session, account, triggerID, ref string, fromChangeset bool) (string, *corev1.TriggerDefinition) {
+	triggerID = strings.TrimSpace(triggerID)
+	if strings.Contains(triggerID, "/") {
+		if fromChangeset {
+			return triggerID, nil
+		}
+		return triggerID, lookupAutomationDef(s, account, triggerID, ref)
+	}
+	folder := r.resolveWorkspaceAutomationFolder(account)
+	if folder == "" {
+		if fromChangeset {
+			return triggerID, nil
+		}
+		return triggerID, lookupAutomationDef(s, account, triggerID, ref)
+	}
+	if !fromChangeset {
+		resp, err := s.Trigger().ListTriggers(s.Ctx(), &corev1.ListTriggersRequest{Path: folder, Ref: ref})
+		if err == nil {
+			var best *corev1.TriggerDefinition
+			for _, def := range resp.GetTriggers() {
+				if def.GetId() == triggerID || def.GetName() == triggerID {
+					if best == nil || len(def.GetFolder()) > len(best.GetFolder()) {
+						best = def
+					}
+				}
+			}
+			if best != nil {
+				return best.GetId(), best
+			}
+		}
+		return triggerID, nil
+	}
+	rel := strings.TrimPrefix(folder, "/"+strings.Trim(account, "/"))
+	rel = strings.Trim(rel, "/")
+	if rel != "" {
+		return rel + "/" + triggerID, nil
+	}
+	return triggerID, nil
 }
 
 func lookupAutomationDef(s *Session, account, automationID, ref string) *corev1.TriggerDefinition {

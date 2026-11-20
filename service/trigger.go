@@ -72,7 +72,7 @@ func (s *TriggerService) ListTriggers(ctx context.Context, req *corev1.ListTrigg
 		return nil, status.Errorf(codes.InvalidArgument, "path: %v", err)
 	}
 	account := strings.Split(strings.Trim(folder, "/"), "/")[0]
-	if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead); err != nil {
+	if err := s.ensureTriggerFolderAccess(ctx, subjectID, account, folder, authz.ActionRead); err != nil {
 		return nil, err
 	}
 	ref := strings.TrimSpace(req.GetRef())
@@ -115,6 +115,7 @@ func (s *TriggerService) ListTriggerRuns(ctx context.Context, req *corev1.ListTr
 		ChangesetID: strings.TrimSpace(req.GetChangesetId()),
 		Limit:       int(req.GetLimit()),
 	}
+	filterByFolder := false
 	switch {
 	case filter.ChangesetID != "":
 		cs, err := s.authorizedChangeset(ctx, subjectID, filter.ChangesetID, authz.ActionRead)
@@ -123,8 +124,25 @@ func (s *TriggerService) ListTriggerRuns(ctx context.Context, req *corev1.ListTr
 		}
 		filter.Account = cs.GetAuthoringSlice().GetAccount()
 	case filter.Account != "":
-		if err := authorizeAccount(ctx, s.Auth, subjectID, filter.Account, authz.ActionRead); err != nil {
-			return nil, err
+		if accountErr := authorizeAccount(ctx, s.Auth, subjectID, filter.Account, authz.ActionRead); accountErr != nil {
+			if subjectID == "" {
+				return nil, accountErr
+			}
+			if filter.TriggerID != "" {
+				folder := triggers.FolderOf(filter.Account, filter.TriggerID)
+				if err := s.ensureTriggerFolderRunReadAccess(ctx, subjectID, filter.Account, folder); err != nil {
+					return nil, err
+				}
+			} else {
+				hasShared, err := s.hasSharedSliceInAccount(ctx, subjectID, filter.Account)
+				if err != nil {
+					return nil, err
+				}
+				if !hasShared {
+					return nil, accountErr
+				}
+				filterByFolder = true
+			}
 		}
 	default:
 		return nil, status.Error(codes.InvalidArgument, "pass an account or a changeset")
@@ -133,8 +151,19 @@ func (s *TriggerService) ListTriggerRuns(ctx context.Context, req *corev1.ListTr
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	allowedFolders := map[string]bool{}
 	out := &corev1.ListTriggerRunsResponse{}
 	for _, run := range runs {
+		if filterByFolder {
+			allowed, cached := allowedFolders[run.Folder]
+			if !cached {
+				allowed = s.ensureTriggerFolderRunReadAccess(ctx, subjectID, run.Account, run.Folder) == nil
+				allowedFolders[run.Folder] = allowed
+			}
+			if !allowed {
+				continue
+			}
+		}
 		out.Runs = append(out.Runs, triggerRunProto(run))
 	}
 	return out, nil
@@ -368,8 +397,62 @@ func (s *TriggerService) ensureTriggerFolderAccess(ctx context.Context, subjectI
 	return accountErr
 }
 
+// ensureTriggerFolderRunReadAccess authorizes reading non-changeset automation
+// runs (and their logs) for folder: account readers pass directly, and shared
+// slice members covering folder pass — requiring ActionUseSecrets (explicit
+// writer/admin) on public slices so unshared outsiders cannot inspect manual or
+// tag automation runs just because the slice is public.
+func (s *TriggerService) ensureTriggerFolderRunReadAccess(ctx context.Context, subjectID, account, folder string) error {
+	folder = strings.TrimSpace(folder)
+	accountErr := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionRead)
+	if accountErr == nil {
+		return nil
+	}
+	if folder == "" || subjectID == "" || s.Slices == nil {
+		return accountErr
+	}
+	covering, err := s.Slices.CoveringIDsByPath(ctx, []string{folder})
+	if err != nil {
+		return grpcError(err)
+	}
+	for _, sliceID := range covering[folder] {
+		slice, err := s.Slices.Get(ctx, sliceID)
+		if err != nil {
+			if errors.Is(err, storage.ErrNotFound) {
+				continue
+			}
+			return grpcError(err)
+		}
+		need := authz.ActionRead
+		if strings.EqualFold(strings.TrimSpace(slice.GetDefinition().GetVisibility()), "public") {
+			need = authz.ActionUseSecrets
+		}
+		if err := authorize(ctx, s.Auth, subjectID, slice, need); err == nil {
+			return nil
+		}
+	}
+	return accountErr
+}
+
+func (s *TriggerService) hasSharedSliceInAccount(ctx context.Context, subjectID, account string) (bool, error) {
+	if subjectID == "" || s.Slices == nil {
+		return false, nil
+	}
+	shared, err := s.Slices.ListShared(ctx, subjectID)
+	if err != nil {
+		return false, grpcError(err)
+	}
+	account = strings.TrimSpace(account)
+	for _, entry := range shared {
+		if entry.Slice != nil && strings.EqualFold(strings.TrimSpace(entry.Slice.GetRef().GetAccount()), account) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // authorizedRun loads a run the caller may act on: through its changeset's
-// slice when it has one, else through its account.
+// slice when it has one, else through its account or covering shared slice.
 func (s *TriggerService) authorizedRun(ctx context.Context, runID string, action authz.Action) (*storage.TriggerRun, error) {
 	if err := s.ready(); err != nil {
 		return nil, err
@@ -385,7 +468,13 @@ func (s *TriggerService) authorizedRun(ctx context.Context, runID string, action
 		}
 		return run, nil
 	}
-	if err := authorizeAccount(ctx, s.Auth, subjectID, run.Account, action); err != nil {
+	if action == authz.ActionRead {
+		if err := s.ensureTriggerFolderRunReadAccess(ctx, subjectID, run.Account, run.Folder); err != nil {
+			return nil, err
+		}
+		return run, nil
+	}
+	if err := s.ensureTriggerFolderAccess(ctx, subjectID, run.Account, run.Folder, action); err != nil {
 		return nil, err
 	}
 	return run, nil

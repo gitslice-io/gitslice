@@ -198,6 +198,176 @@ automations:
 	}
 }
 
+func TestSharedSliceMemberAutomationListRunFollowAndIsolation(t *testing.T) {
+	mem, h := newMemoryHandlers()
+	alice := asUser(t, h, "owner_alice", "alice")
+	secReader := asUser(t, h, "user_secreader", "secreader")
+	stranger := asUser(t, h, "user_stranger", "stranger")
+
+	if _, err := h.Auth.CreateOrganization(alice, &corev1.CreateOrganizationRequest{Slug: "opsorg"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// Register an agent that is NOT a member of opsorg, only shared on opsorg:app as writer.
+	botReg, err := mem.Auth.RegisterAgent(context.Background(), storage.RegisterAgentInput{
+		Username: "ops-bot", OwnerEmail: "alice@example.com", DisplayName: "Ops Bot",
+	})
+	if err != nil {
+		t.Fatalf("RegisterAgent: %v", err)
+	}
+	bot := authctx.WithPrincipal(context.Background(), authctx.Principal{
+		SubjectID: botReg.SubjectID, SubjectKind: "agent",
+	})
+
+	homeRef := &corev1.SliceRef{Account: "opsorg", Slice: "home"}
+	commitSliceFile(t, alice, h, mem, homeRef, "/opsorg/app/.gitslice/automations.yaml", `version: 1
+automations:
+  selftest:
+    on: [manual]
+    manual:
+      roles: [admin, writer]
+    action:
+      http:
+        url: https://hooks.example.com/selftest
+`)
+	commitSliceFile(t, alice, h, mem, homeRef, "/opsorg/secret/.gitslice/automations.yaml", `version: 1
+automations:
+  secret-op:
+    on: [manual]
+    manual:
+      roles: [admin, writer]
+    action:
+      http:
+        url: https://hooks.example.com/secret
+`)
+
+	appRef := &corev1.SliceRef{Account: "opsorg", Slice: "app"}
+	secretRef := &corev1.SliceRef{Account: "opsorg", Slice: "secret"}
+	if _, err := h.Slice.CreateSlice(alice, &corev1.CreateSliceRequest{
+		Ref:           appRef,
+		IncludedPaths: []string{"/opsorg/app"},
+		Visibility:    "public",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Slice.CreateSlice(alice, &corev1.CreateSliceRequest{
+		Ref:           secretRef,
+		IncludedPaths: []string{"/opsorg/secret"},
+		Visibility:    "private",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Slice.SetSliceMember(alice, &corev1.SetSliceMemberRequest{
+		Slice: appRef, Username: "ops-bot", Role: "writer",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.Slice.SetSliceMember(alice, &corev1.SetSliceMemberRequest{
+		Slice: secretRef, Username: "secreader", Role: "reader",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, trigSvc, _ := newTriggerTestServices(mem, "test-dispatch-secret")
+
+	// Alice starts a run in the private secret folder.
+	secretRun, err := trigSvc.RunTrigger(alice, &corev1.RunTriggerRequest{
+		Account: "opsorg", TriggerId: "secret/secret-op",
+	})
+	if err != nil {
+		t.Fatalf("alice RunTrigger(secret/secret-op): %v", err)
+	}
+	if _, err := mem.Triggers.AppendTriggerRunLog(context.Background(), secretRun.GetId(), "stdout", "secret output\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Shared slice writer (bot) can list, start, inspect, read logs, list runs, cancel, and rerun on /opsorg/app.
+	listed, err := trigSvc.ListTriggers(bot, &corev1.ListTriggersRequest{Path: "/opsorg/app"})
+	if err != nil || len(listed.GetTriggers()) != 1 || listed.GetTriggers()[0].GetId() != "app/selftest" {
+		t.Fatalf("bot ListTriggers(/opsorg/app) = %+v, %v", listed, err)
+	}
+	if _, err := trigSvc.ListTriggers(bot, &corev1.ListTriggersRequest{Path: "/opsorg/secret"}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("bot ListTriggers(/opsorg/secret) = %v, want PermissionDenied", err)
+	}
+
+	appRun, err := trigSvc.RunTrigger(bot, &corev1.RunTriggerRequest{
+		Account: "opsorg", TriggerId: "app/selftest",
+	})
+	if err != nil {
+		t.Fatalf("bot RunTrigger(app/selftest): %v", err)
+	}
+	if _, err := mem.Triggers.AppendTriggerRunLog(context.Background(), appRun.GetId(), "stdout", "selftest ok\n"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, err := trigSvc.GetTriggerRun(bot, &corev1.GetTriggerRunRequest{RunId: appRun.GetId()}); err != nil || got.GetId() != appRun.GetId() {
+		t.Fatalf("bot GetTriggerRun(appRun) = %+v, %v", got, err)
+	}
+	if logs, err := trigSvc.ListTriggerRunLogs(bot, &corev1.ListTriggerRunLogsRequest{RunId: appRun.GetId()}); err != nil || len(logs.GetLogs()) != 1 {
+		t.Fatalf("bot ListTriggerRunLogs(appRun) = %+v, %v", logs, err)
+	}
+	// ListTriggerRuns for opsorg returns ONLY app runs, never secret runs.
+	runsResp, err := trigSvc.ListTriggerRuns(bot, &corev1.ListTriggerRunsRequest{Account: "opsorg"})
+	if err != nil {
+		t.Fatalf("bot ListTriggerRuns(opsorg): %v", err)
+	}
+	if len(runsResp.GetRuns()) != 1 || runsResp.GetRuns()[0].GetId() != appRun.GetId() {
+		t.Fatalf("bot ListTriggerRuns(opsorg) = %+v, want only appRun", runsResp.GetRuns())
+	}
+	if byTrigger, err := trigSvc.ListTriggerRuns(bot, &corev1.ListTriggerRunsRequest{Account: "opsorg", TriggerId: "app/selftest"}); err != nil || len(byTrigger.GetRuns()) != 1 {
+		t.Fatalf("bot ListTriggerRuns(app/selftest) = %+v, %v", byTrigger, err)
+	}
+	if _, err := trigSvc.ListTriggerRuns(bot, &corev1.ListTriggerRunsRequest{Account: "opsorg", TriggerId: "secret/secret-op"}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("bot ListTriggerRuns(secret/secret-op) = %v, want PermissionDenied", err)
+	}
+	if _, err := trigSvc.GetTriggerRun(bot, &corev1.GetTriggerRunRequest{RunId: secretRun.GetId()}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("bot GetTriggerRun(secretRun) = %v, want PermissionDenied", err)
+	}
+	if _, err := trigSvc.CancelTriggerRun(bot, &corev1.CancelTriggerRunRequest{RunId: appRun.GetId()}); err != nil {
+		t.Fatalf("bot CancelTriggerRun(appRun): %v", err)
+	}
+	if _, err := trigSvc.RerunTriggerRun(bot, &corev1.RerunTriggerRunRequest{RunId: appRun.GetId()}); err != nil {
+		t.Fatalf("bot RerunTriggerRun(appRun): %v", err)
+	}
+
+	// 2. Unshared stranger on the public slice CANNOT read/list/cancel/rerun manual runs on /opsorg/app.
+	if _, err := trigSvc.GetTriggerRun(stranger, &corev1.GetTriggerRunRequest{RunId: appRun.GetId()}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("stranger GetTriggerRun(appRun) = %v, want PermissionDenied", err)
+	}
+	if _, err := trigSvc.ListTriggerRunLogs(stranger, &corev1.ListTriggerRunLogsRequest{RunId: appRun.GetId()}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("stranger ListTriggerRunLogs(appRun) = %v, want PermissionDenied", err)
+	}
+	if _, err := trigSvc.ListTriggerRuns(stranger, &corev1.ListTriggerRunsRequest{Account: "opsorg"}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("stranger ListTriggerRuns(opsorg) = %v, want PermissionDenied", err)
+	}
+	if _, err := trigSvc.ListTriggerRuns(stranger, &corev1.ListTriggerRunsRequest{Account: "opsorg", TriggerId: "app/selftest"}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("stranger ListTriggerRuns(app/selftest) = %v, want PermissionDenied", err)
+	}
+	if _, err := trigSvc.CancelTriggerRun(stranger, &corev1.CancelTriggerRunRequest{RunId: appRun.GetId()}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("stranger CancelTriggerRun(appRun) = %v, want PermissionDenied", err)
+	}
+
+	// 3. Shared slice reader on private opsorg:secret can read runs/logs there, but cannot run/cancel/rerun.
+	if _, err := trigSvc.ListTriggers(secReader, &corev1.ListTriggersRequest{Path: "/opsorg/secret"}); err != nil {
+		t.Fatalf("secReader ListTriggers(/opsorg/secret): %v", err)
+	}
+	if _, err := trigSvc.GetTriggerRun(secReader, &corev1.GetTriggerRunRequest{RunId: secretRun.GetId()}); err != nil {
+		t.Fatalf("secReader GetTriggerRun(secretRun): %v", err)
+	}
+	if _, err := trigSvc.ListTriggerRunLogs(secReader, &corev1.ListTriggerRunLogsRequest{RunId: secretRun.GetId()}); err != nil {
+		t.Fatalf("secReader ListTriggerRunLogs(secretRun): %v", err)
+	}
+	if secRuns, err := trigSvc.ListTriggerRuns(secReader, &corev1.ListTriggerRunsRequest{Account: "opsorg"}); err != nil || len(secRuns.GetRuns()) != 1 || secRuns.GetRuns()[0].GetId() != secretRun.GetId() {
+		t.Fatalf("secReader ListTriggerRuns(opsorg) = %+v, %v", secRuns, err)
+	}
+	if _, err := trigSvc.RunTrigger(secReader, &corev1.RunTriggerRequest{Account: "opsorg", TriggerId: "secret/secret-op"}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("secReader RunTrigger(secret-op) = %v, want PermissionDenied", err)
+	}
+	if _, err := trigSvc.CancelTriggerRun(secReader, &corev1.CancelTriggerRunRequest{RunId: secretRun.GetId()}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("secReader CancelTriggerRun(secretRun) = %v, want PermissionDenied", err)
+	}
+}
+
 func readTarGz(t *testing.T, r io.Reader) map[string]string {
 	t.Helper()
 	gz, err := gzip.NewReader(r)

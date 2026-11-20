@@ -41,17 +41,24 @@ automations:
 	if !strings.Contains(out, "payment/hello") || !strings.Contains(out, "on manual,push") || !strings.Contains(out, "http https://hooks.example.com/hello") {
 		t.Fatalf("auto ls = %q", out)
 	}
-	// From inside the workspace, the current folder is the default.
+	// From inside the workspace (both root and folder), the workspace folder is the default.
+	if out := runCLI(t, home, payment, "automation", "ls"); !strings.Contains(out, "payment/hello") {
+		t.Fatalf("automation ls at workspace root = %q", out)
+	}
 	if out := runCLI(t, home, filepath.Join(payment, "acme", "payment"), "automation", "ls"); !strings.Contains(out, "payment/hello") {
 		t.Fatalf("automation ls in the workspace = %q", out)
 	}
-	out = runCLI(t, home, payment, "auto", "run", "payment/hello", "--account", "acme", "--input", "reason=test")
+	// Inside the workspace, gs auto run resolves the workspace's account and unqualified automation name.
+	out = runCLI(t, home, payment, "auto", "run", "hello", "--input", "reason=test")
 	if !strings.Contains(out, "queued run trun_") {
-		t.Fatalf("auto run = %q", out)
+		t.Fatalf("auto run unqualified = %q", out)
 	}
 	runID := strings.Fields(out)[2]
-	if out := runCLI(t, home, payment, "auto", "runs", "--account", "acme"); !strings.Contains(out, runID) || !strings.Contains(out, "payment/hello") {
-		t.Fatalf("auto runs = %q", out)
+	if out := runCLI(t, home, payment, "auto", "runs"); !strings.Contains(out, runID) || !strings.Contains(out, "payment/hello") {
+		t.Fatalf("auto runs without --account = %q", out)
+	}
+	if out := runCLI(t, home, payment, "auto", "runs", "--automation", "hello"); !strings.Contains(out, runID) || !strings.Contains(out, "payment/hello") {
+		t.Fatalf("auto runs --automation unqualified = %q", out)
 	}
 	if out := runCLI(t, home, payment, "auto", "show", runID); !strings.Contains(out, "event: manual") {
 		t.Fatalf("auto show = %q", out)
