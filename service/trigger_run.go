@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -159,9 +160,12 @@ func (s *TriggerRunService) startResponse(ctx context.Context, run *storage.Trig
 	if kind != triggers.ActionWorker && kind != triggers.ActionBash {
 		return nil, status.Errorf(codes.FailedPrecondition, "run %s has no worker or bash action", run.ID)
 	}
-	tree, err := s.Repository.RootTreeForCommit(ctx, run.DefinitionCommitID)
-	if err != nil {
-		return nil, grpcError(err)
+	tree := spec.DefinitionTree
+	if tree == "" {
+		var err error
+		if tree, err = s.Repository.RootTreeForCommit(ctx, run.DefinitionCommitID); err != nil {
+			return nil, grpcError(err)
+		}
 	}
 	secrets, missing, err := s.Engine.SecretsFor(ctx, run.Folder, spec.Trigger.Secrets)
 	if err != nil {
@@ -364,6 +368,28 @@ func (s *TriggerRunService) GetRunState(ctx context.Context, req *corev1.Trigger
 	}
 	return &corev1.TriggerRunState{StateJson: string(call.run.State)}, nil
 }
+
+// SetRunDetailsUrl links the run to an outside page (gs.setDetailsUrl).
+func (s *TriggerRunService) SetRunDetailsUrl(ctx context.Context, req *corev1.SetTriggerRunDetailsUrlRequest) (*corev1.Empty, error) {
+	call, err := s.call(ctx, req.GetRunToken())
+	if err != nil {
+		return nil, err
+	}
+	raw := strings.TrimSpace(req.GetDetailsUrl())
+	if len(raw) > maxTriggerDetailsURLBytes {
+		return nil, status.Errorf(codes.InvalidArgument, "details URL is longer than %d bytes", maxTriggerDetailsURLBytes)
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+		return nil, status.Error(codes.InvalidArgument, "details URL must be an https URL without credentials")
+	}
+	if err := s.Triggers.SetTriggerRunDetailsURL(ctx, call.run.ID, u.String()); err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.Empty{}, nil
+}
+
+const maxTriggerDetailsURLBytes = 2048
 
 func (s *TriggerRunService) SetRunState(ctx context.Context, req *corev1.SetTriggerRunStateRequest) (*corev1.Empty, error) {
 	call, err := s.call(ctx, req.GetRunToken())

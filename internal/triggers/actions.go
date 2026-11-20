@@ -160,6 +160,10 @@ func (e *Engine) sendHTTP(ctx context.Context, queued storage.TriggerRun) {
 	switch {
 	case errText == "":
 		update.Status = storage.TriggerRunSucceeded
+		// An http action ends when the endpoint takes the post; say so, so a
+		// reader does not take "succeeded" for the endpoint's own result.
+		_, _ = e.stores.Triggers.AppendTriggerRunLog(ctx, run.ID, "stdout", fmt.Sprintf(
+			"delivered: the endpoint answered %d. An http automation ends here; what the endpoint does next is not tracked (use a worker with gs.waitForCallback to wait for its result).\n", status))
 	case final || run.Attempt >= run.MaxAttempts:
 		update.Status = storage.TriggerRunFailed
 	default:
@@ -233,6 +237,23 @@ func secretValues(secrets map[string]string) []string {
 	return out
 }
 
+// mustWait reports whether a serial run must wait for another open run:
+// one already running or waiting, or an older queued one.
+func mustWait(run storage.TriggerRun, open []storage.TriggerRun) bool {
+	for _, other := range open {
+		if other.ID == run.ID {
+			continue
+		}
+		if other.Status == storage.TriggerRunRunning || other.Status == storage.TriggerRunWaiting {
+			return true
+		}
+		if other.CreatedAt.Before(run.CreatedAt) || (other.CreatedAt.Equal(run.CreatedAt) && other.ID < run.ID) {
+			return true
+		}
+	}
+	return false
+}
+
 // post hands a worker or bash run to the dispatcher, which claims it with
 // StartRun. A post that is lost is posted again when its hold ends.
 func (e *Engine) post(ctx context.Context, run storage.TriggerRun) {
@@ -245,14 +266,20 @@ func (e *Engine) post(ctx context.Context, run storage.TriggerRun) {
 	var spec RunSpec
 	_ = json.Unmarshal(run.Spec, &spec)
 	if spec.Trigger.Concurrency == ConcurrencySerial {
-		open, err := e.stores.Triggers.OpenTriggerRuns(ctx, run.Account, run.TriggerID, "")
+		// A group is shared with the account's other automations in it;
+		// without one, the automation's own runs take turns.
+		var open []storage.TriggerRun
+		var err error
+		if run.ConcurrencyGroup != "" {
+			open, err = e.stores.Triggers.OpenTriggerRunsInGroup(ctx, run.Account, run.ConcurrencyGroup)
+		} else {
+			open, err = e.stores.Triggers.OpenTriggerRuns(ctx, run.Account, run.TriggerID, "")
+		}
 		if err != nil {
 			return
 		}
-		for _, other := range open {
-			if other.ID != run.ID && (other.Status == storage.TriggerRunRunning || other.Status == storage.TriggerRunWaiting || other.CreatedAt.Before(run.CreatedAt)) {
-				return // its turn comes after the older runs
-			}
+		if mustWait(run, open) {
+			return // its turn comes after the older runs
 		}
 	}
 	if active, err := e.stores.Triggers.CountActiveTriggerRuns(ctx, run.Account); err != nil || active >= MaxActivePerAccount {
@@ -348,13 +375,19 @@ func (e *Engine) settleExpired(ctx context.Context) {
 
 // ResolveManual finds a manual-capable automation at the head of ref and
 // returns its definition and definition commit id.
-func (e *Engine) ResolveManual(ctx context.Context, account, triggerID, ref string) (Match, string, error) {
+//
+// With definitionTree set (a changeset patchset's result tree), the
+// automation is read from that tree instead, and the returned commit is "".
+func (e *Engine) ResolveManual(ctx context.Context, account, triggerID, ref, definitionTree string) (Match, string, error) {
 	if ref == "" {
 		ref = DefaultRef
 	}
-	treeID, headCommit, err := e.headTree(ctx, ref)
-	if err != nil {
-		return Match{}, "", err
+	treeID, headCommit := definitionTree, ""
+	if treeID == "" {
+		var err error
+		if treeID, headCommit, err = e.headTree(ctx, ref); err != nil {
+			return Match{}, "", err
+		}
 	}
 	matches, problems, err := Resolve(ctx, e.opts.Tree, treeID, Event{Kind: EventManual, Account: account, Ref: ref, Only: triggerID})
 	if err != nil {
@@ -369,12 +402,16 @@ func (e *Engine) ResolveManual(ctx context.Context, account, triggerID, ref stri
 	if !contains(matches[0].Trigger.On, EventManual) {
 		return Match{}, "", fmt.Errorf("%w: automation %s does not listen for manual", storage.ErrInvalid, triggerID)
 	}
+	if definitionTree != "" {
+		matches[0].DefinitionTree = definitionTree
+	}
 	return matches[0], headCommit, nil
 }
 
 // NewManualRun queues a run of one automation by hand, at the head of ref,
-// optionally about a changeset.
-func (e *Engine) NewManualRun(ctx context.Context, account, triggerID, ref, changesetID string, inputs map[string]string, actor, triggeredBy, triggeredByKind string, envelope []byte) (*storage.TriggerRun, error) {
+// optionally about a changeset. With definitionTree set, the automation is
+// read from that tree (see ResolveManual).
+func (e *Engine) NewManualRun(ctx context.Context, account, triggerID, ref, changesetID, definitionTree string, inputs map[string]string, actor, triggeredBy, triggeredByKind string, envelope []byte) (*storage.TriggerRun, error) {
 	if ref == "" {
 		ref = DefaultRef
 	}
@@ -389,7 +426,7 @@ func (e *Engine) NewManualRun(ctx context.Context, account, triggerID, ref, chan
 		}
 		info.patchsetID, info.commitID = cs.GetCurrentPatchsetId(), cs.GetCommitId()
 	}
-	match, headCommit, err := e.ResolveManual(ctx, account, triggerID, ref)
+	match, headCommit, err := e.ResolveManual(ctx, account, triggerID, ref, definitionTree)
 	if err != nil {
 		return nil, err
 	}
@@ -437,6 +474,7 @@ func (e *Engine) Rerun(ctx context.Context, run storage.TriggerRun) (*storage.Tr
 	}
 	again := run
 	again.ID, again.Status, again.Error, again.Attempt, again.ResponseStatus, again.State = "", storage.TriggerRunQueued, "", 0, 0, nil
+	again.DetailsURL = ""
 	again.EventID = base + ".rerun." + strconv.Itoa(n)
 	created, err := e.stores.Triggers.CreateTriggerRuns(ctx, []storage.TriggerRun{again})
 	if err != nil {

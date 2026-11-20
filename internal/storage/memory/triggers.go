@@ -230,6 +230,29 @@ func (s *TriggerStore) OpenTriggerRuns(ctx context.Context, account, triggerID, 
 	}), nil
 }
 
+func (s *TriggerStore) OpenTriggerRunsInGroup(ctx context.Context, account, group string) ([]storage.TriggerRun, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if group == "" {
+		return nil, nil
+	}
+	return s.list(func(r *storage.TriggerRun) bool {
+		return r.Account == account && r.ConcurrencyGroup == group && !storage.TriggerRunFinal(r.Status)
+	}), nil
+}
+
+func (s *TriggerStore) SetTriggerRunDetailsURL(ctx context.Context, id, url string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run := s.runs[strings.TrimSpace(id)]
+	if run == nil || storage.TriggerRunFinal(run.Status) {
+		return storage.ErrConflict
+	}
+	run.DetailsURL = url
+	run.UpdatedAt = time.Now().UTC()
+	return nil
+}
+
 func (s *TriggerStore) CountActiveTriggerRuns(ctx context.Context, account string) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

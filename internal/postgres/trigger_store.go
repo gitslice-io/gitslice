@@ -23,7 +23,8 @@ const triggerRunColumns = `trigger_runs.id, accounts.slug, trigger_runs.trigger_
 	trigger_runs.target_ref, trigger_runs.definition_commit_id, trigger_runs.spec, trigger_runs.payload, trigger_runs.state,
 	trigger_runs.status, trigger_runs.attempt, trigger_runs.max_attempts, trigger_runs.error, trigger_runs.response_status,
 	trigger_runs.lease_until, trigger_runs.next_attempt_at, trigger_runs.deadline, trigger_runs.created_at,
-	trigger_runs.started_at, trigger_runs.finished_at, trigger_runs.updated_at`
+	trigger_runs.started_at, trigger_runs.finished_at, trigger_runs.updated_at,
+	trigger_runs.concurrency_group, trigger_runs.details_url`
 
 const triggerRunFrom = ` from trigger_runs join accounts on accounts.id = trigger_runs.account_id `
 
@@ -37,7 +38,8 @@ func scanTriggerRun(row scanner) (*storage.TriggerRun, error) {
 		&run.TargetRef, &run.DefinitionCommitID, &run.Spec, &run.Payload, &state,
 		&run.Status, &run.Attempt, &run.MaxAttempts, &run.Error, &run.ResponseStatus,
 		&lease, &run.NextAttemptAt, &deadline, &run.CreatedAt,
-		&started, &finished, &run.UpdatedAt); err != nil {
+		&started, &finished, &run.UpdatedAt,
+		&run.ConcurrencyGroup, &run.DetailsURL); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, storage.ErrNotFound
 		}
@@ -92,13 +94,16 @@ func (s *TriggerStore) CreateTriggerRuns(ctx context.Context, runs []storage.Tri
 		}
 		res, err := tx.ExecContext(ctx, `
 			insert into trigger_runs(id, account_id, trigger_id, folder, action, event_id, event_kind, triggered_by, triggered_by_kind,
-				changeset_id, patchset_id, commit_id, target_ref, definition_commit_id, spec, payload, state, status, max_attempts, error, finished_at)
+				changeset_id, patchset_id, commit_id, target_ref, definition_commit_id, spec, payload, state, status, max_attempts, error, finished_at,
+				concurrency_group, details_url)
 			select $1, accounts.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-				case when $18 in ('succeeded', 'failed', 'errored', 'canceled', 'timed_out') then now() end
+				case when $18 in ('succeeded', 'failed', 'errored', 'canceled', 'timed_out') then now() end,
+				$21, $22
 			from accounts where accounts.slug = $2
 			on conflict (account_id, trigger_id, event_id) do nothing
 		`, id, run.Account, run.TriggerID, run.Folder, run.Action, run.EventID, run.EventKind, run.TriggeredBy, run.TriggeredByKind,
-			run.ChangesetID, run.PatchsetID, run.CommitID, run.TargetRef, run.DefinitionCommitID, jsonOrEmpty(run.Spec), jsonOrEmpty(run.Payload), state, status, maxAttempts, run.Error)
+			run.ChangesetID, run.PatchsetID, run.CommitID, run.TargetRef, run.DefinitionCommitID, jsonOrEmpty(run.Spec), jsonOrEmpty(run.Payload), state, status, maxAttempts, run.Error,
+			run.ConcurrencyGroup, run.DetailsURL)
 		if err != nil {
 			return nil, err
 		}
@@ -242,6 +247,30 @@ func (s *TriggerStore) OpenTriggerRuns(ctx context.Context, account, triggerID, 
 		  and ($3 = '' or trigger_runs.changeset_id = $3)
 		  and trigger_runs.status in ('queued', 'running', 'waiting')
 		order by trigger_runs.created_at`, account, triggerID, changesetID)
+}
+
+func (s *TriggerStore) OpenTriggerRunsInGroup(ctx context.Context, account, group string) ([]storage.TriggerRun, error) {
+	if group == "" {
+		return nil, nil
+	}
+	return s.queryRuns(ctx, s.db, `select `+triggerRunColumns+triggerRunFrom+`
+		where accounts.slug = $1 and trigger_runs.concurrency_group = $2
+		  and trigger_runs.status in ('queued', 'running', 'waiting')
+		order by trigger_runs.created_at`, account, group)
+}
+
+func (s *TriggerStore) SetTriggerRunDetailsURL(ctx context.Context, id, url string) error {
+	res, err := s.db.ExecContext(ctx, `
+		update trigger_runs set details_url = $2, updated_at = now()
+		where id = $1 and status in ('queued', 'running', 'waiting')
+	`, strings.TrimSpace(id), url)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return storage.ErrConflict
+	}
+	return nil
 }
 
 func (s *TriggerStore) CountActiveTriggerRuns(ctx context.Context, account string) (int, error) {

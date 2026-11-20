@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"google.golang.org/protobuf/proto"
 	"strings"
 
 	"gitslice.io/gitslice/internal/model"
@@ -105,7 +106,15 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 		if err != nil {
 			return err
 		}
-		activeSnapshot, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, activeStack, state.CurrentChangesetID)
+		snapshotStack := activeStack
+		if landed {
+			// Landing rebased the closed tree onto the head it landed on, so
+			// its base no longer matches the workspace's. The workspace still
+			// holds the changesets' edits on its own base: compare with those.
+			snapshotStack = proto.Clone(activeStack).(*corev1.ChangesetStack)
+			snapshotStack.BaseCommitId = ""
+		}
+		activeSnapshot, err := r.stackBaseSnapshotThroughChangeset(ctx, conn, cfg, ws, snapshotStack, state.CurrentChangesetID)
 		if err != nil {
 			return err
 		}

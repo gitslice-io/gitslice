@@ -38,7 +38,7 @@ func (r Runner) runWorkspaceDelete(ctx context.Context, opts commandOptions, dir
 	dir = filepath.Clean(dir)
 
 	if rec, ok := r.lazyWorkspaceAt(dir); ok {
-		return r.deleteLazyWorkspace(opts, rec, force)
+		return r.deleteLazyWorkspace(ctx, opts, rec, force)
 	}
 	root, err := workspaceRootFrom(dir)
 	if err != nil {
@@ -50,9 +50,14 @@ func (r Runner) runWorkspaceDelete(ctx context.Context, opts commandOptions, dir
 	return r.deleteCheckoutWorkspace(ctx, opts, root, force)
 }
 
-func (r Runner) deleteLazyWorkspace(opts commandOptions, rec mountRecord, force bool) error {
+func (r Runner) deleteLazyWorkspace(ctx context.Context, opts commandOptions, rec mountRecord, force bool) error {
 	mounted := isMounted(rec.MountPath)
 	edits, err := r.lazyWorkspaceEdits(rec, mounted)
+	if err == nil && len(edits) > 0 {
+		// A lazy workspace keeps its edits in its local layer after gs
+		// create: those a changeset holds are on the server.
+		edits, err = r.unheldLazyEdits(ctx, rec, edits)
+	}
 	if err != nil && !force {
 		return userError("edits_unknown", "cannot tell whether "+rec.MountPath+" has local edits: "+err.Error(), "Run gs workspace delete "+rec.MountPath+" --force to delete it anyway, discarding any.")
 	}
@@ -75,6 +80,39 @@ func (r Runner) deleteLazyWorkspace(opts commandOptions, rec mountRecord, force 
 	// it is empty, never what someone put there.
 	removedDir := os.Remove(rec.MountPath) == nil || errors.Is(statErr(rec.MountPath), os.ErrNotExist)
 	return r.reportWorkspaceDelete(opts, workspaceDeleteOutput{Path: rec.MountPath, Kind: "lazy", Slice: rec.Account + ":" + rec.Slice, Deleted: true, Discarded: len(edits)}, removedDir)
+}
+
+// unheldLazyEdits drops the edits that a changeset of the workspace's
+// dependency tree holds, the same, in its current patchset.
+func (r Runner) unheldLazyEdits(ctx context.Context, rec mountRecord, edits []lazyfs.Edit) ([]lazyfs.Edit, error) {
+	var state WorkspaceState
+	err := readJSONFile(filepath.Join(r.mountGsDir(rec.ID), "state.json"), &state)
+	if errors.Is(err, os.ErrNotExist) || (err == nil && state.ActiveStackID == "") {
+		return edits, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	cfg, err := r.readUserConfig()
+	if err != nil {
+		return nil, err
+	}
+	conn, err := dialLazy(cfg.ServerAddr, r.Insecure)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close()
+	held, err := r.heldEdits(ctx, conn, cfg, state)
+	if err != nil {
+		return nil, err
+	}
+	var out []lazyfs.Edit
+	for _, edit := range edits {
+		if !held[editKey(&corev1.FileEdit{Op: edit.Op, Path: edit.Path, ContentHash: edit.ContentHash})] {
+			out = append(out, edit)
+		}
+	}
+	return out, nil
 }
 
 // lazyWorkspaceEdits lists a lazy workspace's local edits: from its mount

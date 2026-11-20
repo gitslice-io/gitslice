@@ -83,13 +83,41 @@ func (r Runner) triggerCommand(opts *commandOptions) *cobra.Command {
 
 	var runAccount, runRef, runChangeset string
 	var runInputs []string
-	var runYes, runFollow bool
+	var runYes, runFollow, runLocal bool
+	var runFromChangeset string
+	var runSecrets, runCallbacks []string
 	runCmd := &cobra.Command{
 		Use:   "run <automation-id>",
 		Short: "Run an automation that listens for manual",
-		Args:  exactArgs(1, "gs automation run <automation-id> [--account <account>] [--ref <ref>] [--changeset <id>] [-i key=value]... [--yes] [--follow]"),
+		Long: `Run an automation that listens for manual.
+
+Before an automation lands, try it in one of two ways:
+
+  --from-changeset <id>  run it on the server as defined in that open changeset
+                         (an automation that lists secrets needs an account admin)
+  --local                run a worker automation's script here with node, from
+                         the workspace's files, with a stand-in gs; secrets come
+                         from --secret NAME=value and callbacks from --callback`,
+		Args: exactArgs(1, "gs automation run <automation-id> [--account <account>] [--ref <ref>] [--changeset <id> | --from-changeset <id>] [-i key=value]... [--yes] [--follow] [--local [--secret NAME=value]... [--callback body.json]...]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runTriggerRun(cmd.Context(), *opts, runAccount, args[0], runRef, runChangeset, runInputs, runYes, runFollow)
+			if runLocal {
+				if runFromChangeset != "" || runChangeset != "" || runRef != "" {
+					return userError("invalid_argument", "--local runs the workspace's files; it takes no --ref, --changeset or --from-changeset", "")
+				}
+				return r.runLocalAutomation(cmd.Context(), *opts, runAccount, args[0], runInputs, runSecrets, runCallbacks)
+			}
+			if len(runSecrets) > 0 || len(runCallbacks) > 0 {
+				return userError("invalid_argument", "--secret and --callback go with --local", "")
+			}
+			if runFromChangeset != "" {
+				if runChangeset != "" && runChangeset != runFromChangeset {
+					return userError("invalid_argument", "--from-changeset already sets the changeset the run is about", "")
+				}
+				if runRef != "" {
+					return userError("invalid_argument", "--from-changeset takes no --ref", "")
+				}
+			}
+			return r.runTriggerRun(cmd.Context(), *opts, runAccount, args[0], runRef, runChangeset, runFromChangeset, runInputs, runYes, runFollow)
 		},
 	}
 	runCmd.Flags().StringVar(&runAccount, "account", "", "the account (default: your active account)")
@@ -98,6 +126,10 @@ func (r Runner) triggerCommand(opts *commandOptions) *cobra.Command {
 	runCmd.Flags().StringArrayVarP(&runInputs, "input", "i", nil, "key=value passed as automation input (repeatable)")
 	runCmd.Flags().BoolVarP(&runYes, "yes", "y", false, "confirm manual.confirm prompt without asking")
 	runCmd.Flags().BoolVarP(&runFollow, "follow", "f", false, "stream logs until the run finishes and exit non-zero on failure")
+	runCmd.Flags().StringVar(&runFromChangeset, "from-changeset", "", "run the automation as defined in this open changeset, before it lands")
+	runCmd.Flags().BoolVar(&runLocal, "local", false, "run a worker automation's script locally with node, from the workspace's files")
+	runCmd.Flags().StringArrayVar(&runSecrets, "secret", nil, "with --local: NAME=value for a secret the automation lists (repeatable)")
+	runCmd.Flags().StringArrayVar(&runCallbacks, "callback", nil, "with --local: a file whose contents are POSTed to onCallback after onEvent (repeatable, in order)")
 
 	rerunCmd := &cobra.Command{
 		Use:   "rerun <run-id>",
@@ -237,6 +269,7 @@ type triggerRunOutput struct {
 	CreatedAt       string            `json:"created_at"`
 	FinishedAt      string            `json:"finished_at,omitempty"`
 	Definition      string            `json:"definition_commit,omitempty"`
+	DetailsURL      string            `json:"details_url,omitempty"`
 }
 
 func triggerRunToOutput(run *corev1.TriggerRun) triggerRunOutput {
@@ -245,6 +278,7 @@ func triggerRunToOutput(run *corev1.TriggerRun) triggerRunOutput {
 		TriggeredBy: run.TriggeredBy, TriggeredByKind: run.TriggeredByKind, Inputs: run.Inputs,
 		Changeset: model.ShortChangesetID(run.ChangesetId), Attempt: run.Attempt, MaxAttempts: run.MaxAttempts,
 		Error: run.Error, CreatedAt: run.CreatedAt, FinishedAt: run.FinishedAt, Definition: run.DefinitionCommitId,
+		DetailsURL: run.DetailsUrl,
 	}
 }
 
@@ -416,6 +450,9 @@ func (r Runner) runTriggerShow(ctx context.Context, opts commandOptions, runID s
 	if out.FinishedAt != "" {
 		fmt.Fprintf(r.Stdout, "finished: %s\n", out.FinishedAt)
 	}
+	if out.DetailsURL != "" {
+		fmt.Fprintf(r.Stdout, "details: %s\n", out.DetailsURL)
+	}
 	if out.Error != "" {
 		fmt.Fprintf(r.Stdout, "error: %s\n", out.Error)
 	}
@@ -469,6 +506,7 @@ func (r Runner) followAutomationRun(ctx context.Context, runID string) (*corev1.
 	runID = strings.TrimSpace(runID)
 	var after int64
 	var finalRun *corev1.TriggerRun
+	shownDetails := ""
 	err := r.withSession(ctx, func(s *Session) error {
 		for {
 			resp, err := s.Trigger().ListTriggerRunLogs(s.Ctx(), &corev1.ListTriggerRunLogsRequest{RunId: runID, AfterSeq: after})
@@ -484,6 +522,10 @@ func (r Runner) followAutomationRun(ctx context.Context, runID string) (*corev1.
 				return triggerError(err)
 			}
 			finalRun = run
+			if run.DetailsUrl != "" && run.DetailsUrl != shownDetails {
+				shownDetails = run.DetailsUrl
+				fmt.Fprintf(r.stderr(), "details: %s\n", run.DetailsUrl)
+			}
 			if automationRunFinal(run.Status) {
 				// Drain any final lines emitted right before status flipped.
 				tail, terr := s.Trigger().ListTriggerRunLogs(s.Ctx(), &corev1.ListTriggerRunLogsRequest{RunId: runID, AfterSeq: after})
@@ -515,7 +557,7 @@ func (r Runner) followAutomationRun(ctx context.Context, runID string) (*corev1.
 	return finalRun, nil
 }
 
-func (r Runner) runTriggerRun(ctx context.Context, opts commandOptions, account, triggerID, ref, changeset string, rawInputs []string, yes, follow bool) error {
+func (r Runner) runTriggerRun(ctx context.Context, opts commandOptions, account, triggerID, ref, changeset, fromChangeset string, rawInputs []string, yes, follow bool) error {
 	inputs := map[string]string{}
 	for _, raw := range rawInputs {
 		key, value, ok := strings.Cut(raw, "=")
@@ -531,12 +573,18 @@ func (r Runner) runTriggerRun(ctx context.Context, opts commandOptions, account,
 		if account, err = s.ResolveAccount(account); err != nil {
 			return err
 		}
-		if def := lookupAutomationDef(s, account, triggerID, ref); def != nil {
-			if err := r.promptMissingInputsAndConfirm(opts, def, inputs, yes); err != nil {
-				return err
+		if fromChangeset == "" {
+			// The landed definition's prompts; a changeset's definition is
+			// checked by the server alone.
+			if def := lookupAutomationDef(s, account, triggerID, ref); def != nil {
+				if err := r.promptMissingInputsAndConfirm(opts, def, inputs, yes); err != nil {
+					return err
+				}
 			}
+		} else {
+			changeset = fromChangeset
 		}
-		req := &corev1.RunTriggerRequest{Account: account, TriggerId: triggerID, Ref: ref, Inputs: inputs}
+		req := &corev1.RunTriggerRequest{Account: account, TriggerId: triggerID, Ref: ref, Inputs: inputs, DefinitionFromChangeset: fromChangeset != ""}
 		if changeset != "" {
 			if req.ChangesetId, err = s.fullTriggerChangesetID(changeset); err != nil {
 				return err

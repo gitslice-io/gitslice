@@ -6,93 +6,146 @@ import {
   DocTable,
   InlineCode,
   NextDocCard,
-  PageHeader
+  PageHeader,
 } from "./DocParts";
 
 const fieldRows: Array<[string, string]> = [
-  ["description", "Short summary shown in the folder policy drawer, Run modal, and CLI."],
+  [
+    "description",
+    "Short summary shown in the folder policy drawer, Run modal, and CLI.",
+  ],
   [
     "on",
-    "Events that start the automation: push, tag.created, changeset.created, changeset.updated, changeset.approved, changeset.submitted, changeset.abandoned, check_run.completed, manual."
+    "Events that start the automation: push, tag.created, changeset.created, changeset.updated, changeset.approved, changeset.submitted, changeset.abandoned, check_run.completed, manual.",
   ],
   [
     "paths",
-    'Globs relative to the folder, "/" for the account root, "!" to exclude. Default: any change under the folder.'
+    'Globs relative to the folder, "/" for the account root, "!" to exclude. Default: any change under the folder.',
   ],
-  ["changes", "Filter by change kind: added, modified, deleted, moved. Default: any."],
+  [
+    "changes",
+    "Filter by change kind: added, modified, deleted, moved. Default: any.",
+  ],
   ["refs", "Target refs such as main. Default: any."],
   [
     "inputs",
-    "Typed manual inputs (type: string | choice | boolean | number, description, required, default, options, pattern). Passed as event.inputs (worker) or INPUT_<NAME> env vars (bash)."
+    "Typed manual inputs (type: string | choice | boolean | number, description, required, default, options, pattern). Passed as event.inputs (worker) or INPUT_<NAME> env vars (bash).",
   ],
   [
     "manual",
-    "Manual invocation policy: roles ([admin, writer] or [admin]), require_human (true blocks agent accounts), confirm (prompt shown before running)."
+    "Manual invocation policy: roles ([admin, writer] or [admin]), require_human (true blocks agent accounts), confirm (prompt shown before running).",
   ],
   [
     "secrets",
-    "Folder secrets the automation may use. Sealed as opaque placeholders by default in worker and http-gate bash runs."
+    "Folder secrets the automation may use. Sealed as opaque placeholders by default in worker and http-gate bash runs.",
   ],
   [
     "reveal",
-    "Subset of secrets exposed in plaintext (via gs.revealSecret(name) in workers, or $NAME and $GITSLICE_SECRETS_DIR/<NAME> in bash). Required for secrets used under egress: direct."
+    "Subset of secrets exposed in plaintext (via gs.revealSecret(name) in workers, or $NAME and $GITSLICE_SECRETS_DIR/<NAME> in bash). Required for secrets used under egress: direct.",
   ],
   [
     "network",
-    "Allowlist of public HTTPS hosts (such as api.github.com or *.cloudflare.com) permitted through Gate for worker and http-gate bash automations."
+    "Allowlist of public HTTPS hosts (such as api.github.com or *.cloudflare.com) permitted through Gate for worker and http-gate bash automations.",
   ],
   [
     "egress",
-    "Bash actions only: offline (default when network is empty), http-gate (default when network is set; sealed secrets unwrapped at egress), or direct (full TCP/UDP internet for psql, ssh, aws, gcloud; requires reveal)."
+    "Bash actions only: offline (default when network is empty), http-gate (default when network is set; sealed secrets unwrapped at egress), or direct (full TCP/UDP internet for psql, ssh, aws, gcloud; requires reveal).",
   ],
   [
     "checks",
-    "Check names the automation may report. Each becomes <folder>/<name> and can be marked required on a slice."
+    "Check names the automation may report. Each becomes <folder>/<name> and can be marked required on a slice.",
   ],
   [
     "concurrency",
-    "cancel-superseded (default for changeset events), serial, or parallel."
+    "cancel-superseded (default for changeset events), serial, or parallel.",
+  ],
+  [
+    "concurrency_group",
+    "Worker and bash actions: a name shared with the account's other automations (such as prod-server for deploy and rollback). No two runs in one group run at once; the others wait their turn, oldest first. Implies serial.",
   ],
   [
     "timeout",
-    "Maximum run duration. Default 5m (max 15m) for bash actions; default 1h (max 7d) for worker/check runs."
+    "Maximum run duration. Default 5m (max 15m) for bash actions; default 1h (max 7d) for worker/check runs.",
   ],
-  ["retry", "Retry an interrupted worker or bash run up to 5 times. Default 0 (at most once)."],
+  [
+    "retry",
+    "Retry an interrupted worker or bash run up to 5 times. Default 0 (at most once).",
+  ],
   [
     "action",
-    "http (url, headers, sign), worker (.js/.mjs module under .gitslice/), bash (Cloudflare Container shell run/script), or check (checks from the folder's checks.yaml)."
-  ]
+    "http (url, headers, sign), worker (.js/.mjs module under .gitslice/), bash (Cloudflare Container shell run/script), or check (checks from the folder's checks.yaml).",
+  ],
 ];
 
 const bashRuntimeRows: Array<[string, string]> = [
-  ["base (default)", "Debian slim with bash, curl, jq, git, openssh-client, openssl, zstd, and gs-auto."],
+  [
+    "base (default)",
+    "Debian slim with bash, curl, jq, git, openssh-client, openssl, zstd, and gs-auto.",
+  ],
   ["node", "base + Node.js 22 LTS, npm, and pnpm."],
   ["python", "base + Python 3.12 and uv."],
   ["go", "base + Go 1.24 toolchain."],
-  ["cloud", "base + gcloud, aws, kubectl, psql, gh, and terraform for deploy and ops runbooks."]
+  [
+    "cloud",
+    "base + gcloud, aws, kubectl, psql, gh, and terraform for deploy and ops runbooks.",
+  ],
 ];
 
 const apiRows: Array<[string, string]> = [
-  ["onEvent(event, gs)", "Entry point called once when the worker automation starts."],
-  ["onCallback(request, gs)", "Called for each HTTP POST to the run's callback URL until the run finishes."],
+  [
+    "onEvent(event, gs)",
+    "Entry point called once when the worker automation starts.",
+  ],
+  [
+    "onCallback(request, gs)",
+    "Called for each HTTP POST to the run's callback URL until the run finishes.",
+  ],
   [
     "gs.checks.create / .update",
-    "Report check runs with status, summary, detailsUrl, and file annotations (path, line, message)."
+    "Report check runs with status, summary, detailsUrl, and file annotations (path, line, message).",
   ],
-  ["gs.files.read(path) / .list(dir)", 'Read files at the changeset revision, or at the base with { at: "base" }.'],
+  [
+    "gs.files.read(path) / .list(dir)",
+    'Read files at the changeset revision, or at the base with { at: "base" }.',
+  ],
   ["gs.changeset.get()", "Fetch the changeset and its patchsets."],
   [
     "gs.secret(name)",
-    "Returns an opaque placeholder that Gate swaps for the real secret value on outbound requests to allowed network hosts."
+    "Returns an opaque placeholder that Gate swaps for the real secret value on outbound requests to allowed network hosts. Put it in a URL's path or query, a header, or the body; it cannot be the whole URL, since a secret may never decide where a request goes.",
   ],
   [
     "gs.revealSecret(name)",
-    "Returns the raw value for a secret listed in reveal when script code must compute with it directly."
+    "Returns the raw value for a secret listed in reveal when script code must compute with it directly.",
   ],
-  ["gs.callbackUrl(data)", "Generate a signed callback URL where an external system can POST results back to this run."],
-  ["gs.state.get() / .set(value)", "Persist up to 64 KiB of JSON state across callbacks within the run."],
-  ["gs.idempotencyKey(label)", "Deterministic key that stays identical across retries of the same run."],
-  ["console.log", "Writes to the run's log with secret values masked as ***."]
+  [
+    "gs.callbackUrl(data)",
+    "Generate a signed callback URL where an external system can POST results back to this run.",
+  ],
+  [
+    "gs.waitForCallback()",
+    "Keep the run open after the current call returns, until gs.finish(), gs.fail() or the timeout.",
+  ],
+  [
+    "gs.finish()",
+    "End the run as succeeded (or by its checks' results) once the current call returns.",
+  ],
+  [
+    "gs.fail(message)",
+    "End the run as failed with your own message, without a stack trace, once the current call returns.",
+  ],
+  [
+    "gs.setDetailsUrl(url)",
+    "Link the run to an https page outside Gitslice, such as the build it started; gs auto show and --follow print it.",
+  ],
+  [
+    "gs.state.get() / .set(value)",
+    "Persist up to 64 KiB of JSON state across callbacks within the run.",
+  ],
+  [
+    "gs.idempotencyKey(label)",
+    "Deterministic key that stays identical across retries of the same run.",
+  ],
+  ["console.log", "Writes to the run's log with secret values masked as ***."],
 ];
 
 export function AutomationsDoc() {
@@ -107,34 +160,44 @@ export function AutomationsDoc() {
       <DocSectionCard title="How automations work">
         <ul className="space-y-2.5">
           <BulletPoint label="Committed beside your code:">
-            Put <InlineCode>.gitslice/automations.yaml</InlineCode> in any folder. Changes in that
-            folder or below it evaluate its automations and those of every ancestor folder,
-            regardless of which slice authored the change. Inspect effective automations, checks,
-            owners, and secrets with <InlineCode>gs policy</InlineCode> or the folder{" "}
-            <span className="font-semibold text-zinc-950 dark:text-zinc-50">Policy</span> drawer in
-            the web UI.
+            Put <InlineCode>.gitslice/automations.yaml</InlineCode> in any
+            folder. Changes in that folder or below it evaluate its automations
+            and those of every ancestor folder, regardless of which slice
+            authored the change. Inspect effective automations, checks, owners,
+            and secrets with <InlineCode>gs policy</InlineCode> or the folder{" "}
+            <span className="font-semibold text-zinc-950 dark:text-zinc-50">
+              Policy
+            </span>{" "}
+            drawer in the web UI.
           </BulletPoint>
           <BulletPoint label="Four action types:">
-            <InlineCode>http</InlineCode> sends a signed JSON webhook; <InlineCode>worker</InlineCode>{" "}
-            runs a JavaScript ES module from <InlineCode>.gitslice/</InlineCode> in an isolated
-            Cloudflare Dynamic Worker; <InlineCode>bash</InlineCode> executes shell commands or
-            scripts inside a single-run Cloudflare Container; and <InlineCode>check</InlineCode>{" "}
-            dispatches checks from <InlineCode>.gitslice/checks.yaml</InlineCode> on the account CI
+            <InlineCode>http</InlineCode> sends a signed JSON webhook;{" "}
+            <InlineCode>worker</InlineCode> runs a JavaScript ES module from{" "}
+            <InlineCode>.gitslice/</InlineCode> in an isolated Cloudflare
+            Dynamic Worker; <InlineCode>bash</InlineCode> executes shell
+            commands or scripts inside a single-run Cloudflare Container; and{" "}
+            <InlineCode>check</InlineCode> dispatches checks from{" "}
+            <InlineCode>.gitslice/checks.yaml</InlineCode> on the account CI
             runner pool.
           </BulletPoint>
           <BulletPoint label="Secure manual runbooks:">
-            Add <InlineCode>manual</InlineCode> to <InlineCode>on</InlineCode> with typed{" "}
-            <InlineCode>inputs</InlineCode> and optional <InlineCode>manual.roles</InlineCode>,{" "}
-            <InlineCode>manual.require_human</InlineCode>, and <InlineCode>manual.confirm</InlineCode>{" "}
-            guards. Admins can expose safe, locked-down capabilities (such as{" "}
-            <InlineCode>deploy-staging</InlineCode>) to writers or agents without ever handing them
-            raw credentials.
+            Add <InlineCode>manual</InlineCode> to <InlineCode>on</InlineCode>{" "}
+            with typed <InlineCode>inputs</InlineCode> and optional{" "}
+            <InlineCode>manual.roles</InlineCode>,{" "}
+            <InlineCode>manual.require_human</InlineCode>, and{" "}
+            <InlineCode>manual.confirm</InlineCode> guards. Admins can expose
+            safe, locked-down capabilities (such as{" "}
+            <InlineCode>deploy-staging</InlineCode>) to writers or agents
+            without ever handing them raw credentials.
           </BulletPoint>
           <BulletPoint label="Trusted landed definitions:">
-            Gitslice always loads <InlineCode>.gitslice/automations.yaml</InlineCode> and referenced
-            scripts from the head of the target ref (<InlineCode>refs/global/main</InlineCode>),
-            never from an unsubmitted changeset. Any edit under <InlineCode>.gitslice/</InlineCode>{" "}
-            requires approval from an account owner or admin.
+            Gitslice always loads{" "}
+            <InlineCode>.gitslice/automations.yaml</InlineCode> and referenced
+            scripts from the head of the target ref (
+            <InlineCode>refs/global/main</InlineCode>), never from an
+            unsubmitted changeset. Any edit under{" "}
+            <InlineCode>.gitslice/</InlineCode> requires approval from an
+            account owner or admin.
           </BulletPoint>
         </ul>
       </DocSectionCard>
@@ -189,49 +252,71 @@ automations:
           Authorization: "Bearer \${{ secrets.DEPLOY_TOKEN }}"
         sign: DEPLOY_HMAC                # X-Gitslice-Signature-256: sha256=<hex>`}</CommandBlock>
         <p>
-          For <InlineCode>http</InlineCode> actions with <InlineCode>sign</InlineCode> set, Gitslice
-          sends <InlineCode>X-Gitslice-Signature-256</InlineCode> formatted as{" "}
-          <InlineCode>sha256=&lt;hex&gt;</InlineCode> (HMAC-SHA256 of the raw request body keyed by
-          the named <DocLink section="secrets">secret</DocLink>), along with{" "}
-          <InlineCode>X-Gitslice-Event-ID</InlineCode> so receivers can deduplicate retries.
+          For <InlineCode>http</InlineCode> actions with{" "}
+          <InlineCode>sign</InlineCode> set, Gitslice sends{" "}
+          <InlineCode>X-Gitslice-Signature-256</InlineCode> formatted as{" "}
+          <InlineCode>sha256=&lt;hex&gt;</InlineCode> (HMAC-SHA256 of the raw
+          request body keyed by the named{" "}
+          <DocLink section="secrets">secret</DocLink>), along with{" "}
+          <InlineCode>X-Gitslice-Event-ID</InlineCode> so receivers can
+          deduplicate retries.
         </p>
-        <DocTable ariaLabel="automations.yaml fields" firstColMono head={["Field", "Meaning"]} rows={fieldRows} />
+        <DocTable
+          ariaLabel="automations.yaml fields"
+          firstColMono
+          head={["Field", "Meaning"]}
+          rows={fieldRows}
+        />
       </DocSectionCard>
 
       <DocSectionCard title="Bash automations on Cloudflare Containers">
         <p>
-          A <InlineCode>bash</InlineCode> action runs inline <InlineCode>run:</InlineCode> commands
-          or a <InlineCode>script:</InlineCode> under <InlineCode>.gitslice/</InlineCode> inside a
-          fresh, single-run Cloudflare Container destroyed immediately upon exit. Inputs are passed
-          strictly as data (<InlineCode>$INPUT_&lt;UPPER_SNAKE&gt;</InlineCode> and{" "}
-          <InlineCode>$GITSLICE_EVENT_FILE</InlineCode>) — never text-interpolated into shell source.
+          A <InlineCode>bash</InlineCode> action runs inline{" "}
+          <InlineCode>run:</InlineCode> commands or a{" "}
+          <InlineCode>script:</InlineCode> under{" "}
+          <InlineCode>.gitslice/</InlineCode> inside a fresh, single-run
+          Cloudflare Container destroyed immediately upon exit. Inputs are
+          passed strictly as data (
+          <InlineCode>$INPUT_&lt;UPPER_SNAKE&gt;</InlineCode> and{" "}
+          <InlineCode>$GITSLICE_EVENT_FILE</InlineCode>) — never
+          text-interpolated into shell source.
         </p>
-        <DocTable ariaLabel="bash container runtimes" firstColMono head={["Runtime", "Preinstalled tools"]} rows={bashRuntimeRows} />
+        <DocTable
+          ariaLabel="bash container runtimes"
+          firstColMono
+          head={["Runtime", "Preinstalled tools"]}
+          rows={bashRuntimeRows}
+        />
         <ul className="mt-4 space-y-2.5">
           <BulletPoint label="Three egress modes:">
-            Omit <InlineCode>network</InlineCode> for <strong>offline</strong> execution (no public
-            internet). Specify <InlineCode>network: [hosts...]</InlineCode> for{" "}
-            <strong>http-gate</strong> (default): Cloudflare disables direct internet and intercepts
-            HTTPS through <InlineCode>Gate</InlineCode>, unsealing{" "}
-            <InlineCode>$SECRET</InlineCode> placeholders only for allowlisted hosts so raw secrets
-            never enter container RAM. Use <InlineCode>egress: direct</InlineCode> +{" "}
-            <InlineCode>reveal: [SECRET]</InlineCode> for non-HTTP TCP/gRPC CLIs such as{" "}
-            <InlineCode>psql</InlineCode>, <InlineCode>ssh</InlineCode>,{" "}
+            Omit <InlineCode>network</InlineCode> for <strong>offline</strong>{" "}
+            execution (no public internet). Specify{" "}
+            <InlineCode>network: [hosts...]</InlineCode> for{" "}
+            <strong>http-gate</strong> (default): Cloudflare disables direct
+            internet and intercepts HTTPS through <InlineCode>Gate</InlineCode>,
+            unsealing <InlineCode>$SECRET</InlineCode> placeholders only for
+            allowlisted hosts so raw secrets never enter container RAM. Use{" "}
+            <InlineCode>egress: direct</InlineCode> +{" "}
+            <InlineCode>reveal: [SECRET]</InlineCode> for non-HTTP TCP/gRPC CLIs
+            such as <InlineCode>psql</InlineCode>, <InlineCode>ssh</InlineCode>,{" "}
             <InlineCode>kubectl</InlineCode>, <InlineCode>aws</InlineCode>, or{" "}
             <InlineCode>gcloud</InlineCode>.
           </BulletPoint>
           <BulletPoint label="Secrets as env vars and tmpfs files:">
-            Every declared secret is injected as <InlineCode>$NAME</InlineCode> and written to an
-            in-memory file at <InlineCode>$GITSLICE_SECRETS_DIR/&lt;NAME&gt;</InlineCode> (
-            <InlineCode>/run/secrets/&lt;NAME&gt;</InlineCode>, mode <InlineCode>0400</InlineCode>),
-            making multi-line credentials such as GCP service account JSON or SSH private keys clean
-            to pass via <InlineCode>--key-file</InlineCode> or <InlineCode>-i</InlineCode>. All log
-            output is scrubbed of secret values in both the dispatcher and the server.
+            Every declared secret is injected as <InlineCode>$NAME</InlineCode>{" "}
+            and written to an in-memory file at{" "}
+            <InlineCode>$GITSLICE_SECRETS_DIR/&lt;NAME&gt;</InlineCode> (
+            <InlineCode>/run/secrets/&lt;NAME&gt;</InlineCode>, mode{" "}
+            <InlineCode>0400</InlineCode>), making multi-line credentials such
+            as GCP service account JSON or SSH private keys clean to pass via{" "}
+            <InlineCode>--key-file</InlineCode> or <InlineCode>-i</InlineCode>.
+            All log output is scrubbed of secret values in both the dispatcher
+            and the server.
           </BulletPoint>
           <BulletPoint label="Helper CLI inside the container:">
             Use <InlineCode>gs-auto check create|update</InlineCode> and{" "}
-            <InlineCode>gs-auto state get|set</InlineCode> to report checks or persist run state
-            without exposing the run token to shell code.
+            <InlineCode>gs-auto state get|set</InlineCode> to report checks or
+            persist run state without exposing the run token to shell code.
           </BulletPoint>
         </ul>
         <CommandBlock label="direct-egress database migration example">{`# services/billing/.gitslice/automations.yaml
@@ -257,12 +342,13 @@ automations:
 
       <DocSectionCard title="Start CI checks from an automation">
         <p>
-          A <InlineCode>check</InlineCode> action runs checks from the same folder&apos;s{" "}
-          <InlineCode>.gitslice/checks.yaml</InlineCode> on the account&apos;s CI runner pool —
-          letting <InlineCode>automations.yaml</InlineCode> control <em>when</em> CI runs while{" "}
-          <InlineCode>checks.yaml</InlineCode> defines <em>how</em>. Set{" "}
-          <InlineCode>started_by: automation</InlineCode> on those checks so they no longer run
-          automatically on every patchset.
+          A <InlineCode>check</InlineCode> action runs checks from the same
+          folder&apos;s <InlineCode>.gitslice/checks.yaml</InlineCode> on the
+          account&apos;s CI runner pool — letting{" "}
+          <InlineCode>automations.yaml</InlineCode> control <em>when</em> CI
+          runs while <InlineCode>checks.yaml</InlineCode> defines <em>how</em>.
+          Set <InlineCode>started_by: automation</InlineCode> on those checks so
+          they no longer run automatically on every patchset.
         </p>
         <CommandBlock label="automation-started checks example">{`# .gitslice/checks.yaml
 version: 1
@@ -285,10 +371,11 @@ automations:
       <DocSectionCard title="Worker scripts">
         <p>
           A worker automation is a standard JavaScript ES module stored under{" "}
-          <InlineCode>.gitslice/</InlineCode>. It may import sibling modules from the same{" "}
-          <InlineCode>.gitslice</InlineCode> folder and has standard Web APIs (
-          <InlineCode>fetch</InlineCode>, <InlineCode>crypto.subtle</InlineCode>,{" "}
-          <InlineCode>URL</InlineCode>), with no external npm packages.
+          <InlineCode>.gitslice/</InlineCode>. It may import sibling modules
+          from the same <InlineCode>.gitslice</InlineCode> folder and has
+          standard Web APIs (<InlineCode>fetch</InlineCode>,{" "}
+          <InlineCode>crypto.subtle</InlineCode>, <InlineCode>URL</InlineCode>),
+          with no external npm packages.
         </p>
         <CommandBlock label="automation worker script example">{`// services/billing/.gitslice/scripts/ci.js
 export default {
@@ -319,7 +406,12 @@ export default {
     gs.finish();
   },
 };`}</CommandBlock>
-        <DocTable ariaLabel="worker script API" firstColMono head={["API", "Purpose"]} rows={apiRows} />
+        <DocTable
+          ariaLabel="worker script API"
+          firstColMono
+          head={["API", "Purpose"]}
+          rows={apiRows}
+        />
       </DocSectionCard>
 
       <DocSectionCard title="Inspect and run automations">
@@ -331,10 +423,37 @@ gs auto run <id> -i version=v1.4.2 --yes --follow    # invoke a manual automatio
 gs auto rerun <run-id>                               # rerun a finished automation
 gs auto cancel <run-id>                              # stop a queued, running, or waiting run`}</CommandBlock>
         <p>
+          An http automation ends when its endpoint accepts the post: its run
+          says <InlineCode>delivered</InlineCode> in the log, and what the
+          endpoint does next is not tracked. To follow an outside job to its
+          end, use a worker that passes{" "}
+          <InlineCode>gs.callbackUrl()</InlineCode> and calls{" "}
+          <InlineCode>gs.waitForCallback()</InlineCode>.
+        </p>
+      </DocSectionCard>
+
+      <DocSectionCard title="Try an automation before it lands">
+        <CommandBlock label="trying automations">{`# On the server, as defined in an open changeset (one that lists secrets needs an account admin)
+gs auto run <id> --from-changeset <changeset> --follow
+
+# Locally with node, from the workspace's files, with a stand-in gs
+gs auto run <id> --local --secret TOKEN=test-value --callback build-done.json`}</CommandBlock>
+        <p>
+          <InlineCode>--local</InlineCode> runs a worker's{" "}
+          <InlineCode>onEvent</InlineCode>, then{" "}
+          <InlineCode>onCallback</InlineCode> once per{" "}
+          <InlineCode>--callback</InlineCode> file, with the same rules as Gate:
+          https only, hosts in <InlineCode>network</InlineCode>, and secrets
+          only where they cannot change a request's origin. Secrets without a{" "}
+          <InlineCode>--secret</InlineCode> value stay placeholders.
+        </p>
+        <p>
           In the web UI, open the{" "}
-          <span className="font-semibold text-zinc-950 dark:text-zinc-50">Policy</span> drawer on any
-          folder to inspect effective automations, run manual runbooks through the typed input modal,
-          and stream live logs.
+          <span className="font-semibold text-zinc-950 dark:text-zinc-50">
+            Policy
+          </span>{" "}
+          drawer on any folder to inspect effective automations, run manual
+          runbooks through the typed input modal, and stream live logs.
         </p>
       </DocSectionCard>
 

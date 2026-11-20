@@ -413,6 +413,33 @@ func local_request_TriggerRunService_SetRunState_0(ctx context.Context, marshale
 	return msg, metadata, err
 }
 
+func request_TriggerRunService_SetRunDetailsUrl_0(ctx context.Context, marshaler runtime.Marshaler, client TriggerRunServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq SetTriggerRunDetailsUrlRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	msg, err := client.SetRunDetailsUrl(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_TriggerRunService_SetRunDetailsUrl_0(ctx context.Context, marshaler runtime.Marshaler, server TriggerRunServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq SetTriggerRunDetailsUrlRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.SetRunDetailsUrl(ctx, &protoReq)
+	return msg, metadata, err
+}
+
 func request_TriggerRunService_CreateCheck_0(ctx context.Context, marshaler runtime.Marshaler, client TriggerRunServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq CreateTriggerCheckRequest
@@ -843,6 +870,26 @@ func RegisterTriggerRunServiceHandlerServer(ctx context.Context, mux *runtime.Se
 			return
 		}
 		forward_TriggerRunService_SetRunState_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_TriggerRunService_SetRunDetailsUrl_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/gitslice.core.v1.TriggerRunService/SetRunDetailsUrl", runtime.WithHTTPPathPattern("/gitslice.core.v1.TriggerRunService/SetRunDetailsUrl"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_TriggerRunService_SetRunDetailsUrl_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_TriggerRunService_SetRunDetailsUrl_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 	mux.Handle(http.MethodPost, pattern_TriggerRunService_CreateCheck_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
@@ -1283,6 +1330,23 @@ func RegisterTriggerRunServiceHandlerClient(ctx context.Context, mux *runtime.Se
 		}
 		forward_TriggerRunService_SetRunState_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_TriggerRunService_SetRunDetailsUrl_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/gitslice.core.v1.TriggerRunService/SetRunDetailsUrl", runtime.WithHTTPPathPattern("/gitslice.core.v1.TriggerRunService/SetRunDetailsUrl"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_TriggerRunService_SetRunDetailsUrl_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_TriggerRunService_SetRunDetailsUrl_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodPost, pattern_TriggerRunService_CreateCheck_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -1372,29 +1436,31 @@ func RegisterTriggerRunServiceHandlerClient(ctx context.Context, mux *runtime.Se
 }
 
 var (
-	pattern_TriggerRunService_StartRun_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "StartRun"}, ""))
-	pattern_TriggerRunService_StartCallback_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "StartCallback"}, ""))
-	pattern_TriggerRunService_FinishRun_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "FinishRun"}, ""))
-	pattern_TriggerRunService_AppendRunLog_0  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "AppendRunLog"}, ""))
-	pattern_TriggerRunService_GetRunState_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "GetRunState"}, ""))
-	pattern_TriggerRunService_SetRunState_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "SetRunState"}, ""))
-	pattern_TriggerRunService_CreateCheck_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "CreateCheck"}, ""))
-	pattern_TriggerRunService_UpdateCheck_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "UpdateCheck"}, ""))
-	pattern_TriggerRunService_ReadFile_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "ReadFile"}, ""))
-	pattern_TriggerRunService_ListDirectory_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "ListDirectory"}, ""))
-	pattern_TriggerRunService_GetChangeset_0  = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "GetChangeset"}, ""))
+	pattern_TriggerRunService_StartRun_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "StartRun"}, ""))
+	pattern_TriggerRunService_StartCallback_0    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "StartCallback"}, ""))
+	pattern_TriggerRunService_FinishRun_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "FinishRun"}, ""))
+	pattern_TriggerRunService_AppendRunLog_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "AppendRunLog"}, ""))
+	pattern_TriggerRunService_GetRunState_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "GetRunState"}, ""))
+	pattern_TriggerRunService_SetRunState_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "SetRunState"}, ""))
+	pattern_TriggerRunService_SetRunDetailsUrl_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "SetRunDetailsUrl"}, ""))
+	pattern_TriggerRunService_CreateCheck_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "CreateCheck"}, ""))
+	pattern_TriggerRunService_UpdateCheck_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "UpdateCheck"}, ""))
+	pattern_TriggerRunService_ReadFile_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "ReadFile"}, ""))
+	pattern_TriggerRunService_ListDirectory_0    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "ListDirectory"}, ""))
+	pattern_TriggerRunService_GetChangeset_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.TriggerRunService", "GetChangeset"}, ""))
 )
 
 var (
-	forward_TriggerRunService_StartRun_0      = runtime.ForwardResponseMessage
-	forward_TriggerRunService_StartCallback_0 = runtime.ForwardResponseMessage
-	forward_TriggerRunService_FinishRun_0     = runtime.ForwardResponseMessage
-	forward_TriggerRunService_AppendRunLog_0  = runtime.ForwardResponseMessage
-	forward_TriggerRunService_GetRunState_0   = runtime.ForwardResponseMessage
-	forward_TriggerRunService_SetRunState_0   = runtime.ForwardResponseMessage
-	forward_TriggerRunService_CreateCheck_0   = runtime.ForwardResponseMessage
-	forward_TriggerRunService_UpdateCheck_0   = runtime.ForwardResponseMessage
-	forward_TriggerRunService_ReadFile_0      = runtime.ForwardResponseMessage
-	forward_TriggerRunService_ListDirectory_0 = runtime.ForwardResponseMessage
-	forward_TriggerRunService_GetChangeset_0  = runtime.ForwardResponseMessage
+	forward_TriggerRunService_StartRun_0         = runtime.ForwardResponseMessage
+	forward_TriggerRunService_StartCallback_0    = runtime.ForwardResponseMessage
+	forward_TriggerRunService_FinishRun_0        = runtime.ForwardResponseMessage
+	forward_TriggerRunService_AppendRunLog_0     = runtime.ForwardResponseMessage
+	forward_TriggerRunService_GetRunState_0      = runtime.ForwardResponseMessage
+	forward_TriggerRunService_SetRunState_0      = runtime.ForwardResponseMessage
+	forward_TriggerRunService_SetRunDetailsUrl_0 = runtime.ForwardResponseMessage
+	forward_TriggerRunService_CreateCheck_0      = runtime.ForwardResponseMessage
+	forward_TriggerRunService_UpdateCheck_0      = runtime.ForwardResponseMessage
+	forward_TriggerRunService_ReadFile_0         = runtime.ForwardResponseMessage
+	forward_TriggerRunService_ListDirectory_0    = runtime.ForwardResponseMessage
+	forward_TriggerRunService_GetChangeset_0     = runtime.ForwardResponseMessage
 )

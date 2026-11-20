@@ -54,6 +54,11 @@ type TriggerRun struct {
 	TargetRef   string
 	// DefinitionCommitID is the commit the trigger was read from.
 	DefinitionCommitID string
+	// ConcurrencyGroup is the trigger's concurrency_group: no two runs of
+	// the account's triggers in one group run at once.
+	ConcurrencyGroup string
+	// DetailsURL is an outside page about the run (gs.setDetailsUrl).
+	DetailsURL string
 	// Spec is the trigger as resolved (JSON), Payload the event envelope
 	// (JSON), State what the script kept between calls (JSON or nil).
 	Spec    []byte
@@ -128,6 +133,11 @@ type TriggerStore interface {
 	// OpenTriggerRuns lists the account's queued, running and waiting runs
 	// of a trigger, for one changeset when changesetID is set.
 	OpenTriggerRuns(ctx context.Context, account, triggerID, changesetID string) ([]TriggerRun, error)
+	// OpenTriggerRunsInGroup lists the account's queued, running and waiting
+	// runs of every trigger in a concurrency group, oldest first.
+	OpenTriggerRunsInGroup(ctx context.Context, account, group string) ([]TriggerRun, error)
+	// SetTriggerRunDetailsURL sets the details URL of an unfinished run.
+	SetTriggerRunDetailsURL(ctx context.Context, id, url string) error
 	// CountActiveTriggerRuns counts the account's running and waiting runs.
 	CountActiveTriggerRuns(ctx context.Context, account string) (int, error)
 	// CountActiveTriggerRunsByAction counts the account's running and waiting

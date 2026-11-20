@@ -48,6 +48,9 @@ service TriggerRunService {
   rpc AppendRunLog(AppendTriggerRunLogRequest) returns (Empty);
   rpc GetRunState(TriggerRunTokenRequest) returns (TriggerRunState);
   rpc SetRunState(SetTriggerRunStateRequest) returns (Empty);
+  // SetRunDetailsUrl links the run to an outside page, such as the build it
+  // started (gs.setDetailsUrl).
+  rpc SetRunDetailsUrl(SetTriggerRunDetailsUrlRequest) returns (Empty);
   rpc CreateCheck(CreateTriggerCheckRequest) returns (CheckRun);
   rpc UpdateCheck(UpdateTriggerCheckRequest) returns (CheckRun);
   rpc ReadFile(TriggerReadFileRequest) returns (TriggerReadFileResponse);
@@ -160,6 +163,8 @@ message TriggerRun {
   string triggered_by = 22;
   string triggered_by_kind = 23;
   map<string, string> inputs = 24;
+  // An outside page about the run, such as the build a worker started.
+  string details_url = 25;
 }
 
 message ListTriggersRequest {
@@ -282,6 +287,10 @@ message RunTriggerRequest {
   string changeset_id = 4;
   // Passed to the script as event.inputs.
   map<string, string> inputs = 5;
+  // Run the automation as defined in changeset_id's current patchset, to
+  // try a new or changed automation before it lands. An automation that
+  // lists secrets or reveal then needs an account admin.
+  bool definition_from_changeset = 6;
 }
 
 message RerunTriggerRunRequest {
@@ -365,6 +374,12 @@ message AppendTriggerRunLogRequest {
 
 message TriggerRunState {
   string state_json = 1;
+}
+
+message SetTriggerRunDetailsUrlRequest {
+  string run_token = 1;
+  // An https URL, at most 2048 bytes.
+  string details_url = 2;
 }
 
 message SetTriggerRunStateRequest {

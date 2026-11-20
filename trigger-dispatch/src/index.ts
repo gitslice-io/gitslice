@@ -74,6 +74,8 @@ interface RunContext {
 class Gs extends RpcTarget {
   waiting = false;
   finished = false;
+  failed = false;
+  failMessage = "";
 
   constructor(
     private readonly api: Api,
@@ -152,6 +154,26 @@ class Gs extends RpcTarget {
   finish(): void {
     this.finished = true;
   }
+
+  // fail ends the run as failed (not errored) with the script's own message
+  // and no stack trace, once the current call returns.
+  fail(message: string): void {
+    this.failed = true;
+    this.failMessage = String(message).slice(0, 2000);
+  }
+
+  // setDetailsUrl links the run to a page outside Gitslice, such as the
+  // external build it started; the run's page and gs automation show it.
+  async setDetailsUrl(url: string): Promise<void> {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error(`details URL ${JSON.stringify(url)} is not a URL`);
+    }
+    if (parsed.protocol !== "https:") throw new Error("a details URL must use https");
+    await this.call("SetRunDetailsUrl", { detailsUrl: parsed.href });
+  }
 }
 
 // placeholders seals each listed secret for this tenant/folder/script scope,
@@ -211,6 +233,10 @@ async function execute(env: Env, ctx: ExecutionContext, api: Api, start: StartRe
   } catch (err) {
     outcome = "errored";
     error = err instanceof Error ? (err.stack ?? err.message) : String(err);
+  }
+  if (outcome === "succeeded" && gs.failed) {
+    outcome = "failed";
+    error = gs.failMessage || "the script failed the run";
   }
   try {
     await api.call("FinishRun", { runToken: start.runToken, outcome, error, wait: gs.waiting, finish: gs.finished, callback: kind === "callback" });

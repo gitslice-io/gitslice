@@ -148,6 +148,7 @@ These are the answers to the questions raised on 2026-10-28. The user chose
 | `network` | no | `worker` only: hosts the script may call (exact, or `*.example.com`). Default: none, so the script reaches only the Gitslice API. |
 | `checks` | no | Local check names the trigger may report. They become `<dir>/<name>` and can be listed in `required_checks`. |
 | `concurrency` | no | `cancel-superseded` (default for changeset events), `serial` (one run at a time, in order), or `parallel`. |
+| `concurrency_group` | no | Worker and bash actions: a lock shared with the account's other automations of the same group name, such as `prod-server` for deploy and rollback. One run of the group at a time, oldest first; implies `serial` (`trigger_runs.concurrency_group`). |
 | `timeout` | no | Longest wait for callbacks, default `1h`, at most `7d`. Script execution itself is bounded by Worker limits. |
 | `retry` | no | `worker` only: run an interrupted script again, up to N times (at most 5). Default 0, at most once. See "Delivery guarantees". |
 | `action` | yes | Exactly one of `http`, `worker` or `check` (names of checks in the folder's `checks.yaml`, run on the slice's CI daemon; built 2026-10-29). |
@@ -205,6 +206,12 @@ The module's default export may have:
 - `onEvent(event, gs)`: called once per run;
 - `onCallback(request, gs)`: called for each request to the run's callback
   URL, until the run finishes or times out.
+
+A call can end the run on purpose: `gs.finish()` (succeeded, or by its
+checks' results) or `gs.fail(message)` (failed, with the script's message and
+no stack trace). A thrown error ends it as errored. `gs.setDetailsUrl(url)`
+links the run to an https page outside Gitslice, such as the build it
+started (`trigger_runs.details_url`).
 
 A run finishes when `onEvent` returns, unless the script called
 `gs.waitForCallback()` or created a check that is still `queued` or `running`.

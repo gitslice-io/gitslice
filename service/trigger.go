@@ -192,9 +192,40 @@ func (s *TriggerService) RunTrigger(ctx context.Context, req *corev1.RunTriggerR
 	if err := s.ensureTriggerFolderAccess(ctx, subjectID, account, folder, authz.ActionUseSecrets); err != nil {
 		return nil, err
 	}
-	match, _, err := s.Engine.ResolveManual(ctx, account, triggerID, ref)
+	// Trying a definition from a changeset before it lands.
+	definitionTree, definitionPatchset := "", ""
+	if req.GetDefinitionFromChangeset() {
+		id := strings.TrimSpace(req.GetChangesetId())
+		if id == "" {
+			return nil, status.Error(codes.InvalidArgument, "definition_from_changeset needs changeset_id")
+		}
+		cs, err := s.authorizedChangeset(ctx, subjectID, id, authz.ActionRead)
+		if err != nil {
+			return nil, err
+		}
+		switch cs.GetStatus() {
+		case "submitted", "pending_publish", "abandoned":
+			return nil, status.Errorf(codes.FailedPrecondition, "changeset %s is %s; only an open changeset's definitions can be tried", storage.ShortChangesetID(cs.GetId()), cs.GetStatus())
+		}
+		for _, ps := range cs.GetPatchsets() {
+			if ps.GetId() == cs.GetCurrentPatchsetId() {
+				definitionTree, definitionPatchset = ps.GetResultTreeId(), ps.GetId()
+			}
+		}
+		if definitionTree == "" {
+			return nil, status.Errorf(codes.FailedPrecondition, "changeset %s has no result tree for its current patchset", storage.ShortChangesetID(cs.GetId()))
+		}
+	}
+	match, _, err := s.Engine.ResolveManual(ctx, account, triggerID, ref, definitionTree)
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	if definitionTree != "" && (len(match.Trigger.Secrets) > 0 || len(match.Trigger.Reveal) > 0) {
+		// An unreviewed script with secrets could send them anywhere; only
+		// those who can read the secrets anyway may run one.
+		if err := authorizeAccount(ctx, s.Auth, subjectID, account, authz.ActionAdmin); err != nil {
+			return nil, status.Errorf(codes.PermissionDenied, "automation %s lists secrets; only an account admin can run it from an unlanded changeset", triggerID)
+		}
 	}
 	if match.Folder != folder {
 		if err := s.ensureTriggerFolderAccess(ctx, subjectID, account, match.Folder, authz.ActionUseSecrets); err != nil {
@@ -222,8 +253,11 @@ func (s *TriggerService) RunTrigger(ctx context.Context, req *corev1.RunTriggerR
 		envelope["changeset"] = map[string]any{"id": cs.GetId(), "handle": storage.ShortChangesetID(cs.GetId()), "title": cs.GetTitle(),
 			"status": cs.GetStatus(), "target_ref": cs.GetTargetRef(), "patchset_id": cs.GetCurrentPatchsetId(), "commit_id": cs.GetCommitId()}
 	}
+	if definitionPatchset != "" {
+		envelope["definition"] = map[string]any{"changeset_id": strings.TrimSpace(req.GetChangesetId()), "patchset_id": definitionPatchset}
+	}
 	body, _ := json.Marshal(envelope)
-	run, err := s.Engine.NewManualRun(ctx, account, triggerID, ref, strings.TrimSpace(req.GetChangesetId()), req.GetInputs(), subjectID, triggeredBy, triggeredByKind, body)
+	run, err := s.Engine.NewManualRun(ctx, account, triggerID, ref, strings.TrimSpace(req.GetChangesetId()), definitionTree, req.GetInputs(), subjectID, triggeredBy, triggeredByKind, body)
 	if err != nil {
 		return nil, grpcError(err)
 	}
@@ -423,5 +457,6 @@ func triggerRunProto(run storage.TriggerRun) *corev1.TriggerRun {
 		Status: run.Status, Attempt: int32(run.Attempt), MaxAttempts: int32(run.MaxAttempts), Error: run.Error,
 		ResponseStatus: int32(run.ResponseStatus), CreatedAt: formatTime(run.CreatedAt), StartedAt: formatTime(run.StartedAt),
 		FinishedAt: formatTime(run.FinishedAt), Deadline: formatTime(run.Deadline),
+		DetailsUrl: run.DetailsURL,
 	}
 }

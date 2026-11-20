@@ -382,17 +382,18 @@ var TriggerService_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	TriggerRunService_StartRun_FullMethodName      = "/gitslice.core.v1.TriggerRunService/StartRun"
-	TriggerRunService_StartCallback_FullMethodName = "/gitslice.core.v1.TriggerRunService/StartCallback"
-	TriggerRunService_FinishRun_FullMethodName     = "/gitslice.core.v1.TriggerRunService/FinishRun"
-	TriggerRunService_AppendRunLog_FullMethodName  = "/gitslice.core.v1.TriggerRunService/AppendRunLog"
-	TriggerRunService_GetRunState_FullMethodName   = "/gitslice.core.v1.TriggerRunService/GetRunState"
-	TriggerRunService_SetRunState_FullMethodName   = "/gitslice.core.v1.TriggerRunService/SetRunState"
-	TriggerRunService_CreateCheck_FullMethodName   = "/gitslice.core.v1.TriggerRunService/CreateCheck"
-	TriggerRunService_UpdateCheck_FullMethodName   = "/gitslice.core.v1.TriggerRunService/UpdateCheck"
-	TriggerRunService_ReadFile_FullMethodName      = "/gitslice.core.v1.TriggerRunService/ReadFile"
-	TriggerRunService_ListDirectory_FullMethodName = "/gitslice.core.v1.TriggerRunService/ListDirectory"
-	TriggerRunService_GetChangeset_FullMethodName  = "/gitslice.core.v1.TriggerRunService/GetChangeset"
+	TriggerRunService_StartRun_FullMethodName         = "/gitslice.core.v1.TriggerRunService/StartRun"
+	TriggerRunService_StartCallback_FullMethodName    = "/gitslice.core.v1.TriggerRunService/StartCallback"
+	TriggerRunService_FinishRun_FullMethodName        = "/gitslice.core.v1.TriggerRunService/FinishRun"
+	TriggerRunService_AppendRunLog_FullMethodName     = "/gitslice.core.v1.TriggerRunService/AppendRunLog"
+	TriggerRunService_GetRunState_FullMethodName      = "/gitslice.core.v1.TriggerRunService/GetRunState"
+	TriggerRunService_SetRunState_FullMethodName      = "/gitslice.core.v1.TriggerRunService/SetRunState"
+	TriggerRunService_SetRunDetailsUrl_FullMethodName = "/gitslice.core.v1.TriggerRunService/SetRunDetailsUrl"
+	TriggerRunService_CreateCheck_FullMethodName      = "/gitslice.core.v1.TriggerRunService/CreateCheck"
+	TriggerRunService_UpdateCheck_FullMethodName      = "/gitslice.core.v1.TriggerRunService/UpdateCheck"
+	TriggerRunService_ReadFile_FullMethodName         = "/gitslice.core.v1.TriggerRunService/ReadFile"
+	TriggerRunService_ListDirectory_FullMethodName    = "/gitslice.core.v1.TriggerRunService/ListDirectory"
+	TriggerRunService_GetChangeset_FullMethodName     = "/gitslice.core.v1.TriggerRunService/GetChangeset"
 )
 
 // TriggerRunServiceClient is the client API for TriggerRunService service.
@@ -412,6 +413,9 @@ type TriggerRunServiceClient interface {
 	AppendRunLog(ctx context.Context, in *AppendTriggerRunLogRequest, opts ...grpc.CallOption) (*Empty, error)
 	GetRunState(ctx context.Context, in *TriggerRunTokenRequest, opts ...grpc.CallOption) (*TriggerRunState, error)
 	SetRunState(ctx context.Context, in *SetTriggerRunStateRequest, opts ...grpc.CallOption) (*Empty, error)
+	// SetRunDetailsUrl links the run to an outside page, such as the build it
+	// started (gs.setDetailsUrl).
+	SetRunDetailsUrl(ctx context.Context, in *SetTriggerRunDetailsUrlRequest, opts ...grpc.CallOption) (*Empty, error)
 	CreateCheck(ctx context.Context, in *CreateTriggerCheckRequest, opts ...grpc.CallOption) (*CheckRun, error)
 	UpdateCheck(ctx context.Context, in *UpdateTriggerCheckRequest, opts ...grpc.CallOption) (*CheckRun, error)
 	ReadFile(ctx context.Context, in *TriggerReadFileRequest, opts ...grpc.CallOption) (*TriggerReadFileResponse, error)
@@ -481,6 +485,15 @@ func (c *triggerRunServiceClient) SetRunState(ctx context.Context, in *SetTrigge
 	return out, nil
 }
 
+func (c *triggerRunServiceClient) SetRunDetailsUrl(ctx context.Context, in *SetTriggerRunDetailsUrlRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, TriggerRunService_SetRunDetailsUrl_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *triggerRunServiceClient) CreateCheck(ctx context.Context, in *CreateTriggerCheckRequest, opts ...grpc.CallOption) (*CheckRun, error) {
 	out := new(CheckRun)
 	err := c.cc.Invoke(ctx, TriggerRunService_CreateCheck_FullMethodName, in, out, opts...)
@@ -543,6 +556,9 @@ type TriggerRunServiceServer interface {
 	AppendRunLog(context.Context, *AppendTriggerRunLogRequest) (*Empty, error)
 	GetRunState(context.Context, *TriggerRunTokenRequest) (*TriggerRunState, error)
 	SetRunState(context.Context, *SetTriggerRunStateRequest) (*Empty, error)
+	// SetRunDetailsUrl links the run to an outside page, such as the build it
+	// started (gs.setDetailsUrl).
+	SetRunDetailsUrl(context.Context, *SetTriggerRunDetailsUrlRequest) (*Empty, error)
 	CreateCheck(context.Context, *CreateTriggerCheckRequest) (*CheckRun, error)
 	UpdateCheck(context.Context, *UpdateTriggerCheckRequest) (*CheckRun, error)
 	ReadFile(context.Context, *TriggerReadFileRequest) (*TriggerReadFileResponse, error)
@@ -571,6 +587,9 @@ func (UnimplementedTriggerRunServiceServer) GetRunState(context.Context, *Trigge
 }
 func (UnimplementedTriggerRunServiceServer) SetRunState(context.Context, *SetTriggerRunStateRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetRunState not implemented")
+}
+func (UnimplementedTriggerRunServiceServer) SetRunDetailsUrl(context.Context, *SetTriggerRunDetailsUrlRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetRunDetailsUrl not implemented")
 }
 func (UnimplementedTriggerRunServiceServer) CreateCheck(context.Context, *CreateTriggerCheckRequest) (*CheckRun, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateCheck not implemented")
@@ -707,6 +726,24 @@ func _TriggerRunService_SetRunState_Handler(srv interface{}, ctx context.Context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TriggerRunService_SetRunDetailsUrl_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetTriggerRunDetailsUrlRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TriggerRunServiceServer).SetRunDetailsUrl(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TriggerRunService_SetRunDetailsUrl_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TriggerRunServiceServer).SetRunDetailsUrl(ctx, req.(*SetTriggerRunDetailsUrlRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TriggerRunService_CreateCheck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateTriggerCheckRequest)
 	if err := dec(in); err != nil {
@@ -827,6 +864,10 @@ var TriggerRunService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetRunState",
 			Handler:    _TriggerRunService_SetRunState_Handler,
+		},
+		{
+			MethodName: "SetRunDetailsUrl",
+			Handler:    _TriggerRunService_SetRunDetailsUrl_Handler,
 		},
 		{
 			MethodName: "CreateCheck",

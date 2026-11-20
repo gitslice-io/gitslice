@@ -55,6 +55,9 @@ type Match struct {
 	Trigger Trigger
 	// Changes are the event's changes this trigger matched.
 	Changes []Change
+	// DefinitionTree is set when the trigger was read from a tree that is
+	// not a commit's (a changeset's patchset); scripts load from it.
+	DefinitionTree string
 }
 
 // Problem is a triggers file on the event's path that cannot be used.
@@ -302,6 +305,12 @@ func List(ctx context.Context, tree TreeReader, rootTreeID, account, folder stri
 		file := f + "/" + FileName
 		data, err := tree.ReadFile(ctx, rootTreeID, file)
 		if errors.Is(err, ErrNotFound) {
+			// A file under the old name is silently not read anywhere else;
+			// say so where automations are listed.
+			legacy := f + "/" + LegacyFileName
+			if _, lerr := tree.ReadFile(ctx, rootTreeID, legacy); lerr == nil {
+				problems = append(problems, Problem{Folder: f, File: legacy, Message: "automations are no longer read from " + LegacyFileName + ": rename it to " + FileName})
+			}
 			continue
 		}
 		if err != nil {

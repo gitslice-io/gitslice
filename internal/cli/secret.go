@@ -82,12 +82,13 @@ func (r Runner) secretCommand(opts *commandOptions) *cobra.Command {
 	create.register(createCmd, "a folder it applies to, with everything below it, such as /acme/services (default: current workspace folder; repeatable)", "deprecated: prefer --path; targets the folders of a slice (repeatable)")
 
 	var updateValue bool
+	var updateAccount string
 	var update secretScopeFlags
 	var updateAdd, updateRemove []string
 	updateCmd := &cobra.Command{
-		Use:   "update <secret-id>",
+		Use:   "update <secret-id|NAME>",
 		Short: "Replace a secret's value or change the folders it applies to",
-		Args:  exactArgs(1, "gs secret update <secret-id> [--value] [--path <folder>... | --slice <slice>... | --add-path <folder>... | --remove-path <folder>...]"),
+		Args:  exactArgs(1, "gs secret update <secret-id|NAME> [--account <account>] [--value] [--path <folder>... | --slice <slice>... | --add-path <folder>... | --remove-path <folder>...]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if update.set() && (len(updateAdd) > 0 || len(updateRemove) > 0) {
 				return userError("invalid_argument", "use --path/--slice, or --add-path/--remove-path, not both", "")
@@ -95,23 +96,26 @@ func (r Runner) secretCommand(opts *commandOptions) *cobra.Command {
 			if !update.set() && len(updateAdd) == 0 && len(updateRemove) == 0 && !updateValue {
 				return userError("invalid_argument", "nothing to change", "Pass --value to replace the value (read from stdin), or change the folders with --path, --slice, --add-path or --remove-path.")
 			}
-			return r.runSecretUpdate(cmd.Context(), *opts, args[0], updateValue, update, updateAdd, updateRemove)
+			return r.runSecretUpdate(cmd.Context(), *opts, updateAccount, args[0], updateValue, update, updateAdd, updateRemove)
 		},
 	}
+	updateCmd.Flags().StringVar(&updateAccount, "account", "", "the account of a secret given by NAME (default: your active account)")
 	updateCmd.Flags().BoolVar(&updateValue, "value", false, "replace the value, read from stdin")
 	update.register(updateCmd, "apply it to exactly these folders (repeatable)", "apply it to exactly these slices' folders (repeatable)")
 	updateCmd.Flags().StringArrayVar(&updateAdd, "add-path", nil, "add a folder (repeatable)")
 	updateCmd.Flags().StringArrayVar(&updateRemove, "remove-path", nil, "remove a folder (repeatable)")
 
+	var deleteAccount string
 	deleteCmd := &cobra.Command{
-		Use:     "rm <secret-id>",
+		Use:     "rm <secret-id|NAME>",
 		Aliases: []string{"delete", "remove"},
 		Short:   "Delete a secret from every folder it applies to",
-		Args:    exactArgs(1, "gs secret rm <secret-id>"),
+		Args:    exactArgs(1, "gs secret rm <secret-id|NAME> [--account <account>]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runSecretDelete(cmd.Context(), *opts, args[0])
+			return r.runSecretDelete(cmd.Context(), *opts, deleteAccount, args[0])
 		},
 	}
+	deleteCmd.Flags().StringVar(&deleteAccount, "account", "", "the account of a secret given by NAME (default: your active account)")
 
 	var envSlice, envPath, envOutput string
 	var envForce bool
@@ -217,10 +221,14 @@ func (r Runner) runSecretCreate(ctx context.Context, opts commandOptions, accoun
 	return nil
 }
 
-func (r Runner) runSecretUpdate(ctx context.Context, opts commandOptions, id string, replaceValue bool, flags secretScopeFlags, add, remove []string) error {
+func (r Runner) runSecretUpdate(ctx context.Context, opts commandOptions, account, ref string, replaceValue bool, flags secretScopeFlags, add, remove []string) error {
 	var out secretOutput
 	if err := r.withSession(ctx, func(s *Session) error {
-		current, err := s.Secret().GetSecret(s.Ctx(), &corev1.GetSecretRequest{Id: strings.TrimSpace(id)})
+		id, err := resolveSecretRef(s, account, ref)
+		if err != nil {
+			return err
+		}
+		current, err := s.Secret().GetSecret(s.Ctx(), &corev1.GetSecretRequest{Id: id})
 		if err != nil {
 			return secretError(err)
 		}
@@ -289,10 +297,14 @@ func (r Runner) runSecretUpdate(ctx context.Context, opts commandOptions, id str
 	return nil
 }
 
-func (r Runner) runSecretDelete(ctx context.Context, opts commandOptions, id string) error {
-	id = strings.TrimSpace(id)
+func (r Runner) runSecretDelete(ctx context.Context, opts commandOptions, account, ref string) error {
+	var id string
 	if err := r.withSession(ctx, func(s *Session) error {
-		_, err := s.Secret().DeleteSecret(s.Ctx(), &corev1.DeleteSecretRequest{Id: id})
+		var err error
+		if id, err = resolveSecretRef(s, account, ref); err != nil {
+			return err
+		}
+		_, err = s.Secret().DeleteSecret(s.Ctx(), &corev1.DeleteSecretRequest{Id: id})
 		return secretError(err)
 	}); err != nil {
 		return err
@@ -304,6 +316,38 @@ func (r Runner) runSecretDelete(ctx context.Context, opts commandOptions, id str
 		fmt.Fprintf(r.Stdout, "deleted secret %s\n", id)
 	}
 	return nil
+}
+
+// resolveSecretRef turns a secret id (sec_...) or a secret's NAME in the
+// account into its id. A NAME is unambiguous: an account has one secret of
+// each name.
+func resolveSecretRef(s *Session, account, ref string) (string, error) {
+	ref = strings.TrimSpace(ref)
+	if strings.HasPrefix(ref, "sec_") {
+		return ref, nil
+	}
+	account, err := s.ResolveAccount(account)
+	if err != nil {
+		return "", err
+	}
+	resp, err := s.Secret().ListSecrets(s.Ctx(), &corev1.ListSecretsRequest{Account: account})
+	if err != nil {
+		return "", secretError(err)
+	}
+	var ids []string
+	for _, secret := range resp.GetSecrets() {
+		if secret.GetName() == ref {
+			ids = append(ids, secret.GetId())
+		}
+	}
+	switch len(ids) {
+	case 0:
+		return "", userError("not_found", fmt.Sprintf("no secret %s in account %s", ref, account), "gs secret ls --account "+account+" lists them.")
+	case 1:
+		return ids[0], nil
+	default:
+		return "", userError("ambiguous", fmt.Sprintf("account %s has %d secrets named %s (%s)", account, len(ids), ref, strings.Join(ids, ", ")), "Pass the secret's id.")
+	}
 }
 
 // readSecretValue reads a secret's value: typed hidden when stdin is a

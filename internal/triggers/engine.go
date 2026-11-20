@@ -74,6 +74,9 @@ type RunSpec struct {
 	Trigger Trigger           `json:"trigger"`
 	Depth   int               `json:"depth"`
 	Inputs  map[string]string `json:"inputs,omitempty"`
+	// DefinitionTree is the tree the trigger and its script were read from
+	// when that was a changeset's patchset rather than a commit.
+	DefinitionTree string `json:"definition_tree,omitempty"`
 }
 
 // CheckLauncher runs checks.yaml checks on a changeset's CI daemon for a
@@ -355,7 +358,7 @@ func (e *Engine) newRun(info *eventInfo, m Match, kind, eventID, headCommit stri
 	if err != nil {
 		return storage.TriggerRun{}, err
 	}
-	spec, err := json.Marshal(RunSpec{Name: m.Name, Trigger: m.Trigger, Depth: depth, Inputs: inputs})
+	spec, err := json.Marshal(RunSpec{Name: m.Name, Trigger: m.Trigger, Depth: depth, Inputs: inputs, DefinitionTree: m.DefinitionTree})
 	if err != nil {
 		return storage.TriggerRun{}, err
 	}
@@ -371,7 +374,8 @@ func (e *Engine) newRun(info *eventInfo, m Match, kind, eventID, headCommit stri
 		EventID: eventID, EventKind: kind, TriggeredBy: triggeredBy, TriggeredByKind: triggeredByKind,
 		ChangesetID: info.changesetID, PatchsetID: info.patchsetID,
 		CommitID: info.commitID, TargetRef: info.ref, DefinitionCommitID: headCommit,
-		Spec: spec, Payload: body, Status: storage.TriggerRunQueued, MaxAttempts: maxAttempts,
+		ConcurrencyGroup: m.Trigger.ConcurrencyGroup,
+		Spec:             spec, Payload: body, Status: storage.TriggerRunQueued, MaxAttempts: maxAttempts,
 	}, nil
 }
 

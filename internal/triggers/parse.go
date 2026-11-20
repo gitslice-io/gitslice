@@ -80,6 +80,10 @@ const (
 // FileName is where automations live in a folder.
 const FileName = ".gitslice/automations.yaml"
 
+// LegacyFileName is FileName's old name. It is not read; listing a folder
+// that still has one reports it as a problem.
+const LegacyFileName = ".gitslice/triggers.yaml"
+
 // File is one parsed automations.yaml.
 type File struct {
 	Version  int
@@ -101,6 +105,9 @@ type Trigger struct {
 	Egress      string               `json:"egress,omitempty"`
 	Checks      []string             `json:"checks,omitempty"`
 	Concurrency string               `json:"concurrency"`
+	// ConcurrencyGroup: no two runs of the account's automations in this
+	// group run at once; the others wait their turn, oldest first.
+	ConcurrencyGroup string `json:"concurrency_group,omitempty"`
 	// Timeout bounds how long a run may execute or wait for callbacks.
 	Timeout time.Duration `json:"timeout"`
 	Retry   int           `json:"retry,omitempty"`
@@ -153,9 +160,12 @@ type rawTrigger struct {
 	Egress      string                  `yaml:"egress"`
 	Checks      []string                `yaml:"checks"`
 	Concurrency string                  `yaml:"concurrency"`
-	Timeout     string                  `yaml:"timeout"`
-	Retry       *int                    `yaml:"retry"`
-	Action      *rawAction              `yaml:"action"`
+	// ConcurrencyGroup names a lock shared with the account's other
+	// automations in the same group.
+	ConcurrencyGroup string     `yaml:"concurrency_group"`
+	Timeout          string     `yaml:"timeout"`
+	Retry            *int       `yaml:"retry"`
+	Action           *rawAction `yaml:"action"`
 }
 
 type rawAction struct {
@@ -173,6 +183,7 @@ type rawHTTP struct {
 
 var (
 	localNamePattern  = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+	groupNamePattern  = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 	secretNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
 	hostPattern       = regexp.MustCompile(`^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$`)
 	// SecretRef matches ${{ secrets.NAME }} in an HTTP action.
@@ -312,6 +323,16 @@ func parseTrigger(raw rawTrigger) (Trigger, error) {
 	default:
 		return t, fmt.Errorf("concurrency %q (use cancel-superseded, serial or parallel)", raw.Concurrency)
 	}
+	if group := strings.TrimSpace(raw.ConcurrencyGroup); group != "" {
+		if !groupNamePattern.MatchString(group) {
+			return t, fmt.Errorf("concurrency_group %q: use letters, digits, ., _ and -, at most 64", group)
+		}
+		if raw.Concurrency != "" && raw.Concurrency != ConcurrencySerial {
+			return t, fmt.Errorf("concurrency_group runs one at a time: drop concurrency or set it to serial")
+		}
+		t.Concurrency = ConcurrencySerial
+		t.ConcurrencyGroup = group
+	}
 	if raw.Action == nil {
 		return t, fmt.Errorf("action is required")
 	}
@@ -372,6 +393,9 @@ func parseTrigger(raw rawTrigger) (Trigger, error) {
 		t.Action = Action{Kind: ActionBash, Bash: bash}
 	default:
 		return t, fmt.Errorf("action needs http, worker, check or bash")
+	}
+	if t.ConcurrencyGroup != "" && t.Action.Kind != ActionWorker && t.Action.Kind != ActionBash {
+		return t, fmt.Errorf("concurrency_group applies to worker and bash actions")
 	}
 	if t.Action.Kind == ActionBash {
 		t.Timeout = DefaultBashTimeout

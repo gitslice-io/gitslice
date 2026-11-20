@@ -241,7 +241,7 @@ func (s *ChangesetService) SubmitChangeset(ctx context.Context, req *corev1.Subm
 		}
 	}
 	if err != nil {
-		return nil, grpcError(err)
+		return nil, s.explainUnqueuedCheck(ctx, cs, grpcError(err))
 	}
 	if res != nil && res.Attribution != nil {
 		if err := enrichActorAttributions(ctx, s.Auth, s.Agents, res.Attribution); err != nil {

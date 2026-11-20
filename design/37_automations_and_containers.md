@@ -72,6 +72,23 @@ and symlinked `gs-auto` baked in: `base`, `node`, `python`, `go`, and `cloud`
 - Double secret masking in both `GsBridge` (`trigger-dispatch/src/mask.ts`) and `TriggerRunService` (`internal/secretmask`).
 - Single-run destruction: `BashRunner` calls `ctx.container.destroy()` immediately on `/finish`, `/cancel`, or its watchdog alarm (`timeout + 15s`).
 
+## Trying Automations Before They Land
+
+Manual runs read definitions from `refs/global/main`, so a new automation
+used to need landing before its first run. Two ways around that:
+
+- `RunTriggerRequest.definition_from_changeset` (`gs auto run <id>
+  --from-changeset <cs>`): the server reads the automation from the open
+  changeset's current patchset (its result tree, kept as
+  `RunSpec.definition_tree`, from which `StartRun` also loads the script).
+  An automation there that lists `secrets` or `reveal` needs an account
+  admin: its script has not been reviewed, and admins can read secret values
+  anyway.
+- `gs auto run <id> --local`: gs runs a worker script from the workspace with
+  node and a stand-in `gs` (`internal/cli/trigger_local_harness.mjs`), with
+  Gate's rules for fetch. Secrets come from `--secret NAME=value`, callbacks
+  from `--callback <file>`.
+
 ## Deployment Notes
 
 1. Deploy the Go server (runs migration `0064_automation_run_attribution.sql`).

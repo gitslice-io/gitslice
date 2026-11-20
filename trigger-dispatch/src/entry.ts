@@ -8,6 +8,11 @@ export const ENTRY_MODULE = "__gitslice_entry.js";
 export const MAX_RUN_LOG_LINES = 500;
 export const MAX_RUN_LOG_LINE_CHARS = 4096;
 export const MAX_RUN_LOG_TOTAL_CHARS = 256 * 1024;
+export const SECRET_PREFIX = "gs-secret:";
+export const WHOLE_URL_SECRET_MESSAGE =
+  "a secret cannot be the whole URL of a fetch: the gate opens secrets only where they cannot change the request's origin. " +
+  "Write the scheme and host in the script and put the secret in the path, query or a header, " +
+  "such as fetch(`https://api.example.com/hook?${gs.secret(\"HOOK_QUERY\")}`).";
 
 export interface LogBuffer {
   lines: { stream: string; text: string }[];
@@ -35,6 +40,18 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import * as loaded from ${JSON.stringify("./" + mainModule)};
 
 const script = loaded.default ?? loaded;
+
+// A secret placeholder can be opened by the gate only where it cannot change
+// the request's origin, so a placeholder can never be the whole URL. Say so
+// plainly instead of the runtime's "Fetch API cannot load: gs-secret:...".
+const realFetch = globalThis.fetch;
+globalThis.fetch = function (input, init) {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.href : input && input.url;
+  if (typeof url === "string" && url.trimStart().startsWith(${JSON.stringify(SECRET_PREFIX)})) {
+    return Promise.reject(new TypeError(${JSON.stringify(WHOLE_URL_SECRET_MESSAGE)}));
+  }
+  return realFetch(input, init);
+};
 const runLogs = new AsyncLocalStorage();
 const MAX_LINES = ${MAX_RUN_LOG_LINES};
 const MAX_LINE_CHARS = ${MAX_RUN_LOG_LINE_CHARS};
@@ -91,6 +108,8 @@ function api(gs, run) {
     idempotencyKey: (label) => run.runId + ":" + String(label ?? ""),
     waitForCallback: () => gs.waitForCallback(),
     finish: () => gs.finish(),
+    fail: (message) => gs.fail(String(message ?? "")),
+    setDetailsUrl: (url) => gs.setDetailsUrl(String(url ?? "")),
   };
 }
 

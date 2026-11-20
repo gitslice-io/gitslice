@@ -77,6 +77,9 @@ const (
 	// TriggerRunServiceSetRunStateProcedure is the fully-qualified name of the TriggerRunService's
 	// SetRunState RPC.
 	TriggerRunServiceSetRunStateProcedure = "/gitslice.core.v1.TriggerRunService/SetRunState"
+	// TriggerRunServiceSetRunDetailsUrlProcedure is the fully-qualified name of the TriggerRunService's
+	// SetRunDetailsUrl RPC.
+	TriggerRunServiceSetRunDetailsUrlProcedure = "/gitslice.core.v1.TriggerRunService/SetRunDetailsUrl"
 	// TriggerRunServiceCreateCheckProcedure is the fully-qualified name of the TriggerRunService's
 	// CreateCheck RPC.
 	TriggerRunServiceCreateCheckProcedure = "/gitslice.core.v1.TriggerRunService/CreateCheck"
@@ -377,6 +380,9 @@ type TriggerRunServiceClient interface {
 	AppendRunLog(context.Context, *connect.Request[v1.AppendTriggerRunLogRequest]) (*connect.Response[v1.Empty], error)
 	GetRunState(context.Context, *connect.Request[v1.TriggerRunTokenRequest]) (*connect.Response[v1.TriggerRunState], error)
 	SetRunState(context.Context, *connect.Request[v1.SetTriggerRunStateRequest]) (*connect.Response[v1.Empty], error)
+	// SetRunDetailsUrl links the run to an outside page, such as the build it
+	// started (gs.setDetailsUrl).
+	SetRunDetailsUrl(context.Context, *connect.Request[v1.SetTriggerRunDetailsUrlRequest]) (*connect.Response[v1.Empty], error)
 	CreateCheck(context.Context, *connect.Request[v1.CreateTriggerCheckRequest]) (*connect.Response[v1.CheckRun], error)
 	UpdateCheck(context.Context, *connect.Request[v1.UpdateTriggerCheckRequest]) (*connect.Response[v1.CheckRun], error)
 	ReadFile(context.Context, *connect.Request[v1.TriggerReadFileRequest]) (*connect.Response[v1.TriggerReadFileResponse], error)
@@ -431,6 +437,12 @@ func NewTriggerRunServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(triggerRunServiceMethods.ByName("SetRunState")),
 			connect.WithClientOptions(opts...),
 		),
+		setRunDetailsUrl: connect.NewClient[v1.SetTriggerRunDetailsUrlRequest, v1.Empty](
+			httpClient,
+			baseURL+TriggerRunServiceSetRunDetailsUrlProcedure,
+			connect.WithSchema(triggerRunServiceMethods.ByName("SetRunDetailsUrl")),
+			connect.WithClientOptions(opts...),
+		),
 		createCheck: connect.NewClient[v1.CreateTriggerCheckRequest, v1.CheckRun](
 			httpClient,
 			baseURL+TriggerRunServiceCreateCheckProcedure,
@@ -466,17 +478,18 @@ func NewTriggerRunServiceClient(httpClient connect.HTTPClient, baseURL string, o
 
 // triggerRunServiceClient implements TriggerRunServiceClient.
 type triggerRunServiceClient struct {
-	startRun      *connect.Client[v1.StartTriggerRunRequest, v1.StartTriggerRunResponse]
-	startCallback *connect.Client[v1.StartTriggerRunRequest, v1.StartTriggerRunResponse]
-	finishRun     *connect.Client[v1.FinishTriggerRunRequest, v1.TriggerRun]
-	appendRunLog  *connect.Client[v1.AppendTriggerRunLogRequest, v1.Empty]
-	getRunState   *connect.Client[v1.TriggerRunTokenRequest, v1.TriggerRunState]
-	setRunState   *connect.Client[v1.SetTriggerRunStateRequest, v1.Empty]
-	createCheck   *connect.Client[v1.CreateTriggerCheckRequest, v1.CheckRun]
-	updateCheck   *connect.Client[v1.UpdateTriggerCheckRequest, v1.CheckRun]
-	readFile      *connect.Client[v1.TriggerReadFileRequest, v1.TriggerReadFileResponse]
-	listDirectory *connect.Client[v1.TriggerListDirectoryRequest, v1.TriggerListDirectoryResponse]
-	getChangeset  *connect.Client[v1.TriggerRunTokenRequest, v1.Changeset]
+	startRun         *connect.Client[v1.StartTriggerRunRequest, v1.StartTriggerRunResponse]
+	startCallback    *connect.Client[v1.StartTriggerRunRequest, v1.StartTriggerRunResponse]
+	finishRun        *connect.Client[v1.FinishTriggerRunRequest, v1.TriggerRun]
+	appendRunLog     *connect.Client[v1.AppendTriggerRunLogRequest, v1.Empty]
+	getRunState      *connect.Client[v1.TriggerRunTokenRequest, v1.TriggerRunState]
+	setRunState      *connect.Client[v1.SetTriggerRunStateRequest, v1.Empty]
+	setRunDetailsUrl *connect.Client[v1.SetTriggerRunDetailsUrlRequest, v1.Empty]
+	createCheck      *connect.Client[v1.CreateTriggerCheckRequest, v1.CheckRun]
+	updateCheck      *connect.Client[v1.UpdateTriggerCheckRequest, v1.CheckRun]
+	readFile         *connect.Client[v1.TriggerReadFileRequest, v1.TriggerReadFileResponse]
+	listDirectory    *connect.Client[v1.TriggerListDirectoryRequest, v1.TriggerListDirectoryResponse]
+	getChangeset     *connect.Client[v1.TriggerRunTokenRequest, v1.Changeset]
 }
 
 // StartRun calls gitslice.core.v1.TriggerRunService.StartRun.
@@ -507,6 +520,11 @@ func (c *triggerRunServiceClient) GetRunState(ctx context.Context, req *connect.
 // SetRunState calls gitslice.core.v1.TriggerRunService.SetRunState.
 func (c *triggerRunServiceClient) SetRunState(ctx context.Context, req *connect.Request[v1.SetTriggerRunStateRequest]) (*connect.Response[v1.Empty], error) {
 	return c.setRunState.CallUnary(ctx, req)
+}
+
+// SetRunDetailsUrl calls gitslice.core.v1.TriggerRunService.SetRunDetailsUrl.
+func (c *triggerRunServiceClient) SetRunDetailsUrl(ctx context.Context, req *connect.Request[v1.SetTriggerRunDetailsUrlRequest]) (*connect.Response[v1.Empty], error) {
+	return c.setRunDetailsUrl.CallUnary(ctx, req)
 }
 
 // CreateCheck calls gitslice.core.v1.TriggerRunService.CreateCheck.
@@ -549,6 +567,9 @@ type TriggerRunServiceHandler interface {
 	AppendRunLog(context.Context, *connect.Request[v1.AppendTriggerRunLogRequest]) (*connect.Response[v1.Empty], error)
 	GetRunState(context.Context, *connect.Request[v1.TriggerRunTokenRequest]) (*connect.Response[v1.TriggerRunState], error)
 	SetRunState(context.Context, *connect.Request[v1.SetTriggerRunStateRequest]) (*connect.Response[v1.Empty], error)
+	// SetRunDetailsUrl links the run to an outside page, such as the build it
+	// started (gs.setDetailsUrl).
+	SetRunDetailsUrl(context.Context, *connect.Request[v1.SetTriggerRunDetailsUrlRequest]) (*connect.Response[v1.Empty], error)
 	CreateCheck(context.Context, *connect.Request[v1.CreateTriggerCheckRequest]) (*connect.Response[v1.CheckRun], error)
 	UpdateCheck(context.Context, *connect.Request[v1.UpdateTriggerCheckRequest]) (*connect.Response[v1.CheckRun], error)
 	ReadFile(context.Context, *connect.Request[v1.TriggerReadFileRequest]) (*connect.Response[v1.TriggerReadFileResponse], error)
@@ -599,6 +620,12 @@ func NewTriggerRunServiceHandler(svc TriggerRunServiceHandler, opts ...connect.H
 		connect.WithSchema(triggerRunServiceMethods.ByName("SetRunState")),
 		connect.WithHandlerOptions(opts...),
 	)
+	triggerRunServiceSetRunDetailsUrlHandler := connect.NewUnaryHandler(
+		TriggerRunServiceSetRunDetailsUrlProcedure,
+		svc.SetRunDetailsUrl,
+		connect.WithSchema(triggerRunServiceMethods.ByName("SetRunDetailsUrl")),
+		connect.WithHandlerOptions(opts...),
+	)
 	triggerRunServiceCreateCheckHandler := connect.NewUnaryHandler(
 		TriggerRunServiceCreateCheckProcedure,
 		svc.CreateCheck,
@@ -643,6 +670,8 @@ func NewTriggerRunServiceHandler(svc TriggerRunServiceHandler, opts ...connect.H
 			triggerRunServiceGetRunStateHandler.ServeHTTP(w, r)
 		case TriggerRunServiceSetRunStateProcedure:
 			triggerRunServiceSetRunStateHandler.ServeHTTP(w, r)
+		case TriggerRunServiceSetRunDetailsUrlProcedure:
+			triggerRunServiceSetRunDetailsUrlHandler.ServeHTTP(w, r)
 		case TriggerRunServiceCreateCheckProcedure:
 			triggerRunServiceCreateCheckHandler.ServeHTTP(w, r)
 		case TriggerRunServiceUpdateCheckProcedure:
@@ -684,6 +713,10 @@ func (UnimplementedTriggerRunServiceHandler) GetRunState(context.Context, *conne
 
 func (UnimplementedTriggerRunServiceHandler) SetRunState(context.Context, *connect.Request[v1.SetTriggerRunStateRequest]) (*connect.Response[v1.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.TriggerRunService.SetRunState is not implemented"))
+}
+
+func (UnimplementedTriggerRunServiceHandler) SetRunDetailsUrl(context.Context, *connect.Request[v1.SetTriggerRunDetailsUrlRequest]) (*connect.Response[v1.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.TriggerRunService.SetRunDetailsUrl is not implemented"))
 }
 
 func (UnimplementedTriggerRunServiceHandler) CreateCheck(context.Context, *connect.Request[v1.CreateTriggerCheckRequest]) (*connect.Response[v1.CheckRun], error) {

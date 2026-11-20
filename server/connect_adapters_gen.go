@@ -641,6 +641,10 @@ func (a connectTriggerRunServiceAdapter) SetRunState(ctx context.Context, req *c
 	return connectResponse(a.svc.SetRunState(ctx, req.Msg))
 }
 
+func (a connectTriggerRunServiceAdapter) SetRunDetailsUrl(ctx context.Context, req *connect.Request[corev1.SetTriggerRunDetailsUrlRequest]) (*connect.Response[corev1.Empty], error) {
+	return connectResponse(a.svc.SetRunDetailsUrl(ctx, req.Msg))
+}
+
 func (a connectTriggerRunServiceAdapter) CreateCheck(ctx context.Context, req *connect.Request[corev1.CreateTriggerCheckRequest]) (*connect.Response[corev1.CheckRun], error) {
 	return connectResponse(a.svc.CreateCheck(ctx, req.Msg))
 }

@@ -8,7 +8,7 @@ import {
   checkRunsKeyPrefix,
   triggerRunLogsQuery,
   triggerRunsKey,
-  triggerRunsQuery
+  triggerRunsQuery,
 } from "../../queries/checks";
 import { Timestamp } from "../../components/Timestamp";
 import { Button } from "../../components/ui/Button";
@@ -19,13 +19,25 @@ import { errorMessage } from "./status";
 // the folders it touches that fired for its events, with their logs.
 
 const POLL_MS = 3500;
-const finalStatuses = new Set(["succeeded", "failed", "errored", "canceled", "timed_out"]);
+const finalStatuses = new Set([
+  "succeeded",
+  "failed",
+  "errored",
+  "canceled",
+  "timed_out",
+]);
 
 export function isFinalTriggerStatus(status?: string) {
   return finalStatuses.has((status ?? "").toLowerCase());
 }
 
-export function TriggerRunsPanel({ changesetId, patchsetId }: { changesetId: string; patchsetId: string }) {
+export function TriggerRunsPanel({
+  changesetId,
+  patchsetId,
+}: {
+  changesetId: string;
+  patchsetId: string;
+}) {
   const api = useApi();
   const queryClient = useQueryClient();
   const [openRunId, setOpenRunId] = useState("");
@@ -37,17 +49,31 @@ export function TriggerRunsPanel({ changesetId, patchsetId }: { changesetId: str
       !isDefiniteClientError(error) &&
       !(error instanceof RpcError && error.status === 503) &&
       failures < 3,
-    refetchInterval: (query) => (query.state.data?.some((run) => !isFinalTriggerStatus(run.status)) ? POLL_MS : false)
+    refetchInterval: (query) =>
+      query.state.data?.some((run) => !isFinalTriggerStatus(run.status))
+        ? POLL_MS
+        : false,
   });
-  const refresh = () => Promise.all([
-    queryClient.invalidateQueries({ queryKey }),
-    queryClient.invalidateQueries({ queryKey: checkRunsKeyPrefix(changesetId) })
-  ]);
-  const rerun = useMutation({ mutationFn: (runId: string) => api.rerunTriggerRun({ runId }), onSuccess: refresh });
-  const cancel = useMutation({ mutationFn: (runId: string) => api.cancelTriggerRun({ runId }), onSuccess: refresh });
+  const refresh = () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey }),
+      queryClient.invalidateQueries({
+        queryKey: checkRunsKeyPrefix(changesetId),
+      }),
+    ]);
+  const rerun = useMutation({
+    mutationFn: (runId: string) => api.rerunTriggerRun({ runId }),
+    onSuccess: refresh,
+  });
+  const cancel = useMutation({
+    mutationFn: (runId: string) => api.cancelTriggerRun({ runId }),
+    onSuccess: refresh,
+  });
 
   // A patchset's runs, and runs about the changeset as a whole (a landing).
-  const runs = (runsQuery.data ?? []).filter((run) => !run.patchsetId || run.patchsetId === patchsetId);
+  const runs = (runsQuery.data ?? []).filter(
+    (run) => !run.patchsetId || run.patchsetId === patchsetId,
+  );
   if (!changesetId || runsQuery.isError || runs.length === 0) {
     return null;
   }
@@ -56,11 +82,18 @@ export function TriggerRunsPanel({ changesetId, patchsetId }: { changesetId: str
   return (
     <section className="mt-3 rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50">
       <div className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-zinc-800 px-3 py-2.5 md:px-5">
-        <h2 className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">Automations</h2>
-        <span className="text-xs text-slate-500 dark:text-zinc-400">{runs.length} run{runs.length === 1 ? "" : "s"}</span>
+        <h2 className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
+          Automations
+        </h2>
+        <span className="text-xs text-slate-500 dark:text-zinc-400">
+          {runs.length} run{runs.length === 1 ? "" : "s"}
+        </span>
       </div>
       {actionError ? (
-        <p className="border-b border-slate-100 dark:border-zinc-800 px-3 py-2 text-sm text-rose-700 dark:text-rose-300 md:px-5" role="alert">
+        <p
+          className="border-b border-slate-100 dark:border-zinc-800 px-3 py-2 text-sm text-rose-700 dark:text-rose-300 md:px-5"
+          role="alert"
+        >
           {errorMessage(actionError)}
         </p>
       ) : null}
@@ -79,16 +112,35 @@ export function TriggerRunsPanel({ changesetId, patchsetId }: { changesetId: str
                   type="button"
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="truncate font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50">{run.triggerId}</span>
+                    <span className="truncate font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+                      {run.triggerId}
+                    </span>
                     <TriggerStatusBadge status={run.status} />
                     <span className="text-xs text-slate-500 dark:text-zinc-400">
-                      {run.eventKind} · {run.action} · <Timestamp relative value={run.createdAt} />
+                      {run.eventKind} · {run.action} ·{" "}
+                      <Timestamp relative value={run.createdAt} />
                     </span>
                   </div>
-                  {run.error ? <p className="mt-1 line-clamp-2 text-sm text-slate-600 dark:text-zinc-400">{run.error}</p> : null}
+                  {run.error ? (
+                    <p className="mt-1 line-clamp-2 text-sm text-slate-600 dark:text-zinc-400">
+                      {run.error}
+                    </p>
+                  ) : null}
                 </button>
                 <div className="flex items-center gap-2 md:justify-end">
-                  <span className="text-xs font-medium text-slate-500 dark:text-zinc-400">{open ? "Log open" : "View log"}</span>
+                  {run.detailsUrl ? (
+                    <a
+                      className="text-xs font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+                      href={run.detailsUrl}
+                      rel="noopener noreferrer"
+                      target="_blank"
+                    >
+                      Details
+                    </a>
+                  ) : null}
+                  <span className="text-xs font-medium text-slate-500 dark:text-zinc-400">
+                    {open ? "Log open" : "View log"}
+                  </span>
                   {final && run.action ? (
                     <Button
                       disabled={rerun.isPending}
@@ -125,7 +177,7 @@ export function TriggerRunLog({ run }: { run: TriggerRun }) {
   const logsQuery = useQuery({
     ...triggerRunLogsQuery(api, runId),
     enabled: Boolean(runId),
-    refetchInterval: isFinalTriggerStatus(run.status) ? false : POLL_MS
+    refetchInterval: isFinalTriggerStatus(run.status) ? false : POLL_MS,
   });
   const text = (logsQuery.data ?? []).map((log) => log.chunk ?? "").join("");
   return (
@@ -155,9 +207,15 @@ export function TriggerStatusBadge({ status }: { status?: string }) {
         : s === "running" || s === "waiting"
           ? "border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200"
           : "border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 text-slate-700 dark:text-zinc-300";
-  const label = s === "timed_out" ? "Timed out" : s.charAt(0).toUpperCase() + s.slice(1);
+  const label =
+    s === "timed_out" ? "Timed out" : s.charAt(0).toUpperCase() + s.slice(1);
   return (
-    <span className={cn("inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold md:text-xs", tone)}>
+    <span
+      className={cn(
+        "inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-semibold md:text-xs",
+        tone,
+      )}
+    >
       {label}
     </span>
   );
