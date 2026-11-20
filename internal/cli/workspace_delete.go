@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -52,7 +53,7 @@ func (r Runner) runWorkspaceDelete(ctx context.Context, opts commandOptions, dir
 
 func (r Runner) deleteLazyWorkspace(ctx context.Context, opts commandOptions, rec mountRecord, force bool) error {
 	mounted := isMounted(rec.MountPath)
-	edits, err := r.lazyWorkspaceEdits(rec, mounted)
+	edits, err := r.lazyWorkspaceEdits(ctx, rec, mounted)
 	if err == nil && len(edits) > 0 {
 		// A lazy workspace keeps its edits in its local layer after gs
 		// create: those a changeset holds are on the server.
@@ -117,11 +118,20 @@ func (r Runner) unheldLazyEdits(ctx context.Context, rec mountRecord, edits []la
 
 // lazyWorkspaceEdits lists a lazy workspace's local edits: from its mount
 // daemon while mounted, else from its local layer on disk.
-func (r Runner) lazyWorkspaceEdits(rec mountRecord, mounted bool) ([]lazyfs.Edit, error) {
+//
+// Files its .gitignore files leave out (node_modules, build output) are not
+// edits, as in gs status: an untracked ignored file is dropped.
+func (r Runner) lazyWorkspaceEdits(ctx context.Context, rec mountRecord, mounted bool) ([]lazyfs.Edit, error) {
 	if mounted {
 		reply, err := r.callMountDaemon(rec.ID, mountControlRequest{Op: "edits"})
 		if err == nil && reply.Error == "" {
-			return reply.Edits, nil
+			return r.dropIgnoredLazyEdits(rec, reply.Edits, func(rel string) []byte {
+				data, err := os.ReadFile(filepath.Join(rec.MountPath, filepath.FromSlash(rel)))
+				if err != nil {
+					return nil
+				}
+				return data
+			}), nil
 		}
 		if err == nil {
 			err = errors.New(reply.Error)
@@ -147,7 +157,53 @@ func (r Runner) lazyWorkspaceEdits(rec mountRecord, mounted bool) ([]lazyfs.Edit
 		return nil, err
 	}
 	defer layer.Close()
-	return layer.Edits()
+	edits, err := layer.Edits()
+	if err != nil {
+		return nil, err
+	}
+	var ws WorkspaceConfig
+	if err := readJSONFile(filepath.Join(r.mountGsDir(rec.ID), "slice.json"), &ws); err != nil {
+		return edits, nil
+	}
+	return r.dropIgnoredLazyEdits(rec, edits, func(rel string) []byte {
+		globalPath, err := workspaceRelativePathToGlobalPath(ws, rel)
+		if err != nil {
+			return nil
+		}
+		data, err := layer.ReadFile(ctx, globalPath)
+		if err != nil {
+			return nil
+		}
+		return data
+	}), nil
+}
+
+// dropIgnoredLazyEdits leaves out the edits of untracked files that the
+// workspace's .gitignore files ignore. read returns a workspace-relative
+// file's content, or nil.
+func (r Runner) dropIgnoredLazyEdits(rec mountRecord, edits []lazyfs.Edit, read func(rel string) []byte) []lazyfs.Edit {
+	var ws WorkspaceConfig
+	if err := readJSONFile(filepath.Join(r.mountGsDir(rec.ID), "slice.json"), &ws); err != nil {
+		return edits
+	}
+	tracked := map[string]BaseSnapshotFile{}
+	if manifest, err := r.loadMountManifest(rec); err == nil {
+		manifest.Files(func(entry lazyfs.BaseEntry) {
+			tracked[entry.Path] = BaseSnapshotFile{Path: entry.Path}
+		})
+	}
+	ig := newWorkspaceIgnore("", ws, tracked)
+	ig.read = func(dir string) []byte {
+		return read(path.Join(dir, ".gitignore"))
+	}
+	out := edits[:0:0]
+	for _, edit := range edits {
+		rel, err := workspaceRelPath(ws, edit.Path)
+		if err != nil || !ig.skip(filepath.ToSlash(rel), false) {
+			out = append(out, edit)
+		}
+	}
+	return out
 }
 
 func (r Runner) deleteCheckoutWorkspace(ctx context.Context, opts commandOptions, root string, force bool) error {
