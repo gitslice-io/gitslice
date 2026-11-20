@@ -30,6 +30,8 @@ interface DynamicContainer {
     env?: Record<string, string>;
   }): Promise<void> | void;
   destroy(error?: unknown): Promise<void>;
+  monitor?(): Promise<void>;
+  setInactivityTimeout?(durationMs: number): Promise<void>;
   interceptOutboundHttp?(host: string, entrypoint: Fetcher): Promise<void>;
   interceptOutboundHttps?(host: string, entrypoint: Fetcher): Promise<void>;
 }
@@ -158,6 +160,23 @@ export class BashRunner extends DurableObject<Env> {
           GITSLICE_BRIDGE_URL: "http://gitslice.internal",
         },
       });
+      // Without an inactivity timeout, Cloudflare stops the container
+      // shortly after this object goes idle (seconds after startRun
+      // returns), long before a build or deploy ends. The watchdog alarm
+      // still ends the run at its timeout.
+      if (container.setInactivityTimeout) {
+        await container.setInactivityTimeout(prepared.timeoutMs + 60_000);
+      }
+      // A pending monitor() also keeps this object from being evicted while
+      // the container runs, and says how it ended.
+      if (container.monitor) {
+        this.ctx.waitUntil(
+          container.monitor().then(
+            () => console.log("bash container exited", runId),
+            (err: unknown) => console.warn("bash container ended", runId, String((err as { exitCode?: number })?.exitCode ?? err)),
+          ),
+        );
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.error("start bash container", runId, msg);
