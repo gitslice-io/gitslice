@@ -312,9 +312,28 @@ without changing anything.
   `OPS_WEBHOOK_QUERY`, network `cloudbuild.googleapis.com`), and a re-import of the trigger
   (see the file's header). `internal/triggers/repo_automations_test.go`
   checks that the two match.
-- Not covered yet: Workers deploys (`trigger-dispatch`, `doorbell`, a manual
-  web redeploy). They need a Cloudflare token in the build. The web app
-  still deploys itself from `main` through Workers Builds.
+
+**Cloudflare runbooks** run as bash automations on Gitslice's own containers
+(`.gitslice/ops/cloudflare.sh`); the Gitslice secret `CLOUDFLARE_API_TOKEN`
+reaches them sealed, and the gate opens it for `api.cloudflare.com` only.
+They share `concurrency_group: prod-workers`.
+
+| Automation | What it does |
+| --- | --- |
+| `deploy-web` | Starts the Workers Builds "Deploy default branch" build of `main` for `gitslice-web-production` and waits for it. (Pushes to `main` still deploy the web app on their own.) |
+| `rollback-web` | Input `version` (a Worker version id): serves that version of gitslice.io. The run lists recent deployments. |
+| `deploy-doorbell` | Deploys `doorbell/` from `main`, with the Cloudflare CI runners off. |
+| `deploy-dispatcher` | Deploys `trigger-dispatch/` from `main` with its container images pinned by `trigger-dispatch/containers/images.lock.json`. |
+| `cloudflare-selftest` | Starts a container and reaches Cloudflare through the gate; changes nothing. |
+
+- The dispatcher runs `deploy-dispatcher` itself. If a dispatcher deploy
+  breaks automations, roll it back locally:
+  `npx wrangler versions deploy <previous-version-id>@100% -y` in
+  `trigger-dispatch/` with a Cloudflare token.
+- Containers have no Docker. A change to `trigger-dispatch/containers/` or
+  `cmd/gs-exec` needs a local `npm run deploy` (builds and pushes the images;
+  then `docker logout registry.cloudflare.com`) and an update of
+  `images.lock.json` from the push digests.
 
 ## Production (Cloud Run + gitslice.io)
 
