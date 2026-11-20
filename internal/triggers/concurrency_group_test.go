@@ -83,3 +83,14 @@ func TestListReportsLegacyTriggersFile(t *testing.T) {
 		t.Fatalf("with automations.yaml present, problems = %+v, want none", problems)
 	}
 }
+
+func TestLeaseForCoversBashTimeout(t *testing.T) {
+	bash := RunSpec{Trigger: Trigger{Timeout: 10 * time.Minute, Action: Action{Kind: ActionBash}}}
+	if got := LeaseFor(bash); got != 10*time.Minute+RunLease {
+		t.Fatalf("bash lease = %v", got)
+	}
+	worker := RunSpec{Trigger: Trigger{Timeout: time.Hour, Action: Action{Kind: ActionWorker}}}
+	if got := LeaseFor(worker); got != RunLease {
+		t.Fatalf("worker lease = %v, want RunLease", got)
+	}
+}

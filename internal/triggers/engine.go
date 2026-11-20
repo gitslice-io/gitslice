@@ -79,6 +79,17 @@ type RunSpec struct {
 	DefinitionTree string `json:"definition_tree,omitempty"`
 }
 
+// LeaseFor is how long a started run may go without a sign of life. A bash
+// run's container may run quietly (a build, a poll) until its timeout, and
+// the dispatcher's watchdog ends it at its timeout, so its lease covers the
+// timeout; other runs report within RunLease.
+func LeaseFor(spec RunSpec) time.Duration {
+	if spec.Trigger.Action.Kind == ActionBash && spec.Trigger.Timeout > 0 {
+		return spec.Trigger.Timeout + RunLease
+	}
+	return RunLease
+}
+
 // CheckLauncher runs checks.yaml checks on a changeset's CI daemon for a
 // check action, linked to the trigger run, and says how many runs it created.
 type CheckLauncher interface {

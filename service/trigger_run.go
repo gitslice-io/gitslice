@@ -76,13 +76,13 @@ func (s *TriggerRunService) call(ctx context.Context, token string) (*runCall, e
 	if storage.TriggerRunFinal(run.Status) {
 		return nil, status.Errorf(codes.FailedPrecondition, "run %s has finished (%s)", run.ID, run.Status)
 	}
-	if run.Status == storage.TriggerRunRunning {
-		// Any call is a sign of life.
-		_ = s.Triggers.ExtendTriggerRunLease(ctx, run.ID, triggers.RunLease)
-	}
 	var spec triggers.RunSpec
 	if err := json.Unmarshal(run.Spec, &spec); err != nil {
 		return nil, status.Errorf(codes.Internal, "run %s has an unreadable spec", run.ID)
+	}
+	if run.Status == storage.TriggerRunRunning {
+		// Any call is a sign of life.
+		_ = s.Triggers.ExtendTriggerRunLease(ctx, run.ID, triggers.LeaseFor(spec))
 	}
 	return &runCall{run: run, spec: spec, ctx: authctx.WithSubjectID(ctx, triggers.ActorPrefix+run.ID)}, nil
 }
@@ -100,6 +100,12 @@ func (s *TriggerRunService) StartRun(ctx context.Context, req *corev1.StartTrigg
 	}
 	if err != nil {
 		return nil, grpcError(err)
+	}
+	var spec triggers.RunSpec
+	if json.Unmarshal(run.Spec, &spec) == nil {
+		if lease := triggers.LeaseFor(spec); lease != triggers.RunLease {
+			_ = s.Triggers.ExtendTriggerRunLease(ctx, run.ID, lease)
+		}
 	}
 	resp, err := s.startResponse(ctx, run)
 	if err != nil {
