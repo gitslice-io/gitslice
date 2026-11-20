@@ -61,11 +61,22 @@ steps:
           curl -fsS -m 20 --retry 3 --retry-all-errors -o /dev/null -H 'Content-Type: application/json' \
             --data "$$1" "$$CALLBACK" || echo "warning: could not report to the automation run" >&2
         }
-        say() { echo "$$1"; post "{\"lines\":[$$(json "$$1")]}"; }
+        say() { echo "$$1"; printf "%s\n" "$$1" >> /workspace/said.log; post "{\"lines\":[$$(json "$$1")]}"; }
+        # Everything the operation prints also goes to op.log; a failure
+        # reports its last lines (gcloud's error), not just "failed".
+        touch /workspace/said.log
+        exec > >(tee -a /workspace/op.log) 2>&1
         finish() {
           rc=$$?
-          if [ "$$rc" = 0 ]; then outcome=succeeded; else outcome=failed; fi
-          post "{\"outcome\":\"$$outcome\",\"lines\":[$$(json "Cloud Build $$BUILD: $$outcome")]}"
+          lines=""
+          if [ "$$rc" = 0 ]; then
+            outcome=succeeded
+          else
+            outcome=failed
+            sleep 1
+            while IFS= read -r l; do lines="$$lines$$(json "$$l"),"; done < <(grep -v '^ *$$' /workspace/op.log | grep -vxF -f /workspace/said.log | tail -n 15)
+          fi
+          post "{\"outcome\":\"$$outcome\",\"lines\":[$$lines$$(json "Cloud Build $$BUILD: $$outcome")]}"
         }
         trap finish EXIT
         say "operation $$OP, run by $${SENDER:-unknown}"
