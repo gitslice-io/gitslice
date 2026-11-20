@@ -27,7 +27,7 @@ interface DynamicContainer {
     image?: unknown;
     instance?: string;
     enableInternet?: boolean;
-    envVars?: Record<string, string>;
+    env?: Record<string, string>;
   }): Promise<void> | void;
   destroy(error?: unknown): Promise<void>;
   interceptOutboundHttp?(host: string, entrypoint: Fetcher): Promise<void>;
@@ -150,8 +150,10 @@ export class BashRunner extends DurableObject<Env> {
         image,
         instance: prepared.size,
         enableInternet: prepared.enableInternet,
-        // Never pass secrets in container start envVars — only the one-time nonce.
-        envVars: {
+        // Never pass secrets in the container's start env — only the one-time
+        // nonce. (The option is `env`; an unknown option such as `envVars` is
+        // ignored, and gs-exec then exits for want of BOOTSTRAP_NONCE.)
+        env: {
           BOOTSTRAP_NONCE: nonce,
           GITSLICE_BRIDGE_URL: "http://gitslice.internal",
         },

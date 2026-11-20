@@ -70,3 +70,41 @@ func TestRepositoryDeployRunbooksMatchOpsBuild(t *testing.T) {
 		t.Fatal("no deployment runbooks found")
 	}
 }
+
+func TestRepositoryCloudflareRunbooksMatchScript(t *testing.T) {
+	data, err := os.ReadFile("../../.gitslice/automations.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := Parse(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	script, err := os.ReadFile("../../.gitslice/ops/cloudflare.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	runbooks := 0
+	for name, a := range file.Triggers {
+		if !slices.Contains(a.Secrets, "CLOUDFLARE_API_TOKEN") {
+			continue
+		}
+		runbooks++
+		if a.Action.Bash == nil || a.Action.Bash.Script == "" {
+			t.Errorf("%s: must be a bash action running ops/cloudflare.sh", name)
+			continue
+		}
+		if op := a.Action.Bash.Env["OP"]; op != name || !strings.Contains(string(script), "\n  "+op+")") {
+			t.Errorf("%s: env OP = %q; it must be the automation's name, with a case in ops/cloudflare.sh", name, op)
+		}
+		if !slices.Equal(a.On, []string{EventManual}) || a.Manual == nil || len(a.Manual.Roles) == 0 {
+			t.Errorf("%s: must be manual-only with manual.roles", name)
+		}
+		if !strings.HasSuffix(name, "-selftest") && a.ConcurrencyGroup != "prod-workers" {
+			t.Errorf("%s: concurrency_group = %q, want prod-workers", name, a.ConcurrencyGroup)
+		}
+	}
+	if runbooks == 0 {
+		t.Fatal("no Cloudflare runbooks found")
+	}
+}

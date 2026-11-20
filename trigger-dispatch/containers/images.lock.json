@@ -1,0 +1,8 @@
+{
+  "_comment": "Digest-pinned BashRunner images in Cloudflare's registry, built from the Dockerfiles here. Deploys without Docker (the deploy-dispatcher automation) use these. After changing a Dockerfile or gs-exec, run `npm run deploy` with Docker and update the digests from its push output.",
+  "base": "registry.cloudflare.com/02fa014ee5c259f9cb1e01cf224ae197/gitslice-trigger-dispatch-bashrunner-base@sha256:1fd9b32a127fb35866f00446011cc0e943816fe1c491665b91fc18df4082e84f",
+  "node": "registry.cloudflare.com/02fa014ee5c259f9cb1e01cf224ae197/gitslice-trigger-dispatch-bashrunner-node@sha256:4ad1ecfcad41711e38b4930114379088d54d4a81ba0f58ac03b6bb913b3f5a7c",
+  "python": "registry.cloudflare.com/02fa014ee5c259f9cb1e01cf224ae197/gitslice-trigger-dispatch-bashrunner-python@sha256:725cea1493a810c32ba7e4e0076d1a22203c90718fbfe50a59263f013201a9b7",
+  "go": "registry.cloudflare.com/02fa014ee5c259f9cb1e01cf224ae197/gitslice-trigger-dispatch-bashrunner-go@sha256:6603ddcd386b2c7de052640f16d9856c970b04743dd1802fbc32e1453210601d",
+  "cloud": "registry.cloudflare.com/02fa014ee5c259f9cb1e01cf224ae197/gitslice-trigger-dispatch-bashrunner-cloud@sha256:65c51b9ac5c08587253669a6c1d1cf0d2e154a7bef4d40b34853051a629302e5"
+}

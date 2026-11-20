@@ -88,3 +88,103 @@ automations:
     timeout: 10m
     action:
       worker: ops/runbook.js
+
+  # Cloudflare runbooks: bash automations on Gitslice's own container runtime
+  # (the dispatcher's BashRunner), running .gitslice/ops/cloudflare.sh from a
+  # checkout of this folder. The Gitslice secret CLOUDFLARE_API_TOKEN reaches
+  # them sealed; the gate opens it for api.cloudflare.com only. They share the
+  # concurrency group prod-workers, so two never deploy at once.
+  deploy-dispatcher:
+    description: Deploy the automation dispatcher Worker (triggers.gitslice.io) from main, reusing its container images
+    on: [manual]
+    manual:
+      roles: [admin, writer]
+      confirm: "Deploy the automation dispatcher (it runs this very run) to production?"
+    secrets: [CLOUDFLARE_API_TOKEN]
+    network: [api.cloudflare.com, registry.npmjs.org]
+    concurrency_group: prod-workers
+    timeout: 15m
+    action:
+      bash:
+        runtime: node
+        size: standard-1
+        checkout: folder
+        env: {OP: deploy-dispatcher}
+        script: ops/cloudflare.sh
+
+  deploy-doorbell:
+    description: Deploy the CI doorbell Worker (doorbell.gitslice.io) from main, with the Cloudflare CI runners off
+    on: [manual]
+    manual:
+      roles: [admin, writer]
+      confirm: "Deploy the CI doorbell to production?"
+    secrets: [CLOUDFLARE_API_TOKEN]
+    network: [api.cloudflare.com, registry.npmjs.org]
+    concurrency_group: prod-workers
+    timeout: 15m
+    action:
+      bash:
+        runtime: node
+        size: standard-1
+        checkout: folder
+        env: {OP: deploy-doorbell}
+        script: ops/cloudflare.sh
+
+  deploy-web:
+    description: Rebuild and deploy the web app (gitslice.io) from main through Workers Builds, and wait for it
+    on: [manual]
+    manual:
+      roles: [admin, writer]
+    secrets: [CLOUDFLARE_API_TOKEN]
+    network: [api.cloudflare.com, gitslice.io]
+    concurrency_group: prod-workers
+    timeout: 15m
+    action:
+      bash:
+        runtime: node
+        size: basic
+        checkout: folder
+        env: {OP: deploy-web}
+        script: ops/cloudflare.sh
+
+  rollback-web:
+    description: Serve an earlier version of the web app (gitslice.io); the next deploy-web or push to main moves it back
+    on: [manual]
+    inputs:
+      version:
+        type: string
+        description: Worker version id of gitslice-web-production (deploy-web and the Cloudflare dashboard list them)
+        required: true
+        pattern: "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    manual:
+      roles: [admin, writer]
+      confirm: "Send all gitslice.io traffic to this version?"
+    secrets: [CLOUDFLARE_API_TOKEN]
+    network: [api.cloudflare.com, gitslice.io]
+    concurrency_group: prod-workers
+    timeout: 5m
+    action:
+      bash:
+        runtime: node
+        size: lite
+        checkout: folder
+        env: {OP: rollback-web}
+        script: ops/cloudflare.sh
+
+  # Checks the bash runbook path (container, gate, Cloudflare token) without
+  # changing anything.
+  cloudflare-selftest:
+    description: Check that the Cloudflare runbooks start a container and reach Cloudflare through the gate; changes nothing
+    on: [manual]
+    manual:
+      roles: [admin, writer]
+    secrets: [CLOUDFLARE_API_TOKEN]
+    network: [api.cloudflare.com]
+    timeout: 5m
+    action:
+      bash:
+        runtime: node
+        size: lite
+        checkout: folder
+        env: {OP: cloudflare-selftest}
+        script: ops/cloudflare.sh

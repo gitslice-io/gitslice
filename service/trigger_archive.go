@@ -65,10 +65,16 @@ func (s *TriggerRunService) ServeArchiveHTTP(w http.ResponseWriter, r *http.Requ
 	if (call.run.EventKind == triggers.EventPush || call.run.EventKind == triggers.EventTagCreated) && call.run.CommitID != "" {
 		commitID = call.run.CommitID
 	}
-	rootTreeID, err := s.Repository.RootTreeForCommit(r.Context(), commitID)
-	if err != nil {
-		writeArchiveError(w, grpcError(err))
-		return
+	// A run tried from an open changeset (--from-changeset) checks out that
+	// changeset's tree, which its script also came from; only those allowed
+	// to run unlanded definitions start such runs.
+	rootTreeID := call.spec.DefinitionTree
+	if rootTreeID == "" {
+		var err error
+		if rootTreeID, err = s.Repository.RootTreeForCommit(r.Context(), commitID); err != nil {
+			writeArchiveError(w, grpcError(err))
+			return
+		}
 	}
 
 	prefixes, err := checkoutPrefixes(call.run.Account, call.run.Folder, bash)
