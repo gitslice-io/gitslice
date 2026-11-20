@@ -262,6 +262,46 @@ build variables on both the main and preview triggers, then rebuild; Wrangler
 runtime vars are not visible to `import.meta.env` during the build. Use the
 manual deploy script only when an explicit repair deployment is required.
 
+## Production runbooks (no credentials needed)
+
+Agents deploy production through manual automations in
+`.gitslice/automations.yaml`, not with `gcloud`. Anyone who can submit to
+`gitslice/gitslice` (writer or admin) can run them, and no secret or cloud
+credential is shown to them:
+
+| Automation | What it does |
+| --- | --- |
+| `deploy-server` | Runs the Cloud Build deploy of GitHub `main` (`cloudbuild.yaml`), waits for it, moves all traffic to the newest revision, and checks `/readyz`. |
+| `rollback-server` | Input `revision` (such as `gitslice-prod-00147-xpj`): sends all traffic to that revision. The next `deploy-server` moves it back to the newest. |
+| `publish-releases` | Builds and publishes every `vX.Y.Z` tag not yet on gitslice.io/releases (the daily reconcile, now). A new tag already publishes itself through the `release` automation. |
+
+```bash
+gs auto run gitslice/deploy-server --account gitslice --yes --follow
+gs auto run gitslice/rollback-server --account gitslice -i revision=gitslice-prod-00147-xpj --yes --follow
+gs auto run gitslice/publish-releases --account gitslice --follow
+```
+
+`--yes` answers the automation's confirm prompt, which a non-interactive
+agent cannot. The ids are `<folder under the account>/<name>`; `gs auto ls
+/gitslice/gitslice` lists them.
+
+Each run posts to the Cloud Build webhook trigger `gs-ops-webhook`
+(`ops/automation/`). That build holds the credentials and runs only the
+operation named by the automation's id. The automation run succeeds when
+the webhook accepts it; whether the deploy worked shows in the build (Cloud
+Build, trigger `gs-ops-webhook`) and in the result: the new revision and
+`/readyz` for a deploy, gitslice.io/releases for a release.
+
+- `deploy-server` builds the GitHub mirror, which trails Gitslice by about
+  10 minutes. Run it once the change you want is on GitHub `main`.
+- A new operation needs a case in `ops/automation/cloudbuild.yaml`, an
+  automation posting to `OPS_WEBHOOK_URL`, and a re-import of the trigger
+  (see the file's header). `internal/triggers/repo_automations_test.go`
+  checks that the two match.
+- Not covered yet: Workers deploys (`trigger-dispatch`, `doorbell`, a manual
+  web redeploy). They need a Cloudflare token in the build. The web app
+  still deploys itself from `main` through Workers Builds.
+
 ## Production (Cloud Run + gitslice.io)
 
 The API backend is a container on Cloud Run (service `gitslice-prod`, region `us-west1`), not the PM2 process; the DB is Neon and object storage is R2.

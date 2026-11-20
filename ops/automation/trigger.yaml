@@ -1,0 +1,51 @@
+# Cloud Build webhook trigger gs-ops-webhook, generated from cloudbuild.yaml
+# (python3 ops/automation/gentrigger.py . after changing it). Import with:
+#   gcloud builds triggers import --source=ops/automation/trigger.yaml \
+#     --project unified-surfer-486904-i6 --region=global
+name: gs-ops-webhook
+description: Deployment operations started by the manual automations in .gitslice/automations.yaml (ops/automation)
+serviceAccount: projects/unified-surfer-486904-i6/serviceAccounts/147550290058-compute@developer.gserviceaccount.com
+webhookConfig:
+  secret: projects/unified-surfer-486904-i6/secrets/gs-ops-webhook-secret/versions/1
+substitutions:
+  _EVENT: $(body.event)
+  _PAYLOAD: $(body)
+filter: _EVENT == "manual"
+build:
+  steps:
+  - id: payload
+    name: python:3.12-slim
+    entrypoint: python3
+    env:
+    - PAYLOAD=${_PAYLOAD}
+    args:
+    - -c
+    - "import json, os, shlex\npayload = json.loads(os.environ[\"PAYLOAD\"])\ndef field(path):\n    v = payload\n    for k in path.split(\".\"):\n        v = v.get(k) if isinstance(v, dict) else None\n\
+      \    return v if isinstance(v, str) else \"\"\nwith open(\"/workspace/op.env\", \"w\") as f:\n    for name, path in [(\"OP\", \"automation.id\"), (\"SENDER\", \"sender.username\"), (\"REVISION\",\
+      \ \"inputs.revision\")]:\n        f.write(f\"{name}={shlex.quote(field(path))}\\n\")\n"
+  - id: op
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    env:
+    - PROJECT=$PROJECT_ID
+    - SERVICE=gitslice-prod
+    - REGION=us-west1
+    - DEPLOY_TRIGGER=rmgpgab-gitslice-prod-us-west1-gitslice-io-gitslice--maovz
+    args:
+    - -c
+    - "set -euo pipefail\n. /workspace/op.env\necho \"operation $$OP, run by $${SENDER:-unknown}\"\nservice_url() {\n  gcloud run services describe \"$$SERVICE\" --region \"$$REGION\" --project \"$$PROJECT\"\
+      \ --format='value(status.url)'\n}\nready() {\n  curl -fsS -o /dev/null --retry 5 --retry-delay 5 --retry-all-errors \"$$(service_url)/readyz\"\n}\ncase \"$$OP\" in\n  gitslice/deploy-server)\n   \
+      \ # Builds main of the GitHub mirror, like the daily deploy.\n    id=\"$$(gcloud builds triggers run \"$$DEPLOY_TRIGGER\" --branch=main --region=global \\\n      --project \"$$PROJECT\" --format='value(metadata.build.id)')\"\
+      \n    echo \"deploy build $$id: https://console.cloud.google.com/cloud-build/builds/$$id?project=$$PROJECT\"\n    while :; do\n      status=\"$$(gcloud builds describe \"$$id\" --region=global --project\
+      \ \"$$PROJECT\" --format='value(status)')\"\n      case \"$$status\" in\n        SUCCESS) break ;;\n        FAILURE|CANCELLED|TIMEOUT|INTERNAL_ERROR|EXPIRED) echo \"deploy build $$id ended $$status\"\
+      \ >&2; exit 1 ;;\n      esac\n      sleep 20\n    done\n    # A rollback pins traffic to one revision; a deploy sends it back\n    # to the newest.\n    gcloud run services update-traffic \"$$SERVICE\"\
+      \ --region \"$$REGION\" --project \"$$PROJECT\" --to-latest --quiet\n    ready\n    echo \"deployed $$(gcloud run services describe \"$$SERVICE\" --region \"$$REGION\" --project \"$$PROJECT\" \\\n\
+      \      --format='value(status.latestReadyRevisionName)'); /readyz answers\"\n    ;;\n  gitslice/rollback-server)\n    if [[ ! \"$$REVISION\" =~ ^gitslice-prod-[0-9]{5}-[a-z0-9]{3}$ ]]; then\n    \
+      \  echo \"revision must look like gitslice-prod-00147-xpj, got '$$REVISION'\" >&2; exit 1\n    fi\n    gcloud run revisions describe \"$$REVISION\" --region \"$$REGION\" --project \"$$PROJECT\" --format='value(name)'\
+      \ >/dev/null\n    gcloud run services update-traffic \"$$SERVICE\" --region \"$$REGION\" --project \"$$PROJECT\" \\\n      --to-revisions=\"$$REVISION=100\" --quiet\n    ready\n    echo \"all traffic\
+      \ on $$REVISION; /readyz answers. The next deploy-server moves it to the newest revision.\"\n    ;;\n  gitslice/publish-releases)\n    # The daily reconcile: builds every vX.Y.Z tag not yet in R2.\n\
+      \    gcloud scheduler jobs run gs-release --location us-central1 --project \"$$PROJECT\"\n    echo \"started the release reconcile (Cloud Build trigger gs-release-webhook)\"\n    ;;\n  gitslice/ops-selftest)\n\
+      \    echo \"ok\"\n    ;;\n  *)\n    echo \"not an operation: '$$OP'\" >&2; exit 1\n    ;;\nesac\n"
+  timeout: 2400s
+  options:
+    logging: CLOUD_LOGGING_ONLY

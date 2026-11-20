@@ -9687,6 +9687,24 @@ pages are code-split, analytics waits for the page to load.
 - Test files still do not compile for Windows (FUSE, `Setpgid`, unix-only helpers); tests run on Linux and macOS only, so the check builds `gs`, not the tests.
 
 
+## 2026-11-20 — deployment runbooks as manual automations
+
+**Why**
+- Deploys, rollbacks and release publishing needed `gcloud` credentials, so only the operator could run them. The user asked for every deployment operation to be an automation other agents can run without access to secrets.
+
+**What changed**
+- Cloud Build webhook trigger `gs-ops-webhook` (`ops/automation/cloudbuild.yaml`, `trigger.yaml`, `gentrigger.py`). It takes the automation run's whole payload (`$(body)`; mapping single fields fails the build when a run has no `inputs`), reads the fields in a Python step into shell-quoted env, and runs only the operation the automation id names: `deploy-server` (runs the prod deploy trigger, waits, moves traffic to the newest revision, checks `/readyz`), `rollback-server` (input `revision`, validated against `^gitslice-prod-[0-9]{5}-[a-z0-9]{3}$`), `publish-releases` (runs Cloud Scheduler job `gs-release`), and `ops-selftest`. Webhook secret `gs-ops-webhook-secret` in Secret Manager; the URL is the Gitslice secret `OPS_WEBHOOK_URL` on `/gitslice/gitslice`.
+- `.gitslice/automations.yaml`: manual automations `deploy-server`, `rollback-server`, `publish-releases`, `manual.roles: [admin, writer]`, confirm prompts on the first two.
+- `internal/triggers/repo_automations_test.go`: every automation posting to `OPS_WEBHOOK_URL` is manual-only, has roles, and has a case in the build.
+- `skills/deployment/SKILL.md`: "Production runbooks" section.
+
+**Verification**
+- `ops-selftest` through the webhook succeeded; a rollback with `revision` `x$(id); echo pwned` failed validation and ran nothing.
+- `go test ./internal/triggers/`.
+
+**Not covered**
+- Workers deploys (`trigger-dispatch`, `doorbell`, manual web redeploy) need a Cloudflare token in the build. `bash` actions (design/37) cannot run yet: the Cloudflare token cannot manage Containers, so `trigger-dispatch` has no container runtime.
+
 ## 2026-11-19 — a connected daemon no longer keeps Neon awake
 
 **Why**
