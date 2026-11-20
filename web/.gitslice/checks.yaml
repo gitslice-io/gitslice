@@ -4,7 +4,7 @@
 version: 1
 
 defaults:
-  # Started by the ci trigger in web/.gitslice/triggers.yaml, not by every
+  # Started by the ci automation in web/.gitslice/automations.yaml, not by every
   # patchset (design/34_triggers.md).
   started_by: trigger
 
