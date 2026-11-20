@@ -9757,3 +9757,31 @@ could change the origin), so the webhook URL is public in the script and its
 `key=...&secret=...` is the secret `OPS_WEBHOOK_QUERY`; `OPS_WEBHOOK_URL` is
 unused. `gitslice/ops-selftest` checks the path without changing anything.
 
+## 2026-11-20 — automation fixes from the runbook work
+
+Running the deployment runbooks as automations showed gaps, fixed in
+722e523d40 (server, gs, dispatcher, web) and then used by the runbooks:
+
+- `gs.fail(message)` ends a run as `failed` without a dispatcher stack trace;
+  a throw still ends it `errored`.
+- `gs.setDetailsUrl(url)` links a run to an outside page
+  (`trigger_runs.details_url`); the runbook build reports its Cloud Build
+  link in its first callback.
+- A secret placeholder as a whole fetch URL fails with a plain explanation
+  (the gate never lets a secret pick the origin).
+- `concurrency_group` (worker and bash): one run per group across the
+  account's automations, oldest first; deploy and rollback share
+  `prod-server`.
+- Trying before landing: `--from-changeset` runs a definition from an open
+  changeset's patchset tree (`RunSpec.definition_tree`; secrets need an
+  admin), `--local` runs a worker script with node and a stand-in gs.
+- http runs log `delivered`; a leftover `.gitslice/triggers.yaml` is listed as
+  a problem; a submit refused for a required check that nothing has queued
+  says waiting will not help.
+- gs: sync after the workspace's changesets land, lazy `workspace delete`
+  subtracts held edits, `secret rm`/`update` take a NAME.
+
+The automations file change waited for the server deploy: the server parses
+automations strictly, so an older server would have rejected
+`concurrency_group` and with it every automation in the file.
+

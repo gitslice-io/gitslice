@@ -294,6 +294,17 @@ non-zero when the operation fails. A build that never reports ends the run
 at the automation's `timeout`. `gitslice/ops-selftest` checks this path
 without changing anything.
 
+- The run links to its Cloud Build build: `gs auto show <run>` prints it
+  as `details:`, `--follow` prints it as soon as the build reports.
+- `deploy-server` and `rollback-server` share `concurrency_group:
+  prod-server`: a second one waits until the first ends, so a deploy and a
+  rollback never race. `publish-releases` runs one at a time.
+- To change a runbook, try it before it lands: `gs auto run
+  gitslice/<name> --from-changeset <cs> --follow` (these list a secret, so
+  an account admin must run it), or `gs auto run gitslice/<name> --local
+  --callback <file>` to exercise `.gitslice/ops/runbook.js` with node and
+  no real webhook (leave out `--secret` and its fetch fails before sending).
+
 - `deploy-server` builds the GitHub mirror, which trails Gitslice by about
   10 minutes. Run it once the change you want is on GitHub `main`.
 - A new operation needs a case in `ops/automation/cloudbuild.yaml`, an

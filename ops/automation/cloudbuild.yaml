@@ -79,7 +79,9 @@ steps:
           post "{\"outcome\":\"$$outcome\",\"lines\":[$$lines$$(json "Cloud Build $$BUILD: $$outcome")]}"
         }
         trap finish EXIT
-        say "operation $$OP, run by $${SENDER:-unknown}"
+        echo "operation $$OP, run by $${SENDER:-unknown}"
+        printf '%s\n' "operation $$OP, run by $${SENDER:-unknown}" >> /workspace/said.log
+        post "{\"lines\":[$$(json "operation $$OP, run by $${SENDER:-unknown}")],\"details_url\":$$(json "https://console.cloud.google.com/cloud-build/builds/$$BUILD?project=$$PROJECT")}"
         service_url() {
           gcloud run services describe "$$SERVICE" --region "$$REGION" --project "$$PROJECT" --format='value(status.url)'
         }

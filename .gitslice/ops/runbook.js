@@ -3,7 +3,9 @@
 // onEvent hands the run to the Cloud Build webhook trigger gs-ops-webhook
 // (ops/automation) along with the run's callback URL, and keeps the run open.
 // The build POSTs JSON to that URL as it goes:
-//   {"lines": ["..."]}                      progress, shown in the run's log
+//   {"lines": ["..."], "details_url": "..."}   progress, shown in the run's
+//                                              log; details_url links the run
+//                                              to the build
 //   {"outcome": "succeeded" | "failed", "lines": [...]}   the result
 // so `gs auto run <id> --follow` shows the operation and fails when it fails.
 // A build that never calls back ends the run at the automation's timeout.
@@ -44,10 +46,17 @@ export default {
     for (const line of Array.isArray(body.lines) ? body.lines : []) {
       console.log(String(line));
     }
+    if (typeof body.details_url === "string" && body.details_url) {
+      try {
+        await gs.setDetailsUrl(body.details_url);
+      } catch (err) {
+        console.warn(`could not link the run to ${body.details_url}: ${err.message}`);
+      }
+    }
     if (body.outcome === "succeeded") {
       gs.finish();
     } else if (body.outcome) {
-      throw new Error(`the operation ${body.outcome}; see the log above`);
+      gs.fail(`the operation ${body.outcome}; see the log above`);
     }
     return new Response("ok\n");
   },

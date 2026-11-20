@@ -30,7 +30,8 @@ automations:
   # progress and result back to the run. Anyone who can submit to this slice
   # (writer or admin) can run them with `gs auto run <name> --follow` or from
   # the folder's Automation tab; no secret is shown to them, and the run
-  # fails when the operation fails.
+  # fails when the operation fails. deploy-server and rollback-server share
+  # the concurrency group prod-server, so they never run at once.
   deploy-server:
     description: Build and deploy the server (Cloud Run gitslice-prod) from main of the GitHub mirror, then move all traffic to the new revision
     on: [manual]
@@ -39,6 +40,7 @@ automations:
       confirm: "Deploy main to production (gitslice-prod)?"
     secrets: [OPS_WEBHOOK_QUERY]
     network: [cloudbuild.googleapis.com]
+    concurrency_group: prod-server
     timeout: 40m
     action:
       worker: ops/runbook.js
@@ -57,6 +59,7 @@ automations:
       confirm: "Send all production traffic to this revision?"
     secrets: [OPS_WEBHOOK_QUERY]
     network: [cloudbuild.googleapis.com]
+    concurrency_group: prod-server
     timeout: 15m
     action:
       worker: ops/runbook.js
@@ -68,6 +71,7 @@ automations:
       roles: [admin, writer]
     secrets: [OPS_WEBHOOK_QUERY]
     network: [cloudbuild.googleapis.com]
+    concurrency: serial
     timeout: 15m
     action:
       worker: ops/runbook.js
