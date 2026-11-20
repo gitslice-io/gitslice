@@ -1,4 +1,13 @@
-# 34. Triggers
+# 34. Triggers (renamed to Automations in design/37)
+
+> **Note (2026-11-19):** Triggers were renamed to **Automations**
+> (`.gitslice/automations.yaml`, `gs automation` / `gs auto`) and extended with
+> typed manual inputs, manual RBAC/human-only guards, and `action: { bash: ... }`
+> on Cloudflare Containers. See `design/37_automations_and_containers.md` for
+> the current specification.
+
+The original design below documents the folder-scoped event engine and
+Cloudflare Dynamic Workers (`worker`) architecture that Automations build on.
 
 Status: built 2026-10-29, not deployed: Phases 0 to 3 and the check action,
 except `gs trigger test` and `--draft` runs (see "Implementation"). Builds on

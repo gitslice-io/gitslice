@@ -70,7 +70,7 @@ secret
 | Masking a check's output | The same folder as the check |
 | `gs secret env` | The folder that holds the template, or `--path` |
 | `RevealSliceSecrets` (older CLIs) | The slice's included paths (see Compatibility) |
-| Triggers (planned) | The folder of the `triggers.yaml` |
+| Automations | The folder of the `automations.yaml` (sealed behind Gate by default in `worker` and `http-gate` `bash` actions; design/34 & design/37) |
 
 A check therefore gets the same secrets whichever slice's change ran it. Before,
 it got the secrets of the changeset's slice.

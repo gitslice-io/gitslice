@@ -744,8 +744,8 @@ move's source must be in the same slice and not one of its included paths. A
 copy's source may be in another slice, even another account's, named by
 `source_slice`, which the caller must be able to read.
 
-`WebhookService` was removed on 2026-11-17 (design/24); triggers
-(`.gitslice/triggers.yaml`, design/34) send events to HTTP endpoints instead.
+`WebhookService` was removed on 2026-11-17 (design/24); automations
+(`.gitslice/automations.yaml`, design/34 & design/37) send events to HTTP endpoints instead.
 
 ## 3. Internal Commit API
 

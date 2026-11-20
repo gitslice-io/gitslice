@@ -543,8 +543,8 @@ assigned), so releases no longer depend on GitHub:
    linux/amd64 `gs` reports the tag, and uploads them to the production bucket
    under `releases/<tag>/`, then `releases/latest.json`.
    - Since 2026-10-08 the tag's own event starts the build instead of a
-     15-minute poll. Since 2026-11-17 the `release` trigger in
-     `/gitslice/gitslice/.gitslice/triggers.yaml` (design/34) sends that event
+     15-minute poll. Since 2026-11-17 the `release` automation in
+     `/gitslice/gitslice/.gitslice/automations.yaml` (design/34 & design/37) sends that event
      to the Cloud Build webhook trigger `gs-release-webhook`, whose URL is the
      slice secret `RELEASE_WEBHOOK_URL`; the slice webhook that did this before
      (design/24) was deleted. `ops/release/release.sh webhook` creates the

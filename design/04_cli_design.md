@@ -712,7 +712,7 @@ user needs `acme/payment` and `acme/frontend`, they create two workspaces.
 ### 5.1 Webhooks (removed)
 
 `gs webhook` was removed on 2026-11-17 with the webhooks feature (design/24).
-A trigger's `http` action in `.gitslice/triggers.yaml` (design/34) sends the
+An automation's `http` action in `.gitslice/automations.yaml` (design/34 & design/37) sends the
 same events, filtered by path and signed with `X-Gitslice-Signature-256`.
 
 ## 6. Server File Shell
