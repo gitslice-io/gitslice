@@ -25,7 +25,7 @@ func TestPrintFolderPolicyAndAccountCIRunners(t *testing.T) {
 			{Id: "lint", Name: "lint", Folder: "/acme", ConfigPath: "/acme/.gitslice/checks.yaml", Run: "go vet ./...", Required: true},
 			{Id: "web/build", Name: "build", Folder: "/acme/web", ConfigPath: "/acme/web/.gitslice/checks.yaml", Run: "npm run build", Required: false},
 		},
-		Triggers: []*corev1.TriggerDefinition{
+		Automations: []*corev1.AutomationDefinition{
 			{Id: "web/deploy", Name: "deploy", Folder: "/acme/web", On: []string{"push", "manual"}, Action: "http", HttpUrl: "https://hooks.example.com/deploy"},
 		},
 		Secrets: []*corev1.FolderSecretEntry{
@@ -118,7 +118,7 @@ func TestSecretCreateDefaultsToWorkspaceFolder(t *testing.T) {
 }
 
 func TestAutomationPromptNonInteractiveChecks(t *testing.T) {
-	def := &corev1.TriggerDefinition{
+	def := &corev1.AutomationDefinition{
 		Id: "infra/deploy",
 		Inputs: []*corev1.AutomationInputSpec{
 			{Name: "version", Type: "string", Required: true},

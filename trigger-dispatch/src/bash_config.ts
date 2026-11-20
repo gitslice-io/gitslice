@@ -97,7 +97,7 @@ export async function prepareBashRun(
   // Standard Gitslice metadata env vars.
   env.GITSLICE_RUN_ID = start.run.id;
   env.GITSLICE_ACCOUNT = start.run.account ?? "";
-  env.GITSLICE_AUTOMATION_ID = start.run.triggerId;
+  env.GITSLICE_AUTOMATION_ID = start.run.automationId;
   env.GITSLICE_FOLDER = start.run.folder ?? "";
   env.GITSLICE_EVENT = start.run.eventKind ?? "";
   if (start.run.commitId) env.GITSLICE_COMMIT = start.run.commitId;

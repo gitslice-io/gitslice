@@ -111,7 +111,7 @@ func Generate() ([]byte, error) {
 	buf.WriteString("func mountConnectServices(mount func(string, http.Handler), handlers *service.Handlers, limiters *serverLimiters, opts ...connect.HandlerOption) {\n")
 	for _, svc := range services {
 		adapterExpr := fmt.Sprintf("connect%sAdapter{svc: handlers.%s}", svc.Name, svc.HandlerField)
-		if svc.Name == "TriggerRunService" {
+		if svc.Name == "AutomationRunService" {
 			fmt.Fprintf(&buf, "\ttriggerRunOpts := append(append([]connect.HandlerOption{}, opts...), connect.WithInterceptors(connectTriggerRunFailureInterceptor(limiters)))\n")
 			fmt.Fprintf(&buf, "\tmount(corev1connect.New%sHandler(%s, triggerRunOpts...))\n", svc.Name, adapterExpr)
 		} else {

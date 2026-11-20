@@ -27,6 +27,9 @@ var streamingProcedures = map[string]bool{
 func mountConnectServices(mount func(string, http.Handler), handlers *service.Handlers, limiters *serverLimiters, opts ...connect.HandlerOption) {
 	mount(corev1connect.NewAgentServiceHandler(connectAgentServiceAdapter{svc: handlers.Agent}, opts...))
 	mount(corev1connect.NewAuthServiceHandler(connectAuthServiceAdapter{svc: handlers.Auth}, opts...))
+	triggerRunOpts := append(append([]connect.HandlerOption{}, opts...), connect.WithInterceptors(connectTriggerRunFailureInterceptor(limiters)))
+	mount(corev1connect.NewAutomationRunServiceHandler(connectAutomationRunServiceAdapter{svc: handlers.AutomationRun}, triggerRunOpts...))
+	mount(corev1connect.NewAutomationServiceHandler(connectAutomationServiceAdapter{svc: handlers.Automation}, opts...))
 	mount(corev1connect.NewBlobServiceHandler(connectBlobServiceAdapter{svc: handlers.Blob}, opts...))
 	mount(corev1connect.NewChangesetServiceHandler(connectChangesetServiceAdapter{svc: handlers.Changeset}, opts...))
 	mount(corev1connect.NewChangesetStackServiceHandler(connectChangesetStackServiceAdapter{svc: handlers.Stack}, opts...))
@@ -35,9 +38,6 @@ func mountConnectServices(mount func(string, http.Handler), handlers *service.Ha
 	mount(corev1connect.NewRepositoryServiceHandler(connectRepositoryServiceAdapter{svc: handlers.Repository}, opts...))
 	mount(corev1connect.NewSecretServiceHandler(connectSecretServiceAdapter{svc: handlers.Secret}, opts...))
 	mount(corev1connect.NewSliceServiceHandler(connectSliceServiceAdapter{svc: handlers.Slice}, opts...))
-	triggerRunOpts := append(append([]connect.HandlerOption{}, opts...), connect.WithInterceptors(connectTriggerRunFailureInterceptor(limiters)))
-	mount(corev1connect.NewTriggerRunServiceHandler(connectTriggerRunServiceAdapter{svc: handlers.TriggerRun}, triggerRunOpts...))
-	mount(corev1connect.NewTriggerServiceHandler(connectTriggerServiceAdapter{svc: handlers.Trigger}, opts...))
 	mount(corev1connect.NewWorkspaceServiceHandler(connectWorkspaceServiceAdapter{svc: handlers.Workspace}, opts...))
 }
 
@@ -227,6 +227,94 @@ func (a connectAuthServiceAdapter) AddGroupMember(ctx context.Context, req *conn
 
 func (a connectAuthServiceAdapter) RemoveGroupMember(ctx context.Context, req *connect.Request[corev1.RemoveGroupMemberRequest]) (*connect.Response[corev1.AccountGroup], error) {
 	return connectResponse(a.svc.RemoveGroupMember(ctx, req.Msg))
+}
+
+type connectAutomationRunServiceAdapter struct {
+	svc *service.AutomationRunService
+}
+
+func (a connectAutomationRunServiceAdapter) StartRun(ctx context.Context, req *connect.Request[corev1.StartAutomationRunRequest]) (*connect.Response[corev1.StartAutomationRunResponse], error) {
+	return connectResponse(a.svc.StartRun(ctx, req.Msg))
+}
+
+func (a connectAutomationRunServiceAdapter) StartCallback(ctx context.Context, req *connect.Request[corev1.StartAutomationRunRequest]) (*connect.Response[corev1.StartAutomationRunResponse], error) {
+	return connectResponse(a.svc.StartCallback(ctx, req.Msg))
+}
+
+func (a connectAutomationRunServiceAdapter) FinishRun(ctx context.Context, req *connect.Request[corev1.FinishAutomationRunRequest]) (*connect.Response[corev1.AutomationRun], error) {
+	return connectResponse(a.svc.FinishRun(ctx, req.Msg))
+}
+
+func (a connectAutomationRunServiceAdapter) AppendRunLog(ctx context.Context, req *connect.Request[corev1.AppendAutomationRunLogRequest]) (*connect.Response[corev1.Empty], error) {
+	return connectResponse(a.svc.AppendRunLog(ctx, req.Msg))
+}
+
+func (a connectAutomationRunServiceAdapter) GetRunState(ctx context.Context, req *connect.Request[corev1.AutomationRunTokenRequest]) (*connect.Response[corev1.AutomationRunState], error) {
+	return connectResponse(a.svc.GetRunState(ctx, req.Msg))
+}
+
+func (a connectAutomationRunServiceAdapter) SetRunState(ctx context.Context, req *connect.Request[corev1.SetAutomationRunStateRequest]) (*connect.Response[corev1.Empty], error) {
+	return connectResponse(a.svc.SetRunState(ctx, req.Msg))
+}
+
+func (a connectAutomationRunServiceAdapter) SetRunDetailsUrl(ctx context.Context, req *connect.Request[corev1.SetAutomationRunDetailsUrlRequest]) (*connect.Response[corev1.Empty], error) {
+	return connectResponse(a.svc.SetRunDetailsUrl(ctx, req.Msg))
+}
+
+func (a connectAutomationRunServiceAdapter) CreateCheck(ctx context.Context, req *connect.Request[corev1.CreateAutomationCheckRequest]) (*connect.Response[corev1.CheckRun], error) {
+	return connectResponse(a.svc.CreateCheck(ctx, req.Msg))
+}
+
+func (a connectAutomationRunServiceAdapter) UpdateCheck(ctx context.Context, req *connect.Request[corev1.UpdateAutomationCheckRequest]) (*connect.Response[corev1.CheckRun], error) {
+	return connectResponse(a.svc.UpdateCheck(ctx, req.Msg))
+}
+
+func (a connectAutomationRunServiceAdapter) ReadFile(ctx context.Context, req *connect.Request[corev1.AutomationReadFileRequest]) (*connect.Response[corev1.AutomationReadFileResponse], error) {
+	return connectResponse(a.svc.ReadFile(ctx, req.Msg))
+}
+
+func (a connectAutomationRunServiceAdapter) ListDirectory(ctx context.Context, req *connect.Request[corev1.AutomationListDirectoryRequest]) (*connect.Response[corev1.AutomationListDirectoryResponse], error) {
+	return connectResponse(a.svc.ListDirectory(ctx, req.Msg))
+}
+
+func (a connectAutomationRunServiceAdapter) GetChangeset(ctx context.Context, req *connect.Request[corev1.AutomationRunTokenRequest]) (*connect.Response[corev1.Changeset], error) {
+	return connectResponse(a.svc.GetChangeset(ctx, req.Msg))
+}
+
+type connectAutomationServiceAdapter struct {
+	svc *service.AutomationService
+}
+
+func (a connectAutomationServiceAdapter) GetFolderPolicy(ctx context.Context, req *connect.Request[corev1.GetFolderPolicyRequest]) (*connect.Response[corev1.FolderPolicyResponse], error) {
+	return connectResponse(a.svc.GetFolderPolicy(ctx, req.Msg))
+}
+
+func (a connectAutomationServiceAdapter) ListAutomations(ctx context.Context, req *connect.Request[corev1.ListAutomationsRequest]) (*connect.Response[corev1.ListAutomationsResponse], error) {
+	return connectResponse(a.svc.ListAutomations(ctx, req.Msg))
+}
+
+func (a connectAutomationServiceAdapter) ListAutomationRuns(ctx context.Context, req *connect.Request[corev1.ListAutomationRunsRequest]) (*connect.Response[corev1.ListAutomationRunsResponse], error) {
+	return connectResponse(a.svc.ListAutomationRuns(ctx, req.Msg))
+}
+
+func (a connectAutomationServiceAdapter) GetAutomationRun(ctx context.Context, req *connect.Request[corev1.GetAutomationRunRequest]) (*connect.Response[corev1.AutomationRun], error) {
+	return connectResponse(a.svc.GetAutomationRun(ctx, req.Msg))
+}
+
+func (a connectAutomationServiceAdapter) ListAutomationRunLogs(ctx context.Context, req *connect.Request[corev1.ListAutomationRunLogsRequest]) (*connect.Response[corev1.ListAutomationRunLogsResponse], error) {
+	return connectResponse(a.svc.ListAutomationRunLogs(ctx, req.Msg))
+}
+
+func (a connectAutomationServiceAdapter) RunAutomation(ctx context.Context, req *connect.Request[corev1.RunAutomationRequest]) (*connect.Response[corev1.AutomationRun], error) {
+	return connectResponse(a.svc.RunAutomation(ctx, req.Msg))
+}
+
+func (a connectAutomationServiceAdapter) RerunAutomationRun(ctx context.Context, req *connect.Request[corev1.RerunAutomationRunRequest]) (*connect.Response[corev1.AutomationRun], error) {
+	return connectResponse(a.svc.RerunAutomationRun(ctx, req.Msg))
+}
+
+func (a connectAutomationServiceAdapter) CancelAutomationRun(ctx context.Context, req *connect.Request[corev1.CancelAutomationRunRequest]) (*connect.Response[corev1.AutomationRun], error) {
+	return connectResponse(a.svc.CancelAutomationRun(ctx, req.Msg))
 }
 
 type connectBlobServiceAdapter struct {
@@ -611,94 +699,6 @@ func (a connectSliceServiceAdapter) RemoveSliceMember(ctx context.Context, req *
 
 func (a connectSliceServiceAdapter) ListSharedSlices(ctx context.Context, req *connect.Request[corev1.ListSharedSlicesRequest]) (*connect.Response[corev1.ListSharedSlicesResponse], error) {
 	return connectResponse(a.svc.ListSharedSlices(ctx, req.Msg))
-}
-
-type connectTriggerRunServiceAdapter struct {
-	svc *service.TriggerRunService
-}
-
-func (a connectTriggerRunServiceAdapter) StartRun(ctx context.Context, req *connect.Request[corev1.StartTriggerRunRequest]) (*connect.Response[corev1.StartTriggerRunResponse], error) {
-	return connectResponse(a.svc.StartRun(ctx, req.Msg))
-}
-
-func (a connectTriggerRunServiceAdapter) StartCallback(ctx context.Context, req *connect.Request[corev1.StartTriggerRunRequest]) (*connect.Response[corev1.StartTriggerRunResponse], error) {
-	return connectResponse(a.svc.StartCallback(ctx, req.Msg))
-}
-
-func (a connectTriggerRunServiceAdapter) FinishRun(ctx context.Context, req *connect.Request[corev1.FinishTriggerRunRequest]) (*connect.Response[corev1.TriggerRun], error) {
-	return connectResponse(a.svc.FinishRun(ctx, req.Msg))
-}
-
-func (a connectTriggerRunServiceAdapter) AppendRunLog(ctx context.Context, req *connect.Request[corev1.AppendTriggerRunLogRequest]) (*connect.Response[corev1.Empty], error) {
-	return connectResponse(a.svc.AppendRunLog(ctx, req.Msg))
-}
-
-func (a connectTriggerRunServiceAdapter) GetRunState(ctx context.Context, req *connect.Request[corev1.TriggerRunTokenRequest]) (*connect.Response[corev1.TriggerRunState], error) {
-	return connectResponse(a.svc.GetRunState(ctx, req.Msg))
-}
-
-func (a connectTriggerRunServiceAdapter) SetRunState(ctx context.Context, req *connect.Request[corev1.SetTriggerRunStateRequest]) (*connect.Response[corev1.Empty], error) {
-	return connectResponse(a.svc.SetRunState(ctx, req.Msg))
-}
-
-func (a connectTriggerRunServiceAdapter) SetRunDetailsUrl(ctx context.Context, req *connect.Request[corev1.SetTriggerRunDetailsUrlRequest]) (*connect.Response[corev1.Empty], error) {
-	return connectResponse(a.svc.SetRunDetailsUrl(ctx, req.Msg))
-}
-
-func (a connectTriggerRunServiceAdapter) CreateCheck(ctx context.Context, req *connect.Request[corev1.CreateTriggerCheckRequest]) (*connect.Response[corev1.CheckRun], error) {
-	return connectResponse(a.svc.CreateCheck(ctx, req.Msg))
-}
-
-func (a connectTriggerRunServiceAdapter) UpdateCheck(ctx context.Context, req *connect.Request[corev1.UpdateTriggerCheckRequest]) (*connect.Response[corev1.CheckRun], error) {
-	return connectResponse(a.svc.UpdateCheck(ctx, req.Msg))
-}
-
-func (a connectTriggerRunServiceAdapter) ReadFile(ctx context.Context, req *connect.Request[corev1.TriggerReadFileRequest]) (*connect.Response[corev1.TriggerReadFileResponse], error) {
-	return connectResponse(a.svc.ReadFile(ctx, req.Msg))
-}
-
-func (a connectTriggerRunServiceAdapter) ListDirectory(ctx context.Context, req *connect.Request[corev1.TriggerListDirectoryRequest]) (*connect.Response[corev1.TriggerListDirectoryResponse], error) {
-	return connectResponse(a.svc.ListDirectory(ctx, req.Msg))
-}
-
-func (a connectTriggerRunServiceAdapter) GetChangeset(ctx context.Context, req *connect.Request[corev1.TriggerRunTokenRequest]) (*connect.Response[corev1.Changeset], error) {
-	return connectResponse(a.svc.GetChangeset(ctx, req.Msg))
-}
-
-type connectTriggerServiceAdapter struct {
-	svc *service.TriggerService
-}
-
-func (a connectTriggerServiceAdapter) GetFolderPolicy(ctx context.Context, req *connect.Request[corev1.GetFolderPolicyRequest]) (*connect.Response[corev1.FolderPolicyResponse], error) {
-	return connectResponse(a.svc.GetFolderPolicy(ctx, req.Msg))
-}
-
-func (a connectTriggerServiceAdapter) ListTriggers(ctx context.Context, req *connect.Request[corev1.ListTriggersRequest]) (*connect.Response[corev1.ListTriggersResponse], error) {
-	return connectResponse(a.svc.ListTriggers(ctx, req.Msg))
-}
-
-func (a connectTriggerServiceAdapter) ListTriggerRuns(ctx context.Context, req *connect.Request[corev1.ListTriggerRunsRequest]) (*connect.Response[corev1.ListTriggerRunsResponse], error) {
-	return connectResponse(a.svc.ListTriggerRuns(ctx, req.Msg))
-}
-
-func (a connectTriggerServiceAdapter) GetTriggerRun(ctx context.Context, req *connect.Request[corev1.GetTriggerRunRequest]) (*connect.Response[corev1.TriggerRun], error) {
-	return connectResponse(a.svc.GetTriggerRun(ctx, req.Msg))
-}
-
-func (a connectTriggerServiceAdapter) ListTriggerRunLogs(ctx context.Context, req *connect.Request[corev1.ListTriggerRunLogsRequest]) (*connect.Response[corev1.ListTriggerRunLogsResponse], error) {
-	return connectResponse(a.svc.ListTriggerRunLogs(ctx, req.Msg))
-}
-
-func (a connectTriggerServiceAdapter) RunTrigger(ctx context.Context, req *connect.Request[corev1.RunTriggerRequest]) (*connect.Response[corev1.TriggerRun], error) {
-	return connectResponse(a.svc.RunTrigger(ctx, req.Msg))
-}
-
-func (a connectTriggerServiceAdapter) RerunTriggerRun(ctx context.Context, req *connect.Request[corev1.RerunTriggerRunRequest]) (*connect.Response[corev1.TriggerRun], error) {
-	return connectResponse(a.svc.RerunTriggerRun(ctx, req.Msg))
-}
-
-func (a connectTriggerServiceAdapter) CancelTriggerRun(ctx context.Context, req *connect.Request[corev1.CancelTriggerRunRequest]) (*connect.Response[corev1.TriggerRun], error) {
-	return connectResponse(a.svc.CancelTriggerRun(ctx, req.Msg))
 }
 
 type connectWorkspaceServiceAdapter struct {

@@ -111,12 +111,12 @@ func TestTriggerErrorPreservesUnavailableAndMapsUnimplemented(t *testing.T) {
 
 	// Network drop (codes.Unavailable) must NOT be masked as "unsupported".
 	dropped := &rpcUnavailableError{
-		method:   "/gitslice.core.v1.TriggerService/ListTriggers",
+		method:   "/gitslice.core.v1.AutomationService/ListAutomations",
 		safe:     true,
 		attempts: 3,
 		err:      status.Error(codes.Unavailable, "connection reset by peer"),
 	}
-	enhancedDrop := r.enhanceCommandError(triggerError(dropped))
+	enhancedDrop := r.enhanceCommandError(automationError(dropped))
 	var dropCmd commandError
 	if !errors.As(enhancedDrop, &dropCmd) {
 		t.Fatalf("expected commandError for dropped trigger RPC, got %T: %v", enhancedDrop, enhancedDrop)
@@ -125,13 +125,13 @@ func TestTriggerErrorPreservesUnavailableAndMapsUnimplemented(t *testing.T) {
 		t.Fatalf("trigger Unavailable mapped to %+v, want server_unavailable (retriable=true)", dropCmd)
 	}
 
-	rawUnavailable := r.enhanceCommandError(triggerError(status.Error(codes.Unavailable, "transport closing")))
+	rawUnavailable := r.enhanceCommandError(automationError(status.Error(codes.Unavailable, "transport closing")))
 	if !errors.As(rawUnavailable, &dropCmd) || dropCmd.Code != "server_unavailable" || !dropCmd.Retriable {
 		t.Fatalf("raw trigger Unavailable mapped to %+v, want server_unavailable (retriable=true)", dropCmd)
 	}
 
 	// Unimplemented still maps to unsupported with trigger-specific message.
-	unimpl := r.enhanceCommandError(triggerError(status.Error(codes.Unimplemented, "unknown service")))
+	unimpl := r.enhanceCommandError(automationError(status.Error(codes.Unimplemented, "unknown service")))
 	var unimplCmd commandError
 	if !errors.As(unimpl, &unimplCmd) || unimplCmd.Code != "unsupported" || unimplCmd.Message != "this server does not run automations" || unimplCmd.Hint != "Upgrade the server." {
 		t.Fatalf("trigger Unimplemented = %+v", unimplCmd)

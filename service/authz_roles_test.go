@@ -5,10 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"gitslice.io/gitslice/internal/automations"
 	"gitslice.io/gitslice/internal/objectid"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
-	"gitslice.io/gitslice/internal/triggers"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 )
@@ -119,8 +119,8 @@ func TestContributorCapabilitiesAndBoundaries(t *testing.T) {
 	mem.AddPersonalAccount("user_dana", "dana")
 	mem.AddPersonalAccount("user_erin", "erin")
 
-	_, trigSvc, _ := newTriggerTestServices(mem, "test-dispatch-secret")
-	handlers.Trigger = trigSvc
+	_, trigSvc, _ := newAutomationTestServices(mem, "test-dispatch-secret")
+	handlers.Automation = trigSvc
 
 	alice := subjectCtx("user_alice")
 	bob := subjectCtx("user_bob")     // contributor
@@ -171,17 +171,17 @@ automations:
 `
 	baseCommit := commitFileViaAlice(t, alice, handlers, mem, paymentRef, "/acme/payment/base.txt", "hello\n")
 	baseCommit = commitFileViaAlice(t, alice, handlers, mem, paymentRef, "/acme/payment/.gitslice/automations.yaml", triggersYAML)
-	if _, err := mem.Triggers.CreateTriggerRuns(context.Background(), []storage.TriggerRun{{
-		ID:        "tr_authz_1",
-		Account:   "acme",
-		TriggerID: triggers.ID("/acme", "/acme/payment", "notify"),
-		Folder:    "/acme/payment",
-		Action:    triggers.ActionHTTP,
-		EventID:   "evt_authz_1",
-		EventKind: triggers.EventManual,
-		Status:    "failed",
+	if _, err := mem.Automations.CreateAutomationRuns(context.Background(), []storage.AutomationRun{{
+		ID:           "tr_authz_1",
+		Account:      "acme",
+		AutomationID: automations.ID("/acme", "/acme/payment", "notify"),
+		Folder:       "/acme/payment",
+		Action:       automations.ActionHTTP,
+		EventID:      "evt_authz_1",
+		EventKind:    automations.EventManual,
+		Status:       "failed",
 	}}); err != nil {
-		t.Fatalf("CreateTriggerRuns: %v", err)
+		t.Fatalf("CreateAutomationRuns: %v", err)
 	}
 
 	// Alice creates a changeset, stack, and check run to verify cross-user & check boundaries.
@@ -448,22 +448,22 @@ automations:
 	})
 	wantCode(t, err, codes.PermissionDenied, "contributor ListSliceSecrets")
 
-	triggerID := triggers.ID("/acme", "/acme/payment", "notify")
-	_, err = handlers.Trigger.RunTrigger(bob, &corev1.RunTriggerRequest{
-		Account:   "acme",
-		TriggerId: triggerID,
+	triggerID := automations.ID("/acme", "/acme/payment", "notify")
+	_, err = handlers.Automation.RunAutomation(bob, &corev1.RunAutomationRequest{
+		Account:      "acme",
+		AutomationId: triggerID,
 	})
-	wantCode(t, err, codes.PermissionDenied, "contributor RunTrigger")
+	wantCode(t, err, codes.PermissionDenied, "contributor RunAutomation")
 
-	_, err = handlers.Trigger.RerunTriggerRun(bob, &corev1.RerunTriggerRunRequest{
+	_, err = handlers.Automation.RerunAutomationRun(bob, &corev1.RerunAutomationRunRequest{
 		RunId: "tr_authz_1",
 	})
-	wantCode(t, err, codes.PermissionDenied, "contributor RerunTriggerRun")
+	wantCode(t, err, codes.PermissionDenied, "contributor RerunAutomationRun")
 
-	_, err = handlers.Trigger.CancelTriggerRun(bob, &corev1.CancelTriggerRunRequest{
+	_, err = handlers.Automation.CancelAutomationRun(bob, &corev1.CancelAutomationRunRequest{
 		RunId: "tr_authz_1",
 	})
-	wantCode(t, err, codes.PermissionDenied, "contributor CancelTriggerRun")
+	wantCode(t, err, codes.PermissionDenied, "contributor CancelAutomationRun")
 
 	_, err = handlers.Changeset.CopyPath(bob, &corev1.CopyPathRequest{
 		Slice:           paymentRef,
@@ -513,37 +513,37 @@ automations:
 	}
 	// Triggers may check account-level or covering-slice capabilities; verify contributor vs writer at both levels.
 	mem.AddAccountRole("user_bob", "acme", "contributor")
-	_, err = handlers.Trigger.RunTrigger(bob, &corev1.RunTriggerRequest{
-		Account:   "acme",
-		TriggerId: triggerID,
+	_, err = handlers.Automation.RunAutomation(bob, &corev1.RunAutomationRequest{
+		Account:      "acme",
+		AutomationId: triggerID,
 	})
-	wantCode(t, err, codes.PermissionDenied, "contributor account RunTrigger")
-	_, err = handlers.Trigger.RerunTriggerRun(bob, &corev1.RerunTriggerRunRequest{
+	wantCode(t, err, codes.PermissionDenied, "contributor account RunAutomation")
+	_, err = handlers.Automation.RerunAutomationRun(bob, &corev1.RerunAutomationRunRequest{
 		RunId: "tr_authz_1",
 	})
-	wantCode(t, err, codes.PermissionDenied, "contributor account RerunTriggerRun")
-	_, err = handlers.Trigger.CancelTriggerRun(bob, &corev1.CancelTriggerRunRequest{
+	wantCode(t, err, codes.PermissionDenied, "contributor account RerunAutomationRun")
+	_, err = handlers.Automation.CancelAutomationRun(bob, &corev1.CancelAutomationRunRequest{
 		RunId: "tr_authz_1",
 	})
-	wantCode(t, err, codes.PermissionDenied, "contributor account CancelTriggerRun")
+	wantCode(t, err, codes.PermissionDenied, "contributor account CancelAutomationRun")
 
 	mem.AddAccountRole("user_dana", "acme", "writer")
-	runResp, err := handlers.Trigger.RunTrigger(dana, &corev1.RunTriggerRequest{
-		Account:   "acme",
-		TriggerId: triggerID,
+	runResp, err := handlers.Automation.RunAutomation(dana, &corev1.RunAutomationRequest{
+		Account:      "acme",
+		AutomationId: triggerID,
 	})
 	if err != nil {
-		t.Fatalf("writer RunTrigger: %v", err)
+		t.Fatalf("writer RunAutomation: %v", err)
 	}
-	if _, err := handlers.Trigger.CancelTriggerRun(dana, &corev1.CancelTriggerRunRequest{
+	if _, err := handlers.Automation.CancelAutomationRun(dana, &corev1.CancelAutomationRunRequest{
 		RunId: runResp.GetId(),
 	}); err != nil {
-		t.Fatalf("writer CancelTriggerRun: %v", err)
+		t.Fatalf("writer CancelAutomationRun: %v", err)
 	}
-	if _, err := handlers.Trigger.RerunTriggerRun(dana, &corev1.RerunTriggerRunRequest{
+	if _, err := handlers.Automation.RerunAutomationRun(dana, &corev1.RerunAutomationRunRequest{
 		RunId: "tr_authz_1",
 	}); err != nil {
-		t.Fatalf("writer RerunTriggerRun: %v", err)
+		t.Fatalf("writer RerunAutomationRun: %v", err)
 	}
 	// A writer who does not own the changeset cannot submit it (design/36 section 2) ...
 	_, err = handlers.Changeset.SubmitChangeset(dana, &corev1.SubmitChangesetRequest{

@@ -13,7 +13,7 @@ function sampleStart(overrides: Partial<StartResponse> = {}): StartResponse {
     run: {
       id: "trun_bash_1",
       account: "acme",
-      triggerId: "infra/deploy",
+      automationId: "infra/deploy",
       folder: "/acme/infra",
       status: "running",
       eventKind: "manual",

@@ -175,7 +175,7 @@ func isPublicMethod(method string) bool {
 		method == agentSignupMethod ||
 		// A trigger run authenticates with its run token, in the request
 		// (design/34_triggers.md).
-		strings.HasPrefix(method, "/gitslice.core.v1.TriggerRunService/") ||
+		strings.HasPrefix(method, "/gitslice.core.v1.AutomationRunService/") ||
 		strings.HasPrefix(method, "/grpc.health.v1.Health/")
 }
 

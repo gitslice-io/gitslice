@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
 
-import type { TriggerDefinition, TriggerRun } from "../../api/types";
+import type { AutomationDefinition, AutomationRun } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import { SliceNotice } from "../../components/slices/SlicePageParts";
 import { Timestamp } from "../../components/Timestamp";
@@ -10,7 +10,7 @@ import { cn } from "../../lib/cn";
 import { shortChangesetId } from "../../lib/objectId";
 import {
   isFinalTriggerStatus,
-  TriggerRunLog,
+  AutomationRunLog,
 } from "../changeset-detail/TriggerRunsPanel";
 
 // The triggers that apply at a folder (design/34_triggers.md): those defined
@@ -34,9 +34,9 @@ export function TriggersDrawer({
   const triggersQuery = useQuery({
     enabled: open && Boolean(folder),
     queryKey: ["triggers", folder],
-    queryFn: () => api.listTriggers({ path: folder }),
+    queryFn: () => api.listAutomations({ path: folder }),
   });
-  const triggers = triggersQuery.data?.triggers ?? [];
+  const triggers = triggersQuery.data?.automations ?? [];
   const problems = triggersQuery.data?.problems ?? [];
   const account = folder.split("/").filter(Boolean)[0] ?? "";
 
@@ -137,7 +137,7 @@ function TriggerCard({
 }: {
   account: string;
   api: ApiClient;
-  trigger: TriggerDefinition;
+  trigger: AutomationDefinition;
 }) {
   const queryClient = useQueryClient();
   const [openRun, setOpenRun] = useState("");
@@ -146,7 +146,7 @@ function TriggerCard({
     enabled: Boolean(account && trigger.id),
     queryKey: runsKey,
     queryFn: async () =>
-      (await api.listTriggerRuns({ account, triggerId: trigger.id, limit: 5 }))
+      (await api.listAutomationRuns({ account, automationId: trigger.id, limit: 5 }))
         .runs ?? [],
     refetchInterval: (query) =>
       query.state.data?.some((run) => !isFinalTriggerStatus(run.status))
@@ -154,7 +154,7 @@ function TriggerCard({
         : false,
   });
   const run = useMutation({
-    mutationFn: () => api.runTrigger({ account, triggerId: trigger.id }),
+    mutationFn: () => api.runAutomation({ account, automationId: trigger.id }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: runsKey }),
   });
   const what =
@@ -235,7 +235,7 @@ function RunRow({
 }: {
   open: boolean;
   onToggle(): void;
-  run: TriggerRun;
+  run: AutomationRun;
 }) {
   const handle = shortChangesetId(run.changesetId ?? "");
   const status = (run.status ?? "").toLowerCase();
@@ -295,7 +295,7 @@ function RunRow({
           </span>
         ) : null}
       </div>
-      {open ? <TriggerRunLog run={run} /> : null}
+      {open ? <AutomationRunLog run={run} /> : null}
     </li>
   );
 }

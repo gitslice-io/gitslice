@@ -91,15 +91,15 @@ describe("summarizeChecksAndTriggers & ReadinessStrip", () => {
             checkName: "gitslice/test",
             status: "passed",
             provenance: "ci",
-            triggerRunId: "trun_1"
+            automationRunId: "trun_1"
           }
         ]
       }),
-      listTriggerRuns: vi.fn().mockResolvedValue({
+      listAutomationRuns: vi.fn().mockResolvedValue({
         runs: [
           {
             id: "trun_1",
-            triggerId: "gitslice/ci",
+            automationId: "gitslice/ci",
             status: "succeeded",
             action: "check",
             patchsetId: "ps_1"

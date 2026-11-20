@@ -9,8 +9,8 @@ import (
 
 	"connectrpc.com/connect"
 	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/automations"
 	"gitslice.io/gitslice/internal/storage/memory"
-	"gitslice.io/gitslice/internal/triggers"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"gitslice.io/gitslice/proto/core/v1/corev1connect"
 	"gitslice.io/gitslice/service"
@@ -376,7 +376,7 @@ func TestTriggerRunFailureRateLimiter(t *testing.T) {
 		RateLimitPerSubjectBurst: 1000,
 	})
 	inter := limiters.triggerRunFailureUnaryInterceptor()
-	info := &grpc.UnaryServerInfo{FullMethod: "/gitslice.core.v1.TriggerRunService/StartRun"}
+	info := &grpc.UnaryServerInfo{FullMethod: "/gitslice.core.v1.AutomationRunService/StartRun"}
 	peerCtx := peer.NewContext(context.Background(), &peer.Peer{
 		Addr: &net.TCPAddr{IP: net.ParseIP("203.0.113.55"), Port: 9000},
 	})
@@ -414,22 +414,22 @@ func TestTriggerRunFailureRateLimiter(t *testing.T) {
 	// 2. Connect HTTP path check: bad run token attempts trip ResourceExhausted after burst.
 	mem := memory.New()
 	handlers := service.New(service.Stores{
-		Auth:       mem.Auth,
-		Blobs:      mem.Blobs,
-		Changesets: mem.Changesets,
-		Repository: mem.Repository,
-		Slices:     mem.Slices,
-		Agents:     mem.Agents,
-		Checks:     mem.Checks,
-		Triggers:   mem.Triggers,
+		Auth:        mem.Auth,
+		Blobs:       mem.Blobs,
+		Changesets:  mem.Changesets,
+		Repository:  mem.Repository,
+		Slices:      mem.Slices,
+		Agents:      mem.Agents,
+		Checks:      mem.Checks,
+		Automations: mem.Automations,
 	}, mem.Objects, nil)
-	handlers.SetTriggerEngine(triggers.NewEngine(triggers.Stores{
-		Triggers:   mem.Triggers,
-		Changesets: mem.Changesets,
-		Slices:     mem.Slices,
-		Repository: mem.Repository,
-		Checks:     mem.Checks,
-	}, triggers.Options{}))
+	handlers.SetAutomationEngine(automations.NewEngine(automations.Stores{
+		Automations: mem.Automations,
+		Changesets:  mem.Changesets,
+		Slices:      mem.Slices,
+		Repository:  mem.Repository,
+		Checks:      mem.Checks,
+	}, automations.Options{}))
 	httpLimiters := newServerLimiters(Config{
 		RateLimitHTTPPerIPRPS:    1000,
 		RateLimitHTTPPerIPBurst:  1000,
@@ -442,16 +442,16 @@ func TestTriggerRunFailureRateLimiter(t *testing.T) {
 	srv := httptest.NewServer(newHTTPHandler(api, nil, "", Config{}, false, httpLimiters))
 	t.Cleanup(srv.Close)
 
-	client := corev1connect.NewTriggerRunServiceClient(srv.Client(), srv.URL)
+	client := corev1connect.NewAutomationRunServiceClient(srv.Client(), srv.URL)
 	for i := 0; i < triggerAuthFailBurst; i++ {
-		_, err := client.GetRunState(context.Background(), connect.NewRequest(&corev1.TriggerRunTokenRequest{
+		_, err := client.GetRunState(context.Background(), connect.NewRequest(&corev1.AutomationRunTokenRequest{
 			RunToken: "bad_token_guess",
 		}))
 		if connect.CodeOf(err) != connect.CodeUnauthenticated {
 			t.Fatalf("Connect bad token #%d code = %v, want unauthenticated", i, connect.CodeOf(err))
 		}
 	}
-	_, err = client.GetRunState(context.Background(), connect.NewRequest(&corev1.TriggerRunTokenRequest{
+	_, err = client.GetRunState(context.Background(), connect.NewRequest(&corev1.AutomationRunTokenRequest{
 		RunToken: "bad_token_guess",
 	}))
 	if connect.CodeOf(err) != connect.CodeResourceExhausted {

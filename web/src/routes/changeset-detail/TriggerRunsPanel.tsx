@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { RpcError, isDefiniteClientError } from "../../api/rpcError";
-import type { TriggerRun } from "../../api/types";
+import type { AutomationRun } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import {
   checkRunsKeyPrefix,
@@ -62,11 +62,11 @@ export function TriggerRunsPanel({
       }),
     ]);
   const rerun = useMutation({
-    mutationFn: (runId: string) => api.rerunTriggerRun({ runId }),
+    mutationFn: (runId: string) => api.rerunAutomationRun({ runId }),
     onSuccess: refresh,
   });
   const cancel = useMutation({
-    mutationFn: (runId: string) => api.cancelTriggerRun({ runId }),
+    mutationFn: (runId: string) => api.cancelAutomationRun({ runId }),
     onSuccess: refresh,
   });
 
@@ -113,7 +113,7 @@ export function TriggerRunsPanel({
                 >
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="truncate font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-                      {run.triggerId}
+                      {run.automationId}
                     </span>
                     <TriggerStatusBadge status={run.status} />
                     <span className="text-xs text-slate-500 dark:text-zinc-400">
@@ -161,7 +161,7 @@ export function TriggerRunsPanel({
                   ) : null}
                 </div>
               </div>
-              {open ? <TriggerRunLog run={run} /> : null}
+              {open ? <AutomationRunLog run={run} /> : null}
             </li>
           );
         })}
@@ -170,8 +170,8 @@ export function TriggerRunsPanel({
   );
 }
 
-// TriggerRunLog shows a run's log, polling while the run is open.
-export function TriggerRunLog({ run }: { run: TriggerRun }) {
+// AutomationRunLog shows a run's log, polling while the run is open.
+export function AutomationRunLog({ run }: { run: AutomationRun }) {
   const api = useApi();
   const runId = run.id ?? "";
   const logsQuery = useQuery({

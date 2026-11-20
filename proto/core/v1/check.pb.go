@@ -44,14 +44,14 @@ type CheckRun struct {
 	// waits for.
 	DaemonOnline     bool   `protobuf:"varint,16,opt,name=daemon_online,json=daemonOnline,proto3" json:"daemon_online,omitempty"`
 	DaemonLastSeenAt string `protobuf:"bytes,17,opt,name=daemon_last_seen_at,json=daemonLastSeenAt,proto3" json:"daemon_last_seen_at,omitempty"`
-	// Set when a trigger reports the check (design/34_triggers.md): the run
+	// Set when an automation reports the check (design/34 & design/37): the run
 	// that reports it, a link to more detail, and findings on lines of files.
-	// provenance is then "trigger".
-	TriggerRunId  string             `protobuf:"bytes,18,opt,name=trigger_run_id,json=triggerRunId,proto3" json:"trigger_run_id,omitempty"`
-	DetailsUrl    string             `protobuf:"bytes,19,opt,name=details_url,json=detailsUrl,proto3" json:"details_url,omitempty"`
-	Annotations   []*CheckAnnotation `protobuf:"bytes,20,rep,name=annotations,proto3" json:"annotations,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	// provenance is then "trigger" (legacy) or "automation".
+	AutomationRunId string             `protobuf:"bytes,18,opt,name=automation_run_id,json=automationRunId,proto3" json:"automation_run_id,omitempty"`
+	DetailsUrl      string             `protobuf:"bytes,19,opt,name=details_url,json=detailsUrl,proto3" json:"details_url,omitempty"`
+	Annotations     []*CheckAnnotation `protobuf:"bytes,20,rep,name=annotations,proto3" json:"annotations,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *CheckRun) Reset() {
@@ -203,9 +203,9 @@ func (x *CheckRun) GetDaemonLastSeenAt() string {
 	return ""
 }
 
-func (x *CheckRun) GetTriggerRunId() string {
+func (x *CheckRun) GetAutomationRunId() string {
 	if x != nil {
-		return x.TriggerRunId
+		return x.AutomationRunId
 	}
 	return ""
 }
@@ -756,7 +756,7 @@ var File_proto_core_v1_check_proto protoreflect.FileDescriptor
 
 const file_proto_core_v1_check_proto_rawDesc = "" +
 	"\n" +
-	"\x19proto/core/v1/check.proto\x12\x10gitslice.core.v1\x1a\x1aproto/core/v1/common.proto\"\xa4\x05\n" +
+	"\x19proto/core/v1/check.proto\x12\x10gitslice.core.v1\x1a\x1aproto/core/v1/common.proto\"\xaa\x05\n" +
 	"\bCheckRun\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12!\n" +
 	"\fchangeset_id\x18\x02 \x01(\tR\vchangesetId\x12\x1f\n" +
@@ -784,8 +784,8 @@ const file_proto_core_v1_check_proto_rawDesc = "" +
 	"\vdaemon_name\x18\x0f \x01(\tR\n" +
 	"daemonName\x12#\n" +
 	"\rdaemon_online\x18\x10 \x01(\bR\fdaemonOnline\x12-\n" +
-	"\x13daemon_last_seen_at\x18\x11 \x01(\tR\x10daemonLastSeenAt\x12$\n" +
-	"\x0etrigger_run_id\x18\x12 \x01(\tR\ftriggerRunId\x12\x1f\n" +
+	"\x13daemon_last_seen_at\x18\x11 \x01(\tR\x10daemonLastSeenAt\x12*\n" +
+	"\x11automation_run_id\x18\x12 \x01(\tR\x0fautomationRunId\x12\x1f\n" +
 	"\vdetails_url\x18\x13 \x01(\tR\n" +
 	"detailsUrl\x12C\n" +
 	"\vannotations\x18\x14 \x03(\v2!.gitslice.core.v1.CheckAnnotationR\vannotations\"\x8f\x01\n" +

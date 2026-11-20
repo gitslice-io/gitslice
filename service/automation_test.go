@@ -10,8 +10,8 @@ import (
 	"testing"
 
 	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/automations"
 	"gitslice.io/gitslice/internal/storage"
-	"gitslice.io/gitslice/internal/triggers"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -98,46 +98,46 @@ automations:
 	}
 
 	dispatchSecret := "test-dispatch-secret"
-	engine, trigSvc, runSvc := newTriggerTestServices(mem, dispatchSecret)
+	engine, trigSvc, runSvc := newAutomationTestServices(mem, dispatchSecret)
 
 	// 1. Writer (bobby) cannot invoke admin-only deploy-prod.
-	if _, err := trigSvc.RunTrigger(bobby, &corev1.RunTriggerRequest{
-		Account: "autoorg", TriggerId: "infra/deploy-prod", Inputs: map[string]string{"version": "v1.0"},
+	if _, err := trigSvc.RunAutomation(bobby, &corev1.RunAutomationRequest{
+		Account: "autoorg", AutomationId: "infra/deploy-prod", Inputs: map[string]string{"version": "v1.0"},
 	}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("writer RunTrigger(admin-only) = %v, want PermissionDenied", err)
+		t.Fatalf("writer RunAutomation(admin-only) = %v, want PermissionDenied", err)
 	}
 
 	// 2. Agent admin cannot invoke require_human deploy-prod.
-	if _, err := trigSvc.RunTrigger(botCtx, &corev1.RunTriggerRequest{
-		Account: "autoorg", TriggerId: "infra/deploy-prod", Inputs: map[string]string{"version": "v1.0"},
+	if _, err := trigSvc.RunAutomation(botCtx, &corev1.RunAutomationRequest{
+		Account: "autoorg", AutomationId: "infra/deploy-prod", Inputs: map[string]string{"version": "v1.0"},
 	}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("agent RunTrigger(require_human) = %v, want PermissionDenied", err)
+		t.Fatalf("agent RunAutomation(require_human) = %v, want PermissionDenied", err)
 	}
 
 	// 3. Agent CAN invoke deploy-staging (capability-based secret execution without require_human).
-	stageRun, err := trigSvc.RunTrigger(botCtx, &corev1.RunTriggerRequest{
-		Account: "autoorg", TriggerId: "infra/deploy-staging",
+	stageRun, err := trigSvc.RunAutomation(botCtx, &corev1.RunAutomationRequest{
+		Account: "autoorg", AutomationId: "infra/deploy-staging",
 	})
 	if err != nil {
-		t.Fatalf("agent RunTrigger(deploy-staging): %v", err)
+		t.Fatalf("agent RunAutomation(deploy-staging): %v", err)
 	}
 	if stageRun.GetTriggeredByKind() != "agent" {
 		t.Fatalf("stageRun triggered_by_kind = %q, want agent", stageRun.GetTriggeredByKind())
 	}
 
 	// 4. Human admin (alice) gets validation error when required input is missing.
-	if _, err := trigSvc.RunTrigger(alice, &corev1.RunTriggerRequest{
-		Account: "autoorg", TriggerId: "infra/deploy-prod",
+	if _, err := trigSvc.RunAutomation(alice, &corev1.RunAutomationRequest{
+		Account: "autoorg", AutomationId: "infra/deploy-prod",
 	}); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("missing input err = %v, want InvalidArgument", err)
 	}
 
 	// 5. Human admin (alice) succeeds with valid inputs; defaults and attribution populated.
-	prodRun, err := trigSvc.RunTrigger(alice, &corev1.RunTriggerRequest{
-		Account: "autoorg", TriggerId: "infra/deploy-prod", Inputs: map[string]string{"version": "v2.1"},
+	prodRun, err := trigSvc.RunAutomation(alice, &corev1.RunAutomationRequest{
+		Account: "autoorg", AutomationId: "infra/deploy-prod", Inputs: map[string]string{"version": "v2.1"},
 	})
 	if err != nil {
-		t.Fatalf("alice RunTrigger(deploy-prod): %v", err)
+		t.Fatalf("alice RunAutomation(deploy-prod): %v", err)
 	}
 	if prodRun.GetTriggeredBy() != "alice" || prodRun.GetTriggeredByKind() != "human" {
 		t.Fatalf("attribution = (%q, %q), want (alice, human)", prodRun.GetTriggeredBy(), prodRun.GetTriggeredByKind())
@@ -147,16 +147,16 @@ automations:
 	}
 
 	// 6. StartRun returns bash script, runtime, egress, secrets, inputs, and run token.
-	started, err := runSvc.StartRun(context.Background(), &corev1.StartTriggerRunRequest{
+	started, err := runSvc.StartRun(context.Background(), &corev1.StartAutomationRunRequest{
 		RunId: prodRun.GetId(), DispatcherKey: dispatchSecret,
 	})
 	if err != nil {
 		t.Fatalf("StartRun(bash): %v", err)
 	}
-	if started.GetAction() != triggers.ActionBash || started.GetEgress() != triggers.EgressHTTPGate {
+	if started.GetAction() != automations.ActionBash || started.GetEgress() != automations.EgressHTTPGate {
 		t.Fatalf("started action/egress = %q/%q", started.GetAction(), started.GetEgress())
 	}
-	if started.GetBashRuntime() != triggers.BashRuntimeCloud || started.GetBashScript() != "#!/usr/bin/env bash\necho deployed\n" {
+	if started.GetBashRuntime() != automations.BashRuntimeCloud || started.GetBashScript() != "#!/usr/bin/env bash\necho deployed\n" {
 		t.Fatalf("started bash = runtime=%q script=%q", started.GetBashRuntime(), started.GetBashScript())
 	}
 	if started.GetSecrets()["DEPLOY_KEY"] != "super-secret-value" {
@@ -190,11 +190,11 @@ automations:
 	if err != nil {
 		t.Fatalf("GetFolderPolicy: %v", err)
 	}
-	if len(policy.GetTriggers()) != 2 {
-		t.Fatalf("policy triggers = %d, want 2", len(policy.GetTriggers()))
+	if len(policy.GetAutomations()) != 2 {
+		t.Fatalf("policy triggers = %d, want 2", len(policy.GetAutomations()))
 	}
-	if policy.GetTriggers()[0].GetManual() == nil || !policy.GetTriggers()[0].GetManual().GetRequireHuman() {
-		t.Fatalf("policy manual = %+v", policy.GetTriggers()[0].GetManual())
+	if policy.GetAutomations()[0].GetManual() == nil || !policy.GetAutomations()[0].GetManual().GetRequireHuman() {
+		t.Fatalf("policy manual = %+v", policy.GetAutomations()[0].GetManual())
 	}
 }
 
@@ -268,103 +268,103 @@ automations:
 		t.Fatal(err)
 	}
 
-	_, trigSvc, _ := newTriggerTestServices(mem, "test-dispatch-secret")
+	_, trigSvc, _ := newAutomationTestServices(mem, "test-dispatch-secret")
 
 	// Alice starts a run in the private secret folder.
-	secretRun, err := trigSvc.RunTrigger(alice, &corev1.RunTriggerRequest{
-		Account: "opsorg", TriggerId: "secret/secret-op",
+	secretRun, err := trigSvc.RunAutomation(alice, &corev1.RunAutomationRequest{
+		Account: "opsorg", AutomationId: "secret/secret-op",
 	})
 	if err != nil {
-		t.Fatalf("alice RunTrigger(secret/secret-op): %v", err)
+		t.Fatalf("alice RunAutomation(secret/secret-op): %v", err)
 	}
-	if _, err := mem.Triggers.AppendTriggerRunLog(context.Background(), secretRun.GetId(), "stdout", "secret output\n"); err != nil {
+	if _, err := mem.Automations.AppendAutomationRunLog(context.Background(), secretRun.GetId(), "stdout", "secret output\n"); err != nil {
 		t.Fatal(err)
 	}
 
 	// 1. Shared slice writer (bot) can list, start, inspect, read logs, list runs, cancel, and rerun on /opsorg/app.
-	listed, err := trigSvc.ListTriggers(bot, &corev1.ListTriggersRequest{Path: "/opsorg/app"})
-	if err != nil || len(listed.GetTriggers()) != 1 || listed.GetTriggers()[0].GetId() != "app/selftest" {
-		t.Fatalf("bot ListTriggers(/opsorg/app) = %+v, %v", listed, err)
+	listed, err := trigSvc.ListAutomations(bot, &corev1.ListAutomationsRequest{Path: "/opsorg/app"})
+	if err != nil || len(listed.GetAutomations()) != 1 || listed.GetAutomations()[0].GetId() != "app/selftest" {
+		t.Fatalf("bot ListAutomations(/opsorg/app) = %+v, %v", listed, err)
 	}
-	if _, err := trigSvc.ListTriggers(bot, &corev1.ListTriggersRequest{Path: "/opsorg/secret"}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("bot ListTriggers(/opsorg/secret) = %v, want PermissionDenied", err)
+	if _, err := trigSvc.ListAutomations(bot, &corev1.ListAutomationsRequest{Path: "/opsorg/secret"}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("bot ListAutomations(/opsorg/secret) = %v, want PermissionDenied", err)
 	}
 
-	appRun, err := trigSvc.RunTrigger(bot, &corev1.RunTriggerRequest{
-		Account: "opsorg", TriggerId: "app/selftest",
+	appRun, err := trigSvc.RunAutomation(bot, &corev1.RunAutomationRequest{
+		Account: "opsorg", AutomationId: "app/selftest",
 	})
 	if err != nil {
-		t.Fatalf("bot RunTrigger(app/selftest): %v", err)
+		t.Fatalf("bot RunAutomation(app/selftest): %v", err)
 	}
-	if _, err := mem.Triggers.AppendTriggerRunLog(context.Background(), appRun.GetId(), "stdout", "selftest ok\n"); err != nil {
+	if _, err := mem.Automations.AppendAutomationRunLog(context.Background(), appRun.GetId(), "stdout", "selftest ok\n"); err != nil {
 		t.Fatal(err)
 	}
 
-	if got, err := trigSvc.GetTriggerRun(bot, &corev1.GetTriggerRunRequest{RunId: appRun.GetId()}); err != nil || got.GetId() != appRun.GetId() {
-		t.Fatalf("bot GetTriggerRun(appRun) = %+v, %v", got, err)
+	if got, err := trigSvc.GetAutomationRun(bot, &corev1.GetAutomationRunRequest{RunId: appRun.GetId()}); err != nil || got.GetId() != appRun.GetId() {
+		t.Fatalf("bot GetAutomationRun(appRun) = %+v, %v", got, err)
 	}
-	if logs, err := trigSvc.ListTriggerRunLogs(bot, &corev1.ListTriggerRunLogsRequest{RunId: appRun.GetId()}); err != nil || len(logs.GetLogs()) != 1 {
-		t.Fatalf("bot ListTriggerRunLogs(appRun) = %+v, %v", logs, err)
+	if logs, err := trigSvc.ListAutomationRunLogs(bot, &corev1.ListAutomationRunLogsRequest{RunId: appRun.GetId()}); err != nil || len(logs.GetLogs()) != 1 {
+		t.Fatalf("bot ListAutomationRunLogs(appRun) = %+v, %v", logs, err)
 	}
-	// ListTriggerRuns for opsorg returns ONLY app runs, never secret runs.
-	runsResp, err := trigSvc.ListTriggerRuns(bot, &corev1.ListTriggerRunsRequest{Account: "opsorg"})
+	// ListAutomationRuns for opsorg returns ONLY app runs, never secret runs.
+	runsResp, err := trigSvc.ListAutomationRuns(bot, &corev1.ListAutomationRunsRequest{Account: "opsorg"})
 	if err != nil {
-		t.Fatalf("bot ListTriggerRuns(opsorg): %v", err)
+		t.Fatalf("bot ListAutomationRuns(opsorg): %v", err)
 	}
 	if len(runsResp.GetRuns()) != 1 || runsResp.GetRuns()[0].GetId() != appRun.GetId() {
-		t.Fatalf("bot ListTriggerRuns(opsorg) = %+v, want only appRun", runsResp.GetRuns())
+		t.Fatalf("bot ListAutomationRuns(opsorg) = %+v, want only appRun", runsResp.GetRuns())
 	}
-	if byTrigger, err := trigSvc.ListTriggerRuns(bot, &corev1.ListTriggerRunsRequest{Account: "opsorg", TriggerId: "app/selftest"}); err != nil || len(byTrigger.GetRuns()) != 1 {
-		t.Fatalf("bot ListTriggerRuns(app/selftest) = %+v, %v", byTrigger, err)
+	if byTrigger, err := trigSvc.ListAutomationRuns(bot, &corev1.ListAutomationRunsRequest{Account: "opsorg", AutomationId: "app/selftest"}); err != nil || len(byTrigger.GetRuns()) != 1 {
+		t.Fatalf("bot ListAutomationRuns(app/selftest) = %+v, %v", byTrigger, err)
 	}
-	if _, err := trigSvc.ListTriggerRuns(bot, &corev1.ListTriggerRunsRequest{Account: "opsorg", TriggerId: "secret/secret-op"}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("bot ListTriggerRuns(secret/secret-op) = %v, want PermissionDenied", err)
+	if _, err := trigSvc.ListAutomationRuns(bot, &corev1.ListAutomationRunsRequest{Account: "opsorg", AutomationId: "secret/secret-op"}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("bot ListAutomationRuns(secret/secret-op) = %v, want PermissionDenied", err)
 	}
-	if _, err := trigSvc.GetTriggerRun(bot, &corev1.GetTriggerRunRequest{RunId: secretRun.GetId()}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("bot GetTriggerRun(secretRun) = %v, want PermissionDenied", err)
+	if _, err := trigSvc.GetAutomationRun(bot, &corev1.GetAutomationRunRequest{RunId: secretRun.GetId()}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("bot GetAutomationRun(secretRun) = %v, want PermissionDenied", err)
 	}
-	if _, err := trigSvc.CancelTriggerRun(bot, &corev1.CancelTriggerRunRequest{RunId: appRun.GetId()}); err != nil {
-		t.Fatalf("bot CancelTriggerRun(appRun): %v", err)
+	if _, err := trigSvc.CancelAutomationRun(bot, &corev1.CancelAutomationRunRequest{RunId: appRun.GetId()}); err != nil {
+		t.Fatalf("bot CancelAutomationRun(appRun): %v", err)
 	}
-	if _, err := trigSvc.RerunTriggerRun(bot, &corev1.RerunTriggerRunRequest{RunId: appRun.GetId()}); err != nil {
-		t.Fatalf("bot RerunTriggerRun(appRun): %v", err)
+	if _, err := trigSvc.RerunAutomationRun(bot, &corev1.RerunAutomationRunRequest{RunId: appRun.GetId()}); err != nil {
+		t.Fatalf("bot RerunAutomationRun(appRun): %v", err)
 	}
 
 	// 2. Unshared stranger on the public slice CANNOT read/list/cancel/rerun manual runs on /opsorg/app.
-	if _, err := trigSvc.GetTriggerRun(stranger, &corev1.GetTriggerRunRequest{RunId: appRun.GetId()}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("stranger GetTriggerRun(appRun) = %v, want PermissionDenied", err)
+	if _, err := trigSvc.GetAutomationRun(stranger, &corev1.GetAutomationRunRequest{RunId: appRun.GetId()}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("stranger GetAutomationRun(appRun) = %v, want PermissionDenied", err)
 	}
-	if _, err := trigSvc.ListTriggerRunLogs(stranger, &corev1.ListTriggerRunLogsRequest{RunId: appRun.GetId()}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("stranger ListTriggerRunLogs(appRun) = %v, want PermissionDenied", err)
+	if _, err := trigSvc.ListAutomationRunLogs(stranger, &corev1.ListAutomationRunLogsRequest{RunId: appRun.GetId()}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("stranger ListAutomationRunLogs(appRun) = %v, want PermissionDenied", err)
 	}
-	if _, err := trigSvc.ListTriggerRuns(stranger, &corev1.ListTriggerRunsRequest{Account: "opsorg"}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("stranger ListTriggerRuns(opsorg) = %v, want PermissionDenied", err)
+	if _, err := trigSvc.ListAutomationRuns(stranger, &corev1.ListAutomationRunsRequest{Account: "opsorg"}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("stranger ListAutomationRuns(opsorg) = %v, want PermissionDenied", err)
 	}
-	if _, err := trigSvc.ListTriggerRuns(stranger, &corev1.ListTriggerRunsRequest{Account: "opsorg", TriggerId: "app/selftest"}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("stranger ListTriggerRuns(app/selftest) = %v, want PermissionDenied", err)
+	if _, err := trigSvc.ListAutomationRuns(stranger, &corev1.ListAutomationRunsRequest{Account: "opsorg", AutomationId: "app/selftest"}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("stranger ListAutomationRuns(app/selftest) = %v, want PermissionDenied", err)
 	}
-	if _, err := trigSvc.CancelTriggerRun(stranger, &corev1.CancelTriggerRunRequest{RunId: appRun.GetId()}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("stranger CancelTriggerRun(appRun) = %v, want PermissionDenied", err)
+	if _, err := trigSvc.CancelAutomationRun(stranger, &corev1.CancelAutomationRunRequest{RunId: appRun.GetId()}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("stranger CancelAutomationRun(appRun) = %v, want PermissionDenied", err)
 	}
 
 	// 3. Shared slice reader on private opsorg:secret can read runs/logs there, but cannot run/cancel/rerun.
-	if _, err := trigSvc.ListTriggers(secReader, &corev1.ListTriggersRequest{Path: "/opsorg/secret"}); err != nil {
-		t.Fatalf("secReader ListTriggers(/opsorg/secret): %v", err)
+	if _, err := trigSvc.ListAutomations(secReader, &corev1.ListAutomationsRequest{Path: "/opsorg/secret"}); err != nil {
+		t.Fatalf("secReader ListAutomations(/opsorg/secret): %v", err)
 	}
-	if _, err := trigSvc.GetTriggerRun(secReader, &corev1.GetTriggerRunRequest{RunId: secretRun.GetId()}); err != nil {
-		t.Fatalf("secReader GetTriggerRun(secretRun): %v", err)
+	if _, err := trigSvc.GetAutomationRun(secReader, &corev1.GetAutomationRunRequest{RunId: secretRun.GetId()}); err != nil {
+		t.Fatalf("secReader GetAutomationRun(secretRun): %v", err)
 	}
-	if _, err := trigSvc.ListTriggerRunLogs(secReader, &corev1.ListTriggerRunLogsRequest{RunId: secretRun.GetId()}); err != nil {
-		t.Fatalf("secReader ListTriggerRunLogs(secretRun): %v", err)
+	if _, err := trigSvc.ListAutomationRunLogs(secReader, &corev1.ListAutomationRunLogsRequest{RunId: secretRun.GetId()}); err != nil {
+		t.Fatalf("secReader ListAutomationRunLogs(secretRun): %v", err)
 	}
-	if secRuns, err := trigSvc.ListTriggerRuns(secReader, &corev1.ListTriggerRunsRequest{Account: "opsorg"}); err != nil || len(secRuns.GetRuns()) != 1 || secRuns.GetRuns()[0].GetId() != secretRun.GetId() {
-		t.Fatalf("secReader ListTriggerRuns(opsorg) = %+v, %v", secRuns, err)
+	if secRuns, err := trigSvc.ListAutomationRuns(secReader, &corev1.ListAutomationRunsRequest{Account: "opsorg"}); err != nil || len(secRuns.GetRuns()) != 1 || secRuns.GetRuns()[0].GetId() != secretRun.GetId() {
+		t.Fatalf("secReader ListAutomationRuns(opsorg) = %+v, %v", secRuns, err)
 	}
-	if _, err := trigSvc.RunTrigger(secReader, &corev1.RunTriggerRequest{Account: "opsorg", TriggerId: "secret/secret-op"}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("secReader RunTrigger(secret-op) = %v, want PermissionDenied", err)
+	if _, err := trigSvc.RunAutomation(secReader, &corev1.RunAutomationRequest{Account: "opsorg", AutomationId: "secret/secret-op"}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("secReader RunAutomation(secret-op) = %v, want PermissionDenied", err)
 	}
-	if _, err := trigSvc.CancelTriggerRun(secReader, &corev1.CancelTriggerRunRequest{RunId: secretRun.GetId()}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("secReader CancelTriggerRun(secretRun) = %v, want PermissionDenied", err)
+	if _, err := trigSvc.CancelAutomationRun(secReader, &corev1.CancelAutomationRunRequest{RunId: secretRun.GetId()}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("secReader CancelAutomationRun(secretRun) = %v, want PermissionDenied", err)
 	}
 }
 

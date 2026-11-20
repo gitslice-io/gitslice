@@ -15,7 +15,7 @@ import type { FeedbackService } from "../gen/proto/core/v1/feedback_pb";
 import type { RepositoryService } from "../gen/proto/core/v1/repository_pb";
 import type { SecretService } from "../gen/proto/core/v1/secret_pb";
 import type { SliceService } from "../gen/proto/core/v1/slice_pb";
-import type { TriggerService } from "../gen/proto/core/v1/trigger_pb";
+import type { AutomationService } from "../gen/proto/core/v1/automation_pb";
 
 // Types only: the generated services and messages are named here to derive from
 // them, not to import them at runtime, so this file adds nothing to the page's
@@ -111,4 +111,4 @@ export type GeneratedApi = ServiceApi<typeof AuthService> &
   ServiceApi<typeof RepositoryService> &
   ServiceApi<typeof SecretService> &
   ServiceApi<typeof SliceService> &
-  ServiceApi<typeof TriggerService>;
+  ServiceApi<typeof AutomationService>;

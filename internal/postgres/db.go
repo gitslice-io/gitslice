@@ -12,19 +12,19 @@ import (
 )
 
 type DB struct {
-	db         *sql.DB
-	auth       *AuthStore
-	blobs      *BlobStore
-	repository *RepositoryStore
-	slices     *SliceStore
-	changesets *ChangesetStore
-	agents     *AgentStore
-	checks     *CheckStore
-	events     *EventStore
-	triggers   *TriggerStore
-	feedback   *FeedbackStore
-	blames     *BlameStore
-	mirrors    *GitMirrorStore
+	db          *sql.DB
+	auth        *AuthStore
+	blobs       *BlobStore
+	repository  *RepositoryStore
+	slices      *SliceStore
+	changesets  *ChangesetStore
+	agents      *AgentStore
+	checks      *CheckStore
+	events      *EventStore
+	automations *AutomationStore
+	feedback    *FeedbackStore
+	blames      *BlameStore
+	mirrors     *GitMirrorStore
 }
 
 func Open(ctx context.Context, databaseURL string) (*DB, error) {
@@ -87,8 +87,8 @@ func (d *DB) Checks() *CheckStore {
 }
 
 // Triggers returns the trigger run store (design/34_triggers.md).
-func (d *DB) Triggers() *TriggerStore {
-	return d.triggers
+func (d *DB) Automations() *AutomationStore {
+	return d.automations
 }
 
 // Events returns the event log store used by triggers and Git mirrors.
@@ -124,7 +124,7 @@ func (d *DB) initStores() {
 	d.agents = &AgentStore{db: d.db}
 	d.checks = &CheckStore{db: d.db}
 	d.events = &EventStore{db: d.db}
-	d.triggers = &TriggerStore{db: d.db}
+	d.automations = &AutomationStore{db: d.db}
 	d.feedback = &FeedbackStore{db: d.db}
 	d.blames = &BlameStore{db: d.db}
 	d.mirrors = &GitMirrorStore{db: d.db}

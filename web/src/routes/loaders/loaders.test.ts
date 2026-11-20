@@ -216,7 +216,7 @@ describe("prefetchChangesetDetailSSR", () => {
     const mockApi = {
       getChangeset: vi.fn().mockResolvedValue(mockCs),
       diffChangeset: vi.fn().mockResolvedValue({ diff: "diff --git a/x b/x" }),
-      listTriggerRuns: vi.fn().mockResolvedValue({ runs: [] }),
+      listAutomationRuns: vi.fn().mockResolvedValue({ runs: [] }),
       listCheckRuns: vi
         .fn()
         .mockResolvedValue({ runs: [{ id: "cr_1", status: "CHECK_RUN_STATUS_RUNNING" }] }),

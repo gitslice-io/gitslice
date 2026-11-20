@@ -48,22 +48,22 @@ func (s *CheckStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInpu
 	if provenance != "ci" {
 		provenance = "self"
 	}
-	if strings.TrimSpace(in.TriggerRunID) != "" && strings.TrimSpace(in.DaemonID) == "" {
+	if strings.TrimSpace(in.AutomationRunID) != "" && strings.TrimSpace(in.DaemonID) == "" {
 		provenance = "trigger"
 	}
 	now := nowRFC()
 	run := &corev1.CheckRun{
-		Id:           id,
-		ChangesetId:  changesetID,
-		PatchsetId:   patchsetID,
-		CheckName:    checkName,
-		DaemonId:     strings.TrimSpace(in.DaemonID),
-		Provenance:   provenance,
-		Attempt:      attempt,
-		Status:       status,
-		Summary:      "",
-		CreatedAt:    now,
-		TriggerRunId: strings.TrimSpace(in.TriggerRunID),
+		Id:              id,
+		ChangesetId:     changesetID,
+		PatchsetId:      patchsetID,
+		CheckName:       checkName,
+		DaemonId:        strings.TrimSpace(in.DaemonID),
+		Provenance:      provenance,
+		Attempt:         attempt,
+		Status:          status,
+		Summary:         "",
+		CreatedAt:       now,
+		AutomationRunId: strings.TrimSpace(in.AutomationRunID),
 	}
 	if status == "running" || isTerminalMemoryCheckRunStatus(status) {
 		run.StartedAt = now

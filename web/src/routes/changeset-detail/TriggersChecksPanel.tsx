@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { RpcError, isDefiniteClientError, isUnauthenticatedError } from "../../api/rpcError";
-import type { CheckRun, TriggerRun } from "../../api/types";
+import type { CheckRun, AutomationRun } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { Timestamp } from "../../components/Timestamp";
 import { Button } from "../../components/ui/Button";
@@ -18,7 +18,7 @@ import { CheckRunItem } from "./CheckRunItem";
 import { isTerminalCheckStatus } from "./checkStatus";
 import { errorMessage } from "./status";
 import {
-  TriggerRunLog,
+  AutomationRunLog,
   TriggerStatusBadge,
   isFinalTriggerStatus
 } from "./TriggerRunsPanel";
@@ -101,20 +101,20 @@ export function TriggersChecksPanel({
   const rerunCheckMutation = useMutation({
     mutationFn: (runId: string) => {
       const run = (checksQuery.data ?? []).find((r) => r.id === runId);
-      return run?.triggerRunId && run.provenance === "trigger"
-        ? api.rerunTriggerRun({ runId: run.triggerRunId })
+      return run?.automationRunId && run.provenance === "trigger"
+        ? api.rerunAutomationRun({ runId: run.automationRunId })
         : api.rerunCheck({ runId });
     },
     onSuccess: refreshAll
   });
 
   const rerunTriggerMutation = useMutation({
-    mutationFn: (runId: string) => api.rerunTriggerRun({ runId }),
+    mutationFn: (runId: string) => api.rerunAutomationRun({ runId }),
     onSuccess: refreshAll
   });
 
   const cancelTriggerMutation = useMutation({
-    mutationFn: (runId: string) => api.cancelTriggerRun({ runId }),
+    mutationFn: (runId: string) => api.cancelAutomationRun({ runId }),
     onSuccess: refreshAll
   });
 
@@ -262,7 +262,7 @@ export function TriggersChecksPanel({
               api={api}
               cancelPending={cancelTriggerMutation.isPending}
               checks={checks}
-              key={trigger.id ?? trigger.triggerId}
+              key={trigger.id ?? trigger.automationId}
               onCancelTrigger={(id) => cancelTriggerMutation.mutate(id)}
               onRerunCheck={(id) => rerunCheckMutation.mutate(id)}
               onRerunTrigger={(id) => rerunTriggerMutation.mutate(id)}
@@ -315,7 +315,7 @@ export function TriggersChecksPanel({
               {grouped.skippedTriggers.length} skipped trigger
               {grouped.skippedTriggers.length === 1 ? "" : "s"} (
               <span className="font-mono">
-                {grouped.skippedTriggers.map((t) => t.triggerId).filter(Boolean).join(", ")}
+                {grouped.skippedTriggers.map((t) => t.automationId).filter(Boolean).join(", ")}
               </span>
               ) — no matching checks
             </span>
@@ -335,7 +335,7 @@ export function TriggersChecksPanel({
                   api={api}
                   cancelPending={cancelTriggerMutation.isPending}
                   checks={[]}
-                  key={trigger.id ?? trigger.triggerId}
+                  key={trigger.id ?? trigger.automationId}
                   onCancelTrigger={(id) => cancelTriggerMutation.mutate(id)}
                   onRerunCheck={(id) => rerunCheckMutation.mutate(id)}
                   onRerunTrigger={(id) => rerunTriggerMutation.mutate(id)}
@@ -379,7 +379,7 @@ interface TriggerGroupRowProps {
   openTriggerLogId: string;
   rerunCheckPendingId: string;
   rerunTriggerPending: boolean;
-  trigger: TriggerRun;
+  trigger: AutomationRun;
 }
 
 function TriggerGroupRow({
@@ -412,7 +412,7 @@ function TriggerGroupRow({
         >
           <div className="flex flex-wrap items-center gap-2">
             <span className="truncate font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-              {trigger.triggerId}
+              {trigger.automationId}
             </span>
             <TriggerStatusBadge status={trigger.status} />
             <span className="text-xs text-slate-500 dark:text-zinc-400">
@@ -455,7 +455,7 @@ function TriggerGroupRow({
         </div>
       </div>
 
-      {logOpen ? <TriggerRunLog run={trigger} /> : null}
+      {logOpen ? <AutomationRunLog run={trigger} /> : null}
 
       {checks.length > 0 ? (
         <div className="px-3 pb-3 md:px-5">

@@ -62,30 +62,30 @@ automations:
 	)
 
 	dispatchSecret := "test-dispatch-secret"
-	_, trigSvc, runSvc := newTriggerTestServices(mem, dispatchSecret)
+	_, trigSvc, runSvc := newAutomationTestServices(mem, dispatchSecret)
 
 	// Not landed: the default ref has no such automation.
-	if _, err := trigSvc.RunTrigger(bobby, &corev1.RunTriggerRequest{Account: "tryorg", TriggerId: "ops/try-it"}); status.Code(err) != codes.NotFound {
-		t.Fatalf("RunTrigger at main = %v, want NotFound", err)
+	if _, err := trigSvc.RunAutomation(bobby, &corev1.RunAutomationRequest{Account: "tryorg", AutomationId: "ops/try-it"}); status.Code(err) != codes.NotFound {
+		t.Fatalf("RunAutomation at main = %v, want NotFound", err)
 	}
 	// definition_from_changeset needs the changeset.
-	if _, err := trigSvc.RunTrigger(bobby, &corev1.RunTriggerRequest{Account: "tryorg", TriggerId: "ops/try-it", DefinitionFromChangeset: true}); status.Code(err) != codes.InvalidArgument {
-		t.Fatalf("RunTrigger without changeset = %v, want InvalidArgument", err)
+	if _, err := trigSvc.RunAutomation(bobby, &corev1.RunAutomationRequest{Account: "tryorg", AutomationId: "ops/try-it", DefinitionFromChangeset: true}); status.Code(err) != codes.InvalidArgument {
+		t.Fatalf("RunAutomation without changeset = %v, want InvalidArgument", err)
 	}
-	run, err := trigSvc.RunTrigger(bobby, &corev1.RunTriggerRequest{Account: "tryorg", TriggerId: "ops/try-it", ChangesetId: cs.Id, DefinitionFromChangeset: true})
+	run, err := trigSvc.RunAutomation(bobby, &corev1.RunAutomationRequest{Account: "tryorg", AutomationId: "ops/try-it", ChangesetId: cs.Id, DefinitionFromChangeset: true})
 	if err != nil {
-		t.Fatalf("writer RunTrigger from changeset: %v", err)
+		t.Fatalf("writer RunAutomation from changeset: %v", err)
 	}
 	// A writer may not run an unreviewed script that gets secrets.
-	if _, err := trigSvc.RunTrigger(bobby, &corev1.RunTriggerRequest{Account: "tryorg", TriggerId: "ops/try-secret", ChangesetId: cs.Id, DefinitionFromChangeset: true}); status.Code(err) != codes.PermissionDenied {
-		t.Fatalf("writer RunTrigger(secrets) from changeset = %v, want PermissionDenied", err)
+	if _, err := trigSvc.RunAutomation(bobby, &corev1.RunAutomationRequest{Account: "tryorg", AutomationId: "ops/try-secret", ChangesetId: cs.Id, DefinitionFromChangeset: true}); status.Code(err) != codes.PermissionDenied {
+		t.Fatalf("writer RunAutomation(secrets) from changeset = %v, want PermissionDenied", err)
 	}
-	if _, err := trigSvc.RunTrigger(alice, &corev1.RunTriggerRequest{Account: "tryorg", TriggerId: "ops/try-secret", ChangesetId: cs.Id, DefinitionFromChangeset: true}); err != nil {
-		t.Fatalf("admin RunTrigger(secrets) from changeset: %v", err)
+	if _, err := trigSvc.RunAutomation(alice, &corev1.RunAutomationRequest{Account: "tryorg", AutomationId: "ops/try-secret", ChangesetId: cs.Id, DefinitionFromChangeset: true}); err != nil {
+		t.Fatalf("admin RunAutomation(secrets) from changeset: %v", err)
 	}
 
 	// The dispatcher gets the script from the changeset's tree.
-	started, err := runSvc.StartRun(context.Background(), &corev1.StartTriggerRunRequest{RunId: run.GetId(), DispatcherKey: dispatchSecret})
+	started, err := runSvc.StartRun(context.Background(), &corev1.StartAutomationRunRequest{RunId: run.GetId(), DispatcherKey: dispatchSecret})
 	if err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
@@ -94,13 +94,13 @@ automations:
 	}
 
 	// Details URL: https only, then shown on the run.
-	if _, err := runSvc.SetRunDetailsUrl(context.Background(), &corev1.SetTriggerRunDetailsUrlRequest{RunToken: started.GetRunToken(), DetailsUrl: "http://ci.example.com/1"}); status.Code(err) != codes.InvalidArgument {
+	if _, err := runSvc.SetRunDetailsUrl(context.Background(), &corev1.SetAutomationRunDetailsUrlRequest{RunToken: started.GetRunToken(), DetailsUrl: "http://ci.example.com/1"}); status.Code(err) != codes.InvalidArgument {
 		t.Fatalf("SetRunDetailsUrl(http) = %v, want InvalidArgument", err)
 	}
-	if _, err := runSvc.SetRunDetailsUrl(context.Background(), &corev1.SetTriggerRunDetailsUrlRequest{RunToken: started.GetRunToken(), DetailsUrl: "https://ci.example.com/builds/1"}); err != nil {
+	if _, err := runSvc.SetRunDetailsUrl(context.Background(), &corev1.SetAutomationRunDetailsUrlRequest{RunToken: started.GetRunToken(), DetailsUrl: "https://ci.example.com/builds/1"}); err != nil {
 		t.Fatalf("SetRunDetailsUrl: %v", err)
 	}
-	got, err := trigSvc.GetTriggerRun(bobby, &corev1.GetTriggerRunRequest{RunId: run.GetId()})
+	got, err := trigSvc.GetAutomationRun(bobby, &corev1.GetAutomationRunRequest{RunId: run.GetId()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,8 +112,8 @@ automations:
 	if _, err := h.Changeset.AbandonChangeset(bobby, &corev1.AbandonChangesetRequest{ChangesetId: cs.Id}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := trigSvc.RunTrigger(bobby, &corev1.RunTriggerRequest{Account: "tryorg", TriggerId: "ops/try-it", ChangesetId: cs.Id, DefinitionFromChangeset: true}); status.Code(err) != codes.FailedPrecondition {
-		t.Fatalf("RunTrigger from abandoned changeset = %v, want FailedPrecondition", err)
+	if _, err := trigSvc.RunAutomation(bobby, &corev1.RunAutomationRequest{Account: "tryorg", AutomationId: "ops/try-it", ChangesetId: cs.Id, DefinitionFromChangeset: true}); status.Code(err) != codes.FailedPrecondition {
+		t.Fatalf("RunAutomation from abandoned changeset = %v, want FailedPrecondition", err)
 	}
 	_ = storage.DefaultTargetRef
 }

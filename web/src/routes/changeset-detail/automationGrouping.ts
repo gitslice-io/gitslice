@@ -1,14 +1,14 @@
-import type { CheckRun, TriggerRun } from "../../api/types";
+import type { CheckRun, AutomationRun } from "../../api/types";
 import { sortCheckRuns } from "./checkStatus";
 
 export interface TriggerGroup {
   checks: CheckRun[];
-  trigger: TriggerRun;
+  trigger: AutomationRun;
 }
 
 export interface GroupedAutomation {
   primaryTriggers: TriggerGroup[];
-  skippedTriggers: TriggerRun[];
+  skippedTriggers: AutomationRun[];
   standaloneChecks: CheckRun[];
 }
 
@@ -24,14 +24,14 @@ function triggerPriority(status?: string): number {
 
 /**
  * Groups a patchset's trigger runs and check runs into a Triggers-first view:
- * - Checks whose triggerRunId matches a trigger run are nested under that trigger.
+ * - Checks whose automationRunId matches a trigger run are nested under that trigger.
  * - `action: "check"` triggers that succeeded with 0 spawned checks (e.g. ancestor
  *   folder triggers whose path filters matched nothing) are separated into
  *   `skippedTriggers` so they can be collapsed cleanly.
  * - Any check without a matching trigger run stays in `standaloneChecks`.
  */
 export function groupTriggersAndChecks(
-  triggerRuns: TriggerRun[],
+  triggerRuns: AutomationRun[],
   checkRuns: CheckRun[],
   patchsetId: string
 ): GroupedAutomation {
@@ -46,7 +46,7 @@ export function groupTriggersAndChecks(
   const standaloneChecks: CheckRun[] = [];
 
   for (const check of checkRuns) {
-    const parentId = check.triggerRunId ?? "";
+    const parentId = check.automationRunId ?? "";
     if (parentId && triggerIds.has(parentId)) {
       const bucket = checksByTrigger.get(parentId) ?? [];
       bucket.push(check);
@@ -57,7 +57,7 @@ export function groupTriggersAndChecks(
   }
 
   const primaryTriggers: TriggerGroup[] = [];
-  const skippedTriggers: TriggerRun[] = [];
+  const skippedTriggers: AutomationRun[] = [];
 
   for (const trigger of relevantTriggers) {
     const id = trigger.id ?? "";

@@ -101,7 +101,7 @@ checks:
 	}
 
 	// 1. Account admin sees full effective policy at /polorg/web/src.
-	got, err := h.Trigger.GetFolderPolicy(alice, &corev1.GetFolderPolicyRequest{Path: "/polorg/web/src"})
+	got, err := h.Automation.GetFolderPolicy(alice, &corev1.GetFolderPolicyRequest{Path: "/polorg/web/src"})
 	if err != nil {
 		t.Fatalf("GetFolderPolicy(alice): %v", err)
 	}
@@ -117,8 +117,8 @@ checks:
 	if len(got.Checks) != 2 || got.Checks[0].Id != "lint" || !got.Checks[0].Required || got.Checks[1].Id != "web/build" || got.Checks[1].Required {
 		t.Fatalf("checks = %+v", got.Checks)
 	}
-	if len(got.Triggers) != 1 || got.Triggers[0].Id != "web/deploy" {
-		t.Fatalf("triggers = %+v", got.Triggers)
+	if len(got.Automations) != 1 || got.Automations[0].Id != "web/deploy" {
+		t.Fatalf("triggers = %+v", got.Automations)
 	}
 	if !got.CanManageSecrets {
 		t.Fatal("expected CanManageSecrets=true for admin")
@@ -132,7 +132,7 @@ checks:
 	}
 
 	// 2. Account writer sees secret names ONLY (no IDs/paths) and CanManageSecrets=false.
-	gotWriter, err := h.Trigger.GetFolderPolicy(bobby, &corev1.GetFolderPolicyRequest{Path: "/polorg/web/src"})
+	gotWriter, err := h.Automation.GetFolderPolicy(bobby, &corev1.GetFolderPolicyRequest{Path: "/polorg/web/src"})
 	if err != nil {
 		t.Fatalf("GetFolderPolicy(bobby): %v", err)
 	}
@@ -144,6 +144,6 @@ checks:
 	}
 
 	// 3. Unauthorized outsider is denied on private folder.
-	_, err = h.Trigger.GetFolderPolicy(outsider, &corev1.GetFolderPolicyRequest{Path: "/polorg/web/src"})
+	_, err = h.Automation.GetFolderPolicy(outsider, &corev1.GetFolderPolicyRequest{Path: "/polorg/web/src"})
 	wantCode(t, err, codes.PermissionDenied, "outsider denied private folder policy")
 }

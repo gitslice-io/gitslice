@@ -38,7 +38,7 @@ type Options struct {
 	// WebBaseURL is the web app's origin, for links in trigger payloads.
 	WebBaseURL string
 	// Triggers, when set, turns events into trigger runs too.
-	Triggers Triggers
+	Automations Automations
 	// Mirrors, when set, queues and pushes slice Git mirrors.
 	Mirrors Mirrors
 }
@@ -50,9 +50,9 @@ type Mirrors interface {
 }
 
 // Triggers turns recorded events into trigger runs and runs them.
-type Triggers interface {
-	// MayHaveTriggers says whether events are worth resolving at once.
-	MayHaveTriggers(ctx context.Context) bool
+type Automations interface {
+	// MayHaveAutomations says whether events are worth resolving at once.
+	MayHaveAutomations(ctx context.Context) bool
 	// FanOut creates the event's trigger runs using pre-loaded entities and the
 	// marshaled event envelope. It must be safe to repeat.
 	FanOut(ctx context.Context, event storage.Event, entities storage.EventEntities, envelope []byte)
@@ -93,10 +93,10 @@ func (d *Dispatcher) Emit(ctx context.Context, event storage.Event) {
 // trigger is likely to run. Otherwise it only nudges the background loop, so a
 // request that records an event doesn't wait for mirrors.
 func (d *Dispatcher) Flush(ctx context.Context) {
-	if d.opts.Triggers == nil && d.opts.Mirrors == nil {
+	if d.opts.Automations == nil && d.opts.Mirrors == nil {
 		return
 	}
-	if d.opts.Triggers == nil || !d.opts.Triggers.MayHaveTriggers(ctx) {
+	if d.opts.Automations == nil || !d.opts.Automations.MayHaveAutomations(ctx) {
 		d.Nudge()
 		return
 	}
@@ -205,14 +205,14 @@ func (d *Dispatcher) DrainOnce(ctx context.Context) error {
 			if d.opts.Mirrors != nil {
 				d.opts.Mirrors.FanOut(ctx, event)
 			}
-			if d.opts.Triggers != nil {
+			if d.opts.Automations != nil {
 				ec, err := d.loadContext(ctx, event)
 				if err != nil {
 					slog.Warn("event context", "event", event.ID, "kind", event.Kind, "error", err)
 				} else if envelope, err := json.Marshal(d.payload(event, ec)); err != nil {
 					slog.Warn("marshal event payload", "event", event.ID, "error", err)
 				} else {
-					d.opts.Triggers.FanOut(ctx, event, ec.entities(), envelope)
+					d.opts.Automations.FanOut(ctx, event, ec.entities(), envelope)
 				}
 			}
 			if err := d.stores.Events.CompleteEvent(ctx, event.ID); err != nil {
@@ -223,8 +223,8 @@ func (d *Dispatcher) DrainOnce(ctx context.Context) error {
 			break
 		}
 	}
-	if d.opts.Triggers != nil {
-		d.opts.Triggers.Drain(ctx)
+	if d.opts.Automations != nil {
+		d.opts.Automations.Drain(ctx)
 	}
 	if d.opts.Mirrors != nil {
 		d.opts.Mirrors.Drain(ctx)

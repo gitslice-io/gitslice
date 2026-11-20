@@ -7,7 +7,7 @@ import type * as CommonProto from "../gen/proto/core/v1/common_pb";
 import type * as RepositoryProto from "../gen/proto/core/v1/repository_pb";
 import type * as SecretProto from "../gen/proto/core/v1/secret_pb";
 import type * as SliceProto from "../gen/proto/core/v1/slice_pb";
-import type * as TriggerProto from "../gen/proto/core/v1/trigger_pb";
+import type * as AutomationProto from "../gen/proto/core/v1/automation_pb";
 import type { NormalizedMessage, NormalizedRequest } from "./generated";
 
 // Proto-derived API types for the web app (type-only imports keep the protobuf
@@ -151,20 +151,20 @@ export type CreateSecretRequest = NormalizedRequest<SecretProto.CreateSecretRequ
 export type UpdateSecretRequest = NormalizedRequest<SecretProto.UpdateSecretRequest>;
 
 // Triggers & folder policy
-export type TriggerDefinition = NormalizedMessage<TriggerProto.TriggerDefinition>;
-export type TriggerFileProblem = NormalizedMessage<TriggerProto.TriggerFileProblem>;
-export type TriggerRun = NormalizedMessage<TriggerProto.TriggerRun>;
-export type TriggerRunLog = NormalizedMessage<TriggerProto.TriggerRunLog>;
-export type FolderOwnerRule = NormalizedMessage<TriggerProto.FolderOwnerRule>;
-export type FolderCheckDefinition = NormalizedMessage<TriggerProto.FolderCheckDefinition>;
-export type FolderSecretEntry = NormalizedMessage<TriggerProto.FolderSecretEntry>;
-export type FolderPolicyProblem = NormalizedMessage<TriggerProto.FolderPolicyProblem>;
-export type GetFolderPolicyRequest = NormalizedRequest<TriggerProto.GetFolderPolicyRequest>;
-export type FolderPolicyResponse = NormalizedMessage<TriggerProto.FolderPolicyResponse>;
-export type ListTriggersRequest = NormalizedRequest<TriggerProto.ListTriggersRequest>;
-export type ListTriggersResponse = NormalizedMessage<TriggerProto.ListTriggersResponse>;
-export type ListTriggerRunsRequest = NormalizedRequest<TriggerProto.ListTriggerRunsRequest>;
-export type ListTriggerRunsResponse = NormalizedMessage<TriggerProto.ListTriggerRunsResponse>;
-export type RunTriggerRequest = NormalizedRequest<TriggerProto.RunTriggerRequest>;
-export type ListTriggerRunLogsRequest = NormalizedRequest<TriggerProto.ListTriggerRunLogsRequest>;
-export type ListTriggerRunLogsResponse = NormalizedMessage<TriggerProto.ListTriggerRunLogsResponse>;
+export type AutomationDefinition = NormalizedMessage<AutomationProto.AutomationDefinition>;
+export type AutomationFileProblem = NormalizedMessage<AutomationProto.AutomationFileProblem>;
+export type AutomationRun = NormalizedMessage<AutomationProto.AutomationRun>;
+export type AutomationRunLog = NormalizedMessage<AutomationProto.AutomationRunLog>;
+export type FolderOwnerRule = NormalizedMessage<AutomationProto.FolderOwnerRule>;
+export type FolderCheckDefinition = NormalizedMessage<AutomationProto.FolderCheckDefinition>;
+export type FolderSecretEntry = NormalizedMessage<AutomationProto.FolderSecretEntry>;
+export type FolderPolicyProblem = NormalizedMessage<AutomationProto.FolderPolicyProblem>;
+export type GetFolderPolicyRequest = NormalizedRequest<AutomationProto.GetFolderPolicyRequest>;
+export type FolderPolicyResponse = NormalizedMessage<AutomationProto.FolderPolicyResponse>;
+export type ListAutomationsRequest = NormalizedRequest<AutomationProto.ListAutomationsRequest>;
+export type ListAutomationsResponse = NormalizedMessage<AutomationProto.ListAutomationsResponse>;
+export type ListAutomationRunsRequest = NormalizedRequest<AutomationProto.ListAutomationRunsRequest>;
+export type ListAutomationRunsResponse = NormalizedMessage<AutomationProto.ListAutomationRunsResponse>;
+export type RunAutomationRequest = NormalizedRequest<AutomationProto.RunAutomationRequest>;
+export type ListAutomationRunLogsRequest = NormalizedRequest<AutomationProto.ListAutomationRunLogsRequest>;
+export type ListAutomationRunLogsResponse = NormalizedMessage<AutomationProto.ListAutomationRunLogsResponse>;

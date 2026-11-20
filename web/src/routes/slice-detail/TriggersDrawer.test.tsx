@@ -23,26 +23,26 @@ afterEach(cleanup);
 
 describe("TriggersDrawer", () => {
   it("lists the folder's triggers, their runs and problems, and runs a manual one", async () => {
-    const runTrigger = vi.fn().mockResolvedValue({ id: "trun_9" });
-    const listTriggerRuns = vi.fn().mockImplementation(({ triggerId }) =>
+    const runAutomation = vi.fn().mockResolvedValue({ id: "trun_9" });
+    const listAutomationRuns = vi.fn().mockImplementation(({ automationId }) =>
       Promise.resolve({
         runs:
-          triggerId === "web/ci"
+          automationId === "web/ci"
             ? [{ id: "trun_1", status: "failed", eventKind: "changeset.updated", changesetId: "cs_abcdef1234567890", error: "build broke" }]
             : []
       })
     );
     const api = {
-      listTriggers: vi.fn().mockResolvedValue({
-        triggers: [
+      listAutomations: vi.fn().mockResolvedValue({
+        automations: [
           { id: "web/ci", on: ["changeset.updated"], action: "check", checks: ["web/build"], paths: ["**/*.ts"] },
           { id: "deploy", on: ["push", "manual"], action: "http", httpUrl: "https://hooks.example.com/deploy" }
         ],
         problems: [{ file: "/acme/web/app/.gitslice/automations.yaml", message: "automation x: unknown event" }]
       }),
-      listTriggerRuns,
-      listTriggerRunLogs: vi.fn().mockResolvedValue({ logs: [] }),
-      runTrigger
+      listAutomationRuns,
+      listAutomationRunLogs: vi.fn().mockResolvedValue({ logs: [] }),
+      runAutomation
     } as unknown as ApiClient;
     renderWithQuery(<TriggersDrawer api={api} folder="/acme/web/app" onClose={() => {}} open />);
 
@@ -51,19 +51,19 @@ describe("TriggersDrawer", () => {
     expect(screen.getByText("https://hooks.example.com/deploy")).toBeInTheDocument();
     expect(screen.getByText(/does not parse/)).toBeInTheDocument();
     expect(await screen.findByText("build broke")).toBeInTheDocument();
-    expect(listTriggerRuns).toHaveBeenCalledWith({ account: "acme", triggerId: "web/ci", limit: 5 });
+    expect(listAutomationRuns).toHaveBeenCalledWith({ account: "acme", automationId: "web/ci", limit: 5 });
 
     // Only the trigger that listens for manual has a Run button.
     const runs = screen.getAllByRole("button", { name: "Run" });
     expect(runs).toHaveLength(1);
     fireEvent.click(runs[0]);
-    await waitFor(() => expect(runTrigger).toHaveBeenCalledWith({ account: "acme", triggerId: "deploy" }));
+    await waitFor(() => expect(runAutomation).toHaveBeenCalledWith({ account: "acme", automationId: "deploy" }));
   });
 
   it("does not load until it is opened", () => {
-    const listTriggers = vi.fn();
-    renderWithQuery(<TriggersDrawer api={{ listTriggers } as unknown as ApiClient} folder="/acme" onClose={() => {}} open={false} />);
-    expect(listTriggers).not.toHaveBeenCalled();
+    const listAutomations = vi.fn();
+    renderWithQuery(<TriggersDrawer api={{ listAutomations } as unknown as ApiClient} folder="/acme" onClose={() => {}} open={false} />);
+    expect(listAutomations).not.toHaveBeenCalled();
   });
 });
 

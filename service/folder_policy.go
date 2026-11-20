@@ -6,12 +6,12 @@ import (
 	"strings"
 
 	"gitslice.io/gitslice/internal/authz"
+	"gitslice.io/gitslice/internal/automations"
 	"gitslice.io/gitslice/internal/checks"
 	"gitslice.io/gitslice/internal/gitslicecfg"
 	"gitslice.io/gitslice/internal/owners"
 	gspaths "gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
-	"gitslice.io/gitslice/internal/triggers"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -19,10 +19,10 @@ import (
 
 // GetFolderPolicy returns the effective folder policy at a canonical folder:
 // nearest .gitslice/owners.yaml, inherited .gitslice/checks.yaml definitions
-// (including required gates), inherited .gitslice/triggers.yaml triggers,
+// (including required gates), inherited .gitslice/automations.yaml triggers,
 // effective folder secrets (scoped by caller authorization), and the account's
 // default CI runner pool.
-func (s *TriggerService) GetFolderPolicy(ctx context.Context, req *corev1.GetFolderPolicyRequest) (*corev1.FolderPolicyResponse, error) {
+func (s *AutomationService) GetFolderPolicy(ctx context.Context, req *corev1.GetFolderPolicyRequest) (*corev1.FolderPolicyResponse, error) {
 	if s == nil || s.Repository == nil || s.Tree.Objects == nil {
 		return nil, status.Error(codes.Unavailable, "folder policy inspection is not configured on this server")
 	}
@@ -32,7 +32,7 @@ func (s *TriggerService) GetFolderPolicy(ctx context.Context, req *corev1.GetFol
 		return nil, status.Errorf(codes.InvalidArgument, "path: %v", err)
 	}
 	account := strings.Split(strings.Trim(folder, "/"), "/")[0]
-	if err := s.ensureTriggerFolderAccess(ctx, subjectID, account, folder, authz.ActionRead); err != nil {
+	if err := s.ensureAutomationFolderAccess(ctx, subjectID, account, folder, authz.ActionRead); err != nil {
 		return nil, err
 	}
 	ref := strings.TrimSpace(req.GetRef())
@@ -40,7 +40,7 @@ func (s *TriggerService) GetFolderPolicy(ctx context.Context, req *corev1.GetFol
 		return nil, err
 	}
 	if ref == "" {
-		ref = triggers.DefaultRef
+		ref = automations.DefaultRef
 	}
 	head, err := s.Repository.GetRef(ctx, ref)
 	if err != nil {
@@ -58,7 +58,7 @@ func (s *TriggerService) GetFolderPolicy(ctx context.Context, req *corev1.GetFol
 	}
 
 	// 1. Nearest .gitslice/owners.yaml governing this folder.
-	ownerReader := newGitsliceTreeReader(s.Repository, s.Tree.Objects, maxTriggerFileBytes, "", triggers.ErrNotFound)
+	ownerReader := newGitsliceTreeReader(s.Repository, s.Tree.Objects, maxAutomationFileBytes, "", automations.ErrNotFound)
 	for _, cfgPath := range owners.ConfigPaths(folder + "/_") {
 		data, exists, readErr := ownerReader.ReadConfig(ctx, tree, cfgPath)
 		if readErr != nil {
@@ -132,12 +132,12 @@ func (s *TriggerService) GetFolderPolicy(ctx context.Context, req *corev1.GetFol
 	}
 
 	// 3. Triggers along ancestor chain from /<account> down to folder.
-	matches, trigProblems, err := triggers.List(ctx, s.Tree, tree, account, folder)
+	matches, trigProblems, err := automations.List(ctx, s.Tree, tree, account, folder)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	for _, m := range matches {
-		out.Triggers = append(out.Triggers, triggerDefinitionProto(m))
+		out.Automations = append(out.Automations, automationDefinitionProto(m))
 	}
 	for _, p := range trigProblems {
 		out.Problems = append(out.Problems, &corev1.FolderPolicyProblem{
@@ -156,7 +156,7 @@ func (s *TriggerService) GetFolderPolicy(ctx context.Context, req *corev1.GetFol
 		}
 		canSeeSecretNames := isAdmin
 		if !canSeeSecretNames {
-			canSeeSecretNames = s.ensureTriggerFolderAccess(ctx, subjectID, account, folder, authz.ActionUseSecrets) == nil
+			canSeeSecretNames = s.ensureAutomationFolderAccess(ctx, subjectID, account, folder, authz.ActionUseSecrets) == nil
 		}
 		if canSeeSecretNames {
 			out.CanManageSecrets = isAdmin

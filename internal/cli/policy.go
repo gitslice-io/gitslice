@@ -49,7 +49,7 @@ type folderPolicyOutput struct {
 	OwnerSourceFolder string                      `json:"owner_source_folder,omitempty"`
 	OwnerRules        []folderOwnerRuleOutput     `json:"owner_rules,omitempty"`
 	Checks            []folderCheckOutput         `json:"checks,omitempty"`
-	Automations       []triggerOutput             `json:"automations,omitempty"`
+	Automations       []automationOutput          `json:"automations,omitempty"`
 	Secrets           []folderSecretOutput        `json:"secrets,omitempty"`
 	CanManageSecrets  bool                        `json:"can_manage_secrets,omitempty"`
 	CIDaemonIDs       []string                    `json:"ci_daemon_ids,omitempty"`
@@ -91,11 +91,11 @@ func (r Runner) runFolderPolicy(ctx context.Context, opts commandOptions, rawFol
 	var resp *corev1.FolderPolicyResponse
 	if err := r.withSession(ctx, func(s *Session) error {
 		var err error
-		resp, err = s.Trigger().GetFolderPolicy(s.Ctx(), &corev1.GetFolderPolicyRequest{
+		resp, err = s.Automation().GetFolderPolicy(s.Ctx(), &corev1.GetFolderPolicyRequest{
 			Path: folder,
 			Ref:  strings.TrimSpace(ref),
 		})
-		return triggerError(err)
+		return automationError(err)
 	}); err != nil {
 		return err
 	}
@@ -136,8 +136,8 @@ func folderPolicyFromProto(resp *corev1.FolderPolicyResponse) folderPolicyOutput
 			Required:   chk.GetRequired(),
 		})
 	}
-	for _, t := range resp.GetTriggers() {
-		out.Automations = append(out.Automations, triggerDefToOutput(t))
+	for _, t := range resp.GetAutomations() {
+		out.Automations = append(out.Automations, automationDefToOutput(t))
 	}
 	for _, sec := range resp.GetSecrets() {
 		out.Secrets = append(out.Secrets, folderSecretOutput{

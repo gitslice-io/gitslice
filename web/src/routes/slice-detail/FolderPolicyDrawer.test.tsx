@@ -28,7 +28,7 @@ afterEach(cleanup);
 
 describe("FolderPolicyDrawer", () => {
   it("renders checks, triggers, secrets with inheritance, owners, and CI runners across accessible tabs", async () => {
-    const runTrigger = vi.fn().mockResolvedValue({ id: "trun_9" });
+    const runAutomation = vi.fn().mockResolvedValue({ id: "trun_9" });
     const createSecret = vi.fn().mockResolvedValue({ id: "sec_3", name: "NEW_KEY" });
     const getFolderPolicy = vi.fn().mockResolvedValue({
       folder: "/acme/web",
@@ -43,7 +43,7 @@ describe("FolderPolicyDrawer", () => {
         { id: "lint", name: "lint", folder: "/acme", configPath: "/acme/.gitslice/checks.yaml", run: "go vet ./...", required: true },
         { id: "web/build", name: "build", folder: "/acme/web", configPath: "/acme/web/.gitslice/checks.yaml", run: "npm run build", required: false }
       ],
-      triggers: [
+      automations: [
         { id: "web/deploy", name: "deploy", folder: "/acme/web", on: ["push", "manual"], action: "http", httpUrl: "https://hooks.example.com/deploy" }
       ],
       secrets: [
@@ -57,9 +57,9 @@ describe("FolderPolicyDrawer", () => {
     });
     const api = {
       getFolderPolicy,
-      listTriggerRuns: vi.fn().mockResolvedValue({ runs: [] }),
-      listTriggerRunLogs: vi.fn().mockResolvedValue({ logs: [] }),
-      runTrigger,
+      listAutomationRuns: vi.fn().mockResolvedValue({ runs: [] }),
+      listAutomationRunLogs: vi.fn().mockResolvedValue({ logs: [] }),
+      runAutomation,
       createSecret,
       listSlices: vi.fn().mockResolvedValue({ slices: [] }),
       getRef: vi.fn().mockResolvedValue({ commitId: "commit_1" }),
@@ -79,7 +79,7 @@ describe("FolderPolicyDrawer", () => {
 
     // Manual trigger run works.
     fireEvent.click(screen.getByRole("button", { name: "Run" }));
-    await waitFor(() => expect(runTrigger).toHaveBeenCalledWith({ account: "acme", triggerId: "web/deploy" }));
+    await waitFor(() => expect(runAutomation).toHaveBeenCalledWith({ account: "acme", automationId: "web/deploy" }));
 
     // Keyboard navigation moves focus + selection to Secrets tab (ArrowRight).
     const automationTab = screen.getByRole("tab", { name: /Automation/ });
@@ -127,14 +127,14 @@ describe("FolderPolicyDrawer", () => {
   });
 
   it("opens RunAutomationModal for bash automations with typed inputs, secrets, and confirmation", async () => {
-    const runTrigger = vi.fn().mockResolvedValue({ id: "trun_bash_1" });
+    const runAutomation = vi.fn().mockResolvedValue({ id: "trun_bash_1" });
     const getFolderPolicy = vi.fn().mockResolvedValue({
       folder: "/acme/infra",
       account: "acme",
       commitId: "commit_2",
       ownerRules: [],
       checks: [],
-      triggers: [
+      automations: [
         {
           id: "infra/deploy-staging",
           name: "deploy-staging",
@@ -163,9 +163,9 @@ describe("FolderPolicyDrawer", () => {
     });
     const api = {
       getFolderPolicy,
-      listTriggerRuns: vi.fn().mockResolvedValue({ runs: [] }),
-      listTriggerRunLogs: vi.fn().mockResolvedValue({ logs: [] }),
-      runTrigger
+      listAutomationRuns: vi.fn().mockResolvedValue({ runs: [] }),
+      listAutomationRunLogs: vi.fn().mockResolvedValue({ logs: [] }),
+      runAutomation
     } as unknown as ApiClient;
     apiMock.current = api;
 
@@ -193,9 +193,9 @@ describe("FolderPolicyDrawer", () => {
 
     fireEvent.click(submitBtn);
     await waitFor(() =>
-      expect(runTrigger).toHaveBeenCalledWith({
+      expect(runAutomation).toHaveBeenCalledWith({
         account: "acme",
-        triggerId: "infra/deploy-staging",
+        automationId: "infra/deploy-staging",
         inputs: { version: "v1.4.2", region: "europe-west1", dry_run: "true" }
       })
     );

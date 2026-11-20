@@ -125,7 +125,7 @@ export function CheckRunItem({
         </div>
       </div>
       {selected ? (
-        run.triggerRunId && run.provenance === "trigger" ? (
+        run.automationRunId && run.provenance === "trigger" ? (
           <TriggerCheckDetails run={run} />
         ) : (
           <CheckRunLogTail api={api} run={run} />

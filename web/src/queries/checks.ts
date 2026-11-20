@@ -1,6 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 
-import type { CheckRun, TriggerRun, TriggerRunLog } from "../api/types";
+import type { CheckRun, AutomationRun, AutomationRunLog } from "../api/types";
 import type { ApiClient } from "../api/useApi";
 
 // Check runs and trigger runs of a changeset, plus trigger run logs. Written by
@@ -17,16 +17,16 @@ export function checkRunsQuery(api: Pick<ApiClient, "listCheckRuns">, changesetI
   });
 }
 
-export function triggerRunsQuery(api: Pick<ApiClient, "listTriggerRuns">, changesetId: string) {
+export function triggerRunsQuery(api: Pick<ApiClient, "listAutomationRuns">, changesetId: string) {
   return queryOptions({
     queryKey: triggerRunsKey(changesetId),
-    queryFn: async (): Promise<TriggerRun[]> => (await api.listTriggerRuns({ changesetId, limit: 50 })).runs ?? []
+    queryFn: async (): Promise<AutomationRun[]> => (await api.listAutomationRuns({ changesetId, limit: 50 })).runs ?? []
   });
 }
 
-export function triggerRunLogsQuery(api: Pick<ApiClient, "listTriggerRunLogs">, runId: string) {
+export function triggerRunLogsQuery(api: Pick<ApiClient, "listAutomationRunLogs">, runId: string) {
   return queryOptions({
     queryKey: triggerRunLogsKey(runId),
-    queryFn: async (): Promise<TriggerRunLog[]> => (await api.listTriggerRunLogs({ runId, afterSeq: "0" })).logs ?? []
+    queryFn: async (): Promise<AutomationRunLog[]> => (await api.listAutomationRunLogs({ runId, afterSeq: "0" })).logs ?? []
   });
 }

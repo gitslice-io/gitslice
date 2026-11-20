@@ -1,5 +1,5 @@
-// A client for the server's TriggerRunService over Connect's JSON protocol
-// (proto/core/v1/trigger.proto).
+// A client for the server's AutomationRunService over Connect's JSON protocol
+// (proto/core/v1/automation.proto).
 
 export interface ConnectErrorDetail {
   type?: string;
@@ -58,10 +58,10 @@ export class ApiError extends Error {
   }
 }
 
-export interface TriggerRun {
+export interface AutomationRun {
   id: string;
   account?: string;
-  triggerId: string;
+  automationId: string;
   folder?: string;
   status: string;
   eventKind?: string;
@@ -74,7 +74,7 @@ const scopeEncoder = new TextEncoder();
 
 // triggerScope binds isolate reuse and sealed secret placeholders to a single
 // tenant account, folder, and script code hash.
-export function triggerScope(start: Pick<StartResponse, "codeHash"> & { run?: Pick<TriggerRun, "account" | "folder"> }): string {
+export function triggerScope(start: Pick<StartResponse, "codeHash"> & { run?: Pick<AutomationRun, "account" | "folder"> }): string {
   return `${start.run?.account ?? ""}:${start.run?.folder ?? ""}:${start.codeHash}`;
 }
 
@@ -89,7 +89,7 @@ export async function loaderIsolateKey(scope: string, network: readonly string[]
 }
 
 export interface StartResponse {
-  run: TriggerRun;
+  run: AutomationRun;
   action?: string;
   eventJson: string;
   modules: Record<string, string>;
@@ -138,7 +138,7 @@ export class Api {
   }
 
   async call<T>(method: string, body: unknown): Promise<T> {
-    const res = await fetch(`${this.base.replace(/\/$/, "")}/gitslice.core.v1.TriggerRunService/${method}`, {
+    const res = await fetch(`${this.base.replace(/\/$/, "")}/gitslice.core.v1.AutomationRunService/${method}`, {
       method: "POST",
       headers: { "content-type": "application/json", "user-agent": "Gitslice-Trigger-Dispatch/1.0" },
       body: JSON.stringify(body),

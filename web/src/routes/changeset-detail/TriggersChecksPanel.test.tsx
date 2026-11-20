@@ -36,14 +36,14 @@ describe("groupTriggersAndChecks", () => {
   it("nests checks under their parent trigger, collapses 0-check succeeded check triggers, and keeps standalone checks", () => {
     const grouped = groupTriggersAndChecks(
       [
-        { id: "trun_web", triggerId: "gitslice/web/ci", status: "succeeded", action: "check", patchsetId: "ps_1" },
-        { id: "trun_root", triggerId: "gitslice/ci", status: "succeeded", action: "check", patchsetId: "ps_1" },
-        { id: "trun_hook", triggerId: "gitslice/notify", status: "succeeded", action: "http", patchsetId: "ps_1" },
-        { id: "trun_err", triggerId: "gitslice/broken", status: "errored", action: "check", patchsetId: "ps_1" },
-        { id: "trun_old", triggerId: "gitslice/web/ci", status: "canceled", action: "check", patchsetId: "ps_0" }
+        { id: "trun_web", automationId: "gitslice/web/ci", status: "succeeded", action: "check", patchsetId: "ps_1" },
+        { id: "trun_root", automationId: "gitslice/ci", status: "succeeded", action: "check", patchsetId: "ps_1" },
+        { id: "trun_hook", automationId: "gitslice/notify", status: "succeeded", action: "http", patchsetId: "ps_1" },
+        { id: "trun_err", automationId: "gitslice/broken", status: "errored", action: "check", patchsetId: "ps_1" },
+        { id: "trun_old", automationId: "gitslice/web/ci", status: "canceled", action: "check", patchsetId: "ps_0" }
       ],
       [
-        { id: "chk_web", checkName: "gitslice/web/build", status: "passed", provenance: "ci", triggerRunId: "trun_web" },
+        { id: "chk_web", checkName: "gitslice/web/build", status: "passed", provenance: "ci", automationRunId: "trun_web" },
         { id: "chk_solo", checkName: "manual/lint", status: "passed", provenance: "self" }
       ],
       "ps_1"
@@ -61,13 +61,13 @@ describe("groupTriggersAndChecks", () => {
 describe("TriggersChecksPanel", () => {
   it("nests spawned checks inside their trigger and collapses 0-check no-op triggers", async () => {
     const rerunCheck = vi.fn().mockResolvedValue({ id: "chk_new" });
-    const rerunTriggerRun = vi.fn().mockResolvedValue({ id: "trun_new" });
+    const rerunAutomationRun = vi.fn().mockResolvedValue({ id: "trun_new" });
     apiMock.current = {
-      listTriggerRuns: vi.fn().mockResolvedValue({
+      listAutomationRuns: vi.fn().mockResolvedValue({
         runs: [
           {
             id: "trun_web",
-            triggerId: "gitslice/web/ci",
+            automationId: "gitslice/web/ci",
             status: "succeeded",
             eventKind: "changeset.updated",
             action: "check",
@@ -75,7 +75,7 @@ describe("TriggersChecksPanel", () => {
           },
           {
             id: "trun_root",
-            triggerId: "gitslice/ci",
+            automationId: "gitslice/ci",
             status: "succeeded",
             eventKind: "changeset.updated",
             action: "check",
@@ -92,13 +92,13 @@ describe("TriggersChecksPanel", () => {
             provenance: "ci",
             daemonName: "Main CI",
             exitCode: 0,
-            triggerRunId: "trun_web"
+            automationRunId: "trun_web"
           }
         ]
       }),
-      listTriggerRunLogs: vi.fn().mockResolvedValue({ logs: [{ seq: "1", chunk: "dispatched 1 check\n" }] }),
+      listAutomationRunLogs: vi.fn().mockResolvedValue({ logs: [{ seq: "1", chunk: "dispatched 1 check\n" }] }),
       rerunCheck,
-      rerunTriggerRun,
+      rerunAutomationRun,
       streamCheckRun: vi.fn(async function* () {
         yield { seq: "1", chunk: "vite build ok\n" };
       })
@@ -126,14 +126,14 @@ describe("TriggersChecksPanel", () => {
     const webTriggerRow = screen.getByText("gitslice/web/ci").closest("li")!;
     const rerunButtons = within(webTriggerRow).getAllByRole("button", { name: "Rerun" });
     fireEvent.click(rerunButtons[0]);
-    await waitFor(() => expect(rerunTriggerRun).toHaveBeenCalledWith({ runId: "trun_web" }));
+    await waitFor(() => expect(rerunAutomationRun).toHaveBeenCalledWith({ runId: "trun_web" }));
     fireEvent.click(rerunButtons[1]);
     await waitFor(() => expect(rerunCheck).toHaveBeenCalledWith({ runId: "chk_build" }));
   });
 
   it("shows standalone checks under a Checks header when no triggers ran", async () => {
     apiMock.current = {
-      listTriggerRuns: vi.fn().mockResolvedValue({ runs: [] }),
+      listAutomationRuns: vi.fn().mockResolvedValue({ runs: [] }),
       listCheckRuns: vi.fn().mockResolvedValue({
         runs: [
           {
@@ -158,19 +158,19 @@ describe("TriggersChecksPanel", () => {
 
   it("tells signed-out viewers to sign in without querying the API", () => {
     const listCheckRuns = vi.fn();
-    const listTriggerRuns = vi.fn();
-    apiMock.current = { listCheckRuns, listTriggerRuns };
+    const listAutomationRuns = vi.fn();
+    apiMock.current = { listCheckRuns, listAutomationRuns };
 
     renderWithQuery(<TriggersChecksPanel changesetId="cs_1" patchsetId="ps_1" signedOut />);
 
     expect(screen.getByText("Sign in to see checks")).toBeInTheDocument();
     expect(listCheckRuns).not.toHaveBeenCalled();
-    expect(listTriggerRuns).not.toHaveBeenCalled();
+    expect(listAutomationRuns).not.toHaveBeenCalled();
   });
 
   it("still renders checks gracefully when trigger runs fail with 503", async () => {
     apiMock.current = {
-      listTriggerRuns: vi
+      listAutomationRuns: vi
         .fn()
         .mockRejectedValue(new RpcError(503, { code: 14, message: "unavailable" })),
       listCheckRuns: vi.fn().mockResolvedValue({

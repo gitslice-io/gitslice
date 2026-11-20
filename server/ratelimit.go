@@ -32,13 +32,13 @@ const (
 	// bucket is not forgotten before it would have refilled anyway.
 	agentSignupBucketTTL = 2 * time.Hour
 
-	// triggerRunServicePrefix identifies unauthenticated-at-interceptor RPCs
+	// automationRunServicePrefix identifies unauthenticated-at-interceptor RPCs
 	// that carry a run token in the request body; failed token guesses get a
 	// dedicated strict per-IP budget.
-	triggerRunServicePrefix = "/gitslice.core.v1.TriggerRunService/"
-	triggerAuthFailRPS      = 0.2
-	triggerAuthFailBurst    = 10
-	triggerAuthFailTTL      = 15 * time.Minute
+	automationRunServicePrefix = "/gitslice.core.v1.AutomationRunService/"
+	triggerAuthFailRPS         = 0.2
+	triggerAuthFailBurst       = 10
+	triggerAuthFailTTL         = 15 * time.Minute
 )
 
 var ratelimitRejectedTotal = metrics.NewCounter(
@@ -275,7 +275,7 @@ func (l *serverLimiters) triggerRunFailureUnaryInterceptor() grpc.UnaryServerInt
 		}
 	}
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if !strings.HasPrefix(info.FullMethod, triggerRunServicePrefix) {
+		if !strings.HasPrefix(info.FullMethod, automationRunServicePrefix) {
 			return handler(ctx, req)
 		}
 		ipKey := grpcPeerIPKeyWithProxies(ctx, l.proxies)

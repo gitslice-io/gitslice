@@ -6,8 +6,8 @@ import (
 
 	"gitslice.io/gitslice/internal/analytics"
 	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/automations"
 	"gitslice.io/gitslice/internal/storage"
-	"gitslice.io/gitslice/internal/triggers"
 )
 
 type ObjectStore interface {
@@ -28,10 +28,10 @@ type Handlers struct {
 	Check      *CheckService
 	Secret     *SecretService
 	Feedback   *FeedbackService
-	// Trigger and TriggerRun need an engine (design/34_triggers.md), which
+	// Trigger and AutomationRun need an engine (design/34_triggers.md), which
 	// the server sets.
-	Trigger    *TriggerService
-	TriggerRun *TriggerRunService
+	Automation    *AutomationService
+	AutomationRun *AutomationRunService
 }
 
 type Stores struct {
@@ -47,7 +47,7 @@ type Stores struct {
 	// Blames is optional: without it every blame walks the file's history.
 	Blames storage.BlameStore
 	// Triggers is optional: without it the trigger services are unavailable.
-	Triggers storage.TriggerStore
+	Automations storage.AutomationStore
 }
 
 func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Client) *Handlers {
@@ -139,22 +139,22 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 		Secret: &SecretService{Auth: stores.Auth, Slices: stores.Slices},
 		// The server sets who reads feedback (Account, OperatorSubjects).
 		Feedback: &FeedbackService{Auth: stores.Auth, Feedback: stores.Feedback},
-		Trigger: &TriggerService{
+		Automation: &AutomationService{
 			Auth: stores.Auth, Changesets: stores.Changesets, Slices: stores.Slices, Repository: stores.Repository,
-			Triggers: stores.Triggers, Tree: TreeFiles{Repository: stores.Repository, Objects: objectStore},
+			Automations: stores.Automations, Tree: TreeFiles{Repository: stores.Repository, Objects: objectStore},
 		},
-		TriggerRun: &TriggerRunService{
+		AutomationRun: &AutomationRunService{
 			Changesets: stores.Changesets, Slices: stores.Slices, Repository: stores.Repository, Checks: stores.Checks,
-			Triggers: stores.Triggers, Tree: TreeFiles{Repository: stores.Repository, Objects: objectStore},
+			Automations: stores.Automations, Tree: TreeFiles{Repository: stores.Repository, Objects: objectStore},
 		},
 	}
 }
 
-// SetTriggerEngine gives the trigger services their engine, and the engine
+// SetAutomationEngine gives the trigger services their engine, and the engine
 // what runs check actions on CI daemons.
-func (h *Handlers) SetTriggerEngine(engine *triggers.Engine) {
-	h.Trigger.Engine = engine
-	h.TriggerRun.Engine = engine
+func (h *Handlers) SetAutomationEngine(engine *automations.Engine) {
+	h.Automation.Engine = engine
+	h.AutomationRun.Engine = engine
 	if h.Changeset != nil && h.Changeset.dispatcher != nil {
 		engine.SetCheckLauncher(h.Changeset.dispatcher)
 	}

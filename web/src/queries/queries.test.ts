@@ -55,8 +55,8 @@ describe("query options", () => {
       listDaemons: vi.fn().mockResolvedValue({ daemons: [{ id: "d1" }] }),
       listConversations: vi.fn().mockResolvedValue({ conversations: [{ id: "c1" }] }),
       listCheckRuns: vi.fn().mockResolvedValue({ runs: [{ id: "r1" }] }),
-      listTriggerRuns: vi.fn().mockResolvedValue({}),
-      listTriggerRunLogs: vi.fn().mockResolvedValue({ logs: [{ seq: "1", chunk: "ok\n" }] }),
+      listAutomationRuns: vi.fn().mockResolvedValue({}),
+      listAutomationRunLogs: vi.fn().mockResolvedValue({ logs: [{ seq: "1", chunk: "ok\n" }] }),
       listSharedSlices: vi.fn().mockResolvedValue({ slices: [{ role: "writer" }] }),
       listOwnedAgents: vi.fn().mockResolvedValue({ agents: [{ account: "bot" }] }),
       listSecrets: vi.fn().mockResolvedValue({ secrets: [{ id: "s1", name: "TOKEN" }] }),
@@ -66,9 +66,9 @@ describe("query options", () => {
     await expect(run(sliceConversationsQuery(api, { account: "a", slice: "s" }))).resolves.toEqual([{ id: "c1" }]);
     await expect(run(checkRunsQuery(api, "cs_1", "ps_1"))).resolves.toEqual([{ id: "r1" }]);
     await expect(run(triggerRunsQuery(api, "cs_1"))).resolves.toEqual([]);
-    expect(api.listTriggerRuns).toHaveBeenCalledWith({ changesetId: "cs_1", limit: 50 });
+    expect(api.listAutomationRuns).toHaveBeenCalledWith({ changesetId: "cs_1", limit: 50 });
     await expect(run(triggerRunLogsQuery(api, "run_1"))).resolves.toEqual([{ seq: "1", chunk: "ok\n" }]);
-    expect(api.listTriggerRunLogs).toHaveBeenCalledWith({ runId: "run_1", afterSeq: "0" });
+    expect(api.listAutomationRunLogs).toHaveBeenCalledWith({ runId: "run_1", afterSeq: "0" });
     await expect(run(sharedSlicesQuery(api))).resolves.toEqual([{ role: "writer" }]);
     await expect(run(sharedSlicesQuery({}))).resolves.toEqual([]);
     await expect(run(ownedAgentsQuery(api))).resolves.toEqual([{ account: "bot" }]);

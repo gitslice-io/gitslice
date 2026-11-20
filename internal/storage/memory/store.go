@@ -16,19 +16,19 @@ import (
 )
 
 type Stores struct {
-	Auth       *AuthStore
-	Blobs      *BlobStore
-	Changesets *ChangesetStore
-	Repository *RepositoryStore
-	Slices     *SliceStore
-	Objects    *ObjectStore
-	Agents     *AgentStore
-	Checks     *CheckStore
-	Events     *EventStore
-	Triggers   *TriggerStore
-	Feedback   *FeedbackStore
-	Blames     *BlameStore
-	GitMirrors *GitMirrorStore
+	Auth        *AuthStore
+	Blobs       *BlobStore
+	Changesets  *ChangesetStore
+	Repository  *RepositoryStore
+	Slices      *SliceStore
+	Objects     *ObjectStore
+	Agents      *AgentStore
+	Checks      *CheckStore
+	Events      *EventStore
+	Automations *AutomationStore
+	Feedback    *FeedbackStore
+	Blames      *BlameStore
+	GitMirrors  *GitMirrorStore
 
 	backend *backend
 }
@@ -238,20 +238,20 @@ func New() *Stores {
 	b.commitDirs[root.Id] = map[string]struct{}{}
 	b.refs[storage.DefaultTargetRef] = &corev1.Ref{Name: storage.DefaultTargetRef, CommitId: root.Id, UpdatedAt: root.CreatedAt}
 	return &Stores{
-		Auth:       &AuthStore{b: b},
-		Blobs:      &BlobStore{b: b},
-		Changesets: &ChangesetStore{b: b},
-		Repository: &RepositoryStore{b: b},
-		Slices:     &SliceStore{b: b},
-		Objects:    &ObjectStore{b: b},
-		Agents:     &AgentStore{b: b},
-		Checks:     &CheckStore{b: b},
-		Events:     &EventStore{b: b},
-		Triggers:   NewTriggerStore(),
-		Feedback:   &FeedbackStore{b: b},
-		Blames:     &BlameStore{b: b},
-		GitMirrors: &GitMirrorStore{b: b},
-		backend:    b,
+		Auth:        &AuthStore{b: b},
+		Blobs:       &BlobStore{b: b},
+		Changesets:  &ChangesetStore{b: b},
+		Repository:  &RepositoryStore{b: b},
+		Slices:      &SliceStore{b: b},
+		Objects:     &ObjectStore{b: b},
+		Agents:      &AgentStore{b: b},
+		Checks:      &CheckStore{b: b},
+		Events:      &EventStore{b: b},
+		Automations: NewAutomationStore(),
+		Feedback:    &FeedbackStore{b: b},
+		Blames:      &BlameStore{b: b},
+		GitMirrors:  &GitMirrorStore{b: b},
+		backend:     b,
 	}
 }
 

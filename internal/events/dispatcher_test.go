@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"gitslice.io/gitslice/internal/activity"
+	"gitslice.io/gitslice/internal/automations"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
-	"gitslice.io/gitslice/internal/triggers"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -25,23 +25,23 @@ func (c *countingEvents) ClaimEvents(ctx context.Context, limit int, lease time.
 	return c.EventStore.ClaimEvents(ctx, limit, lease)
 }
 
-type fakeTriggers struct {
+type fakeAutomations struct {
 	likely    bool
 	mu        sync.Mutex
 	envelopes [][]byte
 }
 
-func (f *fakeTriggers) MayHaveTriggers(context.Context) bool { return f.likely }
+func (f *fakeAutomations) MayHaveAutomations(context.Context) bool { return f.likely }
 
-func (f *fakeTriggers) FanOut(_ context.Context, _ storage.Event, _ storage.EventEntities, envelope []byte) {
+func (f *fakeAutomations) FanOut(_ context.Context, _ storage.Event, _ storage.EventEntities, envelope []byte) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.envelopes = append(f.envelopes, envelope)
 }
 
-func (f *fakeTriggers) Drain(context.Context) {}
+func (f *fakeAutomations) Drain(context.Context) {}
 
-func (f *fakeTriggers) count() int {
+func (f *fakeAutomations) count() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return len(f.envelopes)
@@ -52,7 +52,7 @@ type fakeMirrors struct{ events atomic.Int32 }
 func (f *fakeMirrors) FanOut(context.Context, storage.Event) { f.events.Add(1) }
 func (f *fakeMirrors) Drain(context.Context)                 {}
 
-func newTestDispatcher(t *testing.T, triggers *fakeTriggers, mirrors *fakeMirrors) (*Dispatcher, *countingEvents, *corev1.Slice) {
+func newTestDispatcher(t *testing.T, triggers *fakeAutomations, mirrors *fakeMirrors) (*Dispatcher, *countingEvents, *corev1.Slice) {
 	t.Helper()
 	mem := memory.New()
 	mem.AddAccount("user_alice", "acme")
@@ -64,26 +64,26 @@ func newTestDispatcher(t *testing.T, triggers *fakeTriggers, mirrors *fakeMirror
 		Changesets: mem.Changesets,
 		Checks:     mem.Checks,
 		Auth:       mem.Auth,
-	}, Options{WebBaseURL: "https://gitslice.test", Triggers: triggers, Mirrors: mirrors})
+	}, Options{WebBaseURL: "https://gitslice.test", Automations: triggers, Mirrors: mirrors})
 	return d, store, slice
 }
 
 // A tag event reaches triggers (with its payload) and mirrors, once.
 func TestDrainFansEventsOutToTriggersAndMirrors(t *testing.T) {
-	triggers := &fakeTriggers{likely: true}
+	autos := &fakeAutomations{likely: true}
 	mirrors := &fakeMirrors{}
-	d, _, slice := newTestDispatcher(t, triggers, mirrors)
+	d, _, slice := newTestDispatcher(t, autos, mirrors)
 
 	d.Emit(context.Background(), storage.Event{Kind: storage.EventTagCreated, SliceID: slice.Id, TagName: "v1.0.0"})
 	if err := d.DrainOnce(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if triggers.count() != 1 || mirrors.events.Load() != 1 {
-		t.Fatalf("triggers = %d, mirrors = %d, want one each", triggers.count(), mirrors.events.Load())
+	if autos.count() != 1 || mirrors.events.Load() != 1 {
+		t.Fatalf("automations = %d, mirrors = %d, want one each", autos.count(), mirrors.events.Load())
 	}
 	var payload map[string]any
-	if err := json.Unmarshal(triggers.envelopes[0], &payload); err != nil {
-		t.Fatalf("trigger payload: %v", err)
+	if err := json.Unmarshal(autos.envelopes[0], &payload); err != nil {
+		t.Fatalf("automation payload: %v", err)
 	}
 	if payload["event"] != storage.EventTagCreated {
 		t.Fatalf("payload event = %v, want %s", payload["event"], storage.EventTagCreated)
@@ -93,7 +93,7 @@ func TestDrainFansEventsOutToTriggersAndMirrors(t *testing.T) {
 // When no trigger is likely, recording an event only nudges the background
 // loop: the request that recorded it doesn't wait for a drain.
 func TestFlushOnlyNudgesWhenNoTriggerIsLikely(t *testing.T) {
-	d, store, slice := newTestDispatcher(t, &fakeTriggers{likely: false}, &fakeMirrors{})
+	d, store, slice := newTestDispatcher(t, &fakeAutomations{likely: false}, &fakeMirrors{})
 	d.Emit(context.Background(), storage.Event{Kind: storage.EventTagCreated, SliceID: slice.Id, TagName: "v1.0.0"})
 	if got := store.claims.Load(); got != 0 {
 		t.Fatalf("ClaimEvents during Emit = %d, want 0 (drained inline)", got)
@@ -112,7 +112,7 @@ func TestRunWaitsForActivity(t *testing.T) {
 		done := activity.Default.Begin()
 		done()
 	})
-	d, store, _ := newTestDispatcher(t, &fakeTriggers{}, &fakeMirrors{})
+	d, store, _ := newTestDispatcher(t, &fakeAutomations{}, &fakeMirrors{})
 	activity.Default.ResetIdle()
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -172,7 +172,7 @@ func (c *countingChecks) GetCheckRun(ctx context.Context, id string) (*corev1.Ch
 type staticTreeReader struct{}
 
 func (staticTreeReader) ReadFile(context.Context, string, string) ([]byte, error) {
-	return nil, triggers.ErrNotFound
+	return nil, automations.ErrNotFound
 }
 
 func TestDrainOncePassesPreloadedEntitiesWithoutDuplicateReads(t *testing.T) {
@@ -215,13 +215,13 @@ func TestDrainOncePassesPreloadedEntitiesWithoutDuplicateReads(t *testing.T) {
 	sliceStore := &countingSlices{SliceStore: mem.Slices}
 	checkStore := &countingChecks{CheckStore: mem.Checks}
 
-	engine := triggers.NewEngine(triggers.Stores{
-		Triggers:   mem.Triggers,
-		Changesets: csStore,
-		Slices:     sliceStore,
-		Repository: mem.Repository,
-		Checks:     checkStore,
-	}, triggers.Options{
+	engine := automations.NewEngine(automations.Stores{
+		Automations: mem.Automations,
+		Changesets:  csStore,
+		Slices:      sliceStore,
+		Repository:  mem.Repository,
+		Checks:      checkStore,
+	}, automations.Options{
 		Tree:                staticTreeReader{},
 		AllowPrivateTargets: true,
 	})
@@ -232,8 +232,8 @@ func TestDrainOncePassesPreloadedEntitiesWithoutDuplicateReads(t *testing.T) {
 		Checks:     checkStore,
 		Auth:       mem.Auth,
 	}, Options{
-		WebBaseURL: "https://gitslice.test",
-		Triggers:   engine,
+		WebBaseURL:  "https://gitslice.test",
+		Automations: engine,
 	})
 
 	if _, err := mem.Events.AppendEvent(ctx, storage.Event{

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 
 import { API_SERVICES, createApiClient } from "./client";
 import { SERVER_STREAMING_METHODS } from "./streamingMethods";
-import type { Changeset, RunTriggerRequest, Slice, SliceSecret, TreeEntry } from "./types";
+import type { Changeset, RunAutomationRequest, Slice, SliceSecret, TreeEntry } from "./types";
 import type { ApiClient } from "./useApi";
 
 describe("createApiClient integer request encoding", () => {
@@ -129,7 +129,7 @@ describe("createApiClient built from the service descriptors", () => {
     expectTypeOf<TreeEntry["kind"]>().toEqualTypeOf<string | undefined>();
     expectTypeOf<TreeEntry["size"]>().toEqualTypeOf<string | undefined>();
     expectTypeOf<TreeEntry["mode"]>().toEqualTypeOf<number | undefined>();
-    expectTypeOf<RunTriggerRequest["inputs"]>().toEqualTypeOf<Record<string, string> | undefined>();
+    expectTypeOf<RunAutomationRequest["inputs"]>().toEqualTypeOf<Record<string, string> | undefined>();
   });
 });
 

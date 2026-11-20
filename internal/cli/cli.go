@@ -180,7 +180,7 @@ func (r Runner) rootCommand() *cobra.Command {
 		r.blameCommand(opts),
 		r.policyCommand(opts),
 		r.secretCommand(opts),
-		r.triggerCommand(opts),
+		r.automationCommand(opts),
 	)
 	for _, commands := range [][]*cobra.Command{
 		r.workspaceCommands(opts),

@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { RpcError, isDefiniteClientError, isUnauthenticatedError } from "../../api/rpcError";
-import type { CheckRun, TriggerRun } from "../../api/types";
+import type { CheckRun, AutomationRun } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { cn } from "../../lib/cn";
 import { checkRunsQuery, triggerRunsQuery } from "../../queries/checks";
@@ -23,7 +23,7 @@ interface ChecksSummary {
 
 export function summarizeChecksAndTriggers(
   checkRuns: readonly CheckRun[],
-  primaryTriggers: readonly { trigger: TriggerRun; checks: CheckRun[] }[],
+  primaryTriggers: readonly { trigger: AutomationRun; checks: CheckRun[] }[],
   signedOut: boolean
 ): ChecksSummary | null {
   if (signedOut) {

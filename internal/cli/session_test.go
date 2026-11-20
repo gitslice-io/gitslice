@@ -43,8 +43,8 @@ func TestSessionCachesServiceClients(t *testing.T) {
 	if s.Secret() == nil || s.Secret() != s.Secret() {
 		t.Fatal("expected cached SecretServiceClient instance")
 	}
-	if s.Trigger() == nil || s.Trigger() != s.Trigger() {
-		t.Fatal("expected cached TriggerServiceClient instance")
+	if s.Automation() == nil || s.Automation() != s.Automation() {
+		t.Fatal("expected cached AutomationServiceClient instance")
 	}
 	if s.Feedback() == nil || s.Feedback() != s.Feedback() {
 		t.Fatal("expected cached FeedbackServiceClient instance")

@@ -14,6 +14,7 @@ import (
 	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/analytics"
 	"gitslice.io/gitslice/internal/auth/clerk"
+	"gitslice.io/gitslice/internal/automations"
 	"gitslice.io/gitslice/internal/events"
 	"gitslice.io/gitslice/internal/gitcompat"
 	"gitslice.io/gitslice/internal/indexworker"
@@ -25,7 +26,6 @@ import (
 	"gitslice.io/gitslice/internal/rpclimits"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/treestore"
-	"gitslice.io/gitslice/internal/triggers"
 	"gitslice.io/gitslice/proto/core/v1"
 	"gitslice.io/gitslice/service"
 	"golang.org/x/net/http2"
@@ -134,13 +134,13 @@ func Run(ctx context.Context, cfg Config) error {
 	// Trigger checks are written through the wrapped check store below, so
 	// the events they cause are recorded too.
 	triggerChecks := &lateCheckStore{}
-	triggerEngine := triggers.NewEngine(triggers.Stores{
-		Triggers:   db.Triggers(),
-		Changesets: db.Changesets(),
-		Slices:     db.Slices(),
-		Repository: db.Repository(),
-		Checks:     triggerChecks,
-	}, triggers.Options{
+	automationEngine := automations.NewEngine(automations.Stores{
+		Automations: db.Automations(),
+		Changesets:  db.Changesets(),
+		Slices:      db.Slices(),
+		Repository:  db.Repository(),
+		Checks:      triggerChecks,
+	}, automations.Options{
 		Tree:                service.TreeFiles{Repository: db.Repository(), Objects: objectStore},
 		DispatchURL:         cfg.TriggerDispatchURL,
 		DispatchSecret:      cfg.TriggerDispatchSecret,
@@ -160,9 +160,9 @@ func Run(ctx context.Context, cfg Config) error {
 		Checks:     db.Checks(),
 		Auth:       db.Auth(),
 	}, events.Options{
-		WebBaseURL: cfg.webBaseURL(),
-		Triggers:   triggerEngine,
-		Mirrors:    gitMirrors,
+		WebBaseURL:  cfg.webBaseURL(),
+		Automations: automationEngine,
+		Mirrors:     gitMirrors,
 	})
 	// Start background database loops idle until real user traffic arrives, so
 	// a cold-booted instance poked only by health checks or metrics scrapes lets
@@ -194,20 +194,20 @@ func Run(ctx context.Context, cfg Config) error {
 		return err
 	}
 	stores := service.Stores{
-		Auth:       db.Auth(),
-		Blobs:      db.Blobs(),
-		Changesets: events.WrapChangesets(db.Changesets(), dispatcher),
-		Repository: db.Repository(),
-		Slices:     events.WrapSlices(db.Slices(), dispatcher),
-		Agents:     db.Agents(),
-		Checks:     events.WrapChecks(db.Checks(), dispatcher),
-		Feedback:   db.Feedback(),
-		Blames:     db.Blames(),
-		Triggers:   db.Triggers(),
+		Auth:        db.Auth(),
+		Blobs:       db.Blobs(),
+		Changesets:  events.WrapChangesets(db.Changesets(), dispatcher),
+		Repository:  db.Repository(),
+		Slices:      events.WrapSlices(db.Slices(), dispatcher),
+		Agents:      db.Agents(),
+		Checks:      events.WrapChecks(db.Checks(), dispatcher),
+		Feedback:    db.Feedback(),
+		Blames:      db.Blames(),
+		Automations: db.Automations(),
 	}
 	triggerChecks.CheckStore = stores.Checks
 	handlers := service.New(stores, objectStore, tracker)
-	handlers.SetTriggerEngine(triggerEngine)
+	handlers.SetAutomationEngine(automationEngine)
 	doorbell, err := service.NewDoorbell(cfg.DoorbellURL, cfg.DoorbellSecret)
 	if err != nil {
 		return err
@@ -522,8 +522,8 @@ func newPrincipalGRPCServer(resolve principalResolver, handlers *service.Handler
 	corev1.RegisterCheckServiceServer(grpcServer, handlers.Check)
 	corev1.RegisterSecretServiceServer(grpcServer, handlers.Secret)
 	corev1.RegisterFeedbackServiceServer(grpcServer, handlers.Feedback)
-	corev1.RegisterTriggerServiceServer(grpcServer, handlers.Trigger)
-	corev1.RegisterTriggerRunServiceServer(grpcServer, handlers.TriggerRun)
+	corev1.RegisterAutomationServiceServer(grpcServer, handlers.Automation)
+	corev1.RegisterAutomationRunServiceServer(grpcServer, handlers.AutomationRun)
 	healthServer := health.NewServer()
 	healthServer.SetServingStatus("", healthv1.HealthCheckResponse_SERVING)
 	healthv1.RegisterHealthServer(grpcServer, healthServer)

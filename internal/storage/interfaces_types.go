@@ -175,13 +175,13 @@ type ConversationFilter struct {
 
 // CheckRunInput is the creation payload for a persisted CI/self-check run.
 type CheckRunInput struct {
-	ChangesetID  string
-	PatchsetID   string
-	CheckName    string
-	DaemonID     string
-	Provenance   string
-	Status       string
-	TriggerRunID string
+	ChangesetID     string
+	PatchsetID      string
+	CheckName       string
+	DaemonID        string
+	Provenance      string
+	Status          string
+	AutomationRunID string
 }
 
 // PatchsetSecretAllowance records that a reviewer allowed a specific

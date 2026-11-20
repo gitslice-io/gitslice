@@ -7,7 +7,7 @@ import { useConnectStream } from "../../lib/useConnectStream";
 import { useStickToBottomScroll } from "../../lib/useStickToBottomScroll";
 import { isTerminalCheckStatus } from "./checkStatus";
 import { errorMessage } from "./status";
-import { TriggerRunLog } from "./TriggerRunsPanel";
+import { AutomationRunLog } from "./TriggerRunsPanel";
 
 export const MAX_CHECK_LOG_CHARS = 512 * 1024;
 
@@ -169,7 +169,7 @@ export function TriggerCheckDetails({ run }: { run: CheckRun }) {
           ))}
         </ul>
       ) : null}
-      <TriggerRunLog run={{ id: run.triggerRunId, status: isTerminalCheckStatus(run.status) ? "succeeded" : "running" }} />
+      <AutomationRunLog run={{ id: run.automationRunId, status: isTerminalCheckStatus(run.status) ? "succeeded" : "running" }} />
     </div>
   );
 }

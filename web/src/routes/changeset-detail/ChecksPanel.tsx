@@ -84,8 +84,8 @@ export function ChecksPanel({ changesetId, patchsetId, signedOut = false }: Chec
   const rerunMutation = useMutation({
     mutationFn: (runId: string) => {
       const run = (runsQuery.data ?? []).find((r) => r.id === runId);
-      return run?.triggerRunId && run.provenance === "trigger"
-        ? api.rerunTriggerRun({ runId: run.triggerRunId })
+      return run?.automationRunId && run.provenance === "trigger"
+        ? api.rerunAutomationRun({ runId: run.automationRunId })
         : api.rerunCheck({ runId });
     },
     onSuccess: async () => {
@@ -252,7 +252,7 @@ export function ChecksPanel({ changesetId, patchsetId, signedOut = false }: Chec
         })}
       </div>
 
-      {selectedRun?.triggerRunId && selectedRun.provenance === "trigger" ? (
+      {selectedRun?.automationRunId && selectedRun.provenance === "trigger" ? (
         <TriggerCheckDetails run={selectedRun} />
       ) : selectedRun ? (
         <CheckRunLogTail api={api} run={selectedRun} />

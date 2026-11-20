@@ -7,10 +7,10 @@ import (
 	"io"
 	"strings"
 
+	"gitslice.io/gitslice/internal/automations"
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
 	"gitslice.io/gitslice/internal/owners"
 	"gitslice.io/gitslice/internal/storage"
-	"gitslice.io/gitslice/internal/triggers"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -259,7 +259,7 @@ func (s *ChangesetService) checkPathOwnersAtCommit(ctx context.Context, headComm
 	if err != nil {
 		return "", grpcError(err)
 	}
-	reader := newGitsliceTreeReader(s.Repository, s.ObjectStore, maxTriggerFileBytes, "", triggers.ErrNotFound)
+	reader := newGitsliceTreeReader(s.Repository, s.ObjectStore, maxAutomationFileBytes, "", automations.ErrNotFound)
 	resolver := owners.NewResolver(reader.ReadConfig)
 
 	type ruleKey struct {
@@ -447,7 +447,7 @@ func (s *ChangesetService) validateOwnersConfigEdits(ctx context.Context, baseTr
 			}
 			var err error
 			data, err = files.ReadFile(ctx, baseTreeID, edit.GetOldPath())
-			if errors.Is(err, triggers.ErrNotFound) {
+			if errors.Is(err, automations.ErrNotFound) {
 				continue
 			}
 			if err != nil {
@@ -462,7 +462,7 @@ func (s *ChangesetService) validateOwnersConfigEdits(ctx context.Context, baseTr
 			if err != nil {
 				return grpcError(err)
 			}
-			data, err = io.ReadAll(io.LimitReader(rc, maxTriggerFileBytes))
+			data, err = io.ReadAll(io.LimitReader(rc, maxAutomationFileBytes))
 			_ = rc.Close()
 			if err != nil {
 				return grpcError(err)

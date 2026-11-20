@@ -7,8 +7,8 @@ import type {
   FolderOwnerRule,
   FolderPolicyProblem,
   FolderSecretEntry,
-  TriggerDefinition,
-  TriggerRun
+  AutomationDefinition,
+  AutomationRun
 } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import { SecretForm, scopeFromDraft, type SecretDraft } from "../../components/secrets/SecretForm";
@@ -18,7 +18,7 @@ import { Button } from "../../components/ui/Button";
 import { cn } from "../../lib/cn";
 import { shortChangesetId } from "../../lib/objectId";
 import { secretsKey } from "../../queries/secrets";
-import { isFinalTriggerStatus, TriggerRunLog } from "../changeset-detail/TriggerRunsPanel";
+import { isFinalTriggerStatus, AutomationRunLog } from "../changeset-detail/TriggerRunsPanel";
 import { needsRunModal, RunAutomationModal } from "./RunAutomationModal";
 
 type PolicyTab = "automation" | "secrets" | "owners";
@@ -104,7 +104,7 @@ export function FolderPolicyDrawer({
   const policy = policyQuery.data;
   const account = policy?.account || folder.split("/").filter(Boolean)[0] || "";
   const checks = policy?.checks ?? [];
-  const triggers = policy?.triggers ?? [];
+  const triggers = policy?.automations ?? [];
   const secrets = policy?.secrets ?? [];
   const ownerRules = policy?.ownerRules ?? [];
   const problems = policy?.problems ?? [];
@@ -630,7 +630,7 @@ function TriggerCard({
   account: string;
   api: ApiClient;
   folder: string;
-  trigger: TriggerDefinition;
+  trigger: AutomationDefinition;
 }) {
   const queryClient = useQueryClient();
   const [openRun, setOpenRun] = useState("");
@@ -639,12 +639,12 @@ function TriggerCard({
   const runsQuery = useQuery({
     enabled: Boolean(account && trigger.id),
     queryKey: runsKey,
-    queryFn: async () => (await api.listTriggerRuns({ account, triggerId: trigger.id, limit: 5 })).runs ?? [],
+    queryFn: async () => (await api.listAutomationRuns({ account, automationId: trigger.id, limit: 5 })).runs ?? [],
     refetchInterval: (query) => (query.state.data?.some((run) => !isFinalTriggerStatus(run.status)) ? 3500 : false)
   });
   const run = useMutation({
     mutationFn: (inputs?: Record<string, string>) =>
-      api.runTrigger(inputs && Object.keys(inputs).length > 0 ? { account, triggerId: trigger.id, inputs } : { account, triggerId: trigger.id }),
+      api.runAutomation(inputs && Object.keys(inputs).length > 0 ? { account, automationId: trigger.id, inputs } : { account, automationId: trigger.id }),
     onSuccess: (created) => {
       setModalOpen(false);
       if (created?.id) {
@@ -739,7 +739,7 @@ function TriggerCard({
   );
 }
 
-function TriggerRunRow({ open, onToggle, run }: { open: boolean; onToggle(): void; run: TriggerRun }) {
+function TriggerRunRow({ open, onToggle, run }: { open: boolean; onToggle(): void; run: AutomationRun }) {
   const handle = shortChangesetId(run.changesetId ?? "");
   const status = (run.status ?? "").toLowerCase();
   return (
@@ -776,7 +776,7 @@ function TriggerRunRow({ open, onToggle, run }: { open: boolean; onToggle(): voi
         </span>
         {run.error ? <span className="w-full text-rose-700 dark:text-rose-300">{run.error}</span> : null}
       </div>
-      {open ? <TriggerRunLog run={run} /> : null}
+      {open ? <AutomationRunLog run={run} /> : null}
     </li>
   );
 }

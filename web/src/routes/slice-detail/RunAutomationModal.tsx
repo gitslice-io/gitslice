@@ -1,10 +1,10 @@
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
-import type { TriggerDefinition } from "../../api/types";
+import type { AutomationDefinition } from "../../api/types";
 import { Button } from "../../components/ui/Button";
 
 export interface RunAutomationModalProps {
-  automation: TriggerDefinition;
+  automation: AutomationDefinition;
   busy: boolean;
   error?: string;
   onClose(): void;
@@ -12,7 +12,7 @@ export interface RunAutomationModalProps {
   open: boolean;
 }
 
-export function needsRunModal(automation: TriggerDefinition): boolean {
+export function needsRunModal(automation: AutomationDefinition): boolean {
   return (
     (automation.inputs ?? []).length > 0 ||
     Boolean(automation.manual?.confirm) ||

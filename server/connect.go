@@ -44,11 +44,11 @@ func newPrincipalConnectHandler(resolve principalResolver, handlers *service.Han
 	mux.Handle("/avatars/", limiters.httpIPMiddleware()(newAvatarImageHandler(handlers.Auth)))
 	// Bash automation checkout archive; authenticated by per-run bearer token.
 	mux.Handle("/automation-archive", limiters.httpIPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if handlers.TriggerRun == nil {
+		if handlers.AutomationRun == nil {
 			http.Error(w, "automations are not enabled on this server", http.StatusServiceUnavailable)
 			return
 		}
-		handlers.TriggerRun.ServeArchiveHTTP(w, r)
+		handlers.AutomationRun.ServeArchiveHTTP(w, r)
 	})))
 	mountConnectServices(mount, handlers, limiters, opts...)
 	return mux
@@ -81,7 +81,7 @@ func connectPrincipalAuthMiddlewareWithLimiters(resolve principalResolver, limit
 				return
 			}
 
-			if strings.HasPrefix(r.URL.Path, triggerRunServicePrefix) {
+			if strings.HasPrefix(r.URL.Path, automationRunServicePrefix) {
 				if limiters != nil && limiters.triggerFail != nil {
 					if !limiters.triggerFail.Peek(ipKey) {
 						ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})

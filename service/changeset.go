@@ -8,9 +8,9 @@ import (
 
 	"gitslice.io/gitslice/internal/analytics"
 	"gitslice.io/gitslice/internal/authz"
+	"gitslice.io/gitslice/internal/automations"
 	"gitslice.io/gitslice/internal/checks"
 	"gitslice.io/gitslice/internal/storage"
-	"gitslice.io/gitslice/internal/triggers"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -344,7 +344,7 @@ func (s *ChangesetService) ReportCheckResult(ctx context.Context, req *corev1.Re
 				isController ||
 				hasCollaboratorSubject(cs, subjectID) ||
 				(patchset != nil && subjectID == strings.TrimSpace(patchset.GetAuthor()))
-			if (isAuthor && s.hasCIDaemonForSlice(ctx, slice)) || s.isRequiredCheckOwnedByCIOrTrigger(ctx, cs, slice, patchset, checkName) {
+			if (isAuthor && s.hasCIDaemonForSlice(ctx, slice)) || s.isRequiredCheckOwnedByCIOrAutomation(ctx, cs, slice, patchset, checkName) {
 				return nil, status.Errorf(codes.PermissionDenied, "required check %q is gated by CI or triggers and cannot be marked passing manually", checkName)
 			}
 		}
@@ -403,7 +403,7 @@ func (s *ChangesetService) hasCIDaemonForSlice(ctx context.Context, slice *corev
 	return err == nil && len(pool) > 0
 }
 
-func (s *ChangesetService) isRequiredCheckOwnedByCIOrTrigger(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, checkName string) bool {
+func (s *ChangesetService) isRequiredCheckOwnedByCIOrAutomation(ctx context.Context, cs *corev1.Changeset, slice *corev1.Slice, patchset *corev1.Patchset, checkName string) bool {
 	checkName = strings.TrimSpace(checkName)
 	if checkName == "" {
 		return false
@@ -434,19 +434,19 @@ func (s *ChangesetService) isRequiredCheckOwnedByCIOrTrigger(ctx context.Context
 		account := cs.GetAuthoringSlice().GetAccount()
 		ref := cs.GetTargetRef()
 		if ref == "" {
-			ref = triggers.DefaultRef
+			ref = automations.DefaultRef
 		}
 		files := TreeFiles{Repository: s.Repository, Objects: s.ObjectStore}
-		changes := triggers.ChangesFromPatchset(patchset)
+		changes := automations.ChangesFromPatchset(patchset)
 		if head, err := s.Repository.GetRef(ctx, ref); err == nil {
 			if tree, err := s.Repository.RootTreeForCommit(ctx, head.GetCommitId()); err == nil {
-				if _, declared, err := triggers.CheckSkipped(ctx, files, tree, account, ref, checkName, changes); err == nil && declared {
+				if _, declared, err := automations.CheckSkipped(ctx, files, tree, account, ref, checkName, changes); err == nil && declared {
 					return true
 				}
 			}
 		}
 		if patchset.GetResultTreeId() != "" {
-			if _, declared, err := triggers.CheckSkipped(ctx, files, patchset.GetResultTreeId(), account, ref, checkName, changes); err == nil && declared {
+			if _, declared, err := automations.CheckSkipped(ctx, files, patchset.GetResultTreeId(), account, ref, checkName, changes); err == nil && declared {
 				return true
 			}
 		}

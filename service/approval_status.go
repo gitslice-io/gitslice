@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	"gitslice.io/gitslice/internal/automations"
 	"gitslice.io/gitslice/internal/owners"
 	"gitslice.io/gitslice/internal/storage"
-	"gitslice.io/gitslice/internal/triggers"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -220,7 +220,7 @@ func (s *ChangesetService) evaluatePathOwnerRequirements(
 	if err != nil {
 		return nil
 	}
-	reader := newGitsliceTreeReader(s.Repository, s.ObjectStore, maxTriggerFileBytes, "", triggers.ErrNotFound)
+	reader := newGitsliceTreeReader(s.Repository, s.ObjectStore, maxAutomationFileBytes, "", automations.ErrNotFound)
 	resolver := owners.NewResolver(reader.ReadConfig)
 
 	type ruleKey struct {

@@ -219,7 +219,7 @@ func (s *ChangesetService) recordBundledCheckRuns(ctx context.Context, cs *corev
 		if bundledRun == nil {
 			continue
 		}
-		if s.isRequiredCheck(ctx, cs, slice, patchset, bundledRun.GetName()) && (hasDaemon || s.isRequiredCheckOwnedByCIOrTrigger(ctx, cs, slice, patchset, bundledRun.GetName())) {
+		if s.isRequiredCheck(ctx, cs, slice, patchset, bundledRun.GetName()) && (hasDaemon || s.isRequiredCheckOwnedByCIOrAutomation(ctx, cs, slice, patchset, bundledRun.GetName())) {
 			continue
 		}
 		accepted = append(accepted, bundledRun)

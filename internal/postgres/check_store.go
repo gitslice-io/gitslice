@@ -88,7 +88,7 @@ func (s *CheckStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInpu
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf(`
 			insert into check_runs(id, changeset_id, patchset_id, check_name, daemon_id, provenance, attempt, status, started_at, finished_at, duration_ms, trigger_run_id)
 			values ($1, $2, $3, $4, nullif($5, ''), $6, $7, $8, %s, %s, %s, nullif($9, ''))
-		`, startedExpr, finishedExpr, durationExpr), runID, changesetID, patchsetID, checkName, daemonID, provenance, attempt, status, strings.TrimSpace(in.TriggerRunID)); err != nil {
+		`, startedExpr, finishedExpr, durationExpr), runID, changesetID, patchsetID, checkName, daemonID, provenance, attempt, status, strings.TrimSpace(in.AutomationRunID)); err != nil {
 			return "", err
 		}
 		if attempt > 1 {
@@ -357,7 +357,7 @@ func scanCheckRun(row scanner) (*corev1.CheckRun, error) {
 		createdAt             time.Time
 	)
 	var annotations []byte
-	if err := row.Scan(&run.Id, &run.ChangesetId, &run.PatchsetId, &run.CheckName, &run.DaemonId, &run.DaemonName, &run.Provenance, &run.Attempt, &run.Status, &exitCode, &run.Summary, &startedAt, &finishedAt, &durationMS, &createdAt, &run.TriggerRunId, &run.DetailsUrl, &annotations); err != nil {
+	if err := row.Scan(&run.Id, &run.ChangesetId, &run.PatchsetId, &run.CheckName, &run.DaemonId, &run.DaemonName, &run.Provenance, &run.Attempt, &run.Status, &exitCode, &run.Summary, &startedAt, &finishedAt, &durationMS, &createdAt, &run.AutomationRunId, &run.DetailsUrl, &annotations); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, storage.ErrNotFound
 		}
@@ -376,7 +376,7 @@ func scanCheckRun(row scanner) (*corev1.CheckRun, error) {
 		run.DurationMs = durationMS.Int64
 	}
 	run.CreatedAt = createdAt.UTC().Format(time.RFC3339Nano)
-	if run.TriggerRunId != "" && run.DaemonId == "" {
+	if run.AutomationRunId != "" && run.DaemonId == "" {
 		// A trigger reported it itself. Stored as ci, so the provenance
 		// column's check stays as it is. A check a trigger launched on a
 		// daemon stays ci.

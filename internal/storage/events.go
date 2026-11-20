@@ -42,7 +42,7 @@ type Event struct {
 }
 
 // EventEntities carries pre-loaded domain entities resolved during event
-// fan-out so downstream consumers (such as triggers.Engine) do not re-query
+// fan-out so downstream consumers (such as automations.Engine) do not re-query
 // storage for the same Changeset, Slice, or CheckRun.
 type EventEntities struct {
 	Slice     *corev1.Slice

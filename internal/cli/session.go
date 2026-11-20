@@ -25,7 +25,7 @@ type Session struct {
 	agentClient          corev1.AgentServiceClient
 	checkClient          corev1.CheckServiceClient
 	secretClient         corev1.SecretServiceClient
-	triggerClient        corev1.TriggerServiceClient
+	automationClient     corev1.AutomationServiceClient
 	feedbackClient       corev1.FeedbackServiceClient
 }
 
@@ -178,11 +178,11 @@ func (s *Session) Secret() corev1.SecretServiceClient {
 	return s.secretClient
 }
 
-func (s *Session) Trigger() corev1.TriggerServiceClient {
-	if s.triggerClient == nil {
-		s.triggerClient = corev1.NewTriggerServiceClient(s.conn)
+func (s *Session) Automation() corev1.AutomationServiceClient {
+	if s.automationClient == nil {
+		s.automationClient = corev1.NewAutomationServiceClient(s.conn)
 	}
-	return s.triggerClient
+	return s.automationClient
 }
 
 func (s *Session) Feedback() corev1.FeedbackServiceClient {

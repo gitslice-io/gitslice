@@ -99,13 +99,13 @@ func (d *checkDispatcher) sendChecks(ctx context.Context, cs *corev1.Changeset, 
 			runDaemon = "" // no daemon ran it
 		}
 		run, err := d.Checks.CreateCheckRun(ctx, storage.CheckRunInput{
-			ChangesetID:  cs.Id,
-			PatchsetID:   patchset.Id,
-			CheckName:    spec.Name,
-			DaemonID:     runDaemon,
-			Provenance:   "ci",
-			Status:       "queued",
-			TriggerRunID: triggerRunID,
+			ChangesetID:     cs.Id,
+			PatchsetID:      patchset.Id,
+			CheckName:       spec.Name,
+			DaemonID:        runDaemon,
+			Provenance:      "ci",
+			Status:          "queued",
+			AutomationRunID: triggerRunID,
 		})
 		if err != nil {
 			slog.Warn("failed to create ci check run", "changeset_id", cs.Id, "patchset_id", patchset.Id, "check", spec.Name, "error", err)

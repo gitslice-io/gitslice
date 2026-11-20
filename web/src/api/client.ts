@@ -14,7 +14,7 @@ import { FeedbackService } from "../gen/proto/core/v1/feedback_pb";
 import { RepositoryService } from "../gen/proto/core/v1/repository_pb";
 import { SecretService } from "../gen/proto/core/v1/secret_pb";
 import { SliceService } from "../gen/proto/core/v1/slice_pb";
-import { TriggerService } from "../gen/proto/core/v1/trigger_pb";
+import { AutomationService } from "../gen/proto/core/v1/automation_pb";
 import type { ApiClient } from "./useApi";
 import { decodeMessage, encodeMessage } from "./codec";
 
@@ -33,7 +33,7 @@ export {
 } from "./rpcError";
 export type { CreateApiClientOptions, RpcErrorBody } from "./rpcError";
 
-// The services a browser calls. TriggerRunService, WorkspaceService and the
+// The services a browser calls. AutomationRunService, WorkspaceService and the
 // daemon half of AgentService are for the CLI and agents, and share method
 // names (readFile, listDirectory, getChangeset) with these.
 export const API_SERVICES: readonly DescService[] = [
@@ -47,7 +47,7 @@ export const API_SERVICES: readonly DescService[] = [
   RepositoryService,
   SecretService,
   SliceService,
-  TriggerService
+  AutomationService
 ];
 
 // RPCs that legitimately run longer than the transport's default: a blame of

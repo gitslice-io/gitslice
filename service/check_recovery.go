@@ -181,13 +181,13 @@ func (d *checkDispatcher) retryLostRun(ctx context.Context, run *corev1.CheckRun
 		return
 	}
 	next, err := d.Checks.CreateCheckRun(ctx, storage.CheckRunInput{
-		ChangesetID:  run.GetChangesetId(),
-		PatchsetID:   run.GetPatchsetId(),
-		CheckName:    run.GetCheckName(),
-		DaemonID:     daemonID,
-		Provenance:   "ci",
-		Status:       "queued",
-		TriggerRunID: run.GetTriggerRunId(),
+		ChangesetID:     run.GetChangesetId(),
+		PatchsetID:      run.GetPatchsetId(),
+		CheckName:       run.GetCheckName(),
+		DaemonID:        daemonID,
+		Provenance:      "ci",
+		Status:          "queued",
+		AutomationRunID: run.GetAutomationRunId(),
 	})
 	if err != nil {
 		slog.Warn("failed to queue another attempt of a lost check run", "run_id", run.GetId(), "error", err)
