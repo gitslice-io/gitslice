@@ -7,10 +7,16 @@
 //   {"outcome": "succeeded" | "failed", "lines": [...]}   the result
 // so `gs auto run <id> --follow` shows the operation and fails when it fails.
 // A build that never calls back ends the run at the automation's timeout.
+//
+// The trigger's URL is public; its key and secret are the Gitslice secret
+// OPS_WEBHOOK_QUERY ("key=...&secret=..."). A secret may not supply a whole
+// URL: the dispatcher's gate opens placeholders only where they cannot
+// change the request's origin.
+const WEBHOOK = "https://cloudbuild.googleapis.com/v1/projects/unified-surfer-486904-i6/triggers/gs-ops-webhook:webhook";
 
 export default {
   async onEvent(event, gs) {
-    const res = await fetch(gs.secret("OPS_WEBHOOK_URL"), {
+    const res = await fetch(`${WEBHOOK}?${gs.secret("OPS_WEBHOOK_QUERY")}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({

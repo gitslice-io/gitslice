@@ -44,7 +44,7 @@ func TestRepositoryDeployRunbooksMatchOpsBuild(t *testing.T) {
 	}
 	runbooks := 0
 	for name, a := range file.Triggers {
-		if !slices.Contains(a.Secrets, "OPS_WEBHOOK_URL") {
+		if !slices.Contains(a.Secrets, "OPS_WEBHOOK_URL") && !slices.Contains(a.Secrets, "OPS_WEBHOOK_QUERY") {
 			continue
 		}
 		runbooks++
@@ -59,8 +59,8 @@ func TestRepositoryDeployRunbooksMatchOpsBuild(t *testing.T) {
 		if a.Action.Worker != "ops/runbook.js" && (a.Action.HTTP == nil || a.Action.HTTP.URL != "${{ secrets.OPS_WEBHOOK_URL }}") {
 			t.Errorf("%s: action must be worker ops/runbook.js or post to OPS_WEBHOOK_URL", name)
 		}
-		if a.Action.Worker != "" && !slices.Contains(a.Network, "cloudbuild.googleapis.com") {
-			t.Errorf("%s: the worker needs network [cloudbuild.googleapis.com]", name)
+		if a.Action.Worker != "" && (!slices.Contains(a.Network, "cloudbuild.googleapis.com") || !slices.Contains(a.Secrets, "OPS_WEBHOOK_QUERY")) {
+			t.Errorf("%s: the worker needs network [cloudbuild.googleapis.com] and secret OPS_WEBHOOK_QUERY", name)
 		}
 		if !strings.Contains(string(build), "gitslice/"+name+")") {
 			t.Errorf("%s: ops/automation/cloudbuild.yaml has no case for gitslice/%s", name, name)

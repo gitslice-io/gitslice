@@ -75,7 +75,7 @@ automations:
     on: [manual]
     manual:
       roles: [admin, writer]
-    secrets: [OPS_WEBHOOK_URL]
+    secrets: [OPS_WEBHOOK_QUERY]
     network: [cloudbuild.googleapis.com]
     timeout: 10m
     action:
