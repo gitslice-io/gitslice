@@ -30,6 +30,7 @@ import { CopyMoveProvider } from "./slice-detail/CopyMove";
 import { canModifyPath } from "./slice-detail/DirectoryHeader";
 import { FileFinder } from "./slice-detail/FileFinder";
 import { HistoryDrawer } from "./slice-detail/HistoryDrawer";
+import { TagsDrawer } from "./slice-detail/TagsDrawer";
 import {
   ChangesetErrorToast,
   CreatingChangesetOverlay,
@@ -54,6 +55,7 @@ export function SliceDetailPage() {
   const routeSlice = params.slice ?? "";
   const selectedPath = search.path ?? "";
   const historyOpen = Boolean(search.history);
+  const tagsOpen = Boolean(search.tags);
   const policyOpen = Boolean(search.policy || search.triggers);
   const blameOn = Boolean(search.blame);
   const blameAt = search.blameAt ?? "";
@@ -69,6 +71,7 @@ export function SliceDetailPage() {
     routeSlice,
     selectedPath,
     historyOpen,
+    tagsOpen,
     policyOpen
   });
 
@@ -109,6 +112,8 @@ export function SliceDetailPage() {
     setBlame,
     openHistory,
     closeHistory,
+    openTags,
+    closeTags,
     openPolicy,
     closePolicy,
     openLandedPath
@@ -263,6 +268,7 @@ export function SliceDetailPage() {
               gitUrl={gitCloneHint.url}
               isSignedIn={isSignedIn}
               onOpenFinder={() => setFinderOpen(true)}
+              onOpenTags={openTags}
               sliceLabel={sliceLabel}
               sliceRouteParams={sliceRouteParams}
             />
@@ -389,6 +395,14 @@ export function SliceDetailPage() {
             onClose={closeHistory}
             open={historyOpen}
             selectedPath={selectedPath}
+            sliceId={sliceId || sliceRouteKey}
+            sliceLabel={sliceLabel}
+            sliceRef={sliceRef}
+          />
+          <TagsDrawer
+            api={api}
+            onClose={closeTags}
+            open={tagsOpen}
             sliceId={sliceId || sliceRouteKey}
             sliceLabel={sliceLabel}
             sliceRef={sliceRef}

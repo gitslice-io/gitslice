@@ -29,6 +29,7 @@ export interface UseSlicePathExplorerOptions {
   routeSlice: string;
   selectedPath: string;
   historyOpen: boolean;
+  tagsOpen: boolean;
   policyOpen: boolean;
 }
 
@@ -39,6 +40,7 @@ export function useSlicePathExplorer({
   routeSlice,
   selectedPath,
   historyOpen,
+  tagsOpen,
   policyOpen
 }: UseSlicePathExplorerOptions) {
   const queryClient = useQueryClient();
@@ -282,6 +284,27 @@ export function useSlicePathExplorer({
     }
   }, [historyOpen, router.history]);
 
+  // Tags belong to the whole slice; the path stays so closing returns to it.
+  const openTags = useCallback(() => {
+    if (!sliceRouteParams) {
+      return;
+    }
+    void navigate({
+      params: sliceRouteParams,
+      search: {
+        ...(selectedPath ? { path: selectedPath } : {}),
+        tags: true
+      },
+      to: "/slices/$account/$slice"
+    });
+  }, [navigate, selectedPath, sliceRouteParams]);
+
+  const closeTags = useCallback(() => {
+    if (tagsOpen) {
+      router.history.back();
+    }
+  }, [tagsOpen, router.history]);
+
   const openLandedPath = useCallback(
     async (landed: LandedPathOperation) => {
       await queryClient.invalidateQueries({ queryKey: ["globalRef"] });
@@ -359,6 +382,8 @@ export function useSlicePathExplorer({
     setBlame,
     openHistory,
     closeHistory,
+    openTags,
+    closeTags,
     openPolicy,
     closePolicy,
     openLandedPath

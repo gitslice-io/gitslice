@@ -18,6 +18,8 @@ describe("validateSliceDetailSearch", () => {
       blameAt: "abc123"
     });
     expect(validateSliceDetailSearch({ history: "true", policy: "true" })).toEqual({ history: true, policy: true });
+    expect(validateSliceDetailSearch({ tags: "" })).toEqual({});
+    expect(validateSliceDetailSearch({ tags: "1" })).toEqual({ tags: true });
   });
 
   it("drops what is blank, off or of the wrong type", () => {

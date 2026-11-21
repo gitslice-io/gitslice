@@ -11,7 +11,8 @@ export function SliceHeaderActions({
   canConfigure,
   commitId,
   gitUrl,
-  onOpenFinder
+  onOpenFinder,
+  onOpenTags
 }: {
   sliceLabel: string;
   sliceRouteParams: { account: string; slice: string } | null | undefined;
@@ -20,6 +21,7 @@ export function SliceHeaderActions({
   commitId: string;
   gitUrl: string;
   onOpenFinder: () => void;
+  onOpenTags?: () => void;
 }) {
   return (
     <>
@@ -30,6 +32,16 @@ export function SliceHeaderActions({
       >
         Changesets
       </Link>
+      {onOpenTags ? (
+        <button
+          className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
+          onClick={onOpenTags}
+          title="The slice's release tags"
+          type="button"
+        >
+          Tags
+        </button>
+      ) : null}
       {conversationsEnabled && isSignedIn && sliceRouteParams ? (
         <Link
           className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
