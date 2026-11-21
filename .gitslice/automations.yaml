@@ -137,9 +137,7 @@ automations:
 
   # The web app deploys from Gitslice itself: every landing that changes
   # web/ builds it in a container and deploys it with wrangler (not Workers
-  # Builds, which built GitHub's mirror). Staging (agenttools.dev) gets a
-  # deploy-web-staging automation (ops/cloudflare.sh has it) once
-  # CLOUDFLARE_API_TOKEN can reach the agenttools.dev zone.
+  # Builds, which built GitHub's mirror). There is no staging web app.
   deploy-web:
     description: Build the web app from main and deploy it to gitslice.io (on each landing that changes web/, or by hand)
     on: [push, manual]

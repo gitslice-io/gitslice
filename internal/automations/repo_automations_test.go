@@ -116,12 +116,8 @@ func TestRepositoryCloudflareRunbooksMatchScript(t *testing.T) {
 		} else if !slices.Equal(a.On, []string{EventManual}) {
 			t.Errorf("%s: must be manual-only", name)
 		}
-		want := "prod-workers"
-		if strings.HasSuffix(name, "-staging") {
-			want = "staging-workers"
-		}
-		if !strings.HasSuffix(name, "-selftest") && a.ConcurrencyGroup != want {
-			t.Errorf("%s: concurrency_group = %q, want %s", name, a.ConcurrencyGroup, want)
+		if !strings.HasSuffix(name, "-selftest") && a.ConcurrencyGroup != "prod-workers" {
+			t.Errorf("%s: concurrency_group = %q, want prod-workers", name, a.ConcurrencyGroup)
 		}
 	}
 	if runbooks == 0 {

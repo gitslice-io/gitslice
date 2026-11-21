@@ -1,6 +1,6 @@
 ---
 name: deployment
-description: Deploy and verify Gitslice staging/production backend/web surfaces. Use when an agent is asked to deploy, release, restart staging, update or inspect the Git-connected Cloudflare Worker web app, roll out backend binaries, prepare deployment checks, inspect deployment environment requirements, verify agenttools.dev / api.agenttools.dev (staging) or gitslice.io / api.gitslice.io (production), or troubleshoot Workers Builds, PM2, Wrangler, Cloud Run, Cloud Build, CORS, R2, Neon, auth, migration, or deployed-service issues.
+description: Deploy and verify Gitslice production backend/web surfaces. Use when an agent is asked to deploy, release, update or inspect the Cloudflare Worker web app, roll out backend binaries, prepare deployment checks, inspect deployment environment requirements, verify gitslice.io / api.gitslice.io, or troubleshoot Wrangler, Cloud Run, Cloud Build, CORS, R2, Neon, auth, migration, or deployed-service issues.
 ---
 
 # Gitslice Deployment
@@ -9,23 +9,21 @@ description: Deploy and verify Gitslice staging/production backend/web surfaces.
 
 Treat deployment as live infrastructure work. Deploy only when the user explicitly asks for a deploy/restart/release, or when the user asks to fix a deployed service and deployment is the needed repair.
 
-If the target is ambiguous, ask for the target. Two environments exist:
+There is one environment, production. The staging environment
+(agenttools.dev) was deleted on 2026-11-21; test changes locally or with
+`gs ci` instead.
 
-**Staging** (unqualified "staging"):
-- web: `https://agenttools.dev` — Cloudflare Worker env `staging` in `web/wrangler.jsonc`
-- API: `https://api.agenttools.dev` — Go `gitslice-server` behind nginx, PM2 process `gitslice-rewrite-staging`
-
-**Production** (only when the user explicitly names production):
+**Production**:
 - web: `https://gitslice.io` — Cloudflare Worker env `production` (`gitslice-web-production`)
 - API: `https://api.gitslice.io` — Cloud Run service `gitslice-prod` (region `us-west1`), Neon Postgres, R2 object store
 - deploy path: Cloud Build pipeline `cloudbuild.yaml`, run **daily** by Cloud Scheduler (not on merge)
 
-Do not manually deploy production unless the user explicitly names production. Note the production **API** ships on a **daily schedule**: Cloud Scheduler runs the `daily-deploy` operation once a day, and the pipeline no-ops when `main` hasn't moved since the last deploy. Merging to `main` does **not** deploy the API immediately — merged backend code ships with the next scheduled build unless the user asks to ship it now (then run the `deploy-server` automation) — see "Production (Cloud Run + gitslice.io)" and "Production Deploy Monitoring & Rollback" below. Web changes under `web/` are different: the `deploy-web` automation deploys gitslice.io on each such landing.
+Do not manually deploy unless the user asks for a deploy. Note the production **API** ships on a **daily schedule**: Cloud Scheduler runs the `daily-deploy` operation once a day, and the pipeline no-ops when `main` hasn't moved since the last deploy. Merging to `main` does **not** deploy the API immediately — merged backend code ships with the next scheduled build unless the user asks to ship it now (then run the `deploy-server` automation) — see "Production (Cloud Run + gitslice.io)" and "Production Deploy Monitoring & Rollback" below. Web changes under `web/` are different: the `deploy-web` automation deploys gitslice.io on each such landing.
 
-Never print secret values. `.env.staging`, `.env.prod`, `.env.local`, and `deploy/` are gitignored local operator state. To inspect environment shape, list keys only:
+Never print secret values. `.env.prod`, `.env.local`, and `deploy/` are gitignored local operator state. To inspect environment shape, list keys only:
 
 ```bash
-awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/ {print $1}' .env.staging | sort
+awk -F= '/^[A-Za-z_][A-Za-z0-9_]*=/ {print $1}' .env.prod | sort
 ```
 
 `.env.prod` is generated from the committed `env.prod.template`: its secret
@@ -44,8 +42,8 @@ The canonical source is the slice `gitslice/gitslice` on Gitslice
 (`design/21_self_hosting.md`). GitHub `main` is a read-only copy, pushed by
 the slice's Git mirror (`gs slice mirror gitslice/gitslice`) moments after
 each landing. Since 2026-11-21 the server and the production web app build
-from Gitslice `main`, and GitHub Actions workflows are disabled; only the
-staging web app still builds from GitHub (below).
+from Gitslice `main`, and GitHub Actions workflows are disabled. Nothing
+builds or deploys from GitHub.
 
 - **Shipping a change:** submit it in Gitslice. A landing that changes `web/`
   deploys the web app at once; the server deploys daily or through
@@ -68,7 +66,7 @@ staging web app still builds from GitHub (below).
 ### CI daemon
 
 The slice's required checks run on the daemon `gitslice-ci`. It is the PM2
-process of that name on the staging host.
+process of that name on the operator host.
 
 - **Identity.** It runs as the agent account `gitslice-checks`, a `reader` of
   the `gitslice` organization.
@@ -106,39 +104,30 @@ process of that name on the staging host.
 
 ## Current Topology
 
-Backend staging is a Go `gitslice-server` process behind nginx. `ops/nginx.conf` routes `api.agenttools.dev` gRPC services to `127.0.0.1:50052` and `/v1/` plus `/git/` HTTP traffic to `127.0.0.1:8081`.
-
-The optional local helper `deploy/run-staging.sh` sources `.env.staging`, defaults `GITSLICE_HTTP_ADDR` to `127.0.0.1:8081`, and execs `bin/gitslice-server`. Treat it as operator-local context because `deploy/` is gitignored.
-
 The production web app deploys from Gitslice: the automation `deploy-web`
 (gitslice.io) runs on every landing that changes `web/**`, in a container,
 with `npm ci`, `npm run build` and `npx wrangler deploy --env production`
-(`.gitslice/ops/cloudflare.sh`). Staging (`gitslice-web-staging`,
-agenttools.dev) still builds in Workers Builds from GitHub until
-`CLOUDFLARE_API_TOKEN` can reach the agenttools.dev zone; then it gets a
-`deploy-web-staging` automation (the script's case exists).
+(`.gitslice/ops/cloudflare.sh`).
 
 The build-time values (`VITE_CLERK_PUBLISHABLE_KEY`,
 `VITE_CLERK_AUTHORIZED_PARTIES`, `VITE_API_BASE_URL`,
 `VITE_GITSLICE_GIT_HTTP_BASE_URL`, `VITE_POSTHOG_*`) are public and live in
-`web/build.production.vars` and `web/build.staging.vars`. They are separate
+`web/build.production.vars`. They are separate
 from runtime bindings in `web/wrangler.jsonc` and persistent Worker secrets
 such as `CLERK_SECRET_KEY`. Do not put the Clerk secret key in those files.
 
 The repository also provides a manual/operator path through
-`web/scripts/deploy.sh <staging|production>` and the npm wrappers:
+`web/scripts/deploy.sh production` and the npm wrapper:
 
 ```bash
-npm --prefix web run deploy:staging      # -> deploy.sh staging   (agenttools.dev)
 npm --prefix web run deploy:production   # -> deploy.sh production (gitslice.io)
 ```
 
 Use the manual path only when the user explicitly requests an immediate/manual
 web deploy, when repairing a failed Git build, or when rotating the runtime
-Clerk secret. The script picks the env file per target (`.env.staging` /
-`.env.prod`), maps the public URLs into Vite variables, builds the TanStack
+Clerk secret. The script sources `.env.prod`, maps the public URLs into Vite variables, builds the TanStack
 Start SSR bundle into `.output/`, updates `CLERK_SECRET_KEY` when present, and
-runs `wrangler deploy --env <target>`. Worker envs, runtime variables, assets,
+runs `wrangler deploy --env production`. Worker envs, runtime variables, assets,
 and custom-domain routes are defined under `env` in `web/wrangler.jsonc`.
 
 ## Preflight
@@ -178,39 +167,18 @@ make load
 
 If a gate is skipped, say exactly which one and why before or after deployment.
 
-## Backend Staging
-
-Build fresh binaries from the repository root:
-
-```bash
-go build -o bin/gitslice-server ./cmd/gitslice-server
-go build -o bin/gs ./cmd/gs
-```
-
-Restart the existing PM2 staging process:
-
-```bash
-npx --yes pm2 restart gitslice-rewrite-staging --update-env
-npx --yes pm2 show gitslice-rewrite-staging
-```
-
-If agent daemon behavior changed, also rebuild the staging agent CLI before restarting or checking the daemon:
-
-```bash
-go build -o /home/nic/.local/bin/gs-staging-agent ./cmd/gs
-/home/nic/.local/bin/gs-staging-agent agent status --json
-```
+## Backend Settings
 
 Server startup runs PostgreSQL migrations by default. `GITSLICE_RUN_MIGRATIONS=0` disables that behavior; do not disable migrations to hide a failing deploy unless the user explicitly requests a rollback or emergency mitigation.
 
-For R2-backed staging, required object-store settings come from `OBJECT_STORE_TYPE=r2` and `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, with optional `R2_REGION`, `R2_PREFIX`, and `R2_USE_PATH_STYLE`.
+For the R2 object store, required settings come from `OBJECT_STORE_TYPE=r2` and `R2_ENDPOINT`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, with optional `R2_REGION`, `R2_PREFIX`, and `R2_USE_PATH_STYLE`.
 
 For Clerk-backed auth, `AUTH_PROVIDER=clerk`, `CLERK_SECRET_KEY`,
 `CLERK_PUBLISHABLE_KEY`, `CLERK_ISSUER`, and
 `CLERK_AUTHORIZED_PARTIES` are expected. Service-token verification is optional
 and depends on `GITSLICE_SERVICE_JWT_*` settings.
 
-## Web (Staging & Production)
+## Web
 
 The normal deployment path is automatic:
 
@@ -231,11 +199,10 @@ For an explicitly requested manual deploy or repair, deploy from the repository
 root:
 
 ```bash
-npm --prefix web run deploy:staging      # agenttools.dev
 npm --prefix web run deploy:production   # gitslice.io
 ```
 
-The deploy script (`web/scripts/deploy.sh <env>`) requires, in the matching env file:
+The deploy script (`web/scripts/deploy.sh production`) requires, in `.env.prod`:
 
 - `VITE_CLERK_PUBLISHABLE_KEY`
 - `VITE_CLERK_AUTHORIZED_PARTIES`
@@ -246,7 +213,7 @@ The deploy script (`web/scripts/deploy.sh <env>`) requires, in the matching env 
 For the manual path, `CLOUDFLARE_API_TOKEN` must be in the env file (or operator
 env) with Workers Scripts:Edit and, for custom-domain routes, Workers
 Routes:Edit. If the deployed web bundle points at localhost or an old API host,
-first inspect `web/build.<env>.vars`. Fix the `VITE_*` values there and land
+first inspect `web/build.production.vars`. Fix the `VITE_*` values there and land
 the change, which redeploys; Wrangler runtime vars are not visible to
 `import.meta.env` during the build. Use the
 manual deploy script only when an explicit repair deployment is required.
@@ -327,7 +294,7 @@ They share `concurrency_group: prod-workers`.
 
 ## Production (Cloud Run + gitslice.io)
 
-The API backend is a container on Cloud Run (service `gitslice-prod`, region `us-west1`), not the PM2 process; the DB is Neon and object storage is R2.
+The API backend is a container on Cloud Run (service `gitslice-prod`, region `us-west1`); the DB is Neon and object storage is R2.
 
 **The production API deploys on a daily schedule: Cloud Scheduler job `gitslice-prod-daily-build` (us-west1) posts the operation `daily-deploy` to the ops webhook `gs-ops-webhook` once a day; the ops build clones `main` from Gitslice and runs `cloudbuild.yaml`, whose `gate` step skips the whole build when the deployed image tag (the Gitslice commit) already matches. Unlike `deploy-server`, it leaves traffic where it is, so a rollback stays. Do not manually deploy Cloud Run to ship merged code.** Landings do not deploy the server; merged code waits for the next scheduled run. To ship merged code immediately when the user asks, run `gs auto run gitslice/deploy-server --account gitslice --yes --follow`. Avoid manual `gcloud run deploy` / `gcloud run services update` for routine releases: the next pipeline run resets flags to `cloudbuild.yaml`'s values, so ad-hoc flag changes silently revert — change `cloudbuild.yaml` (or `PROD_SUBS` in `ops/automation/cloudbuild.yaml`) instead.
 
@@ -387,14 +354,7 @@ Record failed builds and rollbacks in `design/10_execution_log.md`.
 
 ## Verification
 
-Verify the API after backend or full-stack deploys:
-
-```bash
-curl -sS -i --max-time 20 -X POST https://api.agenttools.dev/gitslice.core.v1.AuthService/GetAuthStatus -H 'Content-Type: application/json' --data '{}'
-curl -sS -i --max-time 20 -X OPTIONS https://api.agenttools.dev/gitslice.core.v1.AuthService/GetAuthStatus -H 'Origin: https://agenttools.dev' -H 'Access-Control-Request-Method: POST' -H 'Access-Control-Request-Headers: authorization,content-type'
-```
-
-For production, use the production hosts:
+Verify the API after backend deploys:
 
 ```bash
 curl -sS -i --max-time 20 -X POST https://api.gitslice.io/gitslice.core.v1.AuthService/StartCliLogin -H 'Content-Type: application/json' --data '{}'
@@ -406,7 +366,6 @@ curl -sS -i --max-time 20 -X OPTIONS https://api.gitslice.io/gitslice.core.v1.Au
 Verify the web app after web or full-stack deploys:
 
 ```bash
-curl -sS --max-time 20 -H 'Accept-Encoding: identity' https://agenttools.dev/ | rg -o '/assets/index-[^" ]+\.js'   # staging
 curl -sS -i --max-time 20 https://gitslice.io/                                                                     # production
 ```
 
@@ -414,25 +373,18 @@ Note: the production web app SSR fetches `api.gitslice.io` during render, so `gi
 
 For page-specific work, hit the exact route involved, then fetch the current asset and search for the new route, API host, RPC service name, or UI string that should be present.
 
-For PM2 state:
-
-```bash
-npx --yes pm2 list
-npx --yes pm2 show gitslice-rewrite-staging
-```
-
 ## Troubleshooting
 
-If the web app itself returns 500 `{"message":"HTTPError"}` (even when the API is up), the Worker is missing the `CLERK_SECRET_KEY` secret — the SSR `clerkMiddleware` needs it. Fix with `printf '%s' "$CLERK_SECRET_KEY" | npx wrangler secret put CLERK_SECRET_KEY --env <staging|production>` (run from `web/`), and add the key to the env file so future deploys set it.
+If the web app itself returns 500 `{"message":"HTTPError"}` (even when the API is up), the Worker is missing the `CLERK_SECRET_KEY` secret — the SSR `clerkMiddleware` needs it. Fix with `printf '%s' "$CLERK_SECRET_KEY" | npx wrangler secret put CLERK_SECRET_KEY --env production` (run from `web/`), and add the key to the env file so future deploys set it.
 
-If browser calls fail with CORS errors, check `GITSLICE_HTTP_ALLOWED_ORIGIN` (staging: `https://agenttools.dev` via nginx/PM2 env; production: `https://gitslice.io` via the `_ALLOWED_ORIGIN` Cloud Build substitution — a mismatch here breaks the web app's calls), and the OPTIONS verification command above.
+If browser calls fail with CORS errors, check `GITSLICE_HTTP_ALLOWED_ORIGIN` (`https://gitslice.io`, from the `_ALLOWED_ORIGIN` Cloud Build substitution — a mismatch here breaks the web app's calls), and the OPTIONS verification command above.
 
 If API requests fail with content-type or gRPC protocol errors, check whether nginx is sending gRPC service paths to the gRPC listener and JSON `/v1/` requests to the HTTP gateway.
 
-If object writes or reads fail only after deployment, inspect R2 configuration keys and the backend logs. The filesystem object store is prototype-only and should not be assumed for production-style staging.
+If object writes or reads fail only after deployment, inspect R2 configuration keys and the backend logs. The filesystem object store is prototype-only.
 
 If migrations fail on restart, the server should not come up cleanly. Fix or roll back the migration rather than mutating schema state manually.
 
-If `wrangler` cannot deploy, confirm the local npm dependency is installed and `CLOUDFLARE_API_TOKEN` is available in the env file. Prefer the npm wrappers (`deploy:staging` / `deploy:production`) so the local `wrangler` binary is used. If the script deploys but the custom-domain route fails, the token is likely missing Workers Routes / DNS permissions on the zone.
+If `wrangler` cannot deploy, confirm the local npm dependency is installed and `CLOUDFLARE_API_TOKEN` is available in the env file. Prefer the npm wrapper (`deploy:production`) so the local `wrangler` binary is used. If the script deploys but the custom-domain route fails, the token is likely missing Workers Routes / DNS permissions on the zone.
 
 If a production Cloud Build fails, pull the log with `gcloud builds log <id>`; a container that exits on `GITSLICE_DATABASE_URL is required` (or similar) means the deploy bypassed `cloudbuild.yaml` (e.g. a `gcloud run deploy --source` / wizard inline build) and never set env/secrets — deploy through the pipeline instead.

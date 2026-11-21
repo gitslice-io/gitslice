@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cloudflare runbooks of ../automations.yaml (deploy-dispatcher,
-# deploy-doorbell, deploy-web, deploy-web-staging, rollback-web,
+# deploy-doorbell, deploy-web, rollback-web,
 # cloudflare-selftest). They run as
 # bash automations on Gitslice's own container runtime (runtime node, egress
 # http-gate), from a checkout of /gitslice/gitslice at main.
@@ -101,10 +101,6 @@ case "$op" in
 
   deploy-web)
     deploy_web production https://gitslice.io
-    ;;
-
-  deploy-web-staging)
-    deploy_web staging https://agenttools.dev
     ;;
 
   rollback-web)

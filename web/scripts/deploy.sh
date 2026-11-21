@@ -1,20 +1,17 @@
 #!/usr/bin/env bash
-# Build and deploy the Cloudflare Worker web app for a target environment.
+# Build and deploy the Cloudflare Worker web app by hand (break-glass; the
+# deploy-web automation normally does this).
 #
-# Usage: deploy.sh <staging|production>
-#   staging    -> sources ../.env.staging, wrangler --env staging  (agenttools.dev)
-#   production -> sources ../.env.prod,    wrangler --env production (gitslice.io)
+# Usage: deploy.sh production
+#   production -> sources ../.env.prod, wrangler --env production (gitslice.io)
 #
-# Single source of truth for the web deploy: the only per-env differences are the
-# env file and the wrangler env name, resolved below. Invoked via the
-# `deploy:staging` / `deploy:production` npm scripts.
+# Invoked via the `deploy:production` npm script.
 set -euo pipefail
 
 ENV="${1:-}"
 case "$ENV" in
-  staging)    ENV_FILE_NAME=".env.staging" ;;
   production) ENV_FILE_NAME=".env.prod" ;;   # note: prod file is .env.prod
-  *) echo "usage: $0 <staging|production>" >&2; exit 2 ;;
+  *) echo "usage: $0 production" >&2; exit 2 ;;
 esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -33,7 +30,7 @@ set +a
 
 export VITE_API_BASE_URL="${VITE_API_BASE_URL:-${PUBLIC_API_BASE_URL:-}}"
 export VITE_GITSLICE_GIT_HTTP_BASE_URL="${VITE_GITSLICE_GIT_HTTP_BASE_URL:-${PUBLIC_GITSLICE_GIT_HTTP_BASE_URL:-}}"
-# Tag analytics events with the deploy target (staging|production) unless the
+# Tag analytics events with the deploy target (production) unless the
 # env file already pins VITE_POSTHOG_ENV explicitly.
 export VITE_POSTHOG_ENV="${VITE_POSTHOG_ENV:-$ENV}"
 

@@ -19,19 +19,6 @@
     "PUBLIC_API_BASE_URL": "https://api.gitslice.io"
   },
   "env": {
-    "staging": {
-      "name": "gitslice-web-staging",
-      "routes": [
-        {
-          "pattern": "agenttools.dev",
-          "custom_domain": true
-        }
-      ],
-      "vars": {
-        "PUBLIC_API_BASE_URL": "https://api.agenttools.dev",
-        "PUBLIC_GITSLICE_GIT_HTTP_BASE_URL": "https://agenttools.dev"
-      }
-    },
     "production": {
       "name": "gitslice-web-production",
       "routes": [

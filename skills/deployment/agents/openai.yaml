@@ -1,4 +1,4 @@
 interface:
   display_name: "Gitslice Deployment"
   short_description: "Deploy and verify Gitslice environments"
-  default_prompt: "Use $deployment to inspect or deploy Gitslice staging/production services and verify Cloudflare Workers Builds, backend rollout, and live endpoints."
+  default_prompt: "Use $deployment to inspect or deploy Gitslice production services and verify the web deploy, backend rollout, and live endpoints."
