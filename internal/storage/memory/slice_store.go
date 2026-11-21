@@ -459,10 +459,74 @@ func (s *SliceStore) ListTags(ctx context.Context, sliceID string) ([]storage.Sl
 		out = append(out, tag)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		if out[i].CreatedAt != out[j].CreatedAt {
-			return out[i].CreatedAt > out[j].CreatedAt
+		if cmp := compareMemoryTagTimesDesc(out[i].CreatedAt, out[j].CreatedAt); cmp != 0 {
+			return cmp < 0
 		}
 		return out[i].Name < out[j].Name
 	})
 	return out, nil
+}
+
+func (s *SliceStore) ListAccountTags(ctx context.Context, account string, publicOnly bool, sharedWith string) ([]storage.AccountSliceTag, error) {
+	account = strings.TrimSpace(account)
+	sharedWith = strings.TrimSpace(sharedWith)
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	var out []storage.AccountSliceTag
+	for _, slice := range s.b.slices {
+		if slice.GetRef().GetAccount() != account || s.b.retiredSlices[slice.Id] {
+			continue
+		}
+		visibility := slice.GetDefinition().GetVisibility()
+		if publicOnly && visibility != "public" {
+			if sharedWith == "" {
+				continue
+			}
+			_, shared := s.b.sliceMembers[slice.Id][sharedWith]
+			if !shared {
+				_, shared = s.b.subjectSliceGroupRoleLocked(sharedWith, slice.Id)
+			}
+			if !shared {
+				continue
+			}
+		}
+		for _, tag := range s.b.sliceTags[slice.Id] {
+			out = append(out, storage.AccountSliceTag{
+				SliceTag:   tag,
+				SliceSlug:  slice.GetRef().GetSlice(),
+				Visibility: visibility,
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if cmp := compareMemoryTagTimesDesc(out[i].CreatedAt, out[j].CreatedAt); cmp != 0 {
+			return cmp < 0
+		}
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].SliceSlug < out[j].SliceSlug
+	})
+	return out, nil
+}
+
+func compareMemoryTagTimesDesc(a, b string) int {
+	ta, ea := time.Parse(time.RFC3339Nano, a)
+	tb, eb := time.Parse(time.RFC3339Nano, b)
+	if ea == nil && eb == nil {
+		if ta.After(tb) {
+			return -1
+		}
+		if tb.After(ta) {
+			return 1
+		}
+		return 0
+	}
+	if a > b {
+		return -1
+	}
+	if a < b {
+		return 1
+	}
+	return 0
 }

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gitslice.io/gitslice/internal/storage"
@@ -62,6 +63,65 @@ func (s *SliceStore) ListTags(ctx context.Context, sliceID string) ([]storage.Sl
 		out = append(out, tag)
 	}
 	return out, rows.Err()
+}
+
+func (s *SliceStore) ListAccountTags(ctx context.Context, account string, publicOnly bool, sharedWith string) ([]storage.AccountSliceTag, error) {
+	account, err := normalizeSlug(account, "account")
+	if err != nil {
+		return nil, err
+	}
+	sharedWith = strings.TrimSpace(sharedWith)
+	rows, err := s.db.QueryContext(ctx, `
+		select t.slice_id, s.slug, s.visibility,
+		       t.name, t.commit_id, t.definition_version, t.message, t.created_by, t.created_at,
+		       t.acting_subject_id, t.controller_subject_id, t.key_id, t.daemon_id, t.conversation_id
+		from slice_tags t
+		join slices s on s.id = t.slice_id
+		join accounts a on a.id = s.account_id
+		where a.slug = $1
+		  and s.deleted_at is null
+		  and (not $2 or s.visibility = 'public' or ($3 <> '' and (
+			exists (select 1 from slice_members sm where sm.slice_id = s.id and sm.subject_id = $3)
+			or exists (
+				select 1
+				from slice_group_members sgm
+				join account_group_members agm on agm.group_id = sgm.group_id
+				where sgm.slice_id = s.id and agm.subject_id = $3
+			)
+		  )))
+		order by t.created_at desc, t.name, s.slug
+	`, account, publicOnly, sharedWith)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []storage.AccountSliceTag
+	for rows.Next() {
+		tag, err := scanAccountSliceTag(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, tag)
+	}
+	return out, rows.Err()
+}
+
+func scanAccountSliceTag(row scanner) (storage.AccountSliceTag, error) {
+	var out storage.AccountSliceTag
+	var createdAt time.Time
+	if err := row.Scan(
+		&out.SliceID, &out.SliceSlug, &out.Visibility,
+		&out.Name, &out.CommitID, &out.DefinitionVersion, &out.Message, &out.CreatedBy, &createdAt,
+		&out.Attribution.ActingSubjectID, &out.Attribution.ControllerSubjectID, &out.Attribution.KeyID, &out.Attribution.DaemonID, &out.Attribution.ConversationID,
+	); err != nil {
+		return out, err
+	}
+	if out.Attribution.ActingSubjectID == "" {
+		out.Attribution.ActingSubjectID = out.CreatedBy
+	}
+	out.Attribution = out.Attribution.Normalize()
+	out.CreatedAt = formatTime(createdAt)
+	return out, nil
 }
 
 func (s *SliceStore) getTag(ctx context.Context, sliceID, name string) (*storage.SliceTag, error) {

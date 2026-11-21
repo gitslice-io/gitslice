@@ -80,6 +80,23 @@ describe("TagsDrawer", () => {
     expect(first.compareDocumentPosition(screen.getByText("nightly-1")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("links release files for aggregated gitslice/gitslice tags viewed from gitslice/home", async () => {
+    const listTags = vi.fn().mockResolvedValue({
+      tags: [
+        {
+          slice: { account: "gitslice", slice: "gitslice" },
+          name: "v0.4.33",
+          commitId: "sha256:0981ca7be4206ee191ef6d1aa91bec60687821f765af7814d5e401dc32b13d97",
+          createdAt: "2026-11-20T17:13:45Z"
+        }
+      ]
+    });
+    renderDrawer(listTags, { account: "gitslice", slice: "home" });
+
+    expect(await screen.findByText("v0.4.33")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Release files" })).toHaveAttribute("href", "/releases/tag/v0.4.33");
+  });
+
   it("says how to create a tag when there are none", async () => {
     renderDrawer(vi.fn().mockResolvedValue({ tags: [] }), { account: "acme", slice: "app" });
     expect(await screen.findByText("No tags yet.")).toBeInTheDocument();

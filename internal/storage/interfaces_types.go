@@ -141,6 +141,14 @@ type SliceTag struct {
 	Attribution       ActorAttribution
 }
 
+// AccountSliceTag pairs a SliceTag with its slice's slug and visibility so
+// account-wide tag queries don't have to load every slice in the account.
+type AccountSliceTag struct {
+	SliceTag
+	SliceSlug  string
+	Visibility string
+}
+
 // ValidSliceSecretName reports whether name matches ^[A-Z_][A-Z0-9_]*$.
 func ValidSliceSecretName(name string) bool {
 	return model.ValidSliceSecretName(name)

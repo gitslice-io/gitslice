@@ -100,7 +100,7 @@ export function TagsDrawer({ api, onClose, open, sliceId, sliceLabel, sliceRef }
               {tags.map((tag) => {
                 const name = tag.name ?? "";
                 const author = tag.attribution?.actingUsername || tag.createdBy;
-                const release = releaseHrefForTag(sliceRef, name);
+                const release = releaseHrefForTag(tag.slice ?? sliceRef, name);
                 return (
                   <div
                     className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-2"

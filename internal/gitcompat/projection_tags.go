@@ -15,17 +15,25 @@ import (
 // goSemverTag matches the version tags Go understands.
 var goSemverTag = regexp.MustCompile(`^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?(\+[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$`)
 
+type projectedTagSource struct {
+	name     string
+	commitID string
+	own      bool
+}
+
 // syncTags publishes the slice's native tags as lightweight tags on the
 // projected commit at or before each tagged native commit. For a slice with a
 // single included path, a semver tag is also published under that path (for
 // example acme/payment/v1.2.0): that is how Go names versions of a module
 // whose root is a repository subdirectory, which the canonical layout puts
-// every slice's files in. It reports whether the cached mapping changed.
+// every slice's files in. For an account's home slice, tags from the account's
+// other slices are also published under refs/tags/<slice>/<name>. It reports
+// whether the cached mapping changed.
 func (p *Projector) syncTags(ctx context.Context, repoPath string, state *projectionState, slice *corev1.Slice, prefixes []string) (bool, error) {
 	if p.slices == nil {
 		return false, nil
 	}
-	tags, err := p.slices.ListTags(ctx, slice.Id)
+	sources, err := p.collectProjectedTags(ctx, slice)
 	if err != nil {
 		return false, err
 	}
@@ -38,22 +46,36 @@ func (p *Projector) syncTags(ctx context.Context, repoPath string, state *projec
 	}
 	changed := false
 	resolved := map[string]projectedCommit{}
-	for _, tag := range tags {
-		if cached, ok := state.Tags[tag.Name]; ok && cached.Native == tag.CommitID {
+	ownResolved := map[string]bool{}
+	// Resolve the slice's own tags before aggregated sub-slice tags so a home
+	// slice's own tag always takes precedence on name collision.
+	sort.SliceStable(sources, func(i, j int) bool {
+		if sources[i].own != sources[j].own {
+			return sources[i].own
+		}
+		return sources[i].name < sources[j].name
+	})
+	for _, src := range sources {
+		if _, exists := resolved[src.name]; exists {
+			continue
+		}
+		if cached, ok := state.Tags[src.name]; ok && cached.Native == src.commitID {
 			// The cached projected commit must still be part of this history.
 			if _, known := projectedIndex(state, cached.Git); known {
-				resolved[tag.Name] = cached
+				resolved[src.name] = cached
+				ownResolved[src.name] = src.own
 				continue
 			}
 		}
-		target, ok, err := p.projectedCommitAt(ctx, state, history, tag.CommitID)
+		target, ok, err := p.projectedCommitAt(ctx, state, history, src.commitID)
 		if err != nil {
 			return false, err
 		}
 		if !ok {
 			continue
 		}
-		resolved[tag.Name] = projectedCommit{Native: tag.CommitID, Git: target}
+		resolved[src.name] = projectedCommit{Native: src.commitID, Git: target}
+		ownResolved[src.name] = src.own
 		changed = true
 	}
 	if len(resolved) != len(state.Tags) {
@@ -66,13 +88,86 @@ func (p *Projector) syncTags(ctx context.Context, repoPath string, state *projec
 	if len(prefixes) == 1 && prefixes[0] != "/" {
 		subdir = strings.Trim(prefixes[0], "/")
 	}
-	for name, target := range resolved {
-		want["refs/tags/"+name] = target.Git
+	ownNames := make([]string, 0, len(resolved))
+	aggNames := make([]string, 0, len(resolved))
+	for name := range resolved {
+		if ownResolved[name] {
+			ownNames = append(ownNames, name)
+		} else {
+			aggNames = append(aggNames, name)
+		}
+	}
+	sort.Strings(ownNames)
+	sort.Strings(aggNames)
+	for _, name := range ownNames {
+		target := resolved[name]
+		ref := "refs/tags/" + name
+		if !tagRefConflicts(want, ref) {
+			want[ref] = target.Git
+		}
 		if subdir != "" && goSemverTag.MatchString(name) {
-			want["refs/tags/"+subdir+"/"+name] = target.Git
+			subdirRef := "refs/tags/" + subdir + "/" + name
+			if !tagRefConflicts(want, subdirRef) {
+				want[subdirRef] = target.Git
+			}
+		}
+	}
+	for _, name := range aggNames {
+		target := resolved[name]
+		ref := "refs/tags/" + name
+		if !tagRefConflicts(want, ref) {
+			want[ref] = target.Git
 		}
 	}
 	return changed, applyTagRefs(ctx, repoPath, want)
+}
+
+func (p *Projector) collectProjectedTags(ctx context.Context, slice *corev1.Slice) ([]projectedTagSource, error) {
+	if slice.GetRef().GetSlice() != "home" {
+		tags, err := p.slices.ListTags(ctx, slice.Id)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]projectedTagSource, 0, len(tags))
+		for _, tag := range tags {
+			out = append(out, projectedTagSource{name: tag.Name, commitID: tag.CommitID, own: true})
+		}
+		return out, nil
+	}
+	account := slice.GetRef().GetAccount()
+	publicHome := strings.EqualFold(strings.TrimSpace(slice.GetDefinition().GetVisibility()), "public")
+	tags, err := p.slices.ListAccountTags(ctx, account, publicHome, "")
+	if err != nil {
+		return nil, err
+	}
+	out := make([]projectedTagSource, 0, len(tags))
+	for _, tag := range tags {
+		if tag.SliceID == slice.Id {
+			out = append(out, projectedTagSource{name: tag.Name, commitID: tag.CommitID, own: true})
+			continue
+		}
+		if tag.SliceSlug == "" {
+			continue
+		}
+		out = append(out, projectedTagSource{name: tag.SliceSlug + "/" + tag.Name, commitID: tag.CommitID, own: false})
+	}
+	return out, nil
+}
+
+// tagRefConflicts reports whether adding candidate to want would collide with
+// an existing ref name or create a Git directory/file ref conflict (for
+// example refs/tags/foo and refs/tags/foo/v1.0.0).
+func tagRefConflicts(want map[string]string, candidate string) bool {
+	if _, exists := want[candidate]; exists {
+		return true
+	}
+	candPrefix := candidate + "/"
+	for existing := range want {
+		if strings.HasPrefix(existing, candPrefix) || strings.HasPrefix(candidate, existing+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // applyTagRefs makes refs/tags/* in the projected repository exactly want.
@@ -88,6 +183,18 @@ func applyTagRefs(ctx context.Context, repoPath string, want map[string]string) 
 		}
 	}
 	var commands strings.Builder
+	stale := make([]string, 0)
+	for ref := range have {
+		if _, ok := want[ref]; !ok {
+			stale = append(stale, ref)
+		}
+	}
+	sort.Strings(stale)
+	// Delete stale refs before updating so directory/file ref transitions
+	// (for example refs/tags/foo -> refs/tags/foo/v1.0.0) succeed cleanly.
+	for _, ref := range stale {
+		fmt.Fprintf(&commands, "delete %s\n", ref)
+	}
 	refs := make([]string, 0, len(want))
 	for ref := range want {
 		refs = append(refs, ref)
@@ -97,16 +204,6 @@ func applyTagRefs(ctx context.Context, repoPath string, want map[string]string) 
 		if have[ref] != want[ref] {
 			fmt.Fprintf(&commands, "update %s %s\n", ref, want[ref])
 		}
-	}
-	stale := make([]string, 0)
-	for ref := range have {
-		if _, ok := want[ref]; !ok {
-			stale = append(stale, ref)
-		}
-	}
-	sort.Strings(stale)
-	for _, ref := range stale {
-		fmt.Fprintf(&commands, "delete %s\n", ref)
 	}
 	if commands.Len() == 0 {
 		return nil

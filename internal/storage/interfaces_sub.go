@@ -108,4 +108,9 @@ type SliceMemberStore interface {
 type SliceTagStore interface {
 	CreateTag(ctx context.Context, tag SliceTag) (*SliceTag, bool, error)
 	ListTags(ctx context.Context, sliceID string) ([]SliceTag, error)
+	// ListAccountTags returns tags across an account's non-deleted slices
+	// (including archived ones), newest first. When publicOnly is true, only
+	// tags on public slices (plus slices shared with sharedWith when non-empty)
+	// are returned.
+	ListAccountTags(ctx context.Context, account string, publicOnly bool, sharedWith string) ([]AccountSliceTag, error)
 }
