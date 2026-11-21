@@ -151,7 +151,7 @@ automations:
     action:
       bash:
         runtime: node
-        size: standard-2
+        size: standard-1
         checkout: folder
         env: {OP: deploy-web}
         script: ops/cloudflare.sh
@@ -169,7 +169,7 @@ automations:
     action:
       bash:
         runtime: node
-        size: standard-2
+        size: standard-1
         checkout: folder
         env: {OP: deploy-web-staging}
         script: ops/cloudflare.sh
