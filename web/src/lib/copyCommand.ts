@@ -1,4 +1,4 @@
-let copyListenerRegistered = false;
+const registeredDocuments = new WeakSet<Document>();
 let lastCopyMessage = "";
 const copyTimers = new WeakMap<HTMLElement, ReturnType<typeof setTimeout>>();
 
@@ -60,10 +60,10 @@ async function copyElementText(button: HTMLElement, target: HTMLElement) {
 }
 
 export function ensureCopyCommandListener() {
-  if (copyListenerRegistered || typeof window === "undefined" || typeof document === "undefined") {
+  if (typeof window === "undefined" || typeof document === "undefined" || registeredDocuments.has(document)) {
     return;
   }
-  copyListenerRegistered = true;
+  registeredDocuments.add(document);
 
   if ("CommandEvent" in window) {
     document.addEventListener(
@@ -98,3 +98,7 @@ export function ensureCopyCommandListener() {
     });
   }
 }
+
+// Register eagerly in browser/DOM environments so clicks immediately after
+// lazy component commit (before React flushes passive useEffect) are never missed.
+ensureCopyCommandListener();
