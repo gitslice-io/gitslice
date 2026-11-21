@@ -10,14 +10,24 @@
 // so `gs auto run <id> --follow` shows the operation and fails when it fails.
 // A build that never calls back ends the run at the automation's timeout.
 //
+// The release automation runs this on tag.created too: the build gets the tag
+// (tag.name) and builds that release. A tag that is not a release version
+// (vX.Y.Z) ends the run here, with nothing started.
+//
 // The trigger's URL is public; its key and secret are the Gitslice secret
 // OPS_WEBHOOK_QUERY ("key=...&secret=..."). A secret may not supply a whole
 // URL: the dispatcher's gate opens placeholders only where they cannot
 // change the request's origin.
 const WEBHOOK = "https://cloudbuild.googleapis.com/v1/projects/unified-surfer-486904-i6/triggers/gs-ops-webhook:webhook";
+const RELEASE_TAG = /^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$/;
 
 export default {
   async onEvent(event, gs) {
+    const tag = event.tag?.name ?? "";
+    if (event.event === "tag.created" && !RELEASE_TAG.test(tag)) {
+      console.log(`tag ${tag} is not a release version (vX.Y.Z); nothing to build`);
+      return;
+    }
     const res = await fetch(`${WEBHOOK}?${gs.secret("OPS_WEBHOOK_QUERY")}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -26,6 +36,7 @@ export default {
         automation: { id: event.automation?.id },
         sender: { username: event.sender?.username },
         inputs: event.inputs ?? {},
+        tag: { name: tag },
         callback: gs.callbackUrl(),
       }),
     });

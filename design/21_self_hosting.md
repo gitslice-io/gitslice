@@ -544,11 +544,15 @@ assigned), so releases no longer depend on GitHub:
    under `releases/<tag>/`, then `releases/latest.json`.
    - Since 2026-10-08 the tag's own event starts the build instead of a
      15-minute poll. Since 2026-11-17 the `release` automation in
-     `/gitslice/gitslice/.gitslice/automations.yaml` (design/34 & design/37) sends that event
-     to the Cloud Build webhook trigger `gs-release-webhook`, whose URL is the
-     slice secret `RELEASE_WEBHOOK_URL`; the slice webhook that did this before
-     (design/24) was deleted. `ops/release/release.sh webhook` creates the
-     Cloud Build trigger.
+     `/gitslice/gitslice/.gitslice/automations.yaml` (design/34 & design/37) starts it; the
+     slice webhook that did this before (design/24) was deleted. Since
+     2026-11-21 that automation is a reporting runbook (the worker
+     `.gitslice/ops/runbook.js` and the ops build `gs-ops-webhook`): the ops
+     build submits `ops/release/cloudbuild.yaml` for the tag and the run
+     follows the release build to its end, failing when it fails. The
+     `publish-releases` runbook runs the reconcile the same way. The Cloud
+     Build trigger `gs-release-webhook` (`ops/release/release.sh webhook`)
+     no longer has a caller.
    - Cloud Scheduler job `gs-release` now runs once a day, to build a tag whose
      event was missed (`release.sh schedule`).
    - `ops/release/release.sh run [<tag>]` builds now; with a tag, it rebuilds

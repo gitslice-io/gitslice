@@ -35,7 +35,7 @@ steps:
                 v = v.get(k) if isinstance(v, dict) else None
             return v if isinstance(v, str) else ""
         with open("/workspace/op.env", "w") as f:
-            for name, path in [("OP", "automation.id"), ("SENDER", "sender.username"), ("REVISION", "inputs.revision"), ("CALLBACK", "callback")]:
+            for name, path in [("OP", "automation.id"), ("SENDER", "sender.username"), ("REVISION", "inputs.revision"), ("TAG", "tag.name"), ("CALLBACK", "callback")]:
                 f.write(f"{name}={shlex.quote(field(path))}\n")
 
   - id: op
@@ -88,6 +88,31 @@ steps:
         ready() {
           curl -fsS -o /dev/null --retry 5 --retry-delay 5 --retry-all-errors "$$(service_url)/readyz"
         }
+        # release_build [substitutions] runs the release pipeline
+        # (ops/release/cloudbuild.yaml, read from main) as its own build,
+        # waits for it, and reports what it published. Its output is in
+        # that build's log; a failure reports the log's last lines.
+        release_build() {
+          git clone -q --depth 1 -- https://gitslice.io/git/gitslice/gitslice.git /workspace/src
+          id="$$(gcloud builds submit --no-source --async --region=global --project "$$PROJECT" \
+            --config /workspace/src/gitslice/gitslice/ops/release/cloudbuild.yaml "$$@" --format='value(id)')"
+          say "release build $$id: https://console.cloud.google.com/cloud-build/builds/$$id?project=$$PROJECT"
+          while :; do
+            status="$$(gcloud builds describe "$$id" --region=global --project "$$PROJECT" --format='value(status)')"
+            case "$$status" in
+              SUCCESS|FAILURE|CANCELLED|TIMEOUT|INTERNAL_ERROR|EXPIRED) break ;;
+            esac
+            sleep 15
+          done
+          log="$$(gcloud builds log "$$id" --region=global --project "$$PROJECT" 2>/dev/null || true)"
+          if [ "$$status" != SUCCESS ]; then
+            printf '%s\n' "$$log" | grep '^Step #' | tail -n 15
+            echo "release build $$id ended $$status" >&2
+            exit 1
+          fi
+          printf '%s\n' "$$log" | sed -n 's/^Step #[0-9]* - "[a-z]*": //p' | grep -E '^(published|nothing to|no tags to build|latest: )' |
+            while IFS= read -r l; do say "$$l"; done
+        }
         case "$$OP" in
           gitslice/deploy-server)
             # Builds main of the GitHub mirror, like the daily deploy.
@@ -119,10 +144,20 @@ steps:
             ready
             say "all traffic on $$REVISION; /readyz answers. The next deploy-server moves it to the newest revision."
             ;;
+          gitslice/release)
+            # tag.created: builds and publishes that tag (not again when it
+            # is published already).
+            if [[ ! "$$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$$ ]]; then
+              say "not a release tag: '$$TAG'" >&2; exit 1
+            fi
+            say "releasing $$TAG"
+            release_build "--substitutions=_TAG=$$TAG"
+            curl -fsS -o /dev/null "https://gitslice.io/releases/download/$$TAG/checksums.txt"
+            say "https://gitslice.io/releases/download/$$TAG/ serves $$TAG"
+            ;;
           gitslice/publish-releases)
-            # The daily reconcile: builds every vX.Y.Z tag not yet in R2.
-            gcloud scheduler jobs run gs-release --location us-central1 --project "$$PROJECT"
-            say "started the release reconcile (Cloud Build trigger gs-release-webhook)"
+            # The daily reconcile, now: builds every vX.Y.Z tag not yet in R2.
+            release_build
             ;;
           gitslice/ops-selftest)
             say "ok"

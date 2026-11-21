@@ -11,17 +11,22 @@ automations:
     action:
       check: [gofmt, vet, test, build, e2e]
 
-  # Releases: a new tag starts the Cloud Build release trigger
-  # gs-release-webhook (ops/release, design/21 "Releases"), which builds the
-  # release and stores it in R2 for gitslice.io. The URL carries its API key
-  # and secret, so it is a Gitslice secret on /gitslice/gitslice.
+  # Releases (design/21 "Releases"): a new vX.Y.Z tag (gs tag create) runs
+  # the reporting worker ops/runbook.js, like the runbooks below. The ops
+  # build runs the release pipeline (ops/release/cloudbuild.yaml), which
+  # builds the tag and stores it in R2 for gitslice.io, and the run follows
+  # it to the end: it fails when the release fails and links the build.
+  # Other tags end the run at once. release and publish-releases share the
+  # concurrency group releases.
   release:
-    description: Trigger Cloud Build release pipeline on new version tags
+    description: Build and publish a gs release when a vX.Y.Z tag is created
     on: [tag.created]
-    secrets: [RELEASE_WEBHOOK_URL]
+    secrets: [OPS_WEBHOOK_QUERY]
+    network: [cloudbuild.googleapis.com]
+    concurrency_group: releases
+    timeout: 40m
     action:
-      http:
-        url: "${{ secrets.RELEASE_WEBHOOK_URL }}"
+      worker: ops/runbook.js
 
   # Deployment runbooks. Each runs the worker ops/runbook.js, which hands
   # the run to the Cloud Build webhook trigger gs-ops-webhook (ops/automation)
@@ -71,8 +76,8 @@ automations:
       roles: [admin, writer]
     secrets: [OPS_WEBHOOK_QUERY]
     network: [cloudbuild.googleapis.com]
-    concurrency: serial
-    timeout: 15m
+    concurrency_group: releases
+    timeout: 40m
     action:
       worker: ops/runbook.js
 

@@ -273,7 +273,8 @@ credential is shown to them:
 | --- | --- |
 | `deploy-server` | Runs the Cloud Build deploy of GitHub `main` (`cloudbuild.yaml`), waits for it, moves all traffic to the newest revision, and checks `/readyz`. |
 | `rollback-server` | Input `revision` (such as `gitslice-prod-00147-xpj`): sends all traffic to that revision. The next `deploy-server` moves it back to the newest. |
-| `publish-releases` | Builds and publishes every `vX.Y.Z` tag not yet on gitslice.io/releases (the daily reconcile, now). A new tag already publishes itself through the `release` automation. |
+| `release` | Not run by hand: `gs tag create vX.Y.Z --slice gitslice/gitslice` starts it. Runs the release pipeline (`ops/release/cloudbuild.yaml`) for that tag, waits for it, and checks the download URL. `gs auto runs --account gitslice` shows the run; `gs auto show <run> --follow` follows it. |
+| `publish-releases` | Builds and publishes every `vX.Y.Z` tag not yet on gitslice.io/releases (the daily reconcile, now), and waits for it. |
 
 ```bash
 gs auto run gitslice/deploy-server --account gitslice --yes --follow
@@ -298,7 +299,8 @@ without changing anything.
   as `details:`, `--follow` prints it as soon as the build reports.
 - `deploy-server` and `rollback-server` share `concurrency_group:
   prod-server`: a second one waits until the first ends, so a deploy and a
-  rollback never race. `publish-releases` runs one at a time.
+  rollback never race. `release` and `publish-releases` share
+  `concurrency_group: releases`.
 - To change a runbook, try it before it lands: `gs auto run
   gitslice/<name> --from-changeset <cs> --follow` (these list a secret, so
   an account admin must run it), or `gs auto run gitslice/<name> --local

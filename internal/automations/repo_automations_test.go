@@ -26,9 +26,10 @@ func TestRepositoryAutomationsFilesParse(t *testing.T) {
 }
 
 // TestRepositoryDeployRunbooksMatchOpsBuild keeps the deployment runbooks
-// (automations posting to OPS_WEBHOOK_URL) manual-only, limited to writers
+// (automations posting to the ops webhook) manual-only, limited to writers
 // and admins, and each handled by ops/automation/cloudbuild.yaml, which runs
-// only the operations it names.
+// only the operations it names. The one exception is release, which runs on
+// tag.created (only writers create tags).
 func TestRepositoryDeployRunbooksMatchOpsBuild(t *testing.T) {
 	data, err := os.ReadFile("../../.gitslice/automations.yaml")
 	if err != nil {
@@ -48,11 +49,17 @@ func TestRepositoryDeployRunbooksMatchOpsBuild(t *testing.T) {
 			continue
 		}
 		runbooks++
-		if !slices.Equal(a.On, []string{EventManual}) {
-			t.Errorf("%s: on = %v, want [manual] only", name, a.On)
-		}
-		if a.Manual == nil || len(a.Manual.Roles) == 0 {
-			t.Errorf("%s: needs manual.roles", name)
+		if name == "release" {
+			if !slices.Equal(a.On, []string{EventTagCreated}) {
+				t.Errorf("%s: on = %v, want [tag.created] only", name, a.On)
+			}
+		} else {
+			if !slices.Equal(a.On, []string{EventManual}) {
+				t.Errorf("%s: on = %v, want [manual] only", name, a.On)
+			}
+			if a.Manual == nil || len(a.Manual.Roles) == 0 {
+				t.Errorf("%s: needs manual.roles", name)
+			}
 		}
 		// The worker .gitslice/ops/runbook.js posts to the webhook and waits
 		// for the build's report.
