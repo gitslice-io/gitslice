@@ -1,12 +1,12 @@
 import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ApiClient } from "../../api/useApi";
-import { TagsDrawer, releaseHrefForTag } from "./TagsDrawer";
+import { TagsDrawer, releaseHrefForTag, tagSummary } from "./TagsDrawer";
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -27,13 +27,20 @@ vi.mock("@tanstack/react-router", () => ({
     >
       {children}
     </a>
-  )
+  ),
 }));
 
-function renderDrawer(listTags: ReturnType<typeof vi.fn>, sliceRef = { account: "gitslice", slice: "gitslice" }) {
+function renderDrawer(
+  listTags: ReturnType<typeof vi.fn>,
+  sliceRef = { account: "gitslice", slice: "gitslice" },
+) {
   const api = { listTags } as unknown as ApiClient;
   render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
       <TagsDrawer
         api={api}
         onClose={() => undefined}
@@ -42,7 +49,7 @@ function renderDrawer(listTags: ReturnType<typeof vi.fn>, sliceRef = { account: 
         sliceLabel={`${sliceRef.account}:${sliceRef.slice}`}
         sliceRef={sliceRef}
       />
-    </QueryClientProvider>
+    </QueryClientProvider>,
   );
   return api;
 }
@@ -56,66 +63,92 @@ describe("TagsDrawer", () => {
         {
           slice: { account: "gitslice", slice: "gitslice" },
           name: "v0.4.33",
-          commitId: "sha256:0981ca7be4206ee191ef6d1aa91bec60687821f765af7814d5e401dc32b13d97",
+          commitId:
+            "sha256:0981ca7be4206ee191ef6d1aa91bec60687821f765af7814d5e401dc32b13d97",
           message: "CLI release",
           createdBy: "gitslice-operator",
-          createdAt: "2026-11-20T17:13:45Z"
+          createdAt: "2026-11-20T17:13:45Z",
         },
-        { name: "nightly-1", commitId: "sha256:1111", createdAt: "2026-11-01T00:00:00Z" }
-      ]
+        {
+          name: "nightly-1",
+          commitId: "sha256:1111",
+          createdAt: "2026-11-01T00:00:00Z",
+        },
+      ],
     });
     renderDrawer(listTags);
 
     const first = await screen.findByText("v0.4.33");
-    expect(listTags).toHaveBeenCalledWith({ slice: { account: "gitslice", slice: "gitslice" } });
-    expect(screen.queryByRole("link", { name: "gitslice" })).not.toBeInTheDocument();
+    expect(listTags).toHaveBeenCalledWith({
+      slice: { account: "gitslice", slice: "gitslice" },
+    });
+    expect(
+      screen.queryByRole("link", { name: "gitslice" }),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("CLI release")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Release files" })).toHaveAttribute("href", "/releases/tag/v0.4.33");
-    expect(screen.getAllByRole("link", { name: "Release files" })).toHaveLength(1);
-    expect(screen.getByRole("link", { name: "gitslice-operator" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Release files" })).toHaveAttribute(
+      "href",
+      "/releases/tag/v0.4.33",
+    );
+    expect(screen.getAllByRole("link", { name: "Release files" })).toHaveLength(
+      1,
+    );
+    expect(
+      screen.getByRole("link", { name: "gitslice-operator" }),
+    ).toBeInTheDocument();
     // The commit opens the slice as it was at the tag.
     expect(screen.getByTitle(/^Browse v0\.4\.33/)).toHaveAttribute(
       "href",
-      "/slices/gitslice/gitslice?at=sha256:0981ca7be4206ee191ef6d1aa91bec60687821f765af7814d5e401dc32b13d97"
+      "/slices/gitslice/gitslice?at=sha256:0981ca7be4206ee191ef6d1aa91bec60687821f765af7814d5e401dc32b13d97",
     );
     // Newest first, as the server listed them.
-    expect(first.compareDocumentPosition(screen.getByText("nightly-1")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      first.compareDocumentPosition(screen.getByText("nightly-1")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   it("shows each tag's originating slice and release files when viewed from home", async () => {
-    const commitId = "sha256:0981ca7be4206ee191ef6d1aa91bec60687821f765af7814d5e401dc32b13d97";
+    const commitId =
+      "sha256:0981ca7be4206ee191ef6d1aa91bec60687821f765af7814d5e401dc32b13d97";
     const listTags = vi.fn().mockResolvedValue({
       tags: [
         {
           slice: { account: "gitslice", slice: "gitslice" },
           name: "v0.4.33",
           commitId,
-          createdAt: "2026-11-20T17:13:45Z"
+          createdAt: "2026-11-20T17:13:45Z",
         },
         {
           slice: { account: "gitslice", slice: "home" },
           name: "home-snap",
           commitId: "sha256:2222",
-          createdAt: "2026-11-19T00:00:00Z"
-        }
-      ]
+          createdAt: "2026-11-19T00:00:00Z",
+        },
+      ],
     });
     renderDrawer(listTags, { account: "gitslice", slice: "home" });
 
     expect(await screen.findByText("v0.4.33")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "gitslice" })).toHaveAttribute(
       "href",
-      `/slices/gitslice/gitslice?at=${commitId}`
+      `/slices/gitslice/gitslice?at=${commitId}`,
     );
     expect(screen.getByRole("link", { name: "home" })).toHaveAttribute(
       "href",
-      "/slices/gitslice/home?at=sha256:2222"
+      "/slices/gitslice/home?at=sha256:2222",
     );
-    expect(screen.getByRole("link", { name: "Release files" })).toHaveAttribute("href", "/releases/tag/v0.4.33");
+    expect(screen.getByRole("link", { name: "Release files" })).toHaveAttribute(
+      "href",
+      "/releases/tag/v0.4.33",
+    );
   });
 
   it("says how to create a tag when there are none", async () => {
-    renderDrawer(vi.fn().mockResolvedValue({ tags: [] }), { account: "acme", slice: "app" });
+    renderDrawer(vi.fn().mockResolvedValue({ tags: [] }), {
+      account: "acme",
+      slice: "app",
+    });
     expect(await screen.findByText("No tags yet.")).toBeInTheDocument();
     expect(screen.getByText("gs tag create <name>")).toBeInTheDocument();
   });
@@ -124,10 +157,49 @@ describe("TagsDrawer", () => {
 describe("releaseHrefForTag", () => {
   it("links only Gitslice's own version tags", () => {
     const gitslice = { account: "gitslice", slice: "gitslice" };
-    expect(releaseHrefForTag(gitslice, "v0.4.33")).toBe("/releases/tag/v0.4.33");
-    expect(releaseHrefForTag(gitslice, "v1.0.0-rc.1")).toBe("/releases/tag/v1.0.0-rc.1");
-    expect(releaseHrefForTag({ account: "acme", slice: "app" }, "v0.4.33")).toBeUndefined();
+    expect(releaseHrefForTag(gitslice, "v0.4.33")).toBe(
+      "/releases/tag/v0.4.33",
+    );
+    expect(releaseHrefForTag(gitslice, "v1.0.0-rc.1")).toBe(
+      "/releases/tag/v1.0.0-rc.1",
+    );
+    expect(
+      releaseHrefForTag({ account: "acme", slice: "app" }, "v0.4.33"),
+    ).toBeUndefined();
     expect(releaseHrefForTag(gitslice, "release/2026-10")).toBeUndefined();
     expect(releaseHrefForTag(undefined, "v0.4.33")).toBeUndefined();
+  });
+
+  it("shows one line of a long message until tapped, without repeating the name", async () => {
+    const listTags = vi.fn().mockResolvedValue({
+      tags: [
+        {
+          name: "v0.4.31",
+          commitId: "sha256:2222",
+          message: "gs v0.4.31: listing deltas\nand cache pruning",
+        },
+      ],
+    });
+    renderDrawer(listTags);
+
+    const message = await screen.findByRole("button", {
+      name: /^listing deltas/,
+    });
+    expect(message).toHaveAttribute("aria-expanded", "false");
+    expect(message).toHaveClass("truncate");
+    fireEvent.click(message);
+    expect(message).toHaveAttribute("aria-expanded", "true");
+    expect(message).not.toHaveClass("truncate");
+  });
+});
+
+describe("tagSummary", () => {
+  it("drops a leading tag name", () => {
+    expect(tagSummary("v1.2.3", "v1.2.3: fixes")).toBe("fixes");
+    expect(tagSummary("v1.2.3", "gs v1.2.3: fixes")).toBe("fixes");
+    expect(tagSummary("v1.2.3", "Release v1.2.3: fixes")).toBe(
+      "Release v1.2.3: fixes",
+    );
+    expect(tagSummary("", ": x")).toBe(": x");
   });
 });
