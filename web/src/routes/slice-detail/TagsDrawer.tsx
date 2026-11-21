@@ -100,16 +100,44 @@ export function TagsDrawer({ api, onClose, open, sliceId, sliceLabel, sliceRef }
               {tags.map((tag) => {
                 const name = tag.name ?? "";
                 const author = tag.attribution?.actingUsername || tag.createdBy;
-                const release = releaseHrefForTag(tag.slice ?? sliceRef, name);
+                const tagSlice =
+                  tag.slice?.account && tag.slice?.slice
+                    ? { account: tag.slice.account, slice: tag.slice.slice }
+                    : undefined;
+                const showOriginSlice = Boolean(
+                  tagSlice &&
+                    (sliceRef?.slice === "home" ||
+                      tagSlice.account !== sliceRef?.account ||
+                      tagSlice.slice !== sliceRef?.slice)
+                );
+                const originSliceLabel = tagSlice
+                  ? tagSlice.account === sliceRef?.account
+                    ? tagSlice.slice
+                    : `${tagSlice.account}/${tagSlice.slice}`
+                  : "";
+                const release = releaseHrefForTag(tagSlice ?? sliceRef, name);
                 return (
                   <div
                     className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-2"
                     key={name}
                   >
                     <div className="flex items-baseline justify-between gap-2">
-                      <p className="break-all font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-                        {name}
-                      </p>
+                      <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                        <p className="break-all font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+                          {name}
+                        </p>
+                        {showOriginSlice && tagSlice ? (
+                          <Link
+                            className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] font-medium text-slate-600 transition hover:bg-slate-200 hover:text-zinc-950 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 dark:hover:text-zinc-50"
+                            params={{ account: tagSlice.account, slice: tagSlice.slice }}
+                            search={tag.commitId ? { at: tag.commitId } : {}}
+                            title={`Open ${tagSlice.account}/${tagSlice.slice}${tag.commitId ? ` at ${name}` : ""}`}
+                            to="/slices/$account/$slice"
+                          >
+                            {originSliceLabel}
+                          </Link>
+                        ) : null}
+                      </div>
                       {release ? (
                         <a
                           className="shrink-0 text-xs font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"

@@ -142,6 +142,14 @@ func TestHomeSliceAggregatesTags(t *testing.T) {
 		t.Fatalf("home-v1 = %+v, want acme/home@%s", gotByName["home-v1"], backendOne)
 	}
 
+	// Plain-text `gs tag list` on home also includes each tag's originating slice.
+	plainHome := runCLI(t, home, payment, "tag", "list", "--slice", "acme/home")
+	for _, want := range []string{"pay-snap\tacme/payment\t", "back-snap\tacme/backend\t", "home-v1\tacme/home\t"} {
+		if !strings.Contains(plainHome, want) {
+			t.Fatalf("home plain tag list missing %q:\n%s", want, plainHome)
+		}
+	}
+
 	// Git projection of acme/home publishes home's own tags directly and
 	// sub-slice tags namespaced as <slice>/<tag>.
 	cloneDir := filepath.Join(t.TempDir(), "home-git")

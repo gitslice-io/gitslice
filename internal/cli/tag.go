@@ -89,7 +89,11 @@ func (r Runner) runTagList(ctx context.Context, opts commandOptions, slice strin
 			return r.writeJSONOutput(opts, map[string]any{"tags": out})
 		}
 		for _, tag := range out {
-			fmt.Fprintf(r.Stdout, "%s\t%s\t%s\n", tag.Name, shortID(tag.CommitID), tag.CreatedAt)
+			if ref.GetSlice() == "home" && tag.Slice != "" {
+				fmt.Fprintf(r.Stdout, "%s\t%s\t%s\t%s\n", tag.Name, tag.Slice, shortID(tag.CommitID), tag.CreatedAt)
+			} else {
+				fmt.Fprintf(r.Stdout, "%s\t%s\t%s\n", tag.Name, shortID(tag.CommitID), tag.CreatedAt)
+			}
 		}
 		return nil
 	})

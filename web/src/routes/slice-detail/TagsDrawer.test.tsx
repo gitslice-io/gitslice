@@ -54,6 +54,7 @@ describe("TagsDrawer", () => {
     const listTags = vi.fn().mockResolvedValue({
       tags: [
         {
+          slice: { account: "gitslice", slice: "gitslice" },
           name: "v0.4.33",
           commitId: "sha256:0981ca7be4206ee191ef6d1aa91bec60687821f765af7814d5e401dc32b13d97",
           message: "CLI release",
@@ -67,6 +68,7 @@ describe("TagsDrawer", () => {
 
     const first = await screen.findByText("v0.4.33");
     expect(listTags).toHaveBeenCalledWith({ slice: { account: "gitslice", slice: "gitslice" } });
+    expect(screen.queryByRole("link", { name: "gitslice" })).not.toBeInTheDocument();
     expect(screen.getByText("CLI release")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Release files" })).toHaveAttribute("href", "/releases/tag/v0.4.33");
     expect(screen.getAllByRole("link", { name: "Release files" })).toHaveLength(1);
@@ -80,20 +82,35 @@ describe("TagsDrawer", () => {
     expect(first.compareDocumentPosition(screen.getByText("nightly-1")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("links release files for aggregated gitslice/gitslice tags viewed from gitslice/home", async () => {
+  it("shows each tag's originating slice and release files when viewed from home", async () => {
+    const commitId = "sha256:0981ca7be4206ee191ef6d1aa91bec60687821f765af7814d5e401dc32b13d97";
     const listTags = vi.fn().mockResolvedValue({
       tags: [
         {
           slice: { account: "gitslice", slice: "gitslice" },
           name: "v0.4.33",
-          commitId: "sha256:0981ca7be4206ee191ef6d1aa91bec60687821f765af7814d5e401dc32b13d97",
+          commitId,
           createdAt: "2026-11-20T17:13:45Z"
+        },
+        {
+          slice: { account: "gitslice", slice: "home" },
+          name: "home-snap",
+          commitId: "sha256:2222",
+          createdAt: "2026-11-19T00:00:00Z"
         }
       ]
     });
     renderDrawer(listTags, { account: "gitslice", slice: "home" });
 
     expect(await screen.findByText("v0.4.33")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "gitslice" })).toHaveAttribute(
+      "href",
+      `/slices/gitslice/gitslice?at=${commitId}`
+    );
+    expect(screen.getByRole("link", { name: "home" })).toHaveAttribute(
+      "href",
+      "/slices/gitslice/home?at=sha256:2222"
+    );
     expect(screen.getByRole("link", { name: "Release files" })).toHaveAttribute("href", "/releases/tag/v0.4.33");
   });
 
