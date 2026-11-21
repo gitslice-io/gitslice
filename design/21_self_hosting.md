@@ -551,8 +551,8 @@ assigned), so releases no longer depend on GitHub:
      build submits `ops/release/cloudbuild.yaml` for the tag and the run
      follows the release build to its end, failing when it fails. The
      `publish-releases` runbook runs the reconcile the same way. The Cloud
-     Build trigger `gs-release-webhook` (`ops/release/release.sh webhook`)
-     no longer has a caller.
+     Build trigger `gs-release-webhook` and the slice secret
+     `RELEASE_WEBHOOK_URL` that called it were deleted.
    - Cloud Scheduler job `gs-release` now runs once a day, to build a tag whose
      event was missed (`release.sh schedule`).
    - `ops/release/release.sh run [<tag>]` builds now; with a tag, it rebuilds
