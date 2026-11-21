@@ -20,7 +20,7 @@ If the target is ambiguous, ask for the target. Two environments exist:
 - API: `https://api.gitslice.io` — Cloud Run service `gitslice-prod` (region `us-west1`), Neon Postgres, R2 object store
 - deploy path: Cloud Build pipeline `cloudbuild.yaml`, run **daily** by Cloud Scheduler (not on merge)
 
-Do not manually deploy production unless the user explicitly names production. Note the production **API** ships on a **daily schedule**: Cloud Scheduler runs the Cloud Build trigger once a day, and the pipeline no-ops when `main` hasn't moved since the last deploy. Merging to `main` does **not** deploy the API immediately — merged backend code ships with the next scheduled build unless the user asks to ship it now (then run the trigger manually) — see "Production (Cloud Run + gitslice.io)" and "Production Deploy Monitoring & Rollback" below. Web changes under `web/` are different: Git-connected Cloudflare Workers Builds deploy both live web Workers from `main` automatically.
+Do not manually deploy production unless the user explicitly names production. Note the production **API** ships on a **daily schedule**: Cloud Scheduler runs the `daily-deploy` operation once a day, and the pipeline no-ops when `main` hasn't moved since the last deploy. Merging to `main` does **not** deploy the API immediately — merged backend code ships with the next scheduled build unless the user asks to ship it now (then run the `deploy-server` automation) — see "Production (Cloud Run + gitslice.io)" and "Production Deploy Monitoring & Rollback" below. Web changes under `web/` are different: the `deploy-web` automation deploys gitslice.io on each such landing.
 
 Never print secret values. `.env.staging`, `.env.prod`, `.env.local`, and `deploy/` are gitignored local operator state. To inspect environment shape, list keys only:
 
@@ -41,11 +41,15 @@ Record material deploys and surprising deployment findings in `design/10_executi
 ## Source Of Truth
 
 The canonical source is the slice `gitslice/gitslice` on Gitslice
-(`design/21_self_hosting.md`). GitHub `main` is written only by the
-`Mirror from Gitslice` workflow (`.github/workflows/mirror-export.yml`).
+(`design/21_self_hosting.md`). GitHub `main` is a read-only copy, pushed by
+the slice's Git mirror (`gs slice mirror gitslice/gitslice`) moments after
+each landing. Since 2026-11-21 the server and the production web app build
+from Gitslice `main`, and GitHub Actions workflows are disabled; only the
+staging web app still builds from GitHub (below).
 
-- **Shipping a change:** submit it in Gitslice. The export reaches GitHub
-  `main` within about 10 minutes, and the deploy paths below build from there.
+- **Shipping a change:** submit it in Gitslice. A landing that changes `web/`
+  deploys the web app at once; the server deploys daily or through
+  `deploy-server` (below).
 - **What guards the mirror.**
   - Never push or merge to GitHub `main` directly.
   - The ruleset `main is a Gitslice mirror` blocks deletion and force pushes.
@@ -106,22 +110,20 @@ Backend staging is a Go `gitslice-server` process behind nginx. `ops/nginx.conf`
 
 The optional local helper `deploy/run-staging.sh` sources `.env.staging`, defaults `GITSLICE_HTTP_ADDR` to `127.0.0.1:8081`, and execs `bin/gitslice-server`. Treat it as operator-local context because `deploy/` is gitignored.
 
-The web app normally deploys through Cloudflare Workers Builds connected to
-`gitslice-io/gitslice`. Both Workers use `/web` as the project root and `web/*`
-as the included watch path:
+The production web app deploys from Gitslice: the automation `deploy-web`
+(gitslice.io) runs on every landing that changes `web/**`, in a container,
+with `npm ci`, `npm run build` and `npx wrangler deploy --env production`
+(`.gitslice/ops/cloudflare.sh`). Staging (`gitslice-web-staging`,
+agenttools.dev) still builds in Workers Builds from GitHub until
+`CLOUDFLARE_API_TOKEN` can reach the agenttools.dev zone; then it gets a
+`deploy-web-staging` automation (the script's case exists).
 
-- `gitslice-web-staging`: `main` runs `npm run build` followed by
-  `npx wrangler deploy --env staging`; other branches upload previews with
-  `npx wrangler versions upload --env staging`.
-- `gitslice-web-production`: `main` runs `npm run build` followed by
-  `npx wrangler deploy --env production`; other branches upload previews with
-  `npx wrangler versions upload --env production`.
-
-Each trigger has build-time values for `VITE_CLERK_PUBLISHABLE_KEY`,
-`VITE_CLERK_AUTHORIZED_PARTIES`, `VITE_API_BASE_URL`, and
-`VITE_GITSLICE_GIT_HTTP_BASE_URL`. These are separate from runtime bindings in
-`web/wrangler.jsonc` and persistent Worker secrets such as
-`CLERK_SECRET_KEY`. Do not put the Clerk secret key in the Vite build variables.
+The build-time values (`VITE_CLERK_PUBLISHABLE_KEY`,
+`VITE_CLERK_AUTHORIZED_PARTIES`, `VITE_API_BASE_URL`,
+`VITE_GITSLICE_GIT_HTTP_BASE_URL`, `VITE_POSTHOG_*`) are public and live in
+`web/build.production.vars` and `web/build.staging.vars`. They are separate
+from runtime bindings in `web/wrangler.jsonc` and persistent Worker secrets
+such as `CLERK_SECRET_KEY`. Do not put the Clerk secret key in those files.
 
 The repository also provides a manual/operator path through
 `web/scripts/deploy.sh <staging|production>` and the npm wrappers:
@@ -212,30 +214,17 @@ and depends on `GITSLICE_SERVICE_JWT_*` settings.
 
 The normal deployment path is automatic:
 
-- A push to `main` containing a path matched by `web/*` builds and deploys both
-  live Workers with their environment-specific commands.
-- A push to any other branch containing a matching path uploads preview
-  versions for both Workers without changing live traffic.
-- Changes outside `web/` do not normally start a Worker build. Cloudflare can
-  bypass watch-path matching for empty pushes or unusually large pushes.
+- A landing on `main` that changes `web/**` runs `deploy-web`, which builds
+  and deploys gitslice.io.
+- Changes outside `web/` do not deploy the web app. To redeploy anyway, run
+  `gs auto run gitslice/deploy-web --account gitslice --follow`.
 
-Do not run a second manual deploy merely because a web change merged. Inspect
-the Workers Build first. The Builds API requires a user-scoped token with
-Workers Builds Configuration:Edit (Workers CI Write); never print the token:
+Do not run a second manual deploy merely because a web change merged. Look
+at the automation's run first:
 
 ```bash
-set -a
-. ./.env.prod
-set +a
-ACCOUNT_ID=02fa014ee5c259f9cb1e01cf224ae197
-
-# Discover immutable Worker tags, then list builds for the relevant tag.
-curl -sS "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/workers/scripts" \
-  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"
-curl -sS "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/builds/workers/$WORKER_TAG/builds" \
-  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"
-curl -sS "https://api.cloudflare.com/client/v4/accounts/$ACCOUNT_ID/builds/builds/$BUILD_UUID/logs" \
-  -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+gs auto runs --account gitslice --limit 10
+gs auto show <run> --follow
 ```
 
 For an explicitly requested manual deploy or repair, deploy from the repository
@@ -257,9 +246,9 @@ The deploy script (`web/scripts/deploy.sh <env>`) requires, in the matching env 
 For the manual path, `CLOUDFLARE_API_TOKEN` must be in the env file (or operator
 env) with Workers Scripts:Edit and, for custom-domain routes, Workers
 Routes:Edit. If the deployed web bundle points at localhost or an old API host,
-first inspect the matching Workers Build variables. Repair the four `VITE_*`
-build variables on both the main and preview triggers, then rebuild; Wrangler
-runtime vars are not visible to `import.meta.env` during the build. Use the
+first inspect `web/build.<env>.vars`. Fix the `VITE_*` values there and land
+the change, which redeploys; Wrangler runtime vars are not visible to
+`import.meta.env` during the build. Use the
 manual deploy script only when an explicit repair deployment is required.
 
 ## Production runbooks (no credentials needed)
@@ -271,7 +260,7 @@ credential is shown to them:
 
 | Automation | What it does |
 | --- | --- |
-| `deploy-server` | Runs the Cloud Build deploy of GitHub `main` (`cloudbuild.yaml`), waits for it, moves all traffic to the newest revision, and checks `/readyz`. |
+| `deploy-server` | Clones `main` from Gitslice, runs its `cloudbuild.yaml` as a Cloud Build build, waits for it, moves all traffic to the newest revision, and checks `/readyz`. |
 | `rollback-server` | Input `revision` (such as `gitslice-prod-00147-xpj`): sends all traffic to that revision. The next `deploy-server` moves it back to the newest. |
 | `release` | Not run by hand: `gs tag create vX.Y.Z --slice gitslice/gitslice` starts it. Runs the release pipeline (`ops/release/cloudbuild.yaml`) for that tag, waits for it, and checks the download URL. `gs auto runs --account gitslice` shows the run; `gs auto show <run> --follow` follows it. |
 | `publish-releases` | Builds and publishes every `vX.Y.Z` tag not yet on gitslice.io/releases (the daily reconcile, now), and waits for it. |
@@ -307,8 +296,7 @@ without changing anything.
   --callback <file>` to exercise `.gitslice/ops/runbook.js` with node and
   no real webhook (leave out `--secret` and its fetch fails before sending).
 
-- `deploy-server` builds the GitHub mirror, which trails Gitslice by about
-  10 minutes. Run it once the change you want is on GitHub `main`.
+- `deploy-server` builds Gitslice `main` as it is when the run starts.
 - A new operation needs a case in `ops/automation/cloudbuild.yaml`, an
   automation like the others (worker `ops/runbook.js`, secret
   `OPS_WEBHOOK_QUERY`, network `cloudbuild.googleapis.com`), and a re-import of the trigger
@@ -322,7 +310,7 @@ They share `concurrency_group: prod-workers`.
 
 | Automation | What it does |
 | --- | --- |
-| `deploy-web` | Starts the Workers Builds "Deploy default branch" build of `main` for `gitslice-web-production` and waits for it. (Pushes to `main` still deploy the web app on their own.) |
+| `deploy-web` | Builds `web/` from `main` in the container and deploys it to gitslice.io. Also runs on each landing that changes `web/**`. |
 | `rollback-web` | Input `version` (a Worker version id): serves that version of gitslice.io. The run lists recent deployments. |
 | `deploy-doorbell` | Deploys `doorbell/` from `main`, with the Cloudflare CI runners off. |
 | `deploy-dispatcher` | Deploys `trigger-dispatch/` from `main` with its container images pinned by `trigger-dispatch/containers/images.lock.json`. |
@@ -341,9 +329,9 @@ They share `concurrency_group: prod-workers`.
 
 The API backend is a container on Cloud Run (service `gitslice-prod`, region `us-west1`), not the PM2 process; the DB is Neon and object storage is R2.
 
-**The production API deploys on a daily schedule: Cloud Scheduler job `gitslice-prod-daily-build` (us-west1) runs the Cloud Build trigger against `main` once a day, and the pipeline's `gate` step skips the whole build when the deployed image tag already matches HEAD. Do not manually deploy Cloud Run to ship merged code.** Merges to `main` no longer trigger builds (the trigger's GitHub push event is disabled); merged code waits for the next scheduled run. To ship merged code immediately when the user asks, run the trigger by hand — `gcloud builds triggers run <TRIGGER_ID> --branch=main` — then monitor it (see "Production Deploy Monitoring & Rollback"). Avoid manual `gcloud run deploy` / `gcloud run services update` for routine releases: the next pipeline run resets flags to `cloudbuild.yaml`'s values, so ad-hoc flag changes silently revert — change `cloudbuild.yaml` (or the trigger substitutions) instead.
+**The production API deploys on a daily schedule: Cloud Scheduler job `gitslice-prod-daily-build` (us-west1) posts the operation `daily-deploy` to the ops webhook `gs-ops-webhook` once a day; the ops build clones `main` from Gitslice and runs `cloudbuild.yaml`, whose `gate` step skips the whole build when the deployed image tag (the Gitslice commit) already matches. Unlike `deploy-server`, it leaves traffic where it is, so a rollback stays. Do not manually deploy Cloud Run to ship merged code.** Landings do not deploy the server; merged code waits for the next scheduled run. To ship merged code immediately when the user asks, run `gs auto run gitslice/deploy-server --account gitslice --yes --follow`. Avoid manual `gcloud run deploy` / `gcloud run services update` for routine releases: the next pipeline run resets flags to `cloudbuild.yaml`'s values, so ad-hoc flag changes silently revert — change `cloudbuild.yaml` (or `PROD_SUBS` in `ops/automation/cloudbuild.yaml`) instead.
 
-The pipeline is `cloudbuild.yaml` at the repo root: `gate (skip when HEAD is already deployed) → config → build (Dockerfile) → push → migrate (one-shot Cloud Run Job, `-migrate-only`) → deploy`. The Cloud Build trigger (`filename: cloudbuild.yaml`) supplies substitutions `_DEPLOY_REGION`, `_SERVICE_NAME`, `_AR_HOSTNAME`, `_AR_REPOSITORY`, `_R2_ENDPOINT`, `_R2_BUCKET`, `_CLERK_PUBLISHABLE_KEY`, `_CLERK_ISSUER`, `_ALLOWED_ORIGIN`, `_TAG=$SHORT_SHA`; unset substitutions (e.g. `_MIN_INSTANCES`, `_PUBLISH_INTERVAL_MS`) fall back to the defaults in `cloudbuild.yaml`. Manual pipeline runs are only for exceptional cases (e.g. re-deploying an unchanged tree after an infra fix): `gcloud builds submit --config cloudbuild.yaml --substitutions=...` or the gitignored local wrapper `deploy/cloudrun.sh`.
+The pipeline is `cloudbuild.yaml` at the repo root: `gate (skip when HEAD is already deployed) → config → build (Dockerfile) → push → migrate (one-shot Cloud Run Job, `-migrate-only`) → deploy`. The ops build supplies the production substitutions (`PROD_SUBS` in `ops/automation/cloudbuild.yaml`: `_DEPLOY_REGION`, `_SERVICE_NAME`, `_AR_HOSTNAME`, `_AR_REPOSITORY`, `_R2_ENDPOINT`, `_R2_BUCKET`, `_CLERK_PUBLISHABLE_KEY`, `_CLERK_ISSUER`, `_ALLOWED_ORIGIN`, `_POSTHOG_API_KEY`) and `_TAG` (the Gitslice commit); unset substitutions (e.g. `_MIN_INSTANCES`, `_PUBLISH_INTERVAL_MS`) fall back to the defaults in `cloudbuild.yaml`. Manual pipeline runs are only for exceptional cases (e.g. re-deploying an unchanged tree after an infra fix): `gcloud builds submit --config cloudbuild.yaml --substitutions=...` or the gitignored local wrapper `deploy/cloudrun.sh`.
 
 Key production facts:
 - Serving instances run with `GITSLICE_RUN_MIGRATIONS=0`; migrations run in the pipeline's migrate Job, so schema changes ship on the next deploy.
@@ -354,8 +342,8 @@ Key production facts:
 - `api.gitslice.io` is a Cloud Run domain mapping (CNAME → `ghs.googlehosted.com`, DNS-only); its Google-managed cert can take up to ~1 hour to provision after DNS is set.
 
 The production web Worker is independent of the daily API schedule. A matching
-`web/*` change on `main` deploys it through Workers Builds to the custom domain
-`gitslice.io`, with the production build variables pointing at
+`web/**` change on `main` deploys it through the `deploy-web` automation to the
+custom domain `gitslice.io`, with the production build variables pointing at
 `https://api.gitslice.io`. Use `npm --prefix web run deploy:production` only for
 an explicitly requested manual deployment or repair.
 

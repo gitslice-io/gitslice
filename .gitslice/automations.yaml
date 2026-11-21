@@ -136,8 +136,10 @@ automations:
         script: ops/cloudflare.sh
 
   # The web app deploys from Gitslice itself: every landing that changes
-  # web/ builds it in a container and deploys it with wrangler, production
-  # and staging alike (not Workers Builds, which built GitHub's mirror).
+  # web/ builds it in a container and deploys it with wrangler (not Workers
+  # Builds, which built GitHub's mirror). Staging (agenttools.dev) gets a
+  # deploy-web-staging automation (ops/cloudflare.sh has it) once
+  # CLOUDFLARE_API_TOKEN can reach the agenttools.dev zone.
   deploy-web:
     description: Build the web app from main and deploy it to gitslice.io (on each landing that changes web/, or by hand)
     on: [push, manual]
@@ -154,24 +156,6 @@ automations:
         size: standard-1
         checkout: folder
         env: {OP: deploy-web}
-        script: ops/cloudflare.sh
-
-  deploy-web-staging:
-    description: Build the web app from main and deploy it to agenttools.dev (on each landing that changes web/, or by hand)
-    on: [push, manual]
-    paths: [web/**]
-    manual:
-      roles: [admin, writer]
-    secrets: [CLOUDFLARE_API_TOKEN]
-    network: [api.cloudflare.com, registry.npmjs.org, agenttools.dev]
-    concurrency_group: staging-workers
-    timeout: 15m
-    action:
-      bash:
-        runtime: node
-        size: standard-1
-        checkout: folder
-        env: {OP: deploy-web-staging}
         script: ops/cloudflare.sh
 
   rollback-web:

@@ -143,7 +143,8 @@ steps:
         if [ -f /workspace/skip ]; then exit 0; fi
         source /workspace/deployenv.sh
         # $$ escapes shell vars so Cloud Build does not treat them as build
-        # substitutions; ${_FOO} are Cloud Build substitutions (single $).
+        # substitutions; underscore names in braces after a single dollar are
+        # Cloud Build substitutions.
         gcloud run jobs deploy ${_JOB} --region ${_DEPLOY_REGION} --image "$$IMG" \
           --args="-migrate-only" \
           --set-env-vars "$$ENVS" --set-secrets "$$SECRETS" \

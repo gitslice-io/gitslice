@@ -7,9 +7,9 @@ up new tasks while codex does the heavy editing in the background.
 
 **The source lives on Gitslice.** The canonical source is the public slice
 `gitslice/gitslice` (https://gitslice.io/slices/gitslice/gitslice). GitHub
-`gitslice-io/gitslice` is a read-only mirror that only the export workflow
-writes. Never push to it or open pull requests there
-(`design/21_self_hosting.md`).
+`gitslice-io/gitslice` is a read-only copy that only the slice's Git mirror
+writes; production builds and deploys from Gitslice, not from it. Never push to it or open pull
+requests there (`design/21_self_hosting.md`).
 
 See [AGENTS.md](AGENTS.md) for project architecture, rules, build/test commands,
 and design docs. This file governs *how the work is divided*.
@@ -122,8 +122,8 @@ opencode rules:
   - Submit only after the required checks pass; the slice's CI daemon runs
     them on every patchset.
   - Title changesets like commit subjects (`area: summary`).
-  - Deploys build from the GitHub mirror, which trails Gitslice by about 10
-    minutes.
+  - Deploys build from Gitslice `main` itself (the deployment runbooks in
+    `.gitslice/automations.yaml`; see `skills/deployment/SKILL.md`).
 - **Verification of behavior**, not just compilation, when feasible.
 
 ## Don't
