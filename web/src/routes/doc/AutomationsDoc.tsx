@@ -472,7 +472,13 @@ automations:
             <InlineCode>@&lt;slice-tag&gt;</InlineCode> /{" "}
             <InlineCode>@sha256:&lt;commit&gt;</InlineCode>. Cross-account
             references must always pin an immutable public slice tag or commit
-            SHA.
+            SHA. To publish a versioned template for other accounts, expose its
+            folder in a public slice and cut an immutable tag with{" "}
+            <InlineCode>gs tag create v1.0.0</InlineCode>, then inspect it with{" "}
+            <InlineCode>
+              gs auto inspect /&lt;account&gt;/&lt;folder&gt;/&lt;name&gt;@v1.0.0
+            </InlineCode>
+            .
           </BulletPoint>
           <BulletPoint label="Caller-bounded security ceilings:">
             Secrets always resolve from the caller&apos;s folder (never the

@@ -227,9 +227,10 @@ export const commandGroups: CommandGroup[] = [
     title: "Automations",
     commands: [
       ["gs auto ls [folder]", "List automations that apply at a folder (its own and ancestor folders)."],
+      ["gs auto inspect <uses-ref>", "Inspect a reusable on:[call] template's inputs, secret slots, network hosts, commit, and available tags."],
       ["gs auto runs --changeset <id>", "List automation runs for a changeset (or --automation, --account), newest first."],
-      ["gs auto show <run-id>", "Inspect status, actor attribution, and inputs for a single automation run."],
-      ["gs auto logs <run-id> [--follow]", "Print or stream an automation run's stdout/stderr log output."],
+      ["gs auto show <run-id>", "Inspect status, actor attribution, inputs, template provenance, outputs, and pipeline steps for a run."],
+      ["gs auto logs <run-id> [--follow]", "Print or stream an automation run's stdout/stderr log output (including pipeline child steps)."],
       ["gs auto run <id> [-i k=v] [--yes] [-f]", "Invoke a manual automation with typed inputs, optional confirmation, and live log streaming."],
       ["gs auto rerun | cancel <run-id>", "Rerun a finished automation for the same event, or cancel an active run."]
     ]

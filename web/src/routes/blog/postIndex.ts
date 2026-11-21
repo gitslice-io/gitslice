@@ -13,6 +13,14 @@ export interface BlogPost extends BlogPostMeta {
 
 export const blogPostIndex: BlogPostMeta[] = [
   {
+    slug: "folder-automations",
+    title: "Folder automations: event workflows, safe manual runbooks, reusable templates, and pipelines",
+    dek: "Define folder-scoped automations right beside your code in .gitslice/automations.yaml — from event hooks and isolated shell runbooks to version-pinned reusable templates and multi-step pipelines — without ever handing raw secrets to contributors or agents.",
+    date: "2026-11-21",
+    readingMinutes: 5,
+    tags: ["automations", "feature"]
+  },
+  {
     slug: "what-we-learned-from-abfs",
     title: "What we learned from Google's ABFS: smaller syncs, a bounded cache, faster deletes",
     dek: "We compared lazy workspaces with the virtual file system Android engineers use for huge source trees. Syncs now transfer only changed files, local caches stay bounded, and deleting 10,000 files in a mount dropped from 15.9 s to 2.6 s.",
@@ -63,6 +71,7 @@ export const blogPostIndex: BlogPostMeta[] = [
 ];
 
 const postMarkdownLoaders: Record<string, () => Promise<{ markdown: string }>> = {
+  "folder-automations": () => import("./content/folder-automations"),
   "what-we-learned-from-abfs": () => import("./content/what-we-learned-from-abfs"),
   "slice-git-mirrors": () => import("./content/slice-git-mirrors"),
   "pando-style-git-covers": () => import("./content/pando-style-git-covers"),

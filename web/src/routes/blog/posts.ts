@@ -1,3 +1,4 @@
+import { markdown as automationsMarkdown } from "./content/folder-automations";
 import { markdown as agentScaleMarkdown } from "./content/agent-scale-source-control";
 import { markdown as benchmarkMarkdown } from "./content/benchmarking-gitslice-against-git";
 import { markdown as nativeGraphMarkdown } from "./content/native-source-graph";
@@ -9,6 +10,7 @@ import { blogPostIndex, type BlogPost, type BlogPostMeta } from "./postIndex";
 export type { BlogPost, BlogPostMeta };
 
 const markdownBySlug: Record<string, string> = {
+  "folder-automations": automationsMarkdown,
   "what-we-learned-from-abfs": abfsMarkdown,
   "slice-git-mirrors": mirrorsMarkdown,
   "pando-style-git-covers": pandoMarkdown,

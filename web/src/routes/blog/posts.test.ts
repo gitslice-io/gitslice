@@ -61,9 +61,8 @@ describe("blog posts", () => {
     expect(html).toContain('<code class="language-bash">gs slice secret set acme/app GITHUB_MIRROR_TOKEN');
   });
 
-  it("include the ABFS post first", () => {
+  it("include the ABFS post", () => {
     const post = getPost("what-we-learned-from-abfs");
-    expect(blogPosts[0]).toBe(post);
     expect(post?.markdown).toContain("| `rm -rf` them | 0.2 s | 15.9 s | **2.6 s** |");
     expect(post?.markdown).toContain("gs cache prune --max 2G --dry-run");
     const html = marked.parse(post?.markdown ?? "", { async: false });
@@ -72,6 +71,17 @@ describe("blog posts", () => {
     for (const internal of ["Cloud Run", "Postgres", "~/.cache", "design/", "since_commit_id", "lazyfs", "treestore"]) {
       expect(post?.markdown).not.toContain(internal);
     }
+  });
+
+  it("include the folder automations post first", () => {
+    const post = getPost("folder-automations");
+    expect(blogPosts[0]).toBe(post);
+    expect(post?.markdown).toContain("gs auto inspect /acme/platform/deploy-service@v1.0.0");
+    expect(post?.markdown).toContain("${{ steps.build.outputs.image }}");
+    const html = marked.parse(post?.markdown ?? "", { async: false });
+    expect(html).toContain('<a href="/doc/automations">Automations docs</a>');
+    expect(html).toContain('<a href="/doc/secrets">secret</a>');
+    expect(html).toContain('<code class="language-yaml">');
   });
 
   it("exposes metadata-only postIndex and lazy per-slug loadPost", async () => {
