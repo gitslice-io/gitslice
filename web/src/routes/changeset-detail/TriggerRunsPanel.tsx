@@ -247,10 +247,12 @@ export function AutomationRunLog({ run }: { run: AutomationRun }) {
             </p>
           ) : (
             <ul className="divide-y divide-zinc-800">
-              {steps.map((step) => {
+              {steps.map((step, idx) => {
                 const sid = step.id ?? "";
                 const expanded = openStepId === sid;
-                const label = step.stepId || `step_${(step.stepIndex ?? 0) + 1}`;
+                const stepNum =
+                  (step.stepIndex ?? 0) > 0 ? (step.stepIndex as number) : idx + 1;
+                const label = step.stepId || `step_${stepNum}`;
                 const stepOutputs = Object.entries(step.outputs ?? {}).sort(
                   ([a], [b]) => a.localeCompare(b),
                 );
@@ -264,7 +266,7 @@ export function AutomationRunLog({ run }: { run: AutomationRun }) {
                     >
                       <span className="flex flex-wrap items-center gap-2">
                         <span className="font-mono text-slate-400">
-                          {(step.stepIndex ?? 0) + 1}.
+                          {stepNum}.
                         </span>
                         <span className="font-mono font-semibold text-slate-100">
                           {label}

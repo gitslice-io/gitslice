@@ -77,7 +77,7 @@ describe("TriggerRunsPanel", () => {
               eventKind: "changeset.updated",
               action: "bash",
               parentRunId: "trun_pipe",
-              stepIndex: 0,
+              stepIndex: 1,
               stepId: "build",
               outputs: { image: "gcr.io/acme/billing:v1" }
             },
@@ -88,7 +88,7 @@ describe("TriggerRunsPanel", () => {
               eventKind: "changeset.updated",
               action: "bash",
               parentRunId: "trun_pipe",
-              stepIndex: 1,
+              stepIndex: 2,
               stepId: "deploy",
               templateId: "platform/deploy-cloudrun"
             }

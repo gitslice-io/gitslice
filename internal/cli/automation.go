@@ -556,7 +556,7 @@ func (r Runner) runAutomationShow(ctx context.Context, opts commandOptions, runI
 		fmt.Fprintf(r.Stdout, "template: %s\n", tpl)
 	}
 	if out.ParentRunID != "" {
-		stepLabel := fmt.Sprintf("#%d", out.StepIndex+1)
+		stepLabel := fmt.Sprintf("#%d", out.StepIndex)
 		if out.StepID != "" {
 			stepLabel += " " + out.StepID
 		}
@@ -589,12 +589,16 @@ func (r Runner) runAutomationShow(ctx context.Context, opts commandOptions, runI
 	}
 	if len(out.Steps) > 0 {
 		fmt.Fprintln(r.Stdout, "steps:")
-		for _, st := range out.Steps {
+		for i, st := range out.Steps {
+			num := int(st.StepIndex)
+			if num <= 0 {
+				num = i + 1
+			}
 			name := st.StepID
 			if name == "" {
-				name = fmt.Sprintf("step_%d", st.StepIndex+1)
+				name = fmt.Sprintf("step_%d", num)
 			}
-			line := fmt.Sprintf("  %d. %s\t%s\t%s\t%s", st.StepIndex+1, name, st.Status, st.Action, st.ID)
+			line := fmt.Sprintf("  %d. %s\t%s\t%s\t%s", num, name, st.Status, st.Action, st.ID)
 			if len(st.Outputs) > 0 {
 				line += "\toutputs " + formatKVMap(st.Outputs)
 			}
@@ -751,14 +755,18 @@ func (r Runner) followAutomationRun(ctx context.Context, runID string) (*corev1.
 		if err != nil {
 			return
 		}
-		for _, child := range resp.Runs {
+		for i, child := range resp.Runs {
+			num := int(child.StepIndex)
+			if num <= 0 {
+				num = i + 1
+			}
 			name := child.StepId
 			if name == "" {
-				name = fmt.Sprintf("step_%d", child.StepIndex+1)
+				name = fmt.Sprintf("step_%d", num)
 			}
 			if !childHeader[child.Id] {
 				childHeader[child.Id] = true
-				fmt.Fprintf(r.stderr(), "==> step %d: %s (%s)\n", child.StepIndex+1, name, child.Id)
+				fmt.Fprintf(r.stderr(), "==> step %d: %s (%s)\n", num, name, child.Id)
 			}
 			for {
 				lresp, lerr := s.Automation().ListAutomationRunLogs(s.Ctx(), &corev1.ListAutomationRunLogsRequest{
@@ -779,7 +787,7 @@ func (r Runner) followAutomationRun(ctx context.Context, runID string) (*corev1.
 			}
 			if automationRunFinal(child.Status) && !childDone[child.Id] {
 				childDone[child.Id] = true
-				msg := fmt.Sprintf("<== step %d: %s %s", child.StepIndex+1, name, child.Status)
+				msg := fmt.Sprintf("<== step %d: %s %s", num, name, child.Status)
 				if child.Error != "" {
 					msg += " (" + oneLineSummary(child.Error) + ")"
 				}
