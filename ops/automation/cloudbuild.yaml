@@ -110,7 +110,7 @@ steps:
             echo "release build $$id ended $$status" >&2
             exit 1
           fi
-          printf '%s\n' "$$log" | sed -n 's/^Step #[0-9]* - "[a-z]*": //p' | grep -E '^(published|nothing to|no tags to build|latest: )' |
+          printf '%s\n' "$$log" | sed -n 's/^Step #[0-9]* - "[a-z]*": //p' | grep -E '^(published v|nothing to publish|no tags to build|latest: [{])' |
             while IFS= read -r l; do say "$$l"; done
         }
         case "$$OP" in

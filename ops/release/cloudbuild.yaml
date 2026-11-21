@@ -5,9 +5,9 @@
 # checksums.txt under releases/<tag>/ in R2, plus releases/latest.json, which
 # https://gitslice.io/releases serves (web/src/lib/releases.ts).
 #
-# A tag made with `gs tag create` starts it: the slice's tag.created webhook
-# (design/24_webhooks.md) calls the Cloud Build webhook trigger
-# gs-release-webhook, which runs this with _TAG set from the event. A daily
+# A tag made with `gs tag create` starts it: the release automation
+# (.gitslice/automations.yaml) runs the ops build (ops/automation), which
+# submits this with _TAG set from the event and follows it. A daily
 # Cloud Scheduler run with no _TAG reconciles: it builds any v* tag newer than
 # _SINCE that is not published yet (a missed event). Neither rebuilds a
 # published tag; ops/release/release.sh run <tag> does (_FORCE=1). The build
@@ -15,9 +15,9 @@
 substitutions:
   _TAG: ""
   _FORCE: ""
-  # Set by the webhook trigger, which builds only on tag.created.
-  _EVENT: ""
-  _SINCE: v0.4.1
+  # Tags up to v0.4.30 are not built: v0.4.30 does not compile (v0.4.31
+  # replaced it) and every older one is published.
+  _SINCE: v0.4.30
   _GIT_URL: https://gitslice.io/git/gitslice/gitslice.git
   _MODULE_DIR: gitslice/gitslice
   _BUCKET: gitslice-production
