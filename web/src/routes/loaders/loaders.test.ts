@@ -201,6 +201,37 @@ describe("prefetchSliceDetailSSR", () => {
       content: new Uint8Array([65])
     });
   });
+
+  it("renders a pinned commit (?at=) instead of the latest", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const ref = { account: "acct", slice: "my-slice" };
+    const mockApi = {
+      resolveSlice: vi.fn().mockResolvedValue({ ref, definition: { includedPaths: ["src"] } }),
+      getRef: vi.fn().mockResolvedValue({ commitId: "latest" }),
+      listDirectory: vi.fn().mockResolvedValue({ entries: [], nextPageToken: "" }),
+      resolvePath: vi.fn().mockResolvedValue({ entry: { kind: "ENTRY_KIND_FILE" } }),
+      readFile: vi.fn().mockResolvedValue({ content: new Uint8Array([66]) }),
+      renderFile: vi.fn().mockResolvedValue({ html: "" })
+    } as unknown as ApiClient;
+
+    await prefetchSliceDetailSSR({
+      queryClient,
+      api: mockApi,
+      signedIn: false,
+      account: "acct",
+      slice: "my-slice",
+      selectedPath: "src/app.ts",
+      at: "tagged",
+      origin: "https://example.com",
+      lookup: async (fn) => fn(),
+      budgetMs: 500
+    });
+
+    expect(mockApi.getRef).not.toHaveBeenCalled();
+    expect(queryClient.getQueryData(sliceFileQueryKey(ref, "tagged", "src/app.ts"))).toEqual({
+      content: new Uint8Array([66])
+    });
+  });
 });
 
 describe("prefetchChangesetDetailSSR", () => {

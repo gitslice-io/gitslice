@@ -1,4 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
+import { queryOptions, useQuery } from "@tanstack/react-query";
+import { Link } from "@tanstack/react-router";
 
 import type { SliceRef } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
@@ -19,6 +20,14 @@ export function releaseHrefForTag(sliceRef: SliceRef | undefined, name: string):
   return `/releases/tag/${name}`;
 }
 
+// The slice's tags, shared by the drawer and the pinned-commit banner.
+export function sliceTagsQuery(api: ApiClient, sliceId: string, sliceRef: SliceRef | undefined) {
+  return queryOptions({
+    queryKey: ["sliceTags", sliceId, sliceRef?.account, sliceRef?.slice],
+    queryFn: () => api.listTags({ slice: sliceRef })
+  });
+}
+
 interface TagsDrawerProps {
   api: ApiClient;
   onClose(): void;
@@ -30,10 +39,11 @@ interface TagsDrawerProps {
 
 export function TagsDrawer({ api, onClose, open, sliceId, sliceLabel, sliceRef }: TagsDrawerProps) {
   const tagsQuery = useQuery({
-    enabled: Boolean(open && sliceRef?.account && sliceRef?.slice),
-    queryKey: ["sliceTags", sliceId, sliceRef?.account, sliceRef?.slice],
-    queryFn: () => api.listTags({ slice: sliceRef })
+    ...sliceTagsQuery(api, sliceId, sliceRef),
+    enabled: Boolean(open && sliceRef?.account && sliceRef?.slice)
   });
+  const sliceRouteParams =
+    sliceRef?.account && sliceRef?.slice ? { account: sliceRef.account, slice: sliceRef.slice } : undefined;
   // The server lists them newest first.
   const tags = tagsQuery.data?.tags ?? [];
 
@@ -115,9 +125,23 @@ export function TagsDrawer({ api, onClose, open, sliceId, sliceLabel, sliceRef }
                       </p>
                     ) : null}
                     <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-zinc-400">
-                      <span className="font-mono" title={tag.commitId}>
-                        {shortHash(tag.commitId)}
-                      </span>
+                      {sliceRouteParams && tag.commitId ? (
+                        // Browse the slice as it was at the tag; the drawer
+                        // closes because the new address has no ?tags.
+                        <Link
+                          className="font-mono text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+                          params={sliceRouteParams}
+                          search={{ at: tag.commitId }}
+                          title={`Browse ${name} (${tag.commitId})`}
+                          to="/slices/$account/$slice"
+                        >
+                          {shortHash(tag.commitId)}
+                        </Link>
+                      ) : (
+                        <span className="font-mono" title={tag.commitId}>
+                          {shortHash(tag.commitId)}
+                        </span>
+                      )}
                       {author ? <AuthorLabel name={author} /> : null}
                       <Timestamp value={tag.createdAt} />
                     </div>

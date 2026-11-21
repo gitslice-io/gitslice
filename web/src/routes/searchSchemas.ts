@@ -51,11 +51,14 @@ export interface SliceDetailSearch {
   blame?: true;
   // The change selected in the blame, a short commit id.
   blameAt?: string;
+  // The commit the slice is browsed at (from a tag); unset is the latest.
+  at?: string;
 }
 
 export function validateSliceDetailSearch(search: Record<string, unknown>): SliceDetailSearch {
   const path = pathSearchValue(search.path);
   const blameAt = text(search.blameAt);
+  const at = text(search.at);
   return {
     ...(path ? { path } : {}),
     ...(flag(search.history) ? { history: true as const } : {}),
@@ -63,7 +66,8 @@ export function validateSliceDetailSearch(search: Record<string, unknown>): Slic
     ...(flag(search.policy) ? { policy: true as const } : {}),
     ...(flag(search.triggers) ? { triggers: true as const } : {}),
     ...(flag(search.blame) ? { blame: true as const } : {}),
-    ...(blameAt ? { blameAt } : {})
+    ...(blameAt ? { blameAt } : {}),
+    ...(at ? { at } : {})
   };
 }
 

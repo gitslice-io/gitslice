@@ -28,6 +28,8 @@ export interface UseSlicePathExplorerOptions {
   routeAccount: string;
   routeSlice: string;
   selectedPath: string;
+  // A commit to browse at instead of the latest (?at=, from a tag).
+  at?: string;
   historyOpen: boolean;
   tagsOpen: boolean;
   policyOpen: boolean;
@@ -39,6 +41,7 @@ export function useSlicePathExplorer({
   routeAccount,
   routeSlice,
   selectedPath,
+  at = "",
   historyOpen,
   tagsOpen,
   policyOpen
@@ -72,6 +75,9 @@ export function useSlicePathExplorer({
     ...globalRefQuery(api),
     enabled: Boolean(isLoaded && routeSliceRef && !sliceQuery.isError)
   });
+  // Every navigation within the page keeps the pinned commit, so browsing
+  // stays at it until the viewer goes back to the latest.
+  const pinned = useMemo(() => (at ? { at } : {}), [at]);
 
   const slice = sliceQuery.data;
   const sliceRef = slice?.ref ?? routeSliceRef;
@@ -81,7 +87,7 @@ export function useSlicePathExplorer({
     ? `${sliceRouteParams.account}:${sliceRouteParams.slice}`
     : `${routeAccount}:${routeSlice}`;
   const sliceLabel = sliceDisplayName(slice);
-  const commitId = latestQuery.data?.commitId ?? "";
+  const commitId = at || (latestQuery.data?.commitId ?? "");
   const canFindFiles = Boolean(commitId && slice);
 
   // 't' opens the file finder when focus isn't inside an editable field.
@@ -128,10 +134,10 @@ export function useSlicePathExplorer({
     void navigate({
       params: sliceRouteParams,
       replace: true,
-      search: selectedPath ? { path: selectedPath } : {},
+      search: { ...(selectedPath ? { path: selectedPath } : {}), ...pinned },
       to: "/slices/$account/$slice"
     });
-  }, [currentSliceName, navigate, routeSlice, selectedPath, sliceRouteParams]);
+  }, [currentSliceName, navigate, pinned, routeSlice, selectedPath, sliceRouteParams]);
 
   useEffect(() => {
     if (!sliceId) {
@@ -217,15 +223,15 @@ export function useSlicePathExplorer({
       }
       void navigate({
         params: sliceRouteParams,
-        search: path ? { path } : {},
+        search: { ...(path ? { path } : {}), ...pinned },
         to: "/slices/$account/$slice"
       });
     },
-    [navigate, sliceRouteParams]
+    [navigate, pinned, sliceRouteParams]
   );
 
   const setBlame = useCallback(
-    (on: boolean, at: string) => {
+    (on: boolean, blameAt: string) => {
       if (!sliceRouteParams) {
         return;
       }
@@ -236,12 +242,13 @@ export function useSlicePathExplorer({
         search: {
           ...(selectedPath ? { path: selectedPath } : {}),
           ...(on ? { blame: true as const } : {}),
-          ...(on && at ? { blameAt: at } : {})
+          ...(on && blameAt ? { blameAt } : {}),
+          ...pinned
         },
         to: "/slices/$account/$slice"
       });
     },
-    [navigate, selectedPath, sliceRouteParams]
+    [navigate, pinned, selectedPath, sliceRouteParams]
   );
 
   const openHistory = useCallback(() => {
@@ -252,11 +259,12 @@ export function useSlicePathExplorer({
       params: sliceRouteParams,
       search: {
         ...(selectedPath ? { path: selectedPath } : {}),
-        history: true
+        history: true,
+        ...pinned
       },
       to: "/slices/$account/$slice"
     });
-  }, [navigate, selectedPath, sliceRouteParams]);
+  }, [navigate, pinned, selectedPath, sliceRouteParams]);
 
   const openPolicy = useCallback(() => {
     if (!sliceRouteParams) {
@@ -266,11 +274,12 @@ export function useSlicePathExplorer({
       params: sliceRouteParams,
       search: {
         ...(selectedPath ? { path: selectedPath } : {}),
-        policy: true
+        policy: true,
+        ...pinned
       },
       to: "/slices/$account/$slice"
     });
-  }, [navigate, selectedPath, sliceRouteParams]);
+  }, [navigate, pinned, selectedPath, sliceRouteParams]);
 
   const closePolicy = useCallback(() => {
     if (policyOpen) {
@@ -293,11 +302,12 @@ export function useSlicePathExplorer({
       params: sliceRouteParams,
       search: {
         ...(selectedPath ? { path: selectedPath } : {}),
-        tags: true
+        tags: true,
+        ...pinned
       },
       to: "/slices/$account/$slice"
     });
-  }, [navigate, selectedPath, sliceRouteParams]);
+  }, [navigate, pinned, selectedPath, sliceRouteParams]);
 
   const closeTags = useCallback(() => {
     if (tagsOpen) {

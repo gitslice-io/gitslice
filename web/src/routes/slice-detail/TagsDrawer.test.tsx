@@ -9,8 +9,22 @@ import type { ApiClient } from "../../api/useApi";
 import { TagsDrawer, releaseHrefForTag } from "./TagsDrawer";
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, params, to, ...rest }: { children: ReactNode; params?: { account?: string }; to: string }) => (
-    <a {...(rest as Record<string, unknown>)} href={to.replace("$account", params?.account ?? "")}>
+  Link: ({
+    children,
+    params,
+    search,
+    to,
+    ...rest
+  }: {
+    children: ReactNode;
+    params?: { account?: string; slice?: string };
+    search?: { at?: string };
+    to: string;
+  }) => (
+    <a
+      {...(rest as Record<string, unknown>)}
+      href={`${to.replace("$account", params?.account ?? "").replace("$slice", params?.slice ?? "")}${search?.at ? `?at=${search.at}` : ""}`}
+    >
       {children}
     </a>
   )
@@ -57,6 +71,11 @@ describe("TagsDrawer", () => {
     expect(screen.getByRole("link", { name: "Release files" })).toHaveAttribute("href", "/releases/tag/v0.4.33");
     expect(screen.getAllByRole("link", { name: "Release files" })).toHaveLength(1);
     expect(screen.getByRole("link", { name: "gitslice-operator" })).toBeInTheDocument();
+    // The commit opens the slice as it was at the tag.
+    expect(screen.getByTitle(/^Browse v0\.4\.33/)).toHaveAttribute(
+      "href",
+      "/slices/gitslice/gitslice?at=sha256:0981ca7be4206ee191ef6d1aa91bec60687821f765af7814d5e401dc32b13d97"
+    );
     // Newest first, as the server listed them.
     expect(first.compareDocumentPosition(screen.getByText("nightly-1")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });

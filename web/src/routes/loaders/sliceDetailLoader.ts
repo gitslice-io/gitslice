@@ -51,6 +51,8 @@ export interface PrefetchSliceDetailOptions {
   account: string;
   slice: string;
   selectedPath: string;
+  // A pinned commit (?at=) to render instead of the latest.
+  at?: string;
   origin: string;
   lookup?: <T>(fn: () => Promise<T>) => Promise<T>;
   budgetMs?: number;
@@ -63,6 +65,7 @@ export async function prefetchSliceDetailSSR({
   account,
   slice: sliceName,
   selectedPath,
+  at = "",
   origin,
   lookup = lookupOrNotFound,
   budgetMs = SLICE_PATH_PREFETCH_BUDGET_MS
@@ -81,12 +84,12 @@ export async function prefetchSliceDetailSSR({
   // paint and have no derived inputs, so prefetch them together.
   const [slice, latest] = await Promise.all([
     lookup(() => queryClient.ensureQueryData(sliceRefQuery(api, account, sliceName))),
-    queryClient.ensureQueryData(globalRefQuery(api))
+    at ? Promise.resolve(undefined) : queryClient.ensureQueryData(globalRefQuery(api))
   ]);
   await memberships.catch(() => undefined);
 
   const social = sliceSocial(slice, { account, slice: sliceName }, selectedPath, origin);
-  const commitId = latest.commitId ?? "";
+  const commitId = at || (latest?.commitId ?? "");
   const sliceRef = slice.ref ?? ref;
   const includedPaths = slice.definition?.includedPaths ?? [];
 
@@ -191,7 +194,7 @@ export async function loadSliceDetail({
   params
 }: {
   context: { queryClient: QueryClient };
-  deps: { path: string };
+  deps: { path: string; at?: string };
   params: { account: string; slice: string };
 }): Promise<{ social: SliceSocial | undefined }> {
   let social: SliceSocial | undefined;
@@ -216,6 +219,7 @@ export async function loadSliceDetail({
         account: params.account,
         slice: params.slice,
         selectedPath: deps.path,
+        at: deps.at,
         origin: getRequestUrl().origin
       });
     } catch (error) {

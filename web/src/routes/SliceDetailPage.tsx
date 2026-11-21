@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@clerk/tanstack-react-start";
 import {
   useNavigate,
@@ -30,11 +31,12 @@ import { CopyMoveProvider } from "./slice-detail/CopyMove";
 import { canModifyPath } from "./slice-detail/DirectoryHeader";
 import { FileFinder } from "./slice-detail/FileFinder";
 import { HistoryDrawer } from "./slice-detail/HistoryDrawer";
-import { TagsDrawer } from "./slice-detail/TagsDrawer";
+import { TagsDrawer, sliceTagsQuery } from "./slice-detail/TagsDrawer";
 import {
   ChangesetErrorToast,
   CreatingChangesetOverlay,
   MobileFileBar,
+  PinnedCommitBanner,
   SliceHeaderActions
 } from "./slice-detail/SliceDetailChrome";
 import { SliceFolderNavigator } from "./slice-detail/SliceFolderNavigator";
@@ -56,6 +58,7 @@ export function SliceDetailPage() {
   const selectedPath = search.path ?? "";
   const historyOpen = Boolean(search.history);
   const tagsOpen = Boolean(search.tags);
+  const at = search.at ?? "";
   const policyOpen = Boolean(search.policy || search.triggers);
   const blameOn = Boolean(search.blame);
   const blameAt = search.blameAt ?? "";
@@ -70,6 +73,7 @@ export function SliceDetailPage() {
     routeAccount,
     routeSlice,
     selectedPath,
+    at,
     historyOpen,
     tagsOpen,
     policyOpen
@@ -119,8 +123,18 @@ export function SliceDetailPage() {
     openLandedPath
   } = explorer;
 
+  // The banner names the tags on the pinned commit.
+  const pinnedTagsQuery = useQuery({
+    ...sliceTagsQuery(api, sliceId || sliceRouteKey, sliceRef),
+    enabled: Boolean(at && sliceRef?.account && sliceRef?.slice)
+  });
+  const pinnedTagNames = at
+    ? (pinnedTagsQuery.data?.tags ?? []).filter((tag) => tag.commitId === at).map((tag) => tag.name ?? "")
+    : [];
+
   const slicePermissions = useSlicePermissions(slice ?? routeSliceRef);
-  const canEdit = Boolean(account && slicePermissions.canPropose);
+  // An older commit is for reading: changesets start from the latest.
+  const canEdit = Boolean(account && slicePermissions.canPropose && !at);
   const canConfigure = slicePermissions.canAdmin;
 
   const draftChangeset = useDraftChangesetController({
@@ -240,6 +254,14 @@ export function SliceDetailPage() {
             onBack={() => selectPath("")}
           />
         ) : null}
+        {at ? (
+          <PinnedCommitBanner
+            commitId={at}
+            selectedPath={selectedPath}
+            sliceRouteParams={sliceRouteParams}
+            tagNames={pinnedTagNames}
+          />
+        ) : null}
         {slice.archived ? (
           <div className="mb-3">
             <SliceNotice title="This slice is archived">
@@ -357,7 +379,7 @@ export function SliceDetailPage() {
                 canModify={(path) => canModifyPath(includedPaths, path)}
                 canWriteAccount={slicePermissions.canSubmitToAccount}
                 commitId={commitId}
-                enabled={Boolean(account && slicePermissions.canSubmit)}
+                enabled={Boolean(account && slicePermissions.canSubmit && !at)}
                 onLanded={openLandedPath}
                 slice={sliceRef}
               >

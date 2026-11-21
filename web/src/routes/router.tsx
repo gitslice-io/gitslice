@@ -116,7 +116,7 @@ const sliceDetailRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "slices/$account/$slice",
   validateSearch: validateSliceDetailSearch,
-  loaderDeps: ({ search }) => ({ path: search.path ?? "" }),
+  loaderDeps: ({ search }) => ({ path: search.path ?? "", at: search.at ?? "" }),
   loader: loadSliceDetail,
   notFoundComponent: SliceNotFound,
   head: ({ loaderData, params }) =>

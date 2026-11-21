@@ -1406,7 +1406,8 @@ describe("slice route pages (render smoke)", () => {
     await flushAsync();
 
     // Open the single "Directory actions" menu and start a new folder (no duplicate dropdown).
-    expect(screen.getAllByLabelText("Directory actions")).toHaveLength(1);
+    // The menu appears once the slice permissions load; wait for it.
+    expect(await screen.findAllByLabelText("Directory actions")).toHaveLength(1);
     expect(screen.queryByLabelText("Create item")).not.toBeInTheDocument();
     fireEvent.click(await screen.findByLabelText("Directory actions"));
     fireEvent.click(await screen.findByRole("menuitem", { name: "New folder" }));

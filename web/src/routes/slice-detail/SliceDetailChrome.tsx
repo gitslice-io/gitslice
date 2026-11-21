@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 
 import { MobileDetailsToggle } from "../../components/MobileDetails";
 import { conversationsEnabled } from "../../lib/features";
+import { shortHash } from "../../lib/objectId";
 import { CheckoutMenu } from "./CheckoutMenu";
 
 export function SliceHeaderActions({
@@ -72,6 +73,52 @@ export function SliceHeaderActions({
       ) : null}
       <CheckoutMenu gitUrl={gitUrl} sliceRef={sliceLabel} />
     </>
+  );
+}
+
+// PinnedCommitBanner says the slice is shown at an older commit (a tag's),
+// read-only, and links back to the latest.
+export function PinnedCommitBanner({
+  commitId,
+  tagNames,
+  sliceRouteParams,
+  selectedPath
+}: {
+  commitId: string;
+  tagNames: string[];
+  sliceRouteParams: { account: string; slice: string } | null | undefined;
+  selectedPath: string;
+}) {
+  return (
+    <div
+      className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-md border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 text-sm text-amber-900 dark:text-amber-200"
+      role="status"
+    >
+      <span className="min-w-0">
+        Browsing{" "}
+        {tagNames.length > 0 ? (
+          <>
+            tag <span className="font-mono font-semibold">{tagNames.join(", ")}</span> at{" "}
+          </>
+        ) : (
+          "commit "
+        )}
+        <span className="font-mono" title={commitId}>
+          {shortHash(commitId)}
+        </span>
+        . Files are read-only here.
+      </span>
+      {sliceRouteParams ? (
+        <Link
+          className="shrink-0 font-semibold underline decoration-amber-400 underline-offset-4 hover:decoration-amber-700"
+          params={sliceRouteParams}
+          search={selectedPath ? { path: selectedPath } : {}}
+          to="/slices/$account/$slice"
+        >
+          Back to latest
+        </Link>
+      ) : null}
+    </div>
   );
 }
 

@@ -20,6 +20,8 @@ describe("validateSliceDetailSearch", () => {
     expect(validateSliceDetailSearch({ history: "true", policy: "true" })).toEqual({ history: true, policy: true });
     expect(validateSliceDetailSearch({ tags: "" })).toEqual({});
     expect(validateSliceDetailSearch({ tags: "1" })).toEqual({ tags: true });
+    expect(validateSliceDetailSearch({ at: "sha256:abc" })).toEqual({ at: "sha256:abc" });
+    expect(validateSliceDetailSearch({ at: " " })).toEqual({});
   });
 
   it("drops what is blank, off or of the wrong type", () => {
