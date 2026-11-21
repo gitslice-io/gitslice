@@ -1,9 +1,9 @@
-import { useAuth } from "@clerk/tanstack-react-start";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback } from "react";
 
 import { useApi } from "../api/useApi";
+import { useAppAuth } from "../auth/AppAuthProvider";
 import { conversationQuery as conversationQuery_ } from "../queries/agents";
 import { sliceRefQuery } from "../queries/slices";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -27,7 +27,7 @@ interface SliceParams {
 
 export function SliceAgentsPage() {
   const api = useApi();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
   const navigate = useNavigate();
   const { accounts: viewerAccounts } = useSelection();
   const params = useParams({ strict: false }) as SliceParams;

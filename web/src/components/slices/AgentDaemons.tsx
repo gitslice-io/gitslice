@@ -1,10 +1,10 @@
-import { useAuth } from "@clerk/tanstack-react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useState, type FormEvent } from "react";
 
 import type { AgentDaemon, SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
+import { useAppAuth } from "../../auth/AppAuthProvider";
 import { agentDaemonsKey, agentDaemonsQuery } from "../../queries/agents";
 import { daemonName } from "../../lib/daemons";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
@@ -28,7 +28,7 @@ function parseSliceInput(input: string): SliceRef | null {
 // Errors resolve to no section rather than a misleading empty one.
 export function AgentDaemons() {
   const api = useApi();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
   const enabled = Boolean(isLoaded && isSignedIn);
   const query = useQuery({
     ...agentDaemonsQuery(api),

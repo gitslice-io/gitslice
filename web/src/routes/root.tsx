@@ -16,9 +16,11 @@ import type { ReactNode } from "react";
 
 import appCss from "../index.css?url";
 import { PostHogProvider } from "../analytics/PostHogProvider";
+import { AppAuthProvider } from "../auth/AppAuthProvider";
 import { ClerkAuthProvider } from "../auth/ClerkAuthProvider";
 import { clerkScriptPreload } from "../auth/clerkScript";
 import { RpcError } from "../api/rpcError";
+import type { AgentSessionPublic } from "../lib/agentSession";
 import { CLERK_UI_ATTRIBUTE, clerkUiInDocument, clerkUiWanted } from "../lib/clerkUi";
 import { SITE_DESCRIPTION } from "../lib/socialMeta";
 import { THEME_BOOTSTRAP_SCRIPT } from "../theme";
@@ -76,15 +78,21 @@ export function stripUndefined<T>(value: T): T {
 }
 
 export const rootRoute = createRootRouteWithContext<RouterContext>()({
-  // Whether this document asks Clerk for its UI script (lib/clerkUi). The
-  // server decides from the address and the cookies; the browser keeps to
-  // what the document was served with.
+  // Whether this document asks Clerk for its UI script (lib/clerkUi), plus any
+  // active agent web session metadata (never the bearer token). The server
+  // decides from the address and the cookies; the browser keeps to what the
+  // document was served with.
   loader: async ({ location }) => {
     if (import.meta.env.SSR) {
       const { getRequestHeader } = await import("@tanstack/react-start/server");
-      return { clerkUi: clerkUiWanted(location.pathname, getRequestHeader("cookie") ?? "") };
+      const { getServerAgentSession } = await import("../api/serverApi");
+      const cookieHeader = getRequestHeader("cookie") ?? "";
+      return {
+        clerkUi: clerkUiWanted(location.pathname, cookieHeader),
+        agentSession: await getServerAgentSession()
+      };
     }
-    return { clerkUi: clerkUiInDocument() };
+    return { clerkUi: clerkUiInDocument(), agentSession: undefined as AgentSessionPublic | null | undefined };
   },
   head: () => ({
     meta: [
@@ -120,7 +128,7 @@ function RootDocument({ children }: { children: ReactNode }) {
     .context as RouterContext;
   const rootData = useRouterState({
     select: (state) => state.matches.find((match) => match.routeId === rootRoute.id)?.loaderData
-  }) as { clerkUi?: boolean } | undefined;
+  }) as { clerkUi?: boolean; agentSession?: AgentSessionPublic | null } | undefined;
   // Unknown (an error before the loader ran) means load it.
   const clerkUi = rootData?.clerkUi ?? clerkUiInDocument();
 
@@ -134,9 +142,11 @@ function RootDocument({ children }: { children: ReactNode }) {
         <PostHogProvider />
         <ClerkAuthProvider ui={clerkUi}>
           <QueryClientProvider client={queryClient}>
-            <HydrationBoundary state={getDehydratedQueryState()}>
-              {children}
-            </HydrationBoundary>
+            <AppAuthProvider initialAgentSession={rootData?.agentSession ?? null}>
+              <HydrationBoundary state={getDehydratedQueryState()}>
+                {children}
+              </HydrationBoundary>
+            </AppAuthProvider>
           </QueryClientProvider>
         </ClerkAuthProvider>
         <Scripts />

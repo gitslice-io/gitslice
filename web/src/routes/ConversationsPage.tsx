@@ -1,10 +1,10 @@
-import { useAuth } from "@clerk/tanstack-react-start";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 
 import type { Conversation } from "../api/types";
 import { useApi } from "../api/useApi";
+import { useAppAuth } from "../auth/AppAuthProvider";
 import { allConversationsQuery } from "../queries/agents";
 import { PageHeader } from "../components/PageHeader";
 import {
@@ -20,7 +20,7 @@ type StatusFilter = "all" | "active" | "other";
 export function ConversationsPage() {
   const api = useApi();
   const navigate = useNavigate();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [filterText, setFilterText] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");

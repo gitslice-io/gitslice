@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { hasSessionCookie } from "./sessionCookie";
+import {
+  AGENT_SESSION_COOKIE,
+  hasAgentSessionCookie,
+  hasClerkSessionCookie,
+  hasSessionCookie
+} from "./sessionCookie";
 
 describe("hasSessionCookie", () => {
   it("is false for a request with no cookies, or none of a session", () => {
@@ -22,10 +27,19 @@ describe("hasSessionCookie", () => {
     expect(hasSessionCookie("__client_uat=0; __session=abc")).toBe(true);
   });
 
+  it("is true for an agent web session cookie without counting as a Clerk session", () => {
+    const cookie = `${AGENT_SESSION_COOKIE}=eyJ0b2tlbiI6Imdza18xIn0`;
+    expect(hasAgentSessionCookie(cookie)).toBe(true);
+    expect(hasClerkSessionCookie(cookie)).toBe(false);
+    expect(hasSessionCookie(cookie)).toBe(true);
+    expect(hasAgentSessionCookie(`${AGENT_SESSION_COOKIE}=`)).toBe(false);
+  });
+
   it("ignores empty values and look-alike names", () => {
     expect(hasSessionCookie("__session=")).toBe(false);
     expect(hasSessionCookie("__client_uat=")).toBe(false);
-    expect(hasSessionCookie("my__session=abc; __sessionx=1; x__client_uat=5")).toBe(false);
+    expect(hasSessionCookie(`${AGENT_SESSION_COOKIE}=`)).toBe(false);
+    expect(hasSessionCookie("my__session=abc; __sessionx=1; x__client_uat=5; my_gs_agent_session=1")).toBe(false);
     expect(hasSessionCookie("novalue; =oops")).toBe(false);
   });
 });

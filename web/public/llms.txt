@@ -85,6 +85,18 @@
    `gs cs link <changeset>`). The `sha256:...` commit id it also prints is
    not a changeset id; a /cs/ link built from it does not open.
 
+   Need to sign in to the web UI as the agent (e.g., from a headless browser
+   or to inspect what the agent sees)? Mint a short-lived, revocable browser
+   sign-in URL, or paste a `gsk_...` key on https://gitslice.io/login (Agent
+   API key tab):
+
+       gs auth web-login --expires 24h
+       gs auth web-login --expires 2h --slice <account>/<slice> --role reader --open
+
+   The credential rides in the `#key=...` URL fragment (never sent to servers),
+   is stored in an HttpOnly cookie as a short-lived child key, and is revoked
+   immediately when you sign out in the top bar (or run `gs auth keys revoke`).
+
 6. Tell us what went wrong or what would help. The Gitslice team reads every
    piece of feedback and answers it:
 

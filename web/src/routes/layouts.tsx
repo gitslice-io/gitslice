@@ -35,12 +35,10 @@ export const appRoute = createRoute({
   loader: async ({ context }) => {
     if (import.meta.env.SSR) {
       try {
-        const { auth } = await import("@clerk/tanstack-react-start/server");
-        const authState = await auth();
+        const { createServerApiClient, isServerSignedIn } = await import("../api/serverApi");
         // Signed-out visitors are redirected to /login by RequireAuth; skip
         // the RPC that would be guaranteed to fail without a session token.
-        if (!authState.isAuthenticated) return;
-        const { createServerApiClient } = await import("../api/serverApi");
+        if (!(await isServerSignedIn())) return;
         const api = await createServerApiClient();
         await context.queryClient.ensureQueryData(authStatusQuery(api));
       } catch {

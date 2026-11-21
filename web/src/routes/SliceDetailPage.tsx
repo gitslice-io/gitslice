@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@clerk/tanstack-react-start";
 import {
   useNavigate,
   useParams,
@@ -8,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 
 import { useApi } from "../api/useApi";
+import { useAppAuth } from "../auth/AppAuthProvider";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { MobileDetailsProvider } from "../components/MobileDetails";
 import { PageHeader } from "../components/PageHeader";
@@ -49,7 +49,7 @@ import { useSlicePathExplorer } from "./slice-detail/useSlicePathExplorer";
 export function SliceDetailPage() {
   const api = useApi();
   const navigate = useNavigate();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
   const { account, accounts } = useSelection();
   const params = useParams({ from: "/publicApp/slices/$account/$slice" });
   const search = useSearch({ from: "/publicApp/slices/$account/$slice" });

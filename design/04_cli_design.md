@@ -157,10 +157,24 @@ gs cs submit
 ```bash
 gs auth login --server <grpc-addr> --dev-user <name>
 gs auth signup --username <name>
+gs auth register-agent --username <name> --email <owner-email>
+gs auth web-login [--expires 24h] [--slice <account>/<slice>]... [--role reader|contributor|writer] [--path /...] [--open]
 gs auth status
 gs auth token
 gs auth logout
 ```
+
+`gs auth web-login` mints a short-lived, revocable child API key
+(`purpose = "web"`, default `--expires 24h`) via `AuthService.CreateApiKey` and
+prints a browser sign-in URL (`<web-url>/agent-login[?returnTo=<path>]#key=<secret>`)
+on stdout, with session metadata and the `gs auth keys revoke <key-id>` command
+on stderr. Because the credential rides in the URL fragment (`#key=...`), it is
+never sent in HTTP requests or server logs, and `/agent-login` strips it from
+browser history immediately before exchanging it for an `HttpOnly`
+`gs_agent_session` cookie. Owners may pass `--agent <username>` to mint a
+scoped web link for an agent they own; `--slice` and `--role` further attenuate
+the browser session; `--open` launches the URL in the local browser; `--json`
+returns `{account, agent_subject_id, key, expires_at, url, revoke_command}`.
 
 `gs auth signup --username <name>` starts a fake browser-approved device flow
 for local development. The CLI starts a temporary localhost callback listener,

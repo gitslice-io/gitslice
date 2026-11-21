@@ -1,7 +1,8 @@
-import { SignUp, useAuth } from "@clerk/tanstack-react-start";
+import { SignUp } from "@clerk/tanstack-react-start";
 import { Navigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
+import { useAppAuth } from "../auth/AppAuthProvider";
 import { AuthFrame } from "../components/AuthFrame";
 import { clerkUiInDocument, reloadForClerkUi } from "../lib/clerkUi";
 
@@ -10,7 +11,7 @@ import { clerkUiInDocument, reloadForClerkUi } from "../lib/clerkUi";
  * gs auth register-agent). A new account then picks its username.
  */
 export function SignupPage() {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
 
   // Reached from a page that did not load Clerk's UI: load this one from the
   // server, which includes it (lib/clerkUi).

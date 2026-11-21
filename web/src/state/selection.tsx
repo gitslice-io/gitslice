@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { useAuth } from "@clerk/tanstack-react-start";
 
 import { useApi } from "../api/useApi";
+import { useAppAuth } from "../auth/AppAuthProvider";
 import { authStatusQuery } from "../queries/auth";
 import { ACTIVE_ACCOUNT_KEY, membershipFor, normalizeMemberships, type Membership } from "../lib/accounts";
 
@@ -30,7 +30,7 @@ export const SelectionContext = createContext<SelectionState | null>(null);
 
 export function SelectionProvider({ children }: { children: ReactNode }) {
   const api = useApi();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
   const isAuthReady = isLoaded && Boolean(isSignedIn);
   const shouldLoadAuthStatus = isAuthReady;
   const { data, error, isError, isLoading } = useQuery({

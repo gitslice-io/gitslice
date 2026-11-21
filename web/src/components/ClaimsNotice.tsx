@@ -1,8 +1,8 @@
-import { useAuth } from "@clerk/tanstack-react-start";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
 import { useApi } from "../api/useApi";
+import { useAppAuth } from "../auth/AppAuthProvider";
 import { pendingClaimsQuery } from "../queries/auth";
 
 /**
@@ -12,15 +12,16 @@ import { pendingClaimsQuery } from "../queries/auth";
  */
 export function ClaimsNotice() {
   const api = useApi();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { authKind, isLoaded, isSignedIn } = useAppAuth();
+  const canClaim = Boolean(isLoaded && isSignedIn && authKind === "clerk");
   const claimsQuery = useQuery({
     ...pendingClaimsQuery(api),
-    enabled: Boolean(isLoaded && isSignedIn),
+    enabled: canClaim,
     select: (response) => response.claims ?? [],
     staleTime: 60_000
   });
   const count = claimsQuery.data?.length ?? 0;
-  if (!isSignedIn || count === 0) {
+  if (!canClaim || count === 0) {
     return null;
   }
   const label = count === 1 ? "1 agent to claim" : `${count} agents to claim`;

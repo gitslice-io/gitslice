@@ -1,9 +1,9 @@
-import { useAuth } from "@clerk/tanstack-react-start";
 import { keepPreviousData, useInfiniteQuery } from "@tanstack/react-query";
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { useMemo } from "react";
 
 import { useApi } from "../api/useApi";
+import { useAppAuth } from "../auth/AppAuthProvider";
 import { Breadcrumb, type Crumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
 import {
@@ -29,7 +29,7 @@ import { parseSliceSearch } from "./stackPageUtils";
 
 export function ChangesetsPage() {
   const api = useApi();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
   const { accounts: viewerAccounts } = useSelection();
   const canManage = Boolean(isLoaded && isSignedIn);
   const navigate = useNavigate();

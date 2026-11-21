@@ -5,7 +5,6 @@ import {
   useRouter,
   useSearch
 } from "@tanstack/react-router";
-import { useAuth } from "@clerk/tanstack-react-start";
 import {
   useCallback,
   useEffect,
@@ -14,6 +13,7 @@ import {
 } from "react";
 
 import { useApi } from "../api/useApi";
+import { useAppAuth } from "../auth/AppAuthProvider";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { type ViewMode } from "../components/diff/diffViewShared";
 import { DiffViewer } from "../components/diff/DiffViewer";
@@ -62,7 +62,7 @@ const NO_DEPENDENTS: DependentChangeset[] = [];
 
 export function ChangesetDetailPage() {
   const api = useApi();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
   const viewerSignedOut = isLoaded && !isSignedIn;
   const {
     account: viewerAccount,

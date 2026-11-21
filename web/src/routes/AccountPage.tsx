@@ -1,4 +1,3 @@
-import { useAuth } from "@clerk/tanstack-react-start";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useParams } from "@tanstack/react-router";
@@ -6,6 +5,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { isDefiniteClientError, isNotFoundError } from "../api/rpcError";
 import type { AccountProfile, ListSlicesResponse } from "../api/types";
 import { useApi } from "../api/useApi";
+import { useAppAuth } from "../auth/AppAuthProvider";
 import { accountProfileKey, accountProfileQuery, accountSlicesQuery } from "../queries/accounts";
 import { AccountAvatar, rememberAvatarVersion } from "../components/AccountAvatar";
 import { Breadcrumb } from "../components/Breadcrumb";
@@ -34,7 +34,7 @@ import { useSelection } from "../state/selection";
 // slices; members see every slice.
 export function AccountPage() {
   const api = useApi();
-  const { isLoaded } = useAuth();
+  const { isLoaded } = useAppAuth();
   const { memberships, activeAccount, setActiveAccount } = useSelection();
   const params = useParams({ from: "/publicApp/accounts/$account" });
   const account = params.account ?? "";

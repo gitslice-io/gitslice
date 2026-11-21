@@ -1,8 +1,8 @@
-import { useAuth } from "@clerk/tanstack-react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
 import { useApi } from "../../api/useApi";
+import { useAppAuth } from "../../auth/AppAuthProvider";
 import { AccountLink } from "../AccountAvatar";
 import { useSelection } from "../../state/selection";
 import { getErrorMessage } from "./SlicePageParts";
@@ -14,7 +14,7 @@ export const MY_INVITATIONS_KEY = ["myInvitations"] as const;
 // organizations. Failures count as none, so it never blocks a page.
 export function useMyInvitations() {
   const api = useApi();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
   return useQuery({
     enabled: Boolean(isLoaded && isSignedIn),
     queryKey: MY_INVITATIONS_KEY,

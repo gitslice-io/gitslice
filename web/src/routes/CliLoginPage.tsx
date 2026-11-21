@@ -1,14 +1,15 @@
-import { useAuth } from "@clerk/tanstack-react-start";
 import { useMutation } from "@tanstack/react-query";
 import { Navigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useApi } from "../api/useApi";
+import { useAppAuth } from "../auth/AppAuthProvider";
 import { CLI_LOGIN_SEARCH_STORAGE_KEY } from "../auth/cliLogin";
 import { AuthFrame } from "../components/AuthFrame";
+import { Button } from "../components/ui/Button";
 
 export function CliLoginPage() {
-  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { authKind, getToken, isLoaded, isSignedIn, signOut } = useAppAuth();
   const api = useApi();
   const [error, setError] = useState<string | null>(null);
   const [completeSucceeded, setCompleteSucceeded] = useState(false);
@@ -19,6 +20,7 @@ export function CliLoginPage() {
   const code = params.get("code") ?? "";
   const callbackUrl = params.get("callback_url");
   const state = params.get("state") ?? "";
+  const isHumanSession = isLoaded && isSignedIn && authKind === "clerk";
 
   const { mutate: completeCliLogin } = useMutation({
     mutationFn: (requestedCode: string) =>
@@ -41,7 +43,7 @@ export function CliLoginPage() {
   });
 
   useEffect(() => {
-    if (!isLoaded || !isSignedIn || !code) {
+    if (!isHumanSession || !code) {
       return;
     }
 
@@ -51,10 +53,10 @@ export function CliLoginPage() {
 
     startedCodeRef.current = code;
     completeCliLogin(code);
-  }, [code, completeCliLogin, isLoaded, isSignedIn]);
+  }, [code, completeCliLogin, isHumanSession]);
 
   useEffect(() => {
-    if (!isLoaded || !isSignedIn || code || !callbackUrl) {
+    if (!isHumanSession || code || !callbackUrl) {
       return;
     }
 
@@ -90,12 +92,37 @@ export function CliLoginPage() {
     return () => {
       cancelled = true;
     };
-  }, [callbackUrl, code, getToken, isLoaded, isSignedIn, state]);
+  }, [callbackUrl, code, getToken, isHumanSession, state]);
 
   if (!isLoaded) {
     return (
       <AuthFrame title="Authorizing CLI">
         <p className="text-sm text-slate-600 dark:text-zinc-400">Loading session...</p>
+      </AuthFrame>
+    );
+  }
+
+  if (isSignedIn && authKind === "agent") {
+    return (
+      <AuthFrame title="Human account required">
+        <div className="space-y-4">
+          <p className="text-sm leading-6 text-slate-600 dark:text-zinc-400">
+            This browser is currently signed in as an agent. Browser CLI login approves human
+            sessions — sign out of the agent session to continue with your human account.
+          </p>
+          <Button
+            className="w-full"
+            onClick={() => {
+              sessionStorage.setItem(CLI_LOGIN_SEARCH_STORAGE_KEY, window.location.search);
+              void signOut().then(() => {
+                window.location.replace("/login");
+              });
+            }}
+            type="button"
+          >
+            Sign out of agent session
+          </Button>
+        </div>
       </AuthFrame>
     );
   }

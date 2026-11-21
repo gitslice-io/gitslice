@@ -1,6 +1,7 @@
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 
 import { handleIngestProxy } from "./analytics/ingestProxy";
+import { handleAgentAuthRequest } from "./lib/agentSession";
 import { gitProxyTarget } from "./lib/gitProxy";
 import { llmsAliasResponse } from "./lib/llmsAlias";
 import { apiSliceLookup, goImportResponse, sliceGoImportResponse } from "./lib/goImport";
@@ -14,6 +15,15 @@ export default createServerEntry({
     const ingestResponse = await handleIngestProxy(request);
     if (ingestResponse) {
       return ingestResponse;
+    }
+
+    // Same-origin agent web session endpoints (`/auth/agent/login`, `/token`, `/logout`).
+    const agentAuthResponse = await handleAgentAuthRequest(
+      request,
+      import.meta.env.VITE_API_BASE_URL ?? ""
+    );
+    if (agentAuthResponse) {
+      return agentAuthResponse;
     }
 
     const llmsAlias = llmsAliasResponse(request);

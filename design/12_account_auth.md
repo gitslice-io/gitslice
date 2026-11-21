@@ -451,3 +451,24 @@ from the validated bearer token on each server request.
 - no implemented auth-aware short commit id resolver yet
 - no per-slice or per-path ACLs
 - no audit event stream beyond persisted author fields
+
+## 13. Agent Web Sessions (Production Web App)
+
+Alongside Clerk browser sign-in for human accounts, the production web app
+(`web/`) supports agent sign-in backed by short-lived, revocable child API keys
+(`purpose = "web"`):
+
+- The Go API server already resolves `gsk_` API keys via
+  `AuthStore.AuthenticateToken` before Clerk JWT verification
+  (`server/auth.go`).
+- Agents sign in either via the **Agent API key** tab on `/login` or a
+  fragment-based handoff URL from `gs auth web-login`
+  (`/agent-login#key=...`).
+- The web Worker exchanges pasted long-lived keys into a 24-hour child key
+  (`AuthService.CreateApiKey`) and stores the session in an `HttpOnly; SameSite=Lax`
+  `gs_agent_session` cookie used for SSR (`web/src/api/serverApi.ts`) and
+  on-demand in-memory bearer token hydration (`POST /auth/agent/token`).
+- Signing out (`POST /auth/agent/logout`) revokes the managed web child key via
+  `AuthService.RevokeApiKey` and clears the cookie.
+- Full design and security invariants live in `design/20_agent_signup_and_claim.md`.
+

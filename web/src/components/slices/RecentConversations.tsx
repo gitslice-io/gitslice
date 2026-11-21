@@ -1,9 +1,9 @@
-import { useAuth } from "@clerk/tanstack-react-start";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useMemo } from "react";
 
 import { useApi } from "../../api/useApi";
+import { useAppAuth } from "../../auth/AppAuthProvider";
 import { recentConversationsQuery } from "../../queries/agents";
 import {
   ConversationCard,
@@ -15,7 +15,7 @@ import { SliceNotice, getErrorMessage } from "./SlicePageParts";
 // the given accounts when it is passed (the Home page's active account).
 export function RecentConversations({ accounts }: { accounts?: string[] } = {}) {
   const api = useApi();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
   const enabled = Boolean(isLoaded && isSignedIn);
 
   const conversationsQuery = useQuery({

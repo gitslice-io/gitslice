@@ -34,6 +34,7 @@ import { parseSliceSearch } from "./stackPageUtils";
 const lazyPages = {
   AccountPage: lazyRouteComponent(() => import("./AccountPage"), "AccountPage"),
   AccountSecretsPage: lazyRouteComponent(() => import("./AccountSecretsPage"), "AccountSecretsPage"),
+  AgentLoginPage: lazyRouteComponent(() => import("./AgentLoginPage"), "AgentLoginPage"),
   BlogListPage: lazyRouteComponent(() => import("./BlogListPage"), "BlogListPage"),
   BlogPostPage: lazyRouteComponent(() => import("./BlogPostPage"), "BlogPostPage"),
   ChangesetDetailPage: lazyRouteComponent(() => import("./ChangesetDetailPage"), "ChangesetDetailPage"),
@@ -55,6 +56,7 @@ const lazyPages = {
 
 const loginRoute = createRoute({ getParentRoute: () => rootRoute, path: "/login", component: lazyPages.LoginPage });
 const loginFlowRoute = createRoute({ getParentRoute: () => rootRoute, path: "/login/$", component: lazyPages.LoginPage });
+const agentLoginRoute = createRoute({ getParentRoute: () => rootRoute, path: "/agent-login", component: lazyPages.AgentLoginPage });
 const signupRoute = createRoute({ getParentRoute: () => rootRoute, path: "/signup", component: lazyPages.SignupPage });
 const signupFlowRoute = createRoute({ getParentRoute: () => rootRoute, path: "/signup/$", component: lazyPages.SignupPage });
 const cliLoginRoute = createRoute({ getParentRoute: () => rootRoute, path: "/cli-login", component: lazyPages.CliLoginPage });
@@ -65,9 +67,8 @@ const indexRoute = createRoute({
   loader: async ({ context }) => {
     if (!import.meta.env.SSR) return;
     try {
-      const { auth } = await import("@clerk/tanstack-react-start/server");
-      if (!(await auth()).isAuthenticated) return;
-      const { createServerApiClient } = await import("../api/serverApi");
+      const { createServerApiClient, isServerSignedIn } = await import("../api/serverApi");
+      if (!(await isServerSignedIn())) return;
       await context.queryClient.ensureQueryData(authStatusQuery(await createServerApiClient()));
     } catch {
       // The component keeps the existing client-side load/error behavior.
@@ -202,7 +203,7 @@ const changesetShortRoute = createRoute({
 });
 
 const routeTree = rootRoute.addChildren([
-  indexRoute, loginRoute, loginFlowRoute, signupRoute, signupFlowRoute, cliLoginRoute,
+  indexRoute, loginRoute, loginFlowRoute, agentLoginRoute, signupRoute, signupFlowRoute, cliLoginRoute,
   appRoute.addChildren([claimsRoute, conversationsRoute, slicesRoute, sliceCreateRoute, organizationCreateRoute, sliceSettingsRoute, accountSecretsRoute]),
   publicAppRoute.addChildren([docRoute, docSectionRoute, blogsRoute, blogPostRoute, accountRoute, sliceDetailRoute, sliceAgentsRoute, sliceAgentConversationRoute, changesetsRoute, changesetShortRoute])
 ]);

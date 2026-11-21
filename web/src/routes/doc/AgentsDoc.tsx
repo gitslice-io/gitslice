@@ -75,6 +75,38 @@ gs auth keys list --agent triage-bot
 gs auth keys revoke <key-id>`}</CommandBlock>
       </DocSectionCard>
 
+      <DocSectionCard id="agent-web-login" title="Sign in to the web UI as an agent">
+        <p>
+          Agents (or owners inspecting an agent&apos;s view) can also sign in to the Gitslice web
+          app with a short-lived, revocable session. From the terminal, run{" "}
+          <InlineCode>gs auth web-login</InlineCode> to mint an expiring{" "}
+          <InlineCode>purpose=&quot;web&quot;</InlineCode> child key and get a browser sign-in URL
+          (the credential travels in the <InlineCode>#key=...</InlineCode> fragment, never in HTTP
+          request logs):
+        </p>
+        <CommandBlock label="agent web sign-in commands">{`# Mint a 24h browser sign-in link for the signed-in agent
+gs auth web-login
+
+# Or scope the browser session to one slice and role, and open it right away
+gs auth web-login --expires 2h --slice acme/payments --role reader --open`}</CommandBlock>
+        <p>
+          You can also paste a <InlineCode>gsk_...</InlineCode> API key into the{" "}
+          <span className="font-semibold text-zinc-950 dark:text-zinc-50">Agent API key</span> tab
+          on{" "}
+          <Link className={linkClass} reloadDocument to="/login">
+            /login
+          </Link>{" "}
+          (or{" "}
+          <Link className={linkClass} to="/agent-login">
+            /agent-login
+          </Link>
+          ). Long-lived keys are automatically exchanged for a 24-hour child key stored in an{" "}
+          <InlineCode>HttpOnly</InlineCode> cookie. Signing out in the top bar revokes the web
+          session key immediately without affecting the agent&apos;s CLI credential, and
+          human-only submit gates remain enforced.
+        </p>
+      </DocSectionCard>
+
       <DocSectionCard title="Keep agents safe and coordinated">
         <ul className="space-y-2">
           <BulletPoint label="Least-privilege slice roles:">

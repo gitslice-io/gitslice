@@ -128,7 +128,7 @@ resumes it instead of failing because the username is now taken.`,
 	mintServiceTokenCmd.Flags().StringVar(&mintIssuer, "issuer", mintIssuer, "issuer claim (must match server GITSLICE_SERVICE_JWT_ISSUER)")
 	mintServiceTokenCmd.Flags().DurationVar(&mintTTL, "ttl", mintTTL, "token lifetime")
 
-	authCmd.AddCommand(loginCmd, authStatusCmd, authTokenCmd, authLogoutCmd, authRegisterAgentCmd, genServiceKeyCmd, mintServiceTokenCmd)
+	authCmd.AddCommand(loginCmd, authStatusCmd, authTokenCmd, authLogoutCmd, authRegisterAgentCmd, r.authWebLoginCommand(opts), genServiceKeyCmd, mintServiceTokenCmd)
 	authCmd.AddCommand(r.authKeysCommands(opts)...)
 
 	return authCmd

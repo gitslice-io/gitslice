@@ -34,6 +34,10 @@ export const commandGroups: CommandGroup[] = [
         "gs auth use-key",
         "Agents: sign in with an owner-created API key read from stdin or --key-file."
       ],
+      [
+        "gs auth web-login [--expires 24h] [--slice account/slice] [--role reader|contributor|writer] [--open]",
+        "Mint a short-lived, revocable browser sign-in URL (/agent-login#key=...) for an agent."
+      ],
       ["gs claims list", "List agents registered with your verified email address."],
       ["gs claims accept <agent-id>", "Become a co-owner of an agent's account."],
       ["gs account create-org", "Create an organization account; gs account manages orgs, members, and active account."],

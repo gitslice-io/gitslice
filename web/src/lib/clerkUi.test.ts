@@ -16,9 +16,11 @@ describe("clerkUiWanted", () => {
     }
   });
 
-  it("is wanted wherever the request may be signed in", () => {
+  it("is wanted wherever the request may be signed in with Clerk, but not for agent-only sessions", () => {
     expect(clerkUiWanted("/slices/a/b", "__session=abc")).toBe(true);
     expect(clerkUiWanted("/", "__client_uat=1790000000")).toBe(true);
+    expect(clerkUiWanted("/slices/a/b", "gs_agent_session=eyJ0b2tlbiI6Imdza18xIn0")).toBe(false);
+    expect(clerkUiWanted("/agent-login", "")).toBe(false);
   });
 });
 

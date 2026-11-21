@@ -1,9 +1,9 @@
-import { useAuth } from "@clerk/tanstack-react-start";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
 import type { PendingClaim } from "../../api/types";
 import { useApi } from "../../api/useApi";
+import { useAppAuth } from "../../auth/AppAuthProvider";
 import { formatDate } from "../../lib/time";
 import {
   authStatusKey,
@@ -20,8 +20,8 @@ import { getErrorMessage } from "./SlicePageParts";
 export function PendingClaims({ showEmpty = false }: { showEmpty?: boolean }) {
   const api = useApi();
   const queryClient = useQueryClient();
-  const { isLoaded, isSignedIn } = useAuth();
-  const enabled = Boolean(isLoaded && isSignedIn);
+  const { authKind, isLoaded, isSignedIn } = useAppAuth();
+  const enabled = Boolean(isLoaded && isSignedIn && authKind === "clerk");
 
   // One request answers both: the claims, and the verified emails they were
   // matched against, which explain an empty list. The top bar's pill shares it.

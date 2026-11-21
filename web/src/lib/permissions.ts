@@ -1,9 +1,9 @@
 import { useMemo } from "react";
-import { useAuth } from "@clerk/tanstack-react-start";
 import { useQuery } from "@tanstack/react-query";
 
 import type { Changeset, SharedSlice, Slice, SliceRef } from "../api/types";
 import { useApi } from "../api/useApi";
+import { useAppAuth } from "../auth/AppAuthProvider";
 import { sharedSlicesQuery } from "../queries/auth";
 import { useSelection } from "../state/selection";
 import {
@@ -21,7 +21,7 @@ import {
 
 export function useSharedSlices(enabled = true) {
   const api = useApi();
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
   return useQuery({
     ...sharedSlicesQuery(api),
     enabled: Boolean(isLoaded && isSignedIn && enabled),
@@ -369,7 +369,7 @@ export function resolveChangesetPermissions({
 }
 
 export function useSlicePermissions(slice: Slice | SliceRef | undefined): SlicePermissions {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
   const selection = useSelection();
   const memberships = useMemo(
     () => selection.memberships ?? normalizeMemberships(selection.accounts ?? [], undefined),
@@ -394,7 +394,7 @@ export function useChangesetPermissions(
   changeset: Changeset | undefined,
   slice?: Slice | SliceRef
 ): ChangesetPermissions {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
   const selection = useSelection();
   const memberships = useMemo(
     () => selection.memberships ?? normalizeMemberships(selection.accounts ?? [], undefined),

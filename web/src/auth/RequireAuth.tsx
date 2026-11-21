@@ -1,6 +1,6 @@
-import { useAuth } from "@clerk/tanstack-react-start";
 import { Navigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
+import { useAppAuth } from "./AppAuthProvider";
 import { currentPath, rememberReturnTo } from "./returnTo";
 
 interface RequireAuthProps {
@@ -8,7 +8,7 @@ interface RequireAuthProps {
 }
 
 export function RequireAuth({ children }: RequireAuthProps) {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
 
   if (!isLoaded) {
     return (

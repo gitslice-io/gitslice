@@ -9785,3 +9785,47 @@ The automations file change waited for the server deploy: the server parses
 automations strictly, so an older server would have rejected
 `concurrency_group` and with it every automation in the file.
 
+
+## 2026-11-21 — agent web sign-in (`gs auth web-login` and `/agent-login`)
+
+**Request / Goal**
+Support signing into the Gitslice web app directly as an agent account (without
+Clerk) and update the relevant design and CLI documentation.
+
+**Key Decisions**
+- **No protobuf or schema changes needed:** `server/auth.go` already resolves
+  `gsk_` API keys via `AuthStore.AuthenticateToken` before Clerk JWT
+  verification, and `AuthService.CreateApiKey` / `RevokeApiKey` already support
+  expiring, attenuated child keys (`purpose = "web"`) with self-revocation and
+  parent cascade revocation.
+- **Short-lived child key in an `HttpOnly` cookie (`gs_agent_session`):**
+  Pasting a long-lived `gsk_` key on `/login` (`Agent API key` tab) or
+  `/agent-login` posts to `POST /auth/agent/login` in the Cloudflare Worker
+  (`web/src/lib/agentSession.ts`), which exchanges it for a 24h child key
+  (`name = "web-session"`, `purpose = "web"`, inheriting shorter parent expiry
+  automatically) and stores it in `gs_agent_session` (`HttpOnly; SameSite=Lax`,
+  `Secure` on HTTPS). Dedicated expiring `purpose = "web"` keys minted by
+  `gs auth web-login` are reused directly rather than nesting a grandchild key.
+- **Fragment-based CLI handoff (`gs auth web-login`):** Mints a short-lived
+  `purpose = "web"` key (supporting `--expires`, `--slice`, `--role`,
+  `--agent`, `--path`, `--open`, `--json`) and prints
+  `<web-url>/agent-login[?returnTo=<path>]#key=<secret>`. The key rides in the
+  URL fragment so it is never sent in HTTP requests or logs, and `/agent-login`
+  strips the fragment via `history.replaceState` before posting to
+  `/auth/agent/login`.
+- **Unified web auth (`AppAuthProvider` / `useAppAuth`) + SSR:**
+  - `hasSessionCookie` recognizes `gs_agent_session` so edge page caching
+    (`pageCache.ts`), `VisitorBanner`, and `isAnonymousRequest` treat agent
+    sessions as signed in, while `clerkUiWanted` checks Clerk cookies only
+    (`hasClerkSessionCookie`) so agent sessions skip Clerk's 300 KB UI bundle.
+  - `serverApi.ts` falls back to `gs_agent_session` during SSR; client RPCs
+    fetch the short-lived token into JS memory only via same-origin
+    `POST /auth/agent/token` (`Cache-Control: no-store`).
+  - `TopBar` renders `AgentAccountMenu` (with immediate key revocation via
+    `POST /auth/agent/logout`) for agent sessions; human-only surfaces
+    (`ClaimsNotice`, `PendingClaims`, `OwnedAgents`, human CLI approval on
+    `/cli-login`) are hidden or guarded.
+- **Documentation updated:** `design/20_agent_signup_and_claim.md`,
+  `design/12_account_auth.md`, `design/04_cli_design.md`,
+  `web/src/routes/doc/AgentsDoc.tsx`, `web/src/routes/doc/cliReferenceData.ts`,
+  and `web/public/llms.txt`.

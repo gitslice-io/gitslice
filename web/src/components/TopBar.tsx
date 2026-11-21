@@ -1,13 +1,15 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { useAuth, UserButton } from "@clerk/tanstack-react-start";
+import { UserButton } from "@clerk/tanstack-react-start";
 import { useEffect, useState } from "react";
 
+import { useAppAuth } from "../auth/AppAuthProvider";
 import { cn } from "../lib/cn";
 import { clerkUiInDocument, reloadForClerkUi } from "../lib/clerkUi";
 import { conversationsEnabled } from "../lib/features";
 import { useHomeTarget } from "../state/homeTarget";
 import { useSelection } from "../state/selection";
 import { AccountSwitcher } from "./AccountSwitcher";
+import { AgentAccountMenu } from "./AgentAccountMenu";
 import { ClaimsNotice } from "./ClaimsNotice";
 import { BrandMark } from "./BrandMark";
 import { ThemeToggle } from "./ThemeToggle";
@@ -76,16 +78,18 @@ function NavIcon({ section }: { section: NavSection }) {
 export function TopBar() {
   const { account } = useSelection();
   const home = useHomeTarget();
-  const { isLoaded, isSignedIn } = useAuth();
-  // A document served to a visitor with no session has no Clerk UI
-  // (lib/clerkUi). If a session then appears in it (signed in from another
-  // tab), the account button cannot draw: load the page again, signed in.
+  const { authKind, isLoaded, isSignedIn } = useAppAuth();
+  // A document served to a visitor with no Clerk session has no Clerk UI
+  // (lib/clerkUi). If a Clerk session then appears in it (signed in from
+  // another tab), the account button cannot draw: load the page again, signed
+  // in. Agent sessions use AgentAccountMenu and never need Clerk's UI script.
   const [hasClerkUi] = useState(clerkUiInDocument);
+  const needsClerkUi = authKind === "clerk" && !hasClerkUi;
   useEffect(() => {
-    if (isLoaded && isSignedIn && !hasClerkUi) {
+    if (isLoaded && needsClerkUi) {
       reloadForClerkUi();
     }
-  }, [hasClerkUi, isLoaded, isSignedIn]);
+  }, [isLoaded, needsClerkUi]);
   const pathname = useRouterState({
     select: (state) => state.location.pathname
   });
@@ -148,11 +152,13 @@ export function TopBar() {
           <ClaimsNotice />
           <ThemeToggle />
           {account ? <AccountSwitcher /> : null}
-          {!isLoaded || (isSignedIn && !hasClerkUi) ? (
+          {!isLoaded || needsClerkUi ? (
             <div
               aria-hidden
               className="size-8 shrink-0 animate-pulse rounded-full bg-slate-200 dark:bg-zinc-700"
             />
+          ) : authKind === "agent" ? (
+            <AgentAccountMenu />
           ) : isSignedIn ? (
             // Pin the avatar to the same 2rem box as the loading placeholder so
             // swapping from placeholder → UserButton (and Clerk's own internal

@@ -1,5 +1,4 @@
-import { useAuth } from "@clerk/tanstack-react-start";
-
+import { useAppAuth } from "../auth/AppAuthProvider";
 import { RequireAuth } from "../auth/RequireAuth";
 import { AppShell } from "../components/AppShell";
 import { SelectionProvider } from "../state/selection";
@@ -9,7 +8,7 @@ import { UsernameGate } from "./UsernameGate";
 
 // The front page: Home for someone signed in, the landing page for anyone else.
 export function IndexPage() {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
 
   if (isLoaded && isSignedIn) {
     return (

@@ -42,7 +42,11 @@ export function AgentSignupNote() {
   return (
     <p className="mt-4 h-8 overflow-hidden text-xs leading-4 text-slate-500 dark:text-zinc-400">
       AI agent? Register with{" "}
-      <code className="whitespace-nowrap font-mono text-slate-700 dark:text-zinc-300">gs auth register-agent</code>; see{" "}
+      <code className="whitespace-nowrap font-mono text-slate-700 dark:text-zinc-300">gs auth register-agent</code>,{" "}
+      <a className="font-medium text-slate-700 underline underline-offset-2 hover:text-slate-900 dark:text-zinc-300 dark:hover:text-zinc-100" href="/agent-login">
+        sign in with an API key
+      </a>
+      , or see{" "}
       <a className="font-medium text-slate-700 underline underline-offset-2 hover:text-slate-900 dark:text-zinc-300 dark:hover:text-zinc-100" href="/llms.txt">
         llms.txt
       </a>

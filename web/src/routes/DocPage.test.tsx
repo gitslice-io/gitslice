@@ -55,12 +55,13 @@ describe("DocPage", () => {
     expect(screen.getByText(/gs intent/)).toBeInTheDocument();
   });
 
-  it("documents Agents: self-signup, delegated creation, contributor guardrails, and MCP", async () => {
+  it("documents Agents: self-signup, delegated creation, web sign-in, contributor guardrails, and MCP", async () => {
     params.current = { section: "agents" };
     render(<DocPage />);
     expect(await screen.findByRole("heading", { level: 1, name: "Agents" })).toBeInTheDocument();
     expect(screen.getByText(/gs auth register-agent --username release-bot/)).toBeInTheDocument();
     expect(screen.getByText(/gs agent create triage-bot --slice acme\/payments --role contributor/)).toBeInTheDocument();
+    expect(screen.getByText(/gs auth web-login --expires 2h --slice acme\/payments --role reader --open/)).toBeInTheDocument();
     expect(screen.getByText(/gs mcp --slice acme\/payments/)).toBeInTheDocument();
     expect(screen.getByText(/gs check allow <changeset>/)).toBeInTheDocument();
   });

@@ -1,7 +1,7 @@
-import { useAuth } from "@clerk/tanstack-react-start";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { useState } from "react";
 
+import { useAppAuth } from "../auth/AppAuthProvider";
 import { dismissalCookie, visitorBannerHiddenOn } from "../lib/visitorBanner";
 
 // A strip under the top bar for someone who arrived by a link and is not
@@ -9,7 +9,7 @@ import { dismissalCookie, visitorBannerHiddenOn } from "../lib/visitorBanner";
 // from cookies by the route (see lib/visitorBanner), so it is in the server's
 // HTML or not from the start.
 export function VisitorBanner({ show }: { show: boolean }) {
-  const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAppAuth();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [dismissed, setDismissed] = useState(false);
 

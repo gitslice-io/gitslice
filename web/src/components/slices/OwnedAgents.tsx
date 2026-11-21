@@ -1,9 +1,9 @@
-import { useAuth } from "@clerk/tanstack-react-start";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 
 import type { OwnedAgent } from "../../api/types";
 import { useApi } from "../../api/useApi";
+import { useAppAuth } from "../../auth/AppAuthProvider";
 import { formatRelativeTime } from "../../lib/time";
 import { ownedAgentsQuery } from "../../queries/auth";
 
@@ -12,8 +12,8 @@ import { ownedAgentsQuery } from "../../queries/auth";
 // slice list) degrade to showing only the user's own account.
 export function useOwnedAgents() {
   const api = useApi();
-  const { isLoaded, isSignedIn } = useAuth();
-  const enabled = Boolean(isLoaded && isSignedIn);
+  const { authKind, isLoaded, isSignedIn } = useAppAuth();
+  const enabled = Boolean(isLoaded && isSignedIn && authKind === "clerk");
   const query = useQuery({
     ...ownedAgentsQuery(api),
     enabled

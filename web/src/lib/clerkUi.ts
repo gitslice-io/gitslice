@@ -1,4 +1,4 @@
-import { hasSessionCookie } from "./sessionCookie";
+import { hasClerkSessionCookie } from "./sessionCookie";
 
 // Clerk's UI (the sign-in and sign-up cards, the account button) is a second
 // script of about 300 KB compressed, and Clerk does not report the session as
@@ -8,10 +8,11 @@ import { hasSessionCookie } from "./sessionCookie";
 
 const CLERK_UI_PATHS = /^\/(?:login|signup|cli-login)(?:\/|$)/;
 
-// clerkUiWanted: the request may be signed in (the account button), or is for
-// a page that shows one of Clerk's cards.
+// clerkUiWanted: the request may be signed in with Clerk (the account button),
+// or is for a page that shows one of Clerk's cards. Agent web sessions use
+// their own lightweight account menu and do not need Clerk's UI bundle.
 export function clerkUiWanted(pathname: string, cookieHeader: string): boolean {
-  return CLERK_UI_PATHS.test(pathname) || hasSessionCookie(cookieHeader);
+  return CLERK_UI_PATHS.test(pathname) || hasClerkSessionCookie(cookieHeader);
 }
 
 // The decision is written on <html> so the browser reads back what the server

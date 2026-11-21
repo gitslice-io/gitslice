@@ -1,7 +1,7 @@
-import { useAuth } from "@clerk/tanstack-react-start";
 import { useCallback, useEffect, useMemo } from "react";
 
 import { afterPageLoad } from "../analytics/idle";
+import { useAppAuth } from "../auth/AppAuthProvider";
 import type { GeneratedApi } from "./generated";
 import { createLazyApiClient, loadApiClientModule } from "./lazyClient";
 import { defaultApiBaseUrl } from "./rpcError";
@@ -11,7 +11,7 @@ import { defaultApiBaseUrl } from "./rpcError";
 export type ApiClient = GeneratedApi;
 
 export function useApi(baseUrl = defaultApiBaseUrl): ApiClient {
-  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { getToken, isLoaded, isSignedIn } = useAppAuth();
 
   const getApiToken = useCallback(
     async () => (isLoaded && isSignedIn ? await getToken() : null),
