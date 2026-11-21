@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Cloudflare runbooks of ../automations.yaml (deploy-dispatcher,
-# deploy-doorbell, deploy-web, rollback-web, cloudflare-selftest). They run as
+# deploy-doorbell, deploy-web, deploy-web-staging, rollback-web,
+# cloudflare-selftest). They run as
 # bash automations on Gitslice's own container runtime (runtime node, egress
 # http-gate), from a checkout of /gitslice/gitslice at main.
 #
@@ -53,6 +54,21 @@ upload_and_deploy() {
   (cd "$dir" && npx wrangler versions deploy "$version@100%" -c wrangler.automation.json -y 2>&1 | grep -v -i token | tail -3)
 }
 
+# deploy_web <env> <site> builds the web app from this checkout and deploys
+# it with wrangler to <env> of web/wrangler.jsonc. Its build variables are
+# public and live in web/build.<env>.vars; its secrets (CLERK_SECRET_KEY) are
+# Worker secrets, which a deploy keeps.
+deploy_web() {
+  local env="$1" site="$2"
+  (cd web && npm ci --no-audit --no-fund --loglevel=error)
+  set -a
+  . "web/build.$env.vars"
+  set +a
+  (cd web && npm run build 2>&1 | tail -4)
+  (cd web && npx wrangler deploy --env "$env" --message "gitslice automation $op" 2>&1 | grep -v -i token | tail -6)
+  curl -fsS -o /dev/null --retry 3 --retry-all-errors "$site/" && echo "$site/ answers"
+}
+
 case "$op" in
   cloudflare-selftest)
     echo "node $(node -v)"
@@ -84,22 +100,11 @@ case "$op" in
     ;;
 
   deploy-web)
-    # The web app builds in Workers Builds, which holds its build variables:
-    # start its "Deploy default branch" trigger on main and wait for it.
-    worker="$(api workers/scripts | json 'v.result.find(s => s.id === "gitslice-web-production").tag')"
-    trigger="$(api "builds/workers/$worker/triggers" | json 'v.result.find(t => t.trigger_name === "Deploy default branch").trigger_uuid')"
-    build="$(api "builds/triggers/$trigger/builds" -X POST -d '{"branch":"main"}' | json 'v.result.build_uuid')"
-    echo "web build $build: https://dash.cloudflare.com/$account/workers/services/view/gitslice-web-production/production/builds/$build"
-    for _ in $(seq 1 80); do
-      state="$(api "builds/builds/$build" | json '[v.result.status, v.result.build_outcome ?? ""].join(" ")')"
-      case "$state" in
-        "stopped success") echo "web build succeeded; gitslice.io serves main"; break ;;
-        stopped*) echo "web build ended: $state" >&2; exit 1 ;;
-      esac
-      sleep 10
-    done
-    [ "$state" = "stopped success" ] || { echo "web build still $state after 13 minutes" >&2; exit 1; }
-    curl -fsS -o /dev/null https://gitslice.io/ && echo "https://gitslice.io/ answers"
+    deploy_web production https://gitslice.io
+    ;;
+
+  deploy-web-staging)
+    deploy_web staging https://agenttools.dev
     ;;
 
   rollback-web)

@@ -4,8 +4,11 @@
 # Dockerfile) -> push -> run DB migrations as a one-shot Cloud Run Job
 # (-migrate-only) -> deploy/update the Cloud Run service.
 #
-# The trigger is run daily by Cloud Scheduler (job gitslice-prod-daily-build,
-# us-west1) rather than on every merge; the gate step makes the run a no-op
+# The ops build (ops/automation, operation deploy-server or daily-deploy)
+# clones main from Gitslice and submits this file with the production values
+# and _TAG set to the Gitslice commit: by hand through the deploy-server
+# automation, and daily through Cloud Scheduler (job
+# gitslice-prod-daily-build, us-west1). The gate step makes the run a no-op
 # when main hasn't moved since the last deploy.
 #
 # This is the declarative replacement for deploy/cloudrun.sh's gcloud glue; the

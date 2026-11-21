@@ -104,11 +104,24 @@ func TestRepositoryCloudflareRunbooksMatchScript(t *testing.T) {
 		if op := a.Action.Bash.Env["OP"]; op != name || !strings.Contains(string(script), "\n  "+op+")") {
 			t.Errorf("%s: env OP = %q; it must be the automation's name, with a case in ops/cloudflare.sh", name, op)
 		}
-		if !slices.Equal(a.On, []string{EventManual}) || a.Manual == nil || len(a.Manual.Roles) == 0 {
-			t.Errorf("%s: must be manual-only with manual.roles", name)
+		if a.Manual == nil || len(a.Manual.Roles) == 0 {
+			t.Errorf("%s: needs manual.roles", name)
 		}
-		if !strings.HasSuffix(name, "-selftest") && a.ConcurrencyGroup != "prod-workers" {
-			t.Errorf("%s: concurrency_group = %q, want prod-workers", name, a.ConcurrencyGroup)
+		// Web deploys also run on each landing that changes web/; the
+		// others are manual-only.
+		if strings.HasPrefix(name, "deploy-web") {
+			if !slices.Equal(a.On, []string{EventPush, EventManual}) || !slices.Equal(a.Paths, []string{"web/**"}) {
+				t.Errorf("%s: on = %v paths = %v, want [push manual] on web/**", name, a.On, a.Paths)
+			}
+		} else if !slices.Equal(a.On, []string{EventManual}) {
+			t.Errorf("%s: must be manual-only", name)
+		}
+		want := "prod-workers"
+		if strings.HasSuffix(name, "-staging") {
+			want = "staging-workers"
+		}
+		if !strings.HasSuffix(name, "-selftest") && a.ConcurrencyGroup != want {
+			t.Errorf("%s: concurrency_group = %q, want %s", name, a.ConcurrencyGroup, want)
 		}
 	}
 	if runbooks == 0 {

@@ -30,7 +30,7 @@ build:
     - PROJECT=$PROJECT_ID
     - SERVICE=gitslice-prod
     - REGION=us-west1
-    - DEPLOY_TRIGGER=rmgpgab-gitslice-prod-us-west1-gitslice-io-gitslice--maovz
+    - PROD_SUBS=_DEPLOY_REGION=us-west1,_SERVICE_NAME=gitslice-prod,_AR_HOSTNAME=us-west1-docker.pkg.dev,_AR_REPOSITORY=cloud-run-source-deploy,_ALLOWED_ORIGIN=https://gitslice.io,_R2_ENDPOINT=https://02fa014ee5c259f9cb1e01cf224ae197.r2.cloudflarestorage.com,_R2_BUCKET=gitslice-production,_CLERK_PUBLISHABLE_KEY=pk_live_Y2xlcmsuZ2l0c2xpY2UuaW8k,_CLERK_ISSUER=https://clerk.gitslice.io,_POSTHOG_API_KEY=phc_yG9FTnswZnzaoA7FtE7etBPxmhx9TbZkscVH86uKiBzC
     - BUILD=$BUILD_ID
     args:
     - -c
@@ -44,25 +44,30 @@ build:
       printf '%s\\n' \"operation $$OP, run by $${SENDER:-unknown}\" >> /workspace/said.log\npost \"{\\\"lines\\\":[$$(json \"operation $$OP, run by $${SENDER:-unknown}\")],\\\"details_url\\\":$$(json \"\
       https://console.cloud.google.com/cloud-build/builds/$$BUILD?project=$$PROJECT\")}\"\nservice_url() {\n  gcloud run services describe \"$$SERVICE\" --region \"$$REGION\" --project \"$$PROJECT\" --format='value(status.url)'\n\
       }\nready() {\n  curl -fsS -o /dev/null --retry 5 --retry-delay 5 --retry-all-errors \"$$(service_url)/readyz\"\n}\n# release_build [substitutions] runs the release pipeline\n# (ops/release/cloudbuild.yaml,\
-      \ read from main) as its own build,\n# waits for it, and reports what it published. Its output is in\n# that build's log; a failure reports the log's last lines.\nrelease_build() {\n  git clone -q\
-      \ --depth 1 -- https://gitslice.io/git/gitslice/gitslice.git /workspace/src\n  id=\"$$(gcloud builds submit --no-source --async --region=global --project \"$$PROJECT\" \\\n    --config /workspace/src/gitslice/gitslice/ops/release/cloudbuild.yaml\
-      \ \"$$@\" --format='value(id)')\"\n  say \"release build $$id: https://console.cloud.google.com/cloud-build/builds/$$id?project=$$PROJECT\"\n  while :; do\n    status=\"$$(gcloud builds describe \"\
-      $$id\" --region=global --project \"$$PROJECT\" --format='value(status)')\"\n    case \"$$status\" in\n      SUCCESS|FAILURE|CANCELLED|TIMEOUT|INTERNAL_ERROR|EXPIRED) break ;;\n    esac\n    sleep\
-      \ 15\n  done\n  log=\"$$(gcloud builds log \"$$id\" --region=global --project \"$$PROJECT\" 2>/dev/null || true)\"\n  if [ \"$$status\" != SUCCESS ]; then\n    printf '%s\\n' \"$$log\" | grep '^Step\
-      \ #' | tail -n 15\n    echo \"release build $$id ended $$status\" >&2\n    exit 1\n  fi\n  printf '%s\\n' \"$$log\" | sed -n 's/^Step #[0-9]* - \"[a-z]*\": //p' | grep -E '^(published v|nothing to\
-      \ publish|no tags to build|latest: [{])' |\n    while IFS= read -r l; do say \"$$l\"; done\n}\ncase \"$$OP\" in\n  gitslice/deploy-server)\n    # Builds main of the GitHub mirror, like the daily deploy.\n\
-      \    id=\"$$(gcloud builds triggers run \"$$DEPLOY_TRIGGER\" --branch=main --region=global \\\n      --project \"$$PROJECT\" --format='value(metadata.build.id)')\"\n    say \"deploy build $$id: https://console.cloud.google.com/cloud-build/builds/$$id?project=$$PROJECT\"\
-      \n    while :; do\n      status=\"$$(gcloud builds describe \"$$id\" --region=global --project \"$$PROJECT\" --format='value(status)')\"\n      case \"$$status\" in\n        SUCCESS) break ;;\n  \
-      \      FAILURE|CANCELLED|TIMEOUT|INTERNAL_ERROR|EXPIRED) echo \"deploy build $$id ended $$status\" >&2; exit 1 ;;\n      esac\n      sleep 20\n    done\n    # A rollback pins traffic to one revision;\
-      \ a deploy sends it back\n    # to the newest.\n    gcloud run services update-traffic \"$$SERVICE\" --region \"$$REGION\" --project \"$$PROJECT\" --to-latest --quiet\n    ready\n    say \"deployed\
-      \ $$(gcloud run services describe \"$$SERVICE\" --region \"$$REGION\" --project \"$$PROJECT\" \\\n      --format='value(status.latestReadyRevisionName)'); /readyz answers\"\n    ;;\n  gitslice/rollback-server)\n\
-      \    if [[ ! \"$$REVISION\" =~ ^gitslice-prod-[0-9]{5}-[a-z0-9]{3}$ ]]; then\n      say \"revision must look like gitslice-prod-00147-xpj, got '$$REVISION'\" >&2; exit 1\n    fi\n    gcloud run revisions\
-      \ describe \"$$REVISION\" --region \"$$REGION\" --project \"$$PROJECT\" --format='value(name)' >/dev/null\n    gcloud run services update-traffic \"$$SERVICE\" --region \"$$REGION\" --project \"$$PROJECT\"\
-      \ \\\n      --to-revisions=\"$$REVISION=100\" --quiet\n    ready\n    say \"all traffic on $$REVISION; /readyz answers. The next deploy-server moves it to the newest revision.\"\n    ;;\n  gitslice/release)\n\
-      \    # tag.created: builds and publishes that tag (not again when it\n    # is published already).\n    if [[ ! \"$$TAG\" =~ ^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$$ ]]; then\n      say \"not\
-      \ a release tag: '$$TAG'\" >&2; exit 1\n    fi\n    say \"releasing $$TAG\"\n    release_build \"--substitutions=_TAG=$$TAG\"\n    curl -fsS -o /dev/null \"https://gitslice.io/releases/download/$$TAG/checksums.txt\"\
-      \n    say \"https://gitslice.io/releases/download/$$TAG/ serves $$TAG\"\n    ;;\n  gitslice/publish-releases)\n    # The daily reconcile, now: builds every vX.Y.Z tag not yet in R2.\n    release_build\n\
-      \    ;;\n  gitslice/ops-selftest)\n    say \"ok\"\n    ;;\n  *)\n    say \"not an operation: '$$OP'\" >&2; exit 1\n    ;;\nesac\n"
+      \ read from main) as its own build,\n# waits for it, and reports what it published. Its output is in\n# that build's log; a failure reports the log's last lines.\n# server_build runs the repository's\
+      \ cloudbuild.yaml (gate, build,\n# migrate, deploy) on main as cloned from Gitslice, as its own\n# build, and waits for it. The image tag is the Gitslice commit; the\n# gate skips the build when that\
+      \ tag is already deployed.\nserver_build() {\n  git clone -q --depth 1 -- https://gitslice.io/git/gitslice/gitslice.git /workspace/server\n  tag=\"$$(git -C /workspace/server rev-parse --short=12\
+      \ HEAD)\"\n  id=\"$$(gcloud builds submit /workspace/server/gitslice/gitslice --async --region=global --project \"$$PROJECT\" \\\n    --config /workspace/server/gitslice/gitslice/cloudbuild.yaml --substitutions=\"\
+      $$PROD_SUBS,_TAG=$$tag\" --format='value(id)')\"\n  say \"deploy build $$id of main at $$tag: https://console.cloud.google.com/cloud-build/builds/$$id?project=$$PROJECT\"\n  while :; do\n    status=\"\
+      $$(gcloud builds describe \"$$id\" --region=global --project \"$$PROJECT\" --format='value(status)')\"\n    case \"$$status\" in\n      SUCCESS) break ;;\n      FAILURE|CANCELLED|TIMEOUT|INTERNAL_ERROR|EXPIRED)\n\
+      \        gcloud builds log \"$$id\" --region=global --project \"$$PROJECT\" 2>/dev/null | grep '^Step #' | tail -n 15\n        echo \"deploy build $$id ended $$status\" >&2; exit 1 ;;\n    esac\n\
+      \    sleep 20\n  done\n}\nrelease_build() {\n  git clone -q --depth 1 -- https://gitslice.io/git/gitslice/gitslice.git /workspace/src\n  id=\"$$(gcloud builds submit --no-source --async --region=global\
+      \ --project \"$$PROJECT\" \\\n    --config /workspace/src/gitslice/gitslice/ops/release/cloudbuild.yaml \"$$@\" --format='value(id)')\"\n  say \"release build $$id: https://console.cloud.google.com/cloud-build/builds/$$id?project=$$PROJECT\"\
+      \n  while :; do\n    status=\"$$(gcloud builds describe \"$$id\" --region=global --project \"$$PROJECT\" --format='value(status)')\"\n    case \"$$status\" in\n      SUCCESS|FAILURE|CANCELLED|TIMEOUT|INTERNAL_ERROR|EXPIRED)\
+      \ break ;;\n    esac\n    sleep 15\n  done\n  log=\"$$(gcloud builds log \"$$id\" --region=global --project \"$$PROJECT\" 2>/dev/null || true)\"\n  if [ \"$$status\" != SUCCESS ]; then\n    printf\
+      \ '%s\\n' \"$$log\" | grep '^Step #' | tail -n 15\n    echo \"release build $$id ended $$status\" >&2\n    exit 1\n  fi\n  printf '%s\\n' \"$$log\" | sed -n 's/^Step #[0-9]* - \"[a-z]*\": //p' | grep\
+      \ -E '^(published v|nothing to publish|no tags to build|latest: [{])' |\n    while IFS= read -r l; do say \"$$l\"; done\n}\ncase \"$$OP\" in\n  gitslice/deploy-server)\n    server_build\n    # A rollback\
+      \ pins traffic to one revision; a deploy sends it back\n    # to the newest.\n    gcloud run services update-traffic \"$$SERVICE\" --region \"$$REGION\" --project \"$$PROJECT\" --to-latest --quiet\n\
+      \    ready\n    say \"deployed $$(gcloud run services describe \"$$SERVICE\" --region \"$$REGION\" --project \"$$PROJECT\" \\\n      --format='value(status.latestReadyRevisionName)'); /readyz answers\"\
+      \n    ;;\n  gitslice/rollback-server)\n    if [[ ! \"$$REVISION\" =~ ^gitslice-prod-[0-9]{5}-[a-z0-9]{3}$ ]]; then\n      say \"revision must look like gitslice-prod-00147-xpj, got '$$REVISION'\"\
+      \ >&2; exit 1\n    fi\n    gcloud run revisions describe \"$$REVISION\" --region \"$$REGION\" --project \"$$PROJECT\" --format='value(name)' >/dev/null\n    gcloud run services update-traffic \"$$SERVICE\"\
+      \ --region \"$$REGION\" --project \"$$PROJECT\" \\\n      --to-revisions=\"$$REVISION=100\" --quiet\n    ready\n    say \"all traffic on $$REVISION; /readyz answers. The next deploy-server moves it\
+      \ to the newest revision.\"\n    ;;\n  gitslice/release)\n    # tag.created: builds and publishes that tag (not again when it\n    # is published already).\n    if [[ ! \"$$TAG\" =~ ^v[0-9]+\\.[0-9]+\\\
+      .[0-9]+(-[0-9A-Za-z.-]+)?$$ ]]; then\n      say \"not a release tag: '$$TAG'\" >&2; exit 1\n    fi\n    say \"releasing $$TAG\"\n    release_build \"--substitutions=_TAG=$$TAG\"\n    curl -fsS -o\
+      \ /dev/null \"https://gitslice.io/releases/download/$$TAG/checksums.txt\"\n    say \"https://gitslice.io/releases/download/$$TAG/ serves $$TAG\"\n    ;;\n  gitslice/publish-releases)\n    # The daily\
+      \ reconcile, now: builds every vX.Y.Z tag not yet in R2.\n    release_build\n    ;;\n  daily-deploy)\n    # Cloud Scheduler job gitslice-prod-daily-build posts this once a\n    # day (no automation,\
+      \ no callback): deploys main when it moved,\n    # and leaves the traffic where it is, so a rollback stays.\n    server_build\n    ;;\n  gitslice/ops-selftest)\n    say \"ok\"\n    ;;\n  *)\n    say\
+      \ \"not an operation: '$$OP'\" >&2; exit 1\n    ;;\nesac\n"
   timeout: 2400s
   options:
     logging: CLOUD_LOGGING_ONLY

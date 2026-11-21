@@ -45,7 +45,9 @@ steps:
       - PROJECT=$PROJECT_ID
       - SERVICE=gitslice-prod
       - REGION=us-west1
-      - DEPLOY_TRIGGER=rmgpgab-gitslice-prod-us-west1-gitslice-io-gitslice--maovz
+      # The production values of the repository's cloudbuild.yaml (all
+      # public), which the GitHub-connected trigger used to hold.
+      - PROD_SUBS=_DEPLOY_REGION=us-west1,_SERVICE_NAME=gitslice-prod,_AR_HOSTNAME=us-west1-docker.pkg.dev,_AR_REPOSITORY=cloud-run-source-deploy,_ALLOWED_ORIGIN=https://gitslice.io,_R2_ENDPOINT=https://02fa014ee5c259f9cb1e01cf224ae197.r2.cloudflarestorage.com,_R2_BUCKET=gitslice-production,_CLERK_PUBLISHABLE_KEY=pk_live_Y2xlcmsuZ2l0c2xpY2UuaW8k,_CLERK_ISSUER=https://clerk.gitslice.io,_POSTHOG_API_KEY=phc_yG9FTnswZnzaoA7FtE7etBPxmhx9TbZkscVH86uKiBzC
       - BUILD=$BUILD_ID
     args:
       - -c
@@ -92,6 +94,27 @@ steps:
         # (ops/release/cloudbuild.yaml, read from main) as its own build,
         # waits for it, and reports what it published. Its output is in
         # that build's log; a failure reports the log's last lines.
+        # server_build runs the repository's cloudbuild.yaml (gate, build,
+        # migrate, deploy) on main as cloned from Gitslice, as its own
+        # build, and waits for it. The image tag is the Gitslice commit; the
+        # gate skips the build when that tag is already deployed.
+        server_build() {
+          git clone -q --depth 1 -- https://gitslice.io/git/gitslice/gitslice.git /workspace/server
+          tag="$$(git -C /workspace/server rev-parse --short=12 HEAD)"
+          id="$$(gcloud builds submit /workspace/server/gitslice/gitslice --async --region=global --project "$$PROJECT" \
+            --config /workspace/server/gitslice/gitslice/cloudbuild.yaml --substitutions="$$PROD_SUBS,_TAG=$$tag" --format='value(id)')"
+          say "deploy build $$id of main at $$tag: https://console.cloud.google.com/cloud-build/builds/$$id?project=$$PROJECT"
+          while :; do
+            status="$$(gcloud builds describe "$$id" --region=global --project "$$PROJECT" --format='value(status)')"
+            case "$$status" in
+              SUCCESS) break ;;
+              FAILURE|CANCELLED|TIMEOUT|INTERNAL_ERROR|EXPIRED)
+                gcloud builds log "$$id" --region=global --project "$$PROJECT" 2>/dev/null | grep '^Step #' | tail -n 15
+                echo "deploy build $$id ended $$status" >&2; exit 1 ;;
+            esac
+            sleep 20
+          done
+        }
         release_build() {
           git clone -q --depth 1 -- https://gitslice.io/git/gitslice/gitslice.git /workspace/src
           id="$$(gcloud builds submit --no-source --async --region=global --project "$$PROJECT" \
@@ -115,18 +138,7 @@ steps:
         }
         case "$$OP" in
           gitslice/deploy-server)
-            # Builds main of the GitHub mirror, like the daily deploy.
-            id="$$(gcloud builds triggers run "$$DEPLOY_TRIGGER" --branch=main --region=global \
-              --project "$$PROJECT" --format='value(metadata.build.id)')"
-            say "deploy build $$id: https://console.cloud.google.com/cloud-build/builds/$$id?project=$$PROJECT"
-            while :; do
-              status="$$(gcloud builds describe "$$id" --region=global --project "$$PROJECT" --format='value(status)')"
-              case "$$status" in
-                SUCCESS) break ;;
-                FAILURE|CANCELLED|TIMEOUT|INTERNAL_ERROR|EXPIRED) echo "deploy build $$id ended $$status" >&2; exit 1 ;;
-              esac
-              sleep 20
-            done
+            server_build
             # A rollback pins traffic to one revision; a deploy sends it back
             # to the newest.
             gcloud run services update-traffic "$$SERVICE" --region "$$REGION" --project "$$PROJECT" --to-latest --quiet
@@ -158,6 +170,12 @@ steps:
           gitslice/publish-releases)
             # The daily reconcile, now: builds every vX.Y.Z tag not yet in R2.
             release_build
+            ;;
+          daily-deploy)
+            # Cloud Scheduler job gitslice-prod-daily-build posts this once a
+            # day (no automation, no callback): deploys main when it moved,
+            # and leaves the traffic where it is, so a rollback stays.
+            server_build
             ;;
           gitslice/ops-selftest)
             say "ok"
