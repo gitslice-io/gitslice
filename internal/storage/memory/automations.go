@@ -25,6 +25,12 @@ func NewAutomationStore() *AutomationStore {
 func copyRun(run *storage.AutomationRun) storage.AutomationRun {
 	out := *run
 	out.State = append([]byte(nil), run.State...)
+	if len(run.Outputs) > 0 {
+		out.Outputs = make(map[string]string, len(run.Outputs))
+		for k, v := range run.Outputs {
+			out.Outputs[k] = v
+		}
+	}
 	return out
 }
 
@@ -99,8 +105,27 @@ func (s *AutomationStore) list(match func(*storage.AutomationRun) bool) []storag
 func (s *AutomationStore) ListAutomationRuns(ctx context.Context, f storage.AutomationRunFilter) ([]storage.AutomationRun, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if f.ParentRunID != "" {
+		out := s.list(func(r *storage.AutomationRun) bool {
+			return r.ParentRunID == f.ParentRunID
+		})
+		sort.Slice(out, func(i, j int) bool {
+			if out[i].StepIndex != out[j].StepIndex {
+				return out[i].StepIndex < out[j].StepIndex
+			}
+			return out[i].CreatedAt.Before(out[j].CreatedAt)
+		})
+		limit := f.Limit
+		if limit <= 0 || limit > 200 {
+			limit = 50
+		}
+		if len(out) > limit {
+			out = out[:limit]
+		}
+		return out, nil
+	}
 	out := s.list(func(r *storage.AutomationRun) bool {
-		return (f.Account == "" || r.Account == f.Account) && (f.AutomationID == "" || r.AutomationID == f.AutomationID) && (f.ChangesetID == "" || r.ChangesetID == f.ChangesetID)
+		return r.ParentRunID == "" && (f.Account == "" || r.Account == f.Account) && (f.AutomationID == "" || r.AutomationID == f.AutomationID) && (f.ChangesetID == "" || r.ChangesetID == f.ChangesetID)
 	})
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
 		out[i], out[j] = out[j], out[i]
@@ -249,6 +274,21 @@ func (s *AutomationStore) SetAutomationRunDetailsURL(ctx context.Context, id, ur
 		return storage.ErrConflict
 	}
 	run.DetailsURL = url
+	run.UpdatedAt = time.Now().UTC()
+	return nil
+}
+
+func (s *AutomationStore) SetAutomationRunOutput(ctx context.Context, id, key, value string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run := s.runs[strings.TrimSpace(id)]
+	if run == nil || storage.AutomationRunFinal(run.Status) {
+		return storage.ErrConflict
+	}
+	if run.Outputs == nil {
+		run.Outputs = map[string]string{}
+	}
+	run.Outputs[key] = value
 	run.UpdatedAt = time.Now().UTC()
 	return nil
 }

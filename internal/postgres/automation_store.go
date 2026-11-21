@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -24,13 +25,15 @@ const triggerRunColumns = `trigger_runs.id, accounts.slug, trigger_runs.trigger_
 	trigger_runs.status, trigger_runs.attempt, trigger_runs.max_attempts, trigger_runs.error, trigger_runs.response_status,
 	trigger_runs.lease_until, trigger_runs.next_attempt_at, trigger_runs.deadline, trigger_runs.created_at,
 	trigger_runs.started_at, trigger_runs.finished_at, trigger_runs.updated_at,
-	trigger_runs.concurrency_group, trigger_runs.details_url`
+	trigger_runs.concurrency_group, trigger_runs.details_url,
+	trigger_runs.template_id, trigger_runs.template_commit_id,
+	trigger_runs.parent_run_id, trigger_runs.step_index, trigger_runs.step_id, trigger_runs.outputs`
 
 const triggerRunFrom = ` from trigger_runs join accounts on accounts.id = trigger_runs.account_id `
 
 func scanTriggerRun(row scanner) (*storage.AutomationRun, error) {
 	var run storage.AutomationRun
-	var state []byte
+	var state, outputsRaw []byte
 	var lease, started, finished, deadline sql.NullTime
 	if err := row.Scan(&run.ID, &run.Account, &run.AutomationID, &run.Folder, &run.Action,
 		&run.EventID, &run.EventKind, &run.TriggeredBy, &run.TriggeredByKind,
@@ -39,7 +42,9 @@ func scanTriggerRun(row scanner) (*storage.AutomationRun, error) {
 		&run.Status, &run.Attempt, &run.MaxAttempts, &run.Error, &run.ResponseStatus,
 		&lease, &run.NextAttemptAt, &deadline, &run.CreatedAt,
 		&started, &finished, &run.UpdatedAt,
-		&run.ConcurrencyGroup, &run.DetailsURL); err != nil {
+		&run.ConcurrencyGroup, &run.DetailsURL,
+		&run.TemplateID, &run.TemplateCommitID,
+		&run.ParentRunID, &run.StepIndex, &run.StepID, &outputsRaw); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, storage.ErrNotFound
 		}
@@ -50,6 +55,12 @@ func scanTriggerRun(row scanner) (*storage.AutomationRun, error) {
 	run.StartedAt = started.Time
 	run.FinishedAt = finished.Time
 	run.Deadline = deadline.Time
+	if len(outputsRaw) > 0 {
+		var parsed map[string]string
+		if err := json.Unmarshal(outputsRaw, &parsed); err == nil && len(parsed) > 0 {
+			run.Outputs = parsed
+		}
+	}
 	return &run, nil
 }
 
@@ -92,18 +103,22 @@ func (s *AutomationStore) CreateAutomationRuns(ctx context.Context, runs []stora
 		if len(run.State) > 0 {
 			state = run.State
 		}
+		var outputsJSON []byte
+		if len(run.Outputs) > 0 {
+			outputsJSON, _ = json.Marshal(run.Outputs)
+		}
 		res, err := tx.ExecContext(ctx, `
 			insert into trigger_runs(id, account_id, trigger_id, folder, action, event_id, event_kind, triggered_by, triggered_by_kind,
 				changeset_id, patchset_id, commit_id, target_ref, definition_commit_id, spec, payload, state, status, max_attempts, error, finished_at,
-				concurrency_group, details_url)
+				concurrency_group, details_url, template_id, template_commit_id, parent_run_id, step_index, step_id, outputs)
 			select $1, accounts.id, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
 				case when $18 in ('succeeded', 'failed', 'errored', 'canceled', 'timed_out') then now() end,
-				$21, $22
+				$21, $22, $23, $24, $25, $26, $27, $28
 			from accounts where accounts.slug = $2
 			on conflict (account_id, trigger_id, event_id) do nothing
 		`, id, run.Account, run.AutomationID, run.Folder, run.Action, run.EventID, run.EventKind, run.TriggeredBy, run.TriggeredByKind,
 			run.ChangesetID, run.PatchsetID, run.CommitID, run.TargetRef, run.DefinitionCommitID, jsonOrEmpty(run.Spec), jsonOrEmpty(run.Payload), state, status, maxAttempts, run.Error,
-			run.ConcurrencyGroup, run.DetailsURL)
+			run.ConcurrencyGroup, run.DetailsURL, run.TemplateID, run.TemplateCommitID, run.ParentRunID, run.StepIndex, run.StepID, jsonOrEmpty(outputsJSON))
 		if err != nil {
 			return nil, err
 		}
@@ -136,8 +151,15 @@ func (s *AutomationStore) ListAutomationRuns(ctx context.Context, f storage.Auto
 	if limit <= 0 || limit > 200 {
 		limit = 50
 	}
+	if f.ParentRunID != "" {
+		return s.queryRuns(ctx, s.db, `select `+triggerRunColumns+triggerRunFrom+`
+			where trigger_runs.parent_run_id = $1
+			order by trigger_runs.step_index asc, trigger_runs.created_at asc, trigger_runs.id asc
+			limit $2`, f.ParentRunID, limit)
+	}
 	return s.queryRuns(ctx, s.db, `select `+triggerRunColumns+triggerRunFrom+`
-		where ($1 = '' or accounts.slug = $1)
+		where trigger_runs.parent_run_id = ''
+		  and ($1 = '' or accounts.slug = $1)
 		  and ($2 = '' or trigger_runs.trigger_id = $2)
 		  and ($3 = '' or trigger_runs.changeset_id = $3)
 		order by trigger_runs.created_at desc, trigger_runs.id desc
@@ -264,6 +286,22 @@ func (s *AutomationStore) SetAutomationRunDetailsURL(ctx context.Context, id, ur
 		update trigger_runs set details_url = $2, updated_at = now()
 		where id = $1 and status in ('queued', 'running', 'waiting')
 	`, strings.TrimSpace(id), url)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return storage.ErrConflict
+	}
+	return nil
+}
+
+func (s *AutomationStore) SetAutomationRunOutput(ctx context.Context, id, key, value string) error {
+	res, err := s.db.ExecContext(ctx, `
+		update trigger_runs
+		set outputs = coalesce(outputs, '{}'::jsonb) || jsonb_build_object($2::text, $3::text),
+		    updated_at = now()
+		where id = $1 and status in ('queued', 'running', 'waiting')
+	`, strings.TrimSpace(id), key, value)
 	if err != nil {
 		return err
 	}

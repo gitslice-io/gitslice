@@ -163,7 +163,9 @@ export function FolderPolicyDrawer({
     { id: "owners", label: "Owners & Runners", count: policy ? ownerRules.length : undefined }
   ];
 
-  const automationProblems = problems.filter((p) => p.kind === "checks" || p.kind === "triggers");
+  const automationProblems = problems.filter(
+    (p) => p.kind === "checks" || p.kind === "triggers" || p.kind === "automations"
+  );
   const ownerProblems = problems.filter((p) => p.kind === "owners");
 
   if (!open) {
@@ -653,15 +655,21 @@ function TriggerCard({
       return queryClient.invalidateQueries({ queryKey: runsKey });
     }
   });
+  const stepCount = (trigger.steps ?? []).length;
   const what =
     trigger.action === "http"
       ? trigger.httpUrl
       : trigger.action === "check"
         ? (trigger.checks ?? []).join(", ")
-        : trigger.action === "bash"
-          ? [trigger.bash?.runtime || "base", trigger.egress || "offline", trigger.bash?.script].filter(Boolean).join(" · ")
-          : trigger.worker;
+        : trigger.action === "uses"
+          ? trigger.uses?.ref ?? ""
+          : trigger.action === "steps"
+            ? `${stepCount} step${stepCount === 1 ? "" : "s"}`
+            : trigger.action === "bash"
+              ? [trigger.bash?.runtime || "base", trigger.egress || "offline", trigger.bash?.script].filter(Boolean).join(" · ")
+              : trigger.worker;
   const manual = (trigger.on ?? []).includes("manual");
+  const reusable = (trigger.on ?? []).includes("call");
   const runs = runsQuery.data ?? [];
 
   function handleRunClick() {
@@ -679,6 +687,11 @@ function TriggerCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">
             <p className="break-all font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50">{trigger.id}</p>
+            {reusable ? (
+              <span className="rounded border border-indigo-200 bg-indigo-50 px-1.5 py-px text-[11px] font-semibold text-indigo-800 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-200">
+                Reusable
+              </span>
+            ) : null}
             <InheritanceBadge currentFolder={folder} sourceFolder={trigger.folder ?? ""} />
           </div>
           {trigger.description ? (
@@ -761,6 +774,11 @@ function TriggerRunRow({ open, onToggle, run }: { open: boolean; onToggle(): voi
           {status.replace("_", " ")}
         </button>
         <span className="text-slate-500 dark:text-zinc-400">{run.eventKind}</span>
+        {run.templateId ? (
+          <span className="rounded border border-indigo-200 bg-indigo-50 px-1.5 py-px font-mono text-[11px] text-indigo-800 dark:border-indigo-900/60 dark:bg-indigo-950/40 dark:text-indigo-200">
+            uses {run.templateId}
+          </span>
+        ) : null}
         {run.triggeredBy ? (
           <span className="text-slate-500 dark:text-zinc-400">
             by <span className="font-mono">{run.triggeredBy}</span>

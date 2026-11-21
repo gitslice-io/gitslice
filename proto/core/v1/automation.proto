@@ -28,6 +28,10 @@ service AutomationService {
   // RerunAutomationRun runs a finished run's automation again for the same event.
   rpc RerunAutomationRun(RerunAutomationRunRequest) returns (AutomationRun);
   rpc CancelAutomationRun(CancelAutomationRunRequest) returns (AutomationRun);
+  // InspectAutomationTemplate resolves a reusable automation reference
+  // (/<account>/<folder>/<name>[@<tag>|@sha256:...]) and returns its inputs,
+  // secret slots, network requirements, commit, and available immutable tags.
+  rpc InspectAutomationTemplate(InspectAutomationTemplateRequest) returns (InspectAutomationTemplateResponse);
 }
 
 // AutomationRunService is what a running automation calls. It is not called
@@ -51,6 +55,9 @@ service AutomationRunService {
   // SetRunDetailsUrl links the run to an outside page, such as the build it
   // started (gs.setDetailsUrl).
   rpc SetRunDetailsUrl(SetAutomationRunDetailsUrlRequest) returns (Empty);
+  // SetRunOutput records a named key/value output on the run (gs.setOutput /
+  // gs-auto set-output) for downstream pipeline steps and inspection.
+  rpc SetRunOutput(SetAutomationRunOutputRequest) returns (Empty);
   rpc CreateCheck(CreateAutomationCheckRequest) returns (CheckRun);
   rpc UpdateCheck(UpdateAutomationCheckRequest) returns (CheckRun);
   rpc ReadFile(AutomationReadFileRequest) returns (AutomationReadFileResponse);
@@ -125,6 +132,34 @@ message AutomationDefinition {
   // "offline", "http-gate", or "direct" (bash actions only).
   string egress = 21;
   AutomationBashAction bash = 22;
+  // Set when action == "uses": calls a reusable on:[call] template.
+  AutomationUsesAction uses = 23;
+  // Set when action == "steps": sequential multi-step pipeline.
+  repeated AutomationStepDefinition steps = 24;
+  // Explicit template secret slot -> caller secret name mapping (when remapped).
+  map<string, string> secret_bindings = 25;
+}
+
+// AutomationUsesAction invokes a reusable (on: [call]) automation template.
+message AutomationUsesAction {
+  string ref = 1;
+  map<string, string> with = 2;
+}
+
+// AutomationStepDefinition describes one step in a multi-step pipeline.
+message AutomationStepDefinition {
+  string id = 1;
+  string name = 2;
+  // "success" (default), "failure", or "always".
+  string condition = 3;
+  // "uses", "bash", "worker", "http", or "check".
+  string action = 4;
+  AutomationUsesAction uses = 5;
+  AutomationBashAction bash = 6;
+  string worker = 7;
+  string http_url = 8;
+  repeated string checks = 9;
+  int64 timeout_ms = 10;
 }
 
 message AutomationFileProblem {
@@ -165,6 +200,15 @@ message AutomationRun {
   map<string, string> inputs = 24;
   // An outside page about the run, such as the build a worker started.
   string details_url = 25;
+  // Reusable template provenance when executed via action.uses.
+  string template_id = 26;
+  string template_commit_id = 27;
+  // Multi-step pipeline linkage (set on child step runs).
+  string parent_run_id = 28;
+  int32 step_index = 29;
+  string step_id = 30;
+  // Named outputs emitted by this run (gs.setOutput / gs-auto set-output).
+  map<string, string> outputs = 31;
 }
 
 message ListAutomationsRequest {
@@ -252,6 +296,8 @@ message ListAutomationRunsRequest {
   string changeset_id = 3;
   // Default 50, at most 200.
   int32 limit = 4;
+  // Optional: list child step runs belonging to a pipeline run (ordered by step_index).
+  string parent_run_id = 5;
 }
 
 message ListAutomationRunsResponse {
@@ -380,6 +426,28 @@ message SetAutomationRunDetailsUrlRequest {
   string run_token = 1;
   // An https URL, at most 2048 bytes.
   string details_url = 2;
+}
+
+message SetAutomationRunOutputRequest {
+  string run_token = 1;
+  string key = 2;
+  string value = 3;
+}
+
+message InspectAutomationTemplateRequest {
+  // Template ref: /<account>/<folder>/<name>[@<tag>|@sha256:...]
+  string ref = 1;
+  // Optional caller account for unpinned same-account lookup.
+  string caller_account = 2;
+}
+
+message InspectAutomationTemplateResponse {
+  AutomationDefinition template = 1;
+  string account = 2;
+  string folder = 3;
+  string commit_id = 4;
+  string resolved_ref = 5;
+  repeated string available_tags = 6;
 }
 
 message SetAutomationRunStateRequest {

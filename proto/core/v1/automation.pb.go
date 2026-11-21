@@ -312,10 +312,16 @@ type AutomationDefinition struct {
 	Manual      *AutomationManualPolicy `protobuf:"bytes,19,opt,name=manual,proto3" json:"manual,omitempty"`
 	Reveal      []string                `protobuf:"bytes,20,rep,name=reveal,proto3" json:"reveal,omitempty"`
 	// "offline", "http-gate", or "direct" (bash actions only).
-	Egress        string                `protobuf:"bytes,21,opt,name=egress,proto3" json:"egress,omitempty"`
-	Bash          *AutomationBashAction `protobuf:"bytes,22,opt,name=bash,proto3" json:"bash,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	Egress string                `protobuf:"bytes,21,opt,name=egress,proto3" json:"egress,omitempty"`
+	Bash   *AutomationBashAction `protobuf:"bytes,22,opt,name=bash,proto3" json:"bash,omitempty"`
+	// Set when action == "uses": calls a reusable on:[call] template.
+	Uses *AutomationUsesAction `protobuf:"bytes,23,opt,name=uses,proto3" json:"uses,omitempty"`
+	// Set when action == "steps": sequential multi-step pipeline.
+	Steps []*AutomationStepDefinition `protobuf:"bytes,24,rep,name=steps,proto3" json:"steps,omitempty"`
+	// Explicit template secret slot -> caller secret name mapping (when remapped).
+	SecretBindings map[string]string `protobuf:"bytes,25,rep,name=secret_bindings,json=secretBindings,proto3" json:"secret_bindings,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AutomationDefinition) Reset() {
@@ -502,6 +508,199 @@ func (x *AutomationDefinition) GetBash() *AutomationBashAction {
 	return nil
 }
 
+func (x *AutomationDefinition) GetUses() *AutomationUsesAction {
+	if x != nil {
+		return x.Uses
+	}
+	return nil
+}
+
+func (x *AutomationDefinition) GetSteps() []*AutomationStepDefinition {
+	if x != nil {
+		return x.Steps
+	}
+	return nil
+}
+
+func (x *AutomationDefinition) GetSecretBindings() map[string]string {
+	if x != nil {
+		return x.SecretBindings
+	}
+	return nil
+}
+
+// AutomationUsesAction invokes a reusable (on: [call]) automation template.
+type AutomationUsesAction struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Ref           string                 `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	With          map[string]string      `protobuf:"bytes,2,rep,name=with,proto3" json:"with,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AutomationUsesAction) Reset() {
+	*x = AutomationUsesAction{}
+	mi := &file_proto_core_v1_automation_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AutomationUsesAction) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AutomationUsesAction) ProtoMessage() {}
+
+func (x *AutomationUsesAction) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_automation_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AutomationUsesAction.ProtoReflect.Descriptor instead.
+func (*AutomationUsesAction) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *AutomationUsesAction) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
+func (x *AutomationUsesAction) GetWith() map[string]string {
+	if x != nil {
+		return x.With
+	}
+	return nil
+}
+
+// AutomationStepDefinition describes one step in a multi-step pipeline.
+type AutomationStepDefinition struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    string                 `protobuf:"bytes,1,opt,name=id,proto3" json:"id,omitempty"`
+	Name  string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	// "success" (default), "failure", or "always".
+	Condition string `protobuf:"bytes,3,opt,name=condition,proto3" json:"condition,omitempty"`
+	// "uses", "bash", "worker", "http", or "check".
+	Action        string                `protobuf:"bytes,4,opt,name=action,proto3" json:"action,omitempty"`
+	Uses          *AutomationUsesAction `protobuf:"bytes,5,opt,name=uses,proto3" json:"uses,omitempty"`
+	Bash          *AutomationBashAction `protobuf:"bytes,6,opt,name=bash,proto3" json:"bash,omitempty"`
+	Worker        string                `protobuf:"bytes,7,opt,name=worker,proto3" json:"worker,omitempty"`
+	HttpUrl       string                `protobuf:"bytes,8,opt,name=http_url,json=httpUrl,proto3" json:"http_url,omitempty"`
+	Checks        []string              `protobuf:"bytes,9,rep,name=checks,proto3" json:"checks,omitempty"`
+	TimeoutMs     int64                 `protobuf:"varint,10,opt,name=timeout_ms,json=timeoutMs,proto3" json:"timeout_ms,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AutomationStepDefinition) Reset() {
+	*x = AutomationStepDefinition{}
+	mi := &file_proto_core_v1_automation_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AutomationStepDefinition) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AutomationStepDefinition) ProtoMessage() {}
+
+func (x *AutomationStepDefinition) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_automation_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AutomationStepDefinition.ProtoReflect.Descriptor instead.
+func (*AutomationStepDefinition) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{5}
+}
+
+func (x *AutomationStepDefinition) GetId() string {
+	if x != nil {
+		return x.Id
+	}
+	return ""
+}
+
+func (x *AutomationStepDefinition) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *AutomationStepDefinition) GetCondition() string {
+	if x != nil {
+		return x.Condition
+	}
+	return ""
+}
+
+func (x *AutomationStepDefinition) GetAction() string {
+	if x != nil {
+		return x.Action
+	}
+	return ""
+}
+
+func (x *AutomationStepDefinition) GetUses() *AutomationUsesAction {
+	if x != nil {
+		return x.Uses
+	}
+	return nil
+}
+
+func (x *AutomationStepDefinition) GetBash() *AutomationBashAction {
+	if x != nil {
+		return x.Bash
+	}
+	return nil
+}
+
+func (x *AutomationStepDefinition) GetWorker() string {
+	if x != nil {
+		return x.Worker
+	}
+	return ""
+}
+
+func (x *AutomationStepDefinition) GetHttpUrl() string {
+	if x != nil {
+		return x.HttpUrl
+	}
+	return ""
+}
+
+func (x *AutomationStepDefinition) GetChecks() []string {
+	if x != nil {
+		return x.Checks
+	}
+	return nil
+}
+
+func (x *AutomationStepDefinition) GetTimeoutMs() int64 {
+	if x != nil {
+		return x.TimeoutMs
+	}
+	return 0
+}
+
 type AutomationFileProblem struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Folder        string                 `protobuf:"bytes,1,opt,name=folder,proto3" json:"folder,omitempty"`
@@ -513,7 +712,7 @@ type AutomationFileProblem struct {
 
 func (x *AutomationFileProblem) Reset() {
 	*x = AutomationFileProblem{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[4]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -525,7 +724,7 @@ func (x *AutomationFileProblem) String() string {
 func (*AutomationFileProblem) ProtoMessage() {}
 
 func (x *AutomationFileProblem) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[4]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -538,7 +737,7 @@ func (x *AutomationFileProblem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AutomationFileProblem.ProtoReflect.Descriptor instead.
 func (*AutomationFileProblem) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{4}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *AutomationFileProblem) GetFolder() string {
@@ -594,14 +793,23 @@ type AutomationRun struct {
 	TriggeredByKind string            `protobuf:"bytes,23,opt,name=triggered_by_kind,json=triggeredByKind,proto3" json:"triggered_by_kind,omitempty"`
 	Inputs          map[string]string `protobuf:"bytes,24,rep,name=inputs,proto3" json:"inputs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// An outside page about the run, such as the build a worker started.
-	DetailsUrl    string `protobuf:"bytes,25,opt,name=details_url,json=detailsUrl,proto3" json:"details_url,omitempty"`
+	DetailsUrl string `protobuf:"bytes,25,opt,name=details_url,json=detailsUrl,proto3" json:"details_url,omitempty"`
+	// Reusable template provenance when executed via action.uses.
+	TemplateId       string `protobuf:"bytes,26,opt,name=template_id,json=templateId,proto3" json:"template_id,omitempty"`
+	TemplateCommitId string `protobuf:"bytes,27,opt,name=template_commit_id,json=templateCommitId,proto3" json:"template_commit_id,omitempty"`
+	// Multi-step pipeline linkage (set on child step runs).
+	ParentRunId string `protobuf:"bytes,28,opt,name=parent_run_id,json=parentRunId,proto3" json:"parent_run_id,omitempty"`
+	StepIndex   int32  `protobuf:"varint,29,opt,name=step_index,json=stepIndex,proto3" json:"step_index,omitempty"`
+	StepId      string `protobuf:"bytes,30,opt,name=step_id,json=stepId,proto3" json:"step_id,omitempty"`
+	// Named outputs emitted by this run (gs.setOutput / gs-auto set-output).
+	Outputs       map[string]string `protobuf:"bytes,31,rep,name=outputs,proto3" json:"outputs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AutomationRun) Reset() {
 	*x = AutomationRun{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[5]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -613,7 +821,7 @@ func (x *AutomationRun) String() string {
 func (*AutomationRun) ProtoMessage() {}
 
 func (x *AutomationRun) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[5]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -626,7 +834,7 @@ func (x *AutomationRun) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AutomationRun.ProtoReflect.Descriptor instead.
 func (*AutomationRun) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{5}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *AutomationRun) GetId() string {
@@ -804,6 +1012,48 @@ func (x *AutomationRun) GetDetailsUrl() string {
 	return ""
 }
 
+func (x *AutomationRun) GetTemplateId() string {
+	if x != nil {
+		return x.TemplateId
+	}
+	return ""
+}
+
+func (x *AutomationRun) GetTemplateCommitId() string {
+	if x != nil {
+		return x.TemplateCommitId
+	}
+	return ""
+}
+
+func (x *AutomationRun) GetParentRunId() string {
+	if x != nil {
+		return x.ParentRunId
+	}
+	return ""
+}
+
+func (x *AutomationRun) GetStepIndex() int32 {
+	if x != nil {
+		return x.StepIndex
+	}
+	return 0
+}
+
+func (x *AutomationRun) GetStepId() string {
+	if x != nil {
+		return x.StepId
+	}
+	return ""
+}
+
+func (x *AutomationRun) GetOutputs() map[string]string {
+	if x != nil {
+		return x.Outputs
+	}
+	return nil
+}
+
 type ListAutomationsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// A canonical folder, such as /acme/services/billing.
@@ -816,7 +1066,7 @@ type ListAutomationsRequest struct {
 
 func (x *ListAutomationsRequest) Reset() {
 	*x = ListAutomationsRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[6]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -828,7 +1078,7 @@ func (x *ListAutomationsRequest) String() string {
 func (*ListAutomationsRequest) ProtoMessage() {}
 
 func (x *ListAutomationsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[6]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -841,7 +1091,7 @@ func (x *ListAutomationsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAutomationsRequest.ProtoReflect.Descriptor instead.
 func (*ListAutomationsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{6}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *ListAutomationsRequest) GetPath() string {
@@ -870,7 +1120,7 @@ type GetFolderPolicyRequest struct {
 
 func (x *GetFolderPolicyRequest) Reset() {
 	*x = GetFolderPolicyRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[7]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -882,7 +1132,7 @@ func (x *GetFolderPolicyRequest) String() string {
 func (*GetFolderPolicyRequest) ProtoMessage() {}
 
 func (x *GetFolderPolicyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[7]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -895,7 +1145,7 @@ func (x *GetFolderPolicyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetFolderPolicyRequest.ProtoReflect.Descriptor instead.
 func (*GetFolderPolicyRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{7}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *GetFolderPolicyRequest) GetPath() string {
@@ -924,7 +1174,7 @@ type FolderOwnerRule struct {
 
 func (x *FolderOwnerRule) Reset() {
 	*x = FolderOwnerRule{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[8]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -936,7 +1186,7 @@ func (x *FolderOwnerRule) String() string {
 func (*FolderOwnerRule) ProtoMessage() {}
 
 func (x *FolderOwnerRule) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[8]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -949,7 +1199,7 @@ func (x *FolderOwnerRule) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FolderOwnerRule.ProtoReflect.Descriptor instead.
 func (*FolderOwnerRule) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{8}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *FolderOwnerRule) GetPaths() []string {
@@ -999,7 +1249,7 @@ type FolderCheckDefinition struct {
 
 func (x *FolderCheckDefinition) Reset() {
 	*x = FolderCheckDefinition{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[9]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1011,7 +1261,7 @@ func (x *FolderCheckDefinition) String() string {
 func (*FolderCheckDefinition) ProtoMessage() {}
 
 func (x *FolderCheckDefinition) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[9]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1024,7 +1274,7 @@ func (x *FolderCheckDefinition) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FolderCheckDefinition.ProtoReflect.Descriptor instead.
 func (*FolderCheckDefinition) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{9}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *FolderCheckDefinition) GetId() string {
@@ -1100,7 +1350,7 @@ type FolderSecretEntry struct {
 
 func (x *FolderSecretEntry) Reset() {
 	*x = FolderSecretEntry{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[10]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1112,7 +1362,7 @@ func (x *FolderSecretEntry) String() string {
 func (*FolderSecretEntry) ProtoMessage() {}
 
 func (x *FolderSecretEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[10]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1125,7 +1375,7 @@ func (x *FolderSecretEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FolderSecretEntry.ProtoReflect.Descriptor instead.
 func (*FolderSecretEntry) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{10}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *FolderSecretEntry) GetName() string {
@@ -1169,7 +1419,7 @@ type FolderPolicyProblem struct {
 
 func (x *FolderPolicyProblem) Reset() {
 	*x = FolderPolicyProblem{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[11]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1181,7 +1431,7 @@ func (x *FolderPolicyProblem) String() string {
 func (*FolderPolicyProblem) ProtoMessage() {}
 
 func (x *FolderPolicyProblem) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[11]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1194,7 +1444,7 @@ func (x *FolderPolicyProblem) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FolderPolicyProblem.ProtoReflect.Descriptor instead.
 func (*FolderPolicyProblem) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{11}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *FolderPolicyProblem) GetKind() string {
@@ -1247,7 +1497,7 @@ type FolderPolicyResponse struct {
 
 func (x *FolderPolicyResponse) Reset() {
 	*x = FolderPolicyResponse{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[12]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1259,7 +1509,7 @@ func (x *FolderPolicyResponse) String() string {
 func (*FolderPolicyResponse) ProtoMessage() {}
 
 func (x *FolderPolicyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[12]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1272,7 +1522,7 @@ func (x *FolderPolicyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FolderPolicyResponse.ProtoReflect.Descriptor instead.
 func (*FolderPolicyResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{12}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *FolderPolicyResponse) GetFolder() string {
@@ -1378,7 +1628,7 @@ type ListAutomationsResponse struct {
 
 func (x *ListAutomationsResponse) Reset() {
 	*x = ListAutomationsResponse{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[13]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1390,7 +1640,7 @@ func (x *ListAutomationsResponse) String() string {
 func (*ListAutomationsResponse) ProtoMessage() {}
 
 func (x *ListAutomationsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[13]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1403,7 +1653,7 @@ func (x *ListAutomationsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAutomationsResponse.ProtoReflect.Descriptor instead.
 func (*ListAutomationsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{13}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ListAutomationsResponse) GetAutomations() []*AutomationDefinition {
@@ -1433,14 +1683,16 @@ type ListAutomationRunsRequest struct {
 	AutomationId string                 `protobuf:"bytes,2,opt,name=automation_id,json=automationId,proto3" json:"automation_id,omitempty"`
 	ChangesetId  string                 `protobuf:"bytes,3,opt,name=changeset_id,json=changesetId,proto3" json:"changeset_id,omitempty"`
 	// Default 50, at most 200.
-	Limit         int32 `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	Limit int32 `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	// Optional: list child step runs belonging to a pipeline run (ordered by step_index).
+	ParentRunId   string `protobuf:"bytes,5,opt,name=parent_run_id,json=parentRunId,proto3" json:"parent_run_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ListAutomationRunsRequest) Reset() {
 	*x = ListAutomationRunsRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[14]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1452,7 +1704,7 @@ func (x *ListAutomationRunsRequest) String() string {
 func (*ListAutomationRunsRequest) ProtoMessage() {}
 
 func (x *ListAutomationRunsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[14]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1465,7 +1717,7 @@ func (x *ListAutomationRunsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAutomationRunsRequest.ProtoReflect.Descriptor instead.
 func (*ListAutomationRunsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{14}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ListAutomationRunsRequest) GetAccount() string {
@@ -1496,6 +1748,13 @@ func (x *ListAutomationRunsRequest) GetLimit() int32 {
 	return 0
 }
 
+func (x *ListAutomationRunsRequest) GetParentRunId() string {
+	if x != nil {
+		return x.ParentRunId
+	}
+	return ""
+}
+
 type ListAutomationRunsResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Runs          []*AutomationRun       `protobuf:"bytes,1,rep,name=runs,proto3" json:"runs,omitempty"`
@@ -1505,7 +1764,7 @@ type ListAutomationRunsResponse struct {
 
 func (x *ListAutomationRunsResponse) Reset() {
 	*x = ListAutomationRunsResponse{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[15]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1517,7 +1776,7 @@ func (x *ListAutomationRunsResponse) String() string {
 func (*ListAutomationRunsResponse) ProtoMessage() {}
 
 func (x *ListAutomationRunsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[15]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1530,7 +1789,7 @@ func (x *ListAutomationRunsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAutomationRunsResponse.ProtoReflect.Descriptor instead.
 func (*ListAutomationRunsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{15}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *ListAutomationRunsResponse) GetRuns() []*AutomationRun {
@@ -1549,7 +1808,7 @@ type GetAutomationRunRequest struct {
 
 func (x *GetAutomationRunRequest) Reset() {
 	*x = GetAutomationRunRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[16]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1561,7 +1820,7 @@ func (x *GetAutomationRunRequest) String() string {
 func (*GetAutomationRunRequest) ProtoMessage() {}
 
 func (x *GetAutomationRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[16]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1574,7 +1833,7 @@ func (x *GetAutomationRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetAutomationRunRequest.ProtoReflect.Descriptor instead.
 func (*GetAutomationRunRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{16}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *GetAutomationRunRequest) GetRunId() string {
@@ -1594,7 +1853,7 @@ type ListAutomationRunLogsRequest struct {
 
 func (x *ListAutomationRunLogsRequest) Reset() {
 	*x = ListAutomationRunLogsRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[17]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1606,7 +1865,7 @@ func (x *ListAutomationRunLogsRequest) String() string {
 func (*ListAutomationRunLogsRequest) ProtoMessage() {}
 
 func (x *ListAutomationRunLogsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[17]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1619,7 +1878,7 @@ func (x *ListAutomationRunLogsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAutomationRunLogsRequest.ProtoReflect.Descriptor instead.
 func (*ListAutomationRunLogsRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{17}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ListAutomationRunLogsRequest) GetRunId() string {
@@ -1648,7 +1907,7 @@ type AutomationRunLog struct {
 
 func (x *AutomationRunLog) Reset() {
 	*x = AutomationRunLog{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[18]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1660,7 +1919,7 @@ func (x *AutomationRunLog) String() string {
 func (*AutomationRunLog) ProtoMessage() {}
 
 func (x *AutomationRunLog) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[18]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1673,7 +1932,7 @@ func (x *AutomationRunLog) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AutomationRunLog.ProtoReflect.Descriptor instead.
 func (*AutomationRunLog) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{18}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *AutomationRunLog) GetSeq() int64 {
@@ -1713,7 +1972,7 @@ type ListAutomationRunLogsResponse struct {
 
 func (x *ListAutomationRunLogsResponse) Reset() {
 	*x = ListAutomationRunLogsResponse{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[19]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1725,7 +1984,7 @@ func (x *ListAutomationRunLogsResponse) String() string {
 func (*ListAutomationRunLogsResponse) ProtoMessage() {}
 
 func (x *ListAutomationRunLogsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[19]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1738,7 +1997,7 @@ func (x *ListAutomationRunLogsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListAutomationRunLogsResponse.ProtoReflect.Descriptor instead.
 func (*ListAutomationRunLogsResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{19}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *ListAutomationRunLogsResponse) GetLogs() []*AutomationRunLog {
@@ -1768,7 +2027,7 @@ type RunAutomationRequest struct {
 
 func (x *RunAutomationRequest) Reset() {
 	*x = RunAutomationRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[20]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1780,7 +2039,7 @@ func (x *RunAutomationRequest) String() string {
 func (*RunAutomationRequest) ProtoMessage() {}
 
 func (x *RunAutomationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[20]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1793,7 +2052,7 @@ func (x *RunAutomationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RunAutomationRequest.ProtoReflect.Descriptor instead.
 func (*RunAutomationRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{20}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *RunAutomationRequest) GetAccount() string {
@@ -1847,7 +2106,7 @@ type RerunAutomationRunRequest struct {
 
 func (x *RerunAutomationRunRequest) Reset() {
 	*x = RerunAutomationRunRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[21]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1859,7 +2118,7 @@ func (x *RerunAutomationRunRequest) String() string {
 func (*RerunAutomationRunRequest) ProtoMessage() {}
 
 func (x *RerunAutomationRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[21]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1872,7 +2131,7 @@ func (x *RerunAutomationRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RerunAutomationRunRequest.ProtoReflect.Descriptor instead.
 func (*RerunAutomationRunRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{21}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *RerunAutomationRunRequest) GetRunId() string {
@@ -1891,7 +2150,7 @@ type CancelAutomationRunRequest struct {
 
 func (x *CancelAutomationRunRequest) Reset() {
 	*x = CancelAutomationRunRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[22]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1903,7 +2162,7 @@ func (x *CancelAutomationRunRequest) String() string {
 func (*CancelAutomationRunRequest) ProtoMessage() {}
 
 func (x *CancelAutomationRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[22]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1916,7 +2175,7 @@ func (x *CancelAutomationRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelAutomationRunRequest.ProtoReflect.Descriptor instead.
 func (*CancelAutomationRunRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{22}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *CancelAutomationRunRequest) GetRunId() string {
@@ -1939,7 +2198,7 @@ type StartAutomationRunRequest struct {
 
 func (x *StartAutomationRunRequest) Reset() {
 	*x = StartAutomationRunRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[23]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1951,7 +2210,7 @@ func (x *StartAutomationRunRequest) String() string {
 func (*StartAutomationRunRequest) ProtoMessage() {}
 
 func (x *StartAutomationRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[23]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1964,7 +2223,7 @@ func (x *StartAutomationRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartAutomationRunRequest.ProtoReflect.Descriptor instead.
 func (*StartAutomationRunRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{23}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *StartAutomationRunRequest) GetRunId() string {
@@ -2028,7 +2287,7 @@ type StartAutomationRunResponse struct {
 
 func (x *StartAutomationRunResponse) Reset() {
 	*x = StartAutomationRunResponse{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[24]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2040,7 +2299,7 @@ func (x *StartAutomationRunResponse) String() string {
 func (*StartAutomationRunResponse) ProtoMessage() {}
 
 func (x *StartAutomationRunResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[24]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2053,7 +2312,7 @@ func (x *StartAutomationRunResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StartAutomationRunResponse.ProtoReflect.Descriptor instead.
 func (*StartAutomationRunResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{24}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *StartAutomationRunResponse) GetRun() *AutomationRun {
@@ -2226,7 +2485,7 @@ type AutomationRunTokenRequest struct {
 
 func (x *AutomationRunTokenRequest) Reset() {
 	*x = AutomationRunTokenRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[25]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2238,7 +2497,7 @@ func (x *AutomationRunTokenRequest) String() string {
 func (*AutomationRunTokenRequest) ProtoMessage() {}
 
 func (x *AutomationRunTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[25]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2251,7 +2510,7 @@ func (x *AutomationRunTokenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AutomationRunTokenRequest.ProtoReflect.Descriptor instead.
 func (*AutomationRunTokenRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{25}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *AutomationRunTokenRequest) GetRunToken() string {
@@ -2280,7 +2539,7 @@ type FinishAutomationRunRequest struct {
 
 func (x *FinishAutomationRunRequest) Reset() {
 	*x = FinishAutomationRunRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[26]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2292,7 +2551,7 @@ func (x *FinishAutomationRunRequest) String() string {
 func (*FinishAutomationRunRequest) ProtoMessage() {}
 
 func (x *FinishAutomationRunRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[26]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2305,7 +2564,7 @@ func (x *FinishAutomationRunRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FinishAutomationRunRequest.ProtoReflect.Descriptor instead.
 func (*FinishAutomationRunRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{26}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *FinishAutomationRunRequest) GetRunToken() string {
@@ -2360,7 +2619,7 @@ type AutomationRunLogLine struct {
 
 func (x *AutomationRunLogLine) Reset() {
 	*x = AutomationRunLogLine{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[27]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2372,7 +2631,7 @@ func (x *AutomationRunLogLine) String() string {
 func (*AutomationRunLogLine) ProtoMessage() {}
 
 func (x *AutomationRunLogLine) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[27]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2385,7 +2644,7 @@ func (x *AutomationRunLogLine) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AutomationRunLogLine.ProtoReflect.Descriptor instead.
 func (*AutomationRunLogLine) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{27}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *AutomationRunLogLine) GetStream() string {
@@ -2412,7 +2671,7 @@ type AppendAutomationRunLogRequest struct {
 
 func (x *AppendAutomationRunLogRequest) Reset() {
 	*x = AppendAutomationRunLogRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[28]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2424,7 +2683,7 @@ func (x *AppendAutomationRunLogRequest) String() string {
 func (*AppendAutomationRunLogRequest) ProtoMessage() {}
 
 func (x *AppendAutomationRunLogRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[28]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2437,7 +2696,7 @@ func (x *AppendAutomationRunLogRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AppendAutomationRunLogRequest.ProtoReflect.Descriptor instead.
 func (*AppendAutomationRunLogRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{28}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *AppendAutomationRunLogRequest) GetRunToken() string {
@@ -2463,7 +2722,7 @@ type AutomationRunState struct {
 
 func (x *AutomationRunState) Reset() {
 	*x = AutomationRunState{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[29]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2475,7 +2734,7 @@ func (x *AutomationRunState) String() string {
 func (*AutomationRunState) ProtoMessage() {}
 
 func (x *AutomationRunState) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[29]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2488,7 +2747,7 @@ func (x *AutomationRunState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AutomationRunState.ProtoReflect.Descriptor instead.
 func (*AutomationRunState) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{29}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *AutomationRunState) GetStateJson() string {
@@ -2509,7 +2768,7 @@ type SetAutomationRunDetailsUrlRequest struct {
 
 func (x *SetAutomationRunDetailsUrlRequest) Reset() {
 	*x = SetAutomationRunDetailsUrlRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[30]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2521,7 +2780,7 @@ func (x *SetAutomationRunDetailsUrlRequest) String() string {
 func (*SetAutomationRunDetailsUrlRequest) ProtoMessage() {}
 
 func (x *SetAutomationRunDetailsUrlRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[30]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2534,7 +2793,7 @@ func (x *SetAutomationRunDetailsUrlRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use SetAutomationRunDetailsUrlRequest.ProtoReflect.Descriptor instead.
 func (*SetAutomationRunDetailsUrlRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{30}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *SetAutomationRunDetailsUrlRequest) GetRunToken() string {
@@ -2551,6 +2810,204 @@ func (x *SetAutomationRunDetailsUrlRequest) GetDetailsUrl() string {
 	return ""
 }
 
+type SetAutomationRunOutputRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RunToken      string                 `protobuf:"bytes,1,opt,name=run_token,json=runToken,proto3" json:"run_token,omitempty"`
+	Key           string                 `protobuf:"bytes,2,opt,name=key,proto3" json:"key,omitempty"`
+	Value         string                 `protobuf:"bytes,3,opt,name=value,proto3" json:"value,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetAutomationRunOutputRequest) Reset() {
+	*x = SetAutomationRunOutputRequest{}
+	mi := &file_proto_core_v1_automation_proto_msgTypes[33]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetAutomationRunOutputRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetAutomationRunOutputRequest) ProtoMessage() {}
+
+func (x *SetAutomationRunOutputRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_automation_proto_msgTypes[33]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetAutomationRunOutputRequest.ProtoReflect.Descriptor instead.
+func (*SetAutomationRunOutputRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{33}
+}
+
+func (x *SetAutomationRunOutputRequest) GetRunToken() string {
+	if x != nil {
+		return x.RunToken
+	}
+	return ""
+}
+
+func (x *SetAutomationRunOutputRequest) GetKey() string {
+	if x != nil {
+		return x.Key
+	}
+	return ""
+}
+
+func (x *SetAutomationRunOutputRequest) GetValue() string {
+	if x != nil {
+		return x.Value
+	}
+	return ""
+}
+
+type InspectAutomationTemplateRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Template ref: /<account>/<folder>/<name>[@<tag>|@sha256:...]
+	Ref string `protobuf:"bytes,1,opt,name=ref,proto3" json:"ref,omitempty"`
+	// Optional caller account for unpinned same-account lookup.
+	CallerAccount string `protobuf:"bytes,2,opt,name=caller_account,json=callerAccount,proto3" json:"caller_account,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InspectAutomationTemplateRequest) Reset() {
+	*x = InspectAutomationTemplateRequest{}
+	mi := &file_proto_core_v1_automation_proto_msgTypes[34]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InspectAutomationTemplateRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InspectAutomationTemplateRequest) ProtoMessage() {}
+
+func (x *InspectAutomationTemplateRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_automation_proto_msgTypes[34]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InspectAutomationTemplateRequest.ProtoReflect.Descriptor instead.
+func (*InspectAutomationTemplateRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{34}
+}
+
+func (x *InspectAutomationTemplateRequest) GetRef() string {
+	if x != nil {
+		return x.Ref
+	}
+	return ""
+}
+
+func (x *InspectAutomationTemplateRequest) GetCallerAccount() string {
+	if x != nil {
+		return x.CallerAccount
+	}
+	return ""
+}
+
+type InspectAutomationTemplateResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Template      *AutomationDefinition  `protobuf:"bytes,1,opt,name=template,proto3" json:"template,omitempty"`
+	Account       string                 `protobuf:"bytes,2,opt,name=account,proto3" json:"account,omitempty"`
+	Folder        string                 `protobuf:"bytes,3,opt,name=folder,proto3" json:"folder,omitempty"`
+	CommitId      string                 `protobuf:"bytes,4,opt,name=commit_id,json=commitId,proto3" json:"commit_id,omitempty"`
+	ResolvedRef   string                 `protobuf:"bytes,5,opt,name=resolved_ref,json=resolvedRef,proto3" json:"resolved_ref,omitempty"`
+	AvailableTags []string               `protobuf:"bytes,6,rep,name=available_tags,json=availableTags,proto3" json:"available_tags,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *InspectAutomationTemplateResponse) Reset() {
+	*x = InspectAutomationTemplateResponse{}
+	mi := &file_proto_core_v1_automation_proto_msgTypes[35]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *InspectAutomationTemplateResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*InspectAutomationTemplateResponse) ProtoMessage() {}
+
+func (x *InspectAutomationTemplateResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_automation_proto_msgTypes[35]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use InspectAutomationTemplateResponse.ProtoReflect.Descriptor instead.
+func (*InspectAutomationTemplateResponse) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{35}
+}
+
+func (x *InspectAutomationTemplateResponse) GetTemplate() *AutomationDefinition {
+	if x != nil {
+		return x.Template
+	}
+	return nil
+}
+
+func (x *InspectAutomationTemplateResponse) GetAccount() string {
+	if x != nil {
+		return x.Account
+	}
+	return ""
+}
+
+func (x *InspectAutomationTemplateResponse) GetFolder() string {
+	if x != nil {
+		return x.Folder
+	}
+	return ""
+}
+
+func (x *InspectAutomationTemplateResponse) GetCommitId() string {
+	if x != nil {
+		return x.CommitId
+	}
+	return ""
+}
+
+func (x *InspectAutomationTemplateResponse) GetResolvedRef() string {
+	if x != nil {
+		return x.ResolvedRef
+	}
+	return ""
+}
+
+func (x *InspectAutomationTemplateResponse) GetAvailableTags() []string {
+	if x != nil {
+		return x.AvailableTags
+	}
+	return nil
+}
+
 type SetAutomationRunStateRequest struct {
 	state    protoimpl.MessageState `protogen:"open.v1"`
 	RunToken string                 `protobuf:"bytes,1,opt,name=run_token,json=runToken,proto3" json:"run_token,omitempty"`
@@ -2562,7 +3019,7 @@ type SetAutomationRunStateRequest struct {
 
 func (x *SetAutomationRunStateRequest) Reset() {
 	*x = SetAutomationRunStateRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[31]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2574,7 +3031,7 @@ func (x *SetAutomationRunStateRequest) String() string {
 func (*SetAutomationRunStateRequest) ProtoMessage() {}
 
 func (x *SetAutomationRunStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[31]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2587,7 +3044,7 @@ func (x *SetAutomationRunStateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetAutomationRunStateRequest.ProtoReflect.Descriptor instead.
 func (*SetAutomationRunStateRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{31}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *SetAutomationRunStateRequest) GetRunToken() string {
@@ -2619,7 +3076,7 @@ type CreateAutomationCheckRequest struct {
 
 func (x *CreateAutomationCheckRequest) Reset() {
 	*x = CreateAutomationCheckRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[32]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2631,7 +3088,7 @@ func (x *CreateAutomationCheckRequest) String() string {
 func (*CreateAutomationCheckRequest) ProtoMessage() {}
 
 func (x *CreateAutomationCheckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[32]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2644,7 +3101,7 @@ func (x *CreateAutomationCheckRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateAutomationCheckRequest.ProtoReflect.Descriptor instead.
 func (*CreateAutomationCheckRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{32}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *CreateAutomationCheckRequest) GetRunToken() string {
@@ -2704,7 +3161,7 @@ type UpdateAutomationCheckRequest struct {
 
 func (x *UpdateAutomationCheckRequest) Reset() {
 	*x = UpdateAutomationCheckRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[33]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2716,7 +3173,7 @@ func (x *UpdateAutomationCheckRequest) String() string {
 func (*UpdateAutomationCheckRequest) ProtoMessage() {}
 
 func (x *UpdateAutomationCheckRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[33]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2729,7 +3186,7 @@ func (x *UpdateAutomationCheckRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateAutomationCheckRequest.ProtoReflect.Descriptor instead.
 func (*UpdateAutomationCheckRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{33}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *UpdateAutomationCheckRequest) GetRunToken() string {
@@ -2787,7 +3244,7 @@ type AutomationReadFileRequest struct {
 
 func (x *AutomationReadFileRequest) Reset() {
 	*x = AutomationReadFileRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[34]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2799,7 +3256,7 @@ func (x *AutomationReadFileRequest) String() string {
 func (*AutomationReadFileRequest) ProtoMessage() {}
 
 func (x *AutomationReadFileRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[34]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2812,7 +3269,7 @@ func (x *AutomationReadFileRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AutomationReadFileRequest.ProtoReflect.Descriptor instead.
 func (*AutomationReadFileRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{34}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *AutomationReadFileRequest) GetRunToken() string {
@@ -2846,7 +3303,7 @@ type AutomationReadFileResponse struct {
 
 func (x *AutomationReadFileResponse) Reset() {
 	*x = AutomationReadFileResponse{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[35]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2858,7 +3315,7 @@ func (x *AutomationReadFileResponse) String() string {
 func (*AutomationReadFileResponse) ProtoMessage() {}
 
 func (x *AutomationReadFileResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[35]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2871,7 +3328,7 @@ func (x *AutomationReadFileResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AutomationReadFileResponse.ProtoReflect.Descriptor instead.
 func (*AutomationReadFileResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{35}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *AutomationReadFileResponse) GetFound() bool {
@@ -2899,7 +3356,7 @@ type AutomationListDirectoryRequest struct {
 
 func (x *AutomationListDirectoryRequest) Reset() {
 	*x = AutomationListDirectoryRequest{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[36]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2911,7 +3368,7 @@ func (x *AutomationListDirectoryRequest) String() string {
 func (*AutomationListDirectoryRequest) ProtoMessage() {}
 
 func (x *AutomationListDirectoryRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[36]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2924,7 +3381,7 @@ func (x *AutomationListDirectoryRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AutomationListDirectoryRequest.ProtoReflect.Descriptor instead.
 func (*AutomationListDirectoryRequest) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{36}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *AutomationListDirectoryRequest) GetRunToken() string {
@@ -2960,7 +3417,7 @@ type AutomationDirectoryEntry struct {
 
 func (x *AutomationDirectoryEntry) Reset() {
 	*x = AutomationDirectoryEntry{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[37]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2972,7 +3429,7 @@ func (x *AutomationDirectoryEntry) String() string {
 func (*AutomationDirectoryEntry) ProtoMessage() {}
 
 func (x *AutomationDirectoryEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[37]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2985,7 +3442,7 @@ func (x *AutomationDirectoryEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AutomationDirectoryEntry.ProtoReflect.Descriptor instead.
 func (*AutomationDirectoryEntry) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{37}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *AutomationDirectoryEntry) GetName() string {
@@ -3019,7 +3476,7 @@ type AutomationListDirectoryResponse struct {
 
 func (x *AutomationListDirectoryResponse) Reset() {
 	*x = AutomationListDirectoryResponse{}
-	mi := &file_proto_core_v1_automation_proto_msgTypes[38]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3031,7 +3488,7 @@ func (x *AutomationListDirectoryResponse) String() string {
 func (*AutomationListDirectoryResponse) ProtoMessage() {}
 
 func (x *AutomationListDirectoryResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_core_v1_automation_proto_msgTypes[38]
+	mi := &file_proto_core_v1_automation_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3044,7 +3501,7 @@ func (x *AutomationListDirectoryResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AutomationListDirectoryResponse.ProtoReflect.Descriptor instead.
 func (*AutomationListDirectoryResponse) Descriptor() ([]byte, []int) {
-	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{38}
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *AutomationListDirectoryResponse) GetFound() bool {
@@ -3090,7 +3547,7 @@ const file_proto_core_v1_automation_proto_rawDesc = "" +
 	"\x03env\x18\b \x03(\v2/.gitslice.core.v1.AutomationBashAction.EnvEntryR\x03env\x1a6\n" +
 	"\bEnvEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa3\x05\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc9\a\n" +
 	"\x14AutomationDefinition\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x16\n" +
@@ -3115,11 +3572,36 @@ const file_proto_core_v1_automation_proto_rawDesc = "" +
 	"\x06manual\x18\x13 \x01(\v2(.gitslice.core.v1.AutomationManualPolicyR\x06manual\x12\x16\n" +
 	"\x06reveal\x18\x14 \x03(\tR\x06reveal\x12\x16\n" +
 	"\x06egress\x18\x15 \x01(\tR\x06egress\x12:\n" +
-	"\x04bash\x18\x16 \x01(\v2&.gitslice.core.v1.AutomationBashActionR\x04bash\"]\n" +
+	"\x04bash\x18\x16 \x01(\v2&.gitslice.core.v1.AutomationBashActionR\x04bash\x12:\n" +
+	"\x04uses\x18\x17 \x01(\v2&.gitslice.core.v1.AutomationUsesActionR\x04uses\x12@\n" +
+	"\x05steps\x18\x18 \x03(\v2*.gitslice.core.v1.AutomationStepDefinitionR\x05steps\x12c\n" +
+	"\x0fsecret_bindings\x18\x19 \x03(\v2:.gitslice.core.v1.AutomationDefinition.SecretBindingsEntryR\x0esecretBindings\x1aA\n" +
+	"\x13SecretBindingsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa7\x01\n" +
+	"\x14AutomationUsesAction\x12\x10\n" +
+	"\x03ref\x18\x01 \x01(\tR\x03ref\x12D\n" +
+	"\x04with\x18\x02 \x03(\v20.gitslice.core.v1.AutomationUsesAction.WithEntryR\x04with\x1a7\n" +
+	"\tWithEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd6\x02\n" +
+	"\x18AutomationStepDefinition\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x1c\n" +
+	"\tcondition\x18\x03 \x01(\tR\tcondition\x12\x16\n" +
+	"\x06action\x18\x04 \x01(\tR\x06action\x12:\n" +
+	"\x04uses\x18\x05 \x01(\v2&.gitslice.core.v1.AutomationUsesActionR\x04uses\x12:\n" +
+	"\x04bash\x18\x06 \x01(\v2&.gitslice.core.v1.AutomationBashActionR\x04bash\x12\x16\n" +
+	"\x06worker\x18\a \x01(\tR\x06worker\x12\x19\n" +
+	"\bhttp_url\x18\b \x01(\tR\ahttpUrl\x12\x16\n" +
+	"\x06checks\x18\t \x03(\tR\x06checks\x12\x1d\n" +
+	"\n" +
+	"timeout_ms\x18\n" +
+	" \x01(\x03R\ttimeoutMs\"]\n" +
 	"\x15AutomationFileProblem\x12\x16\n" +
 	"\x06folder\x18\x01 \x01(\tR\x06folder\x12\x12\n" +
 	"\x04file\x18\x02 \x01(\tR\x04file\x12\x18\n" +
-	"\amessage\x18\x03 \x01(\tR\amessage\"\xf9\x06\n" +
+	"\amessage\x18\x03 \x01(\tR\amessage\"\xa8\t\n" +
 	"\rAutomationRun\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaccount\x18\x02 \x01(\tR\aaccount\x12#\n" +
@@ -3153,8 +3635,19 @@ const file_proto_core_v1_automation_proto_rawDesc = "" +
 	"\x11triggered_by_kind\x18\x17 \x01(\tR\x0ftriggeredByKind\x12C\n" +
 	"\x06inputs\x18\x18 \x03(\v2+.gitslice.core.v1.AutomationRun.InputsEntryR\x06inputs\x12\x1f\n" +
 	"\vdetails_url\x18\x19 \x01(\tR\n" +
-	"detailsUrl\x1a9\n" +
+	"detailsUrl\x12\x1f\n" +
+	"\vtemplate_id\x18\x1a \x01(\tR\n" +
+	"templateId\x12,\n" +
+	"\x12template_commit_id\x18\x1b \x01(\tR\x10templateCommitId\x12\"\n" +
+	"\rparent_run_id\x18\x1c \x01(\tR\vparentRunId\x12\x1d\n" +
+	"\n" +
+	"step_index\x18\x1d \x01(\x05R\tstepIndex\x12\x17\n" +
+	"\astep_id\x18\x1e \x01(\tR\x06stepId\x12F\n" +
+	"\aoutputs\x18\x1f \x03(\v2,.gitslice.core.v1.AutomationRun.OutputsEntryR\aoutputs\x1a9\n" +
 	"\vInputsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a:\n" +
+	"\fOutputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\">\n" +
 	"\x16ListAutomationsRequest\x12\x12\n" +
@@ -3208,12 +3701,13 @@ const file_proto_core_v1_automation_proto_rawDesc = "" +
 	"\x17ListAutomationsResponse\x12H\n" +
 	"\vautomations\x18\x01 \x03(\v2&.gitslice.core.v1.AutomationDefinitionR\vautomations\x12C\n" +
 	"\bproblems\x18\x02 \x03(\v2'.gitslice.core.v1.AutomationFileProblemR\bproblems\x12\x1b\n" +
-	"\tcommit_id\x18\x03 \x01(\tR\bcommitId\"\x93\x01\n" +
+	"\tcommit_id\x18\x03 \x01(\tR\bcommitId\"\xb7\x01\n" +
 	"\x19ListAutomationRunsRequest\x12\x18\n" +
 	"\aaccount\x18\x01 \x01(\tR\aaccount\x12#\n" +
 	"\rautomation_id\x18\x02 \x01(\tR\fautomationId\x12!\n" +
 	"\fchangeset_id\x18\x03 \x01(\tR\vchangesetId\x12\x14\n" +
-	"\x05limit\x18\x04 \x01(\x05R\x05limit\"Q\n" +
+	"\x05limit\x18\x04 \x01(\x05R\x05limit\x12\"\n" +
+	"\rparent_run_id\x18\x05 \x01(\tR\vparentRunId\"Q\n" +
 	"\x1aListAutomationRunsResponse\x123\n" +
 	"\x04runs\x18\x01 \x03(\v2\x1f.gitslice.core.v1.AutomationRunR\x04runs\"0\n" +
 	"\x17GetAutomationRunRequest\x12\x15\n" +
@@ -3310,7 +3804,21 @@ const file_proto_core_v1_automation_proto_rawDesc = "" +
 	"!SetAutomationRunDetailsUrlRequest\x12\x1b\n" +
 	"\trun_token\x18\x01 \x01(\tR\brunToken\x12\x1f\n" +
 	"\vdetails_url\x18\x02 \x01(\tR\n" +
-	"detailsUrl\"Z\n" +
+	"detailsUrl\"d\n" +
+	"\x1dSetAutomationRunOutputRequest\x12\x1b\n" +
+	"\trun_token\x18\x01 \x01(\tR\brunToken\x12\x10\n" +
+	"\x03key\x18\x02 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x03 \x01(\tR\x05value\"[\n" +
+	" InspectAutomationTemplateRequest\x12\x10\n" +
+	"\x03ref\x18\x01 \x01(\tR\x03ref\x12%\n" +
+	"\x0ecaller_account\x18\x02 \x01(\tR\rcallerAccount\"\x80\x02\n" +
+	"!InspectAutomationTemplateResponse\x12B\n" +
+	"\btemplate\x18\x01 \x01(\v2&.gitslice.core.v1.AutomationDefinitionR\btemplate\x12\x18\n" +
+	"\aaccount\x18\x02 \x01(\tR\aaccount\x12\x16\n" +
+	"\x06folder\x18\x03 \x01(\tR\x06folder\x12\x1b\n" +
+	"\tcommit_id\x18\x04 \x01(\tR\bcommitId\x12!\n" +
+	"\fresolved_ref\x18\x05 \x01(\tR\vresolvedRef\x12%\n" +
+	"\x0eavailable_tags\x18\x06 \x03(\tR\ravailableTags\"Z\n" +
 	"\x1cSetAutomationRunStateRequest\x12\x1b\n" +
 	"\trun_token\x18\x01 \x01(\tR\brunToken\x12\x1d\n" +
 	"\n" +
@@ -3352,7 +3860,7 @@ const file_proto_core_v1_automation_proto_rawDesc = "" +
 	"\x04kind\x18\x03 \x01(\tR\x04kind\"}\n" +
 	"\x1fAutomationListDirectoryResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x12D\n" +
-	"\aentries\x18\x02 \x03(\v2*.gitslice.core.v1.AutomationDirectoryEntryR\aentries2\xcf\x06\n" +
+	"\aentries\x18\x02 \x03(\v2*.gitslice.core.v1.AutomationDirectoryEntryR\aentries2\xd6\a\n" +
 	"\x11AutomationService\x12c\n" +
 	"\x0fGetFolderPolicy\x12(.gitslice.core.v1.GetFolderPolicyRequest\x1a&.gitslice.core.v1.FolderPolicyResponse\x12f\n" +
 	"\x0fListAutomations\x12(.gitslice.core.v1.ListAutomationsRequest\x1a).gitslice.core.v1.ListAutomationsResponse\x12o\n" +
@@ -3361,7 +3869,9 @@ const file_proto_core_v1_automation_proto_rawDesc = "" +
 	"\x15ListAutomationRunLogs\x12..gitslice.core.v1.ListAutomationRunLogsRequest\x1a/.gitslice.core.v1.ListAutomationRunLogsResponse\x12X\n" +
 	"\rRunAutomation\x12&.gitslice.core.v1.RunAutomationRequest\x1a\x1f.gitslice.core.v1.AutomationRun\x12b\n" +
 	"\x12RerunAutomationRun\x12+.gitslice.core.v1.RerunAutomationRunRequest\x1a\x1f.gitslice.core.v1.AutomationRun\x12d\n" +
-	"\x13CancelAutomationRun\x12,.gitslice.core.v1.CancelAutomationRunRequest\x1a\x1f.gitslice.core.v1.AutomationRun2\xa8\t\n" +
+	"\x13CancelAutomationRun\x12,.gitslice.core.v1.CancelAutomationRunRequest\x1a\x1f.gitslice.core.v1.AutomationRun\x12\x84\x01\n" +
+	"\x19InspectAutomationTemplate\x122.gitslice.core.v1.InspectAutomationTemplateRequest\x1a3.gitslice.core.v1.InspectAutomationTemplateResponse2\x82\n" +
+	"\n" +
 	"\x14AutomationRunService\x12e\n" +
 	"\bStartRun\x12+.gitslice.core.v1.StartAutomationRunRequest\x1a,.gitslice.core.v1.StartAutomationRunResponse\x12j\n" +
 	"\rStartCallback\x12+.gitslice.core.v1.StartAutomationRunRequest\x1a,.gitslice.core.v1.StartAutomationRunResponse\x12Z\n" +
@@ -3369,7 +3879,8 @@ const file_proto_core_v1_automation_proto_rawDesc = "" +
 	"\fAppendRunLog\x12/.gitslice.core.v1.AppendAutomationRunLogRequest\x1a\x17.gitslice.core.v1.Empty\x12`\n" +
 	"\vGetRunState\x12+.gitslice.core.v1.AutomationRunTokenRequest\x1a$.gitslice.core.v1.AutomationRunState\x12V\n" +
 	"\vSetRunState\x12..gitslice.core.v1.SetAutomationRunStateRequest\x1a\x17.gitslice.core.v1.Empty\x12`\n" +
-	"\x10SetRunDetailsUrl\x123.gitslice.core.v1.SetAutomationRunDetailsUrlRequest\x1a\x17.gitslice.core.v1.Empty\x12Y\n" +
+	"\x10SetRunDetailsUrl\x123.gitslice.core.v1.SetAutomationRunDetailsUrlRequest\x1a\x17.gitslice.core.v1.Empty\x12X\n" +
+	"\fSetRunOutput\x12/.gitslice.core.v1.SetAutomationRunOutputRequest\x1a\x17.gitslice.core.v1.Empty\x12Y\n" +
 	"\vCreateCheck\x12..gitslice.core.v1.CreateAutomationCheckRequest\x1a\x1a.gitslice.core.v1.CheckRun\x12Y\n" +
 	"\vUpdateCheck\x12..gitslice.core.v1.UpdateAutomationCheckRequest\x1a\x1a.gitslice.core.v1.CheckRun\x12e\n" +
 	"\bReadFile\x12+.gitslice.core.v1.AutomationReadFileRequest\x1a,.gitslice.core.v1.AutomationReadFileResponse\x12t\n" +
@@ -3388,129 +3899,149 @@ func file_proto_core_v1_automation_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_automation_proto_rawDescData
 }
 
-var file_proto_core_v1_automation_proto_msgTypes = make([]protoimpl.MessageInfo, 46)
+var file_proto_core_v1_automation_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
 var file_proto_core_v1_automation_proto_goTypes = []any{
 	(*AutomationInputSpec)(nil),               // 0: gitslice.core.v1.AutomationInputSpec
 	(*AutomationManualPolicy)(nil),            // 1: gitslice.core.v1.AutomationManualPolicy
 	(*AutomationBashAction)(nil),              // 2: gitslice.core.v1.AutomationBashAction
 	(*AutomationDefinition)(nil),              // 3: gitslice.core.v1.AutomationDefinition
-	(*AutomationFileProblem)(nil),             // 4: gitslice.core.v1.AutomationFileProblem
-	(*AutomationRun)(nil),                     // 5: gitslice.core.v1.AutomationRun
-	(*ListAutomationsRequest)(nil),            // 6: gitslice.core.v1.ListAutomationsRequest
-	(*GetFolderPolicyRequest)(nil),            // 7: gitslice.core.v1.GetFolderPolicyRequest
-	(*FolderOwnerRule)(nil),                   // 8: gitslice.core.v1.FolderOwnerRule
-	(*FolderCheckDefinition)(nil),             // 9: gitslice.core.v1.FolderCheckDefinition
-	(*FolderSecretEntry)(nil),                 // 10: gitslice.core.v1.FolderSecretEntry
-	(*FolderPolicyProblem)(nil),               // 11: gitslice.core.v1.FolderPolicyProblem
-	(*FolderPolicyResponse)(nil),              // 12: gitslice.core.v1.FolderPolicyResponse
-	(*ListAutomationsResponse)(nil),           // 13: gitslice.core.v1.ListAutomationsResponse
-	(*ListAutomationRunsRequest)(nil),         // 14: gitslice.core.v1.ListAutomationRunsRequest
-	(*ListAutomationRunsResponse)(nil),        // 15: gitslice.core.v1.ListAutomationRunsResponse
-	(*GetAutomationRunRequest)(nil),           // 16: gitslice.core.v1.GetAutomationRunRequest
-	(*ListAutomationRunLogsRequest)(nil),      // 17: gitslice.core.v1.ListAutomationRunLogsRequest
-	(*AutomationRunLog)(nil),                  // 18: gitslice.core.v1.AutomationRunLog
-	(*ListAutomationRunLogsResponse)(nil),     // 19: gitslice.core.v1.ListAutomationRunLogsResponse
-	(*RunAutomationRequest)(nil),              // 20: gitslice.core.v1.RunAutomationRequest
-	(*RerunAutomationRunRequest)(nil),         // 21: gitslice.core.v1.RerunAutomationRunRequest
-	(*CancelAutomationRunRequest)(nil),        // 22: gitslice.core.v1.CancelAutomationRunRequest
-	(*StartAutomationRunRequest)(nil),         // 23: gitslice.core.v1.StartAutomationRunRequest
-	(*StartAutomationRunResponse)(nil),        // 24: gitslice.core.v1.StartAutomationRunResponse
-	(*AutomationRunTokenRequest)(nil),         // 25: gitslice.core.v1.AutomationRunTokenRequest
-	(*FinishAutomationRunRequest)(nil),        // 26: gitslice.core.v1.FinishAutomationRunRequest
-	(*AutomationRunLogLine)(nil),              // 27: gitslice.core.v1.AutomationRunLogLine
-	(*AppendAutomationRunLogRequest)(nil),     // 28: gitslice.core.v1.AppendAutomationRunLogRequest
-	(*AutomationRunState)(nil),                // 29: gitslice.core.v1.AutomationRunState
-	(*SetAutomationRunDetailsUrlRequest)(nil), // 30: gitslice.core.v1.SetAutomationRunDetailsUrlRequest
-	(*SetAutomationRunStateRequest)(nil),      // 31: gitslice.core.v1.SetAutomationRunStateRequest
-	(*CreateAutomationCheckRequest)(nil),      // 32: gitslice.core.v1.CreateAutomationCheckRequest
-	(*UpdateAutomationCheckRequest)(nil),      // 33: gitslice.core.v1.UpdateAutomationCheckRequest
-	(*AutomationReadFileRequest)(nil),         // 34: gitslice.core.v1.AutomationReadFileRequest
-	(*AutomationReadFileResponse)(nil),        // 35: gitslice.core.v1.AutomationReadFileResponse
-	(*AutomationListDirectoryRequest)(nil),    // 36: gitslice.core.v1.AutomationListDirectoryRequest
-	(*AutomationDirectoryEntry)(nil),          // 37: gitslice.core.v1.AutomationDirectoryEntry
-	(*AutomationListDirectoryResponse)(nil),   // 38: gitslice.core.v1.AutomationListDirectoryResponse
-	nil,                                       // 39: gitslice.core.v1.AutomationBashAction.EnvEntry
-	nil,                                       // 40: gitslice.core.v1.AutomationRun.InputsEntry
-	nil,                                       // 41: gitslice.core.v1.RunAutomationRequest.InputsEntry
-	nil,                                       // 42: gitslice.core.v1.StartAutomationRunResponse.ModulesEntry
-	nil,                                       // 43: gitslice.core.v1.StartAutomationRunResponse.SecretsEntry
-	nil,                                       // 44: gitslice.core.v1.StartAutomationRunResponse.BashEnvEntry
-	nil,                                       // 45: gitslice.core.v1.StartAutomationRunResponse.InputsEntry
-	(*CheckAnnotation)(nil),                   // 46: gitslice.core.v1.CheckAnnotation
-	(*Empty)(nil),                             // 47: gitslice.core.v1.Empty
-	(*CheckRun)(nil),                          // 48: gitslice.core.v1.CheckRun
-	(*Changeset)(nil),                         // 49: gitslice.core.v1.Changeset
+	(*AutomationUsesAction)(nil),              // 4: gitslice.core.v1.AutomationUsesAction
+	(*AutomationStepDefinition)(nil),          // 5: gitslice.core.v1.AutomationStepDefinition
+	(*AutomationFileProblem)(nil),             // 6: gitslice.core.v1.AutomationFileProblem
+	(*AutomationRun)(nil),                     // 7: gitslice.core.v1.AutomationRun
+	(*ListAutomationsRequest)(nil),            // 8: gitslice.core.v1.ListAutomationsRequest
+	(*GetFolderPolicyRequest)(nil),            // 9: gitslice.core.v1.GetFolderPolicyRequest
+	(*FolderOwnerRule)(nil),                   // 10: gitslice.core.v1.FolderOwnerRule
+	(*FolderCheckDefinition)(nil),             // 11: gitslice.core.v1.FolderCheckDefinition
+	(*FolderSecretEntry)(nil),                 // 12: gitslice.core.v1.FolderSecretEntry
+	(*FolderPolicyProblem)(nil),               // 13: gitslice.core.v1.FolderPolicyProblem
+	(*FolderPolicyResponse)(nil),              // 14: gitslice.core.v1.FolderPolicyResponse
+	(*ListAutomationsResponse)(nil),           // 15: gitslice.core.v1.ListAutomationsResponse
+	(*ListAutomationRunsRequest)(nil),         // 16: gitslice.core.v1.ListAutomationRunsRequest
+	(*ListAutomationRunsResponse)(nil),        // 17: gitslice.core.v1.ListAutomationRunsResponse
+	(*GetAutomationRunRequest)(nil),           // 18: gitslice.core.v1.GetAutomationRunRequest
+	(*ListAutomationRunLogsRequest)(nil),      // 19: gitslice.core.v1.ListAutomationRunLogsRequest
+	(*AutomationRunLog)(nil),                  // 20: gitslice.core.v1.AutomationRunLog
+	(*ListAutomationRunLogsResponse)(nil),     // 21: gitslice.core.v1.ListAutomationRunLogsResponse
+	(*RunAutomationRequest)(nil),              // 22: gitslice.core.v1.RunAutomationRequest
+	(*RerunAutomationRunRequest)(nil),         // 23: gitslice.core.v1.RerunAutomationRunRequest
+	(*CancelAutomationRunRequest)(nil),        // 24: gitslice.core.v1.CancelAutomationRunRequest
+	(*StartAutomationRunRequest)(nil),         // 25: gitslice.core.v1.StartAutomationRunRequest
+	(*StartAutomationRunResponse)(nil),        // 26: gitslice.core.v1.StartAutomationRunResponse
+	(*AutomationRunTokenRequest)(nil),         // 27: gitslice.core.v1.AutomationRunTokenRequest
+	(*FinishAutomationRunRequest)(nil),        // 28: gitslice.core.v1.FinishAutomationRunRequest
+	(*AutomationRunLogLine)(nil),              // 29: gitslice.core.v1.AutomationRunLogLine
+	(*AppendAutomationRunLogRequest)(nil),     // 30: gitslice.core.v1.AppendAutomationRunLogRequest
+	(*AutomationRunState)(nil),                // 31: gitslice.core.v1.AutomationRunState
+	(*SetAutomationRunDetailsUrlRequest)(nil), // 32: gitslice.core.v1.SetAutomationRunDetailsUrlRequest
+	(*SetAutomationRunOutputRequest)(nil),     // 33: gitslice.core.v1.SetAutomationRunOutputRequest
+	(*InspectAutomationTemplateRequest)(nil),  // 34: gitslice.core.v1.InspectAutomationTemplateRequest
+	(*InspectAutomationTemplateResponse)(nil), // 35: gitslice.core.v1.InspectAutomationTemplateResponse
+	(*SetAutomationRunStateRequest)(nil),      // 36: gitslice.core.v1.SetAutomationRunStateRequest
+	(*CreateAutomationCheckRequest)(nil),      // 37: gitslice.core.v1.CreateAutomationCheckRequest
+	(*UpdateAutomationCheckRequest)(nil),      // 38: gitslice.core.v1.UpdateAutomationCheckRequest
+	(*AutomationReadFileRequest)(nil),         // 39: gitslice.core.v1.AutomationReadFileRequest
+	(*AutomationReadFileResponse)(nil),        // 40: gitslice.core.v1.AutomationReadFileResponse
+	(*AutomationListDirectoryRequest)(nil),    // 41: gitslice.core.v1.AutomationListDirectoryRequest
+	(*AutomationDirectoryEntry)(nil),          // 42: gitslice.core.v1.AutomationDirectoryEntry
+	(*AutomationListDirectoryResponse)(nil),   // 43: gitslice.core.v1.AutomationListDirectoryResponse
+	nil,                                       // 44: gitslice.core.v1.AutomationBashAction.EnvEntry
+	nil,                                       // 45: gitslice.core.v1.AutomationDefinition.SecretBindingsEntry
+	nil,                                       // 46: gitslice.core.v1.AutomationUsesAction.WithEntry
+	nil,                                       // 47: gitslice.core.v1.AutomationRun.InputsEntry
+	nil,                                       // 48: gitslice.core.v1.AutomationRun.OutputsEntry
+	nil,                                       // 49: gitslice.core.v1.RunAutomationRequest.InputsEntry
+	nil,                                       // 50: gitslice.core.v1.StartAutomationRunResponse.ModulesEntry
+	nil,                                       // 51: gitslice.core.v1.StartAutomationRunResponse.SecretsEntry
+	nil,                                       // 52: gitslice.core.v1.StartAutomationRunResponse.BashEnvEntry
+	nil,                                       // 53: gitslice.core.v1.StartAutomationRunResponse.InputsEntry
+	(*CheckAnnotation)(nil),                   // 54: gitslice.core.v1.CheckAnnotation
+	(*Empty)(nil),                             // 55: gitslice.core.v1.Empty
+	(*CheckRun)(nil),                          // 56: gitslice.core.v1.CheckRun
+	(*Changeset)(nil),                         // 57: gitslice.core.v1.Changeset
 }
 var file_proto_core_v1_automation_proto_depIdxs = []int32{
-	39, // 0: gitslice.core.v1.AutomationBashAction.env:type_name -> gitslice.core.v1.AutomationBashAction.EnvEntry
+	44, // 0: gitslice.core.v1.AutomationBashAction.env:type_name -> gitslice.core.v1.AutomationBashAction.EnvEntry
 	0,  // 1: gitslice.core.v1.AutomationDefinition.inputs:type_name -> gitslice.core.v1.AutomationInputSpec
 	1,  // 2: gitslice.core.v1.AutomationDefinition.manual:type_name -> gitslice.core.v1.AutomationManualPolicy
 	2,  // 3: gitslice.core.v1.AutomationDefinition.bash:type_name -> gitslice.core.v1.AutomationBashAction
-	40, // 4: gitslice.core.v1.AutomationRun.inputs:type_name -> gitslice.core.v1.AutomationRun.InputsEntry
-	8,  // 5: gitslice.core.v1.FolderPolicyResponse.owner_rules:type_name -> gitslice.core.v1.FolderOwnerRule
-	9,  // 6: gitslice.core.v1.FolderPolicyResponse.checks:type_name -> gitslice.core.v1.FolderCheckDefinition
-	3,  // 7: gitslice.core.v1.FolderPolicyResponse.automations:type_name -> gitslice.core.v1.AutomationDefinition
-	10, // 8: gitslice.core.v1.FolderPolicyResponse.secrets:type_name -> gitslice.core.v1.FolderSecretEntry
-	11, // 9: gitslice.core.v1.FolderPolicyResponse.problems:type_name -> gitslice.core.v1.FolderPolicyProblem
-	3,  // 10: gitslice.core.v1.ListAutomationsResponse.automations:type_name -> gitslice.core.v1.AutomationDefinition
-	4,  // 11: gitslice.core.v1.ListAutomationsResponse.problems:type_name -> gitslice.core.v1.AutomationFileProblem
-	5,  // 12: gitslice.core.v1.ListAutomationRunsResponse.runs:type_name -> gitslice.core.v1.AutomationRun
-	18, // 13: gitslice.core.v1.ListAutomationRunLogsResponse.logs:type_name -> gitslice.core.v1.AutomationRunLog
-	41, // 14: gitslice.core.v1.RunAutomationRequest.inputs:type_name -> gitslice.core.v1.RunAutomationRequest.InputsEntry
-	5,  // 15: gitslice.core.v1.StartAutomationRunResponse.run:type_name -> gitslice.core.v1.AutomationRun
-	42, // 16: gitslice.core.v1.StartAutomationRunResponse.modules:type_name -> gitslice.core.v1.StartAutomationRunResponse.ModulesEntry
-	43, // 17: gitslice.core.v1.StartAutomationRunResponse.secrets:type_name -> gitslice.core.v1.StartAutomationRunResponse.SecretsEntry
-	44, // 18: gitslice.core.v1.StartAutomationRunResponse.bash_env:type_name -> gitslice.core.v1.StartAutomationRunResponse.BashEnvEntry
-	45, // 19: gitslice.core.v1.StartAutomationRunResponse.inputs:type_name -> gitslice.core.v1.StartAutomationRunResponse.InputsEntry
-	27, // 20: gitslice.core.v1.AppendAutomationRunLogRequest.lines:type_name -> gitslice.core.v1.AutomationRunLogLine
-	46, // 21: gitslice.core.v1.CreateAutomationCheckRequest.annotations:type_name -> gitslice.core.v1.CheckAnnotation
-	46, // 22: gitslice.core.v1.UpdateAutomationCheckRequest.annotations:type_name -> gitslice.core.v1.CheckAnnotation
-	37, // 23: gitslice.core.v1.AutomationListDirectoryResponse.entries:type_name -> gitslice.core.v1.AutomationDirectoryEntry
-	7,  // 24: gitslice.core.v1.AutomationService.GetFolderPolicy:input_type -> gitslice.core.v1.GetFolderPolicyRequest
-	6,  // 25: gitslice.core.v1.AutomationService.ListAutomations:input_type -> gitslice.core.v1.ListAutomationsRequest
-	14, // 26: gitslice.core.v1.AutomationService.ListAutomationRuns:input_type -> gitslice.core.v1.ListAutomationRunsRequest
-	16, // 27: gitslice.core.v1.AutomationService.GetAutomationRun:input_type -> gitslice.core.v1.GetAutomationRunRequest
-	17, // 28: gitslice.core.v1.AutomationService.ListAutomationRunLogs:input_type -> gitslice.core.v1.ListAutomationRunLogsRequest
-	20, // 29: gitslice.core.v1.AutomationService.RunAutomation:input_type -> gitslice.core.v1.RunAutomationRequest
-	21, // 30: gitslice.core.v1.AutomationService.RerunAutomationRun:input_type -> gitslice.core.v1.RerunAutomationRunRequest
-	22, // 31: gitslice.core.v1.AutomationService.CancelAutomationRun:input_type -> gitslice.core.v1.CancelAutomationRunRequest
-	23, // 32: gitslice.core.v1.AutomationRunService.StartRun:input_type -> gitslice.core.v1.StartAutomationRunRequest
-	23, // 33: gitslice.core.v1.AutomationRunService.StartCallback:input_type -> gitslice.core.v1.StartAutomationRunRequest
-	26, // 34: gitslice.core.v1.AutomationRunService.FinishRun:input_type -> gitslice.core.v1.FinishAutomationRunRequest
-	28, // 35: gitslice.core.v1.AutomationRunService.AppendRunLog:input_type -> gitslice.core.v1.AppendAutomationRunLogRequest
-	25, // 36: gitslice.core.v1.AutomationRunService.GetRunState:input_type -> gitslice.core.v1.AutomationRunTokenRequest
-	31, // 37: gitslice.core.v1.AutomationRunService.SetRunState:input_type -> gitslice.core.v1.SetAutomationRunStateRequest
-	30, // 38: gitslice.core.v1.AutomationRunService.SetRunDetailsUrl:input_type -> gitslice.core.v1.SetAutomationRunDetailsUrlRequest
-	32, // 39: gitslice.core.v1.AutomationRunService.CreateCheck:input_type -> gitslice.core.v1.CreateAutomationCheckRequest
-	33, // 40: gitslice.core.v1.AutomationRunService.UpdateCheck:input_type -> gitslice.core.v1.UpdateAutomationCheckRequest
-	34, // 41: gitslice.core.v1.AutomationRunService.ReadFile:input_type -> gitslice.core.v1.AutomationReadFileRequest
-	36, // 42: gitslice.core.v1.AutomationRunService.ListDirectory:input_type -> gitslice.core.v1.AutomationListDirectoryRequest
-	25, // 43: gitslice.core.v1.AutomationRunService.GetChangeset:input_type -> gitslice.core.v1.AutomationRunTokenRequest
-	12, // 44: gitslice.core.v1.AutomationService.GetFolderPolicy:output_type -> gitslice.core.v1.FolderPolicyResponse
-	13, // 45: gitslice.core.v1.AutomationService.ListAutomations:output_type -> gitslice.core.v1.ListAutomationsResponse
-	15, // 46: gitslice.core.v1.AutomationService.ListAutomationRuns:output_type -> gitslice.core.v1.ListAutomationRunsResponse
-	5,  // 47: gitslice.core.v1.AutomationService.GetAutomationRun:output_type -> gitslice.core.v1.AutomationRun
-	19, // 48: gitslice.core.v1.AutomationService.ListAutomationRunLogs:output_type -> gitslice.core.v1.ListAutomationRunLogsResponse
-	5,  // 49: gitslice.core.v1.AutomationService.RunAutomation:output_type -> gitslice.core.v1.AutomationRun
-	5,  // 50: gitslice.core.v1.AutomationService.RerunAutomationRun:output_type -> gitslice.core.v1.AutomationRun
-	5,  // 51: gitslice.core.v1.AutomationService.CancelAutomationRun:output_type -> gitslice.core.v1.AutomationRun
-	24, // 52: gitslice.core.v1.AutomationRunService.StartRun:output_type -> gitslice.core.v1.StartAutomationRunResponse
-	24, // 53: gitslice.core.v1.AutomationRunService.StartCallback:output_type -> gitslice.core.v1.StartAutomationRunResponse
-	5,  // 54: gitslice.core.v1.AutomationRunService.FinishRun:output_type -> gitslice.core.v1.AutomationRun
-	47, // 55: gitslice.core.v1.AutomationRunService.AppendRunLog:output_type -> gitslice.core.v1.Empty
-	29, // 56: gitslice.core.v1.AutomationRunService.GetRunState:output_type -> gitslice.core.v1.AutomationRunState
-	47, // 57: gitslice.core.v1.AutomationRunService.SetRunState:output_type -> gitslice.core.v1.Empty
-	47, // 58: gitslice.core.v1.AutomationRunService.SetRunDetailsUrl:output_type -> gitslice.core.v1.Empty
-	48, // 59: gitslice.core.v1.AutomationRunService.CreateCheck:output_type -> gitslice.core.v1.CheckRun
-	48, // 60: gitslice.core.v1.AutomationRunService.UpdateCheck:output_type -> gitslice.core.v1.CheckRun
-	35, // 61: gitslice.core.v1.AutomationRunService.ReadFile:output_type -> gitslice.core.v1.AutomationReadFileResponse
-	38, // 62: gitslice.core.v1.AutomationRunService.ListDirectory:output_type -> gitslice.core.v1.AutomationListDirectoryResponse
-	49, // 63: gitslice.core.v1.AutomationRunService.GetChangeset:output_type -> gitslice.core.v1.Changeset
-	44, // [44:64] is the sub-list for method output_type
-	24, // [24:44] is the sub-list for method input_type
-	24, // [24:24] is the sub-list for extension type_name
-	24, // [24:24] is the sub-list for extension extendee
-	0,  // [0:24] is the sub-list for field type_name
+	4,  // 4: gitslice.core.v1.AutomationDefinition.uses:type_name -> gitslice.core.v1.AutomationUsesAction
+	5,  // 5: gitslice.core.v1.AutomationDefinition.steps:type_name -> gitslice.core.v1.AutomationStepDefinition
+	45, // 6: gitslice.core.v1.AutomationDefinition.secret_bindings:type_name -> gitslice.core.v1.AutomationDefinition.SecretBindingsEntry
+	46, // 7: gitslice.core.v1.AutomationUsesAction.with:type_name -> gitslice.core.v1.AutomationUsesAction.WithEntry
+	4,  // 8: gitslice.core.v1.AutomationStepDefinition.uses:type_name -> gitslice.core.v1.AutomationUsesAction
+	2,  // 9: gitslice.core.v1.AutomationStepDefinition.bash:type_name -> gitslice.core.v1.AutomationBashAction
+	47, // 10: gitslice.core.v1.AutomationRun.inputs:type_name -> gitslice.core.v1.AutomationRun.InputsEntry
+	48, // 11: gitslice.core.v1.AutomationRun.outputs:type_name -> gitslice.core.v1.AutomationRun.OutputsEntry
+	10, // 12: gitslice.core.v1.FolderPolicyResponse.owner_rules:type_name -> gitslice.core.v1.FolderOwnerRule
+	11, // 13: gitslice.core.v1.FolderPolicyResponse.checks:type_name -> gitslice.core.v1.FolderCheckDefinition
+	3,  // 14: gitslice.core.v1.FolderPolicyResponse.automations:type_name -> gitslice.core.v1.AutomationDefinition
+	12, // 15: gitslice.core.v1.FolderPolicyResponse.secrets:type_name -> gitslice.core.v1.FolderSecretEntry
+	13, // 16: gitslice.core.v1.FolderPolicyResponse.problems:type_name -> gitslice.core.v1.FolderPolicyProblem
+	3,  // 17: gitslice.core.v1.ListAutomationsResponse.automations:type_name -> gitslice.core.v1.AutomationDefinition
+	6,  // 18: gitslice.core.v1.ListAutomationsResponse.problems:type_name -> gitslice.core.v1.AutomationFileProblem
+	7,  // 19: gitslice.core.v1.ListAutomationRunsResponse.runs:type_name -> gitslice.core.v1.AutomationRun
+	20, // 20: gitslice.core.v1.ListAutomationRunLogsResponse.logs:type_name -> gitslice.core.v1.AutomationRunLog
+	49, // 21: gitslice.core.v1.RunAutomationRequest.inputs:type_name -> gitslice.core.v1.RunAutomationRequest.InputsEntry
+	7,  // 22: gitslice.core.v1.StartAutomationRunResponse.run:type_name -> gitslice.core.v1.AutomationRun
+	50, // 23: gitslice.core.v1.StartAutomationRunResponse.modules:type_name -> gitslice.core.v1.StartAutomationRunResponse.ModulesEntry
+	51, // 24: gitslice.core.v1.StartAutomationRunResponse.secrets:type_name -> gitslice.core.v1.StartAutomationRunResponse.SecretsEntry
+	52, // 25: gitslice.core.v1.StartAutomationRunResponse.bash_env:type_name -> gitslice.core.v1.StartAutomationRunResponse.BashEnvEntry
+	53, // 26: gitslice.core.v1.StartAutomationRunResponse.inputs:type_name -> gitslice.core.v1.StartAutomationRunResponse.InputsEntry
+	29, // 27: gitslice.core.v1.AppendAutomationRunLogRequest.lines:type_name -> gitslice.core.v1.AutomationRunLogLine
+	3,  // 28: gitslice.core.v1.InspectAutomationTemplateResponse.template:type_name -> gitslice.core.v1.AutomationDefinition
+	54, // 29: gitslice.core.v1.CreateAutomationCheckRequest.annotations:type_name -> gitslice.core.v1.CheckAnnotation
+	54, // 30: gitslice.core.v1.UpdateAutomationCheckRequest.annotations:type_name -> gitslice.core.v1.CheckAnnotation
+	42, // 31: gitslice.core.v1.AutomationListDirectoryResponse.entries:type_name -> gitslice.core.v1.AutomationDirectoryEntry
+	9,  // 32: gitslice.core.v1.AutomationService.GetFolderPolicy:input_type -> gitslice.core.v1.GetFolderPolicyRequest
+	8,  // 33: gitslice.core.v1.AutomationService.ListAutomations:input_type -> gitslice.core.v1.ListAutomationsRequest
+	16, // 34: gitslice.core.v1.AutomationService.ListAutomationRuns:input_type -> gitslice.core.v1.ListAutomationRunsRequest
+	18, // 35: gitslice.core.v1.AutomationService.GetAutomationRun:input_type -> gitslice.core.v1.GetAutomationRunRequest
+	19, // 36: gitslice.core.v1.AutomationService.ListAutomationRunLogs:input_type -> gitslice.core.v1.ListAutomationRunLogsRequest
+	22, // 37: gitslice.core.v1.AutomationService.RunAutomation:input_type -> gitslice.core.v1.RunAutomationRequest
+	23, // 38: gitslice.core.v1.AutomationService.RerunAutomationRun:input_type -> gitslice.core.v1.RerunAutomationRunRequest
+	24, // 39: gitslice.core.v1.AutomationService.CancelAutomationRun:input_type -> gitslice.core.v1.CancelAutomationRunRequest
+	34, // 40: gitslice.core.v1.AutomationService.InspectAutomationTemplate:input_type -> gitslice.core.v1.InspectAutomationTemplateRequest
+	25, // 41: gitslice.core.v1.AutomationRunService.StartRun:input_type -> gitslice.core.v1.StartAutomationRunRequest
+	25, // 42: gitslice.core.v1.AutomationRunService.StartCallback:input_type -> gitslice.core.v1.StartAutomationRunRequest
+	28, // 43: gitslice.core.v1.AutomationRunService.FinishRun:input_type -> gitslice.core.v1.FinishAutomationRunRequest
+	30, // 44: gitslice.core.v1.AutomationRunService.AppendRunLog:input_type -> gitslice.core.v1.AppendAutomationRunLogRequest
+	27, // 45: gitslice.core.v1.AutomationRunService.GetRunState:input_type -> gitslice.core.v1.AutomationRunTokenRequest
+	36, // 46: gitslice.core.v1.AutomationRunService.SetRunState:input_type -> gitslice.core.v1.SetAutomationRunStateRequest
+	32, // 47: gitslice.core.v1.AutomationRunService.SetRunDetailsUrl:input_type -> gitslice.core.v1.SetAutomationRunDetailsUrlRequest
+	33, // 48: gitslice.core.v1.AutomationRunService.SetRunOutput:input_type -> gitslice.core.v1.SetAutomationRunOutputRequest
+	37, // 49: gitslice.core.v1.AutomationRunService.CreateCheck:input_type -> gitslice.core.v1.CreateAutomationCheckRequest
+	38, // 50: gitslice.core.v1.AutomationRunService.UpdateCheck:input_type -> gitslice.core.v1.UpdateAutomationCheckRequest
+	39, // 51: gitslice.core.v1.AutomationRunService.ReadFile:input_type -> gitslice.core.v1.AutomationReadFileRequest
+	41, // 52: gitslice.core.v1.AutomationRunService.ListDirectory:input_type -> gitslice.core.v1.AutomationListDirectoryRequest
+	27, // 53: gitslice.core.v1.AutomationRunService.GetChangeset:input_type -> gitslice.core.v1.AutomationRunTokenRequest
+	14, // 54: gitslice.core.v1.AutomationService.GetFolderPolicy:output_type -> gitslice.core.v1.FolderPolicyResponse
+	15, // 55: gitslice.core.v1.AutomationService.ListAutomations:output_type -> gitslice.core.v1.ListAutomationsResponse
+	17, // 56: gitslice.core.v1.AutomationService.ListAutomationRuns:output_type -> gitslice.core.v1.ListAutomationRunsResponse
+	7,  // 57: gitslice.core.v1.AutomationService.GetAutomationRun:output_type -> gitslice.core.v1.AutomationRun
+	21, // 58: gitslice.core.v1.AutomationService.ListAutomationRunLogs:output_type -> gitslice.core.v1.ListAutomationRunLogsResponse
+	7,  // 59: gitslice.core.v1.AutomationService.RunAutomation:output_type -> gitslice.core.v1.AutomationRun
+	7,  // 60: gitslice.core.v1.AutomationService.RerunAutomationRun:output_type -> gitslice.core.v1.AutomationRun
+	7,  // 61: gitslice.core.v1.AutomationService.CancelAutomationRun:output_type -> gitslice.core.v1.AutomationRun
+	35, // 62: gitslice.core.v1.AutomationService.InspectAutomationTemplate:output_type -> gitslice.core.v1.InspectAutomationTemplateResponse
+	26, // 63: gitslice.core.v1.AutomationRunService.StartRun:output_type -> gitslice.core.v1.StartAutomationRunResponse
+	26, // 64: gitslice.core.v1.AutomationRunService.StartCallback:output_type -> gitslice.core.v1.StartAutomationRunResponse
+	7,  // 65: gitslice.core.v1.AutomationRunService.FinishRun:output_type -> gitslice.core.v1.AutomationRun
+	55, // 66: gitslice.core.v1.AutomationRunService.AppendRunLog:output_type -> gitslice.core.v1.Empty
+	31, // 67: gitslice.core.v1.AutomationRunService.GetRunState:output_type -> gitslice.core.v1.AutomationRunState
+	55, // 68: gitslice.core.v1.AutomationRunService.SetRunState:output_type -> gitslice.core.v1.Empty
+	55, // 69: gitslice.core.v1.AutomationRunService.SetRunDetailsUrl:output_type -> gitslice.core.v1.Empty
+	55, // 70: gitslice.core.v1.AutomationRunService.SetRunOutput:output_type -> gitslice.core.v1.Empty
+	56, // 71: gitslice.core.v1.AutomationRunService.CreateCheck:output_type -> gitslice.core.v1.CheckRun
+	56, // 72: gitslice.core.v1.AutomationRunService.UpdateCheck:output_type -> gitslice.core.v1.CheckRun
+	40, // 73: gitslice.core.v1.AutomationRunService.ReadFile:output_type -> gitslice.core.v1.AutomationReadFileResponse
+	43, // 74: gitslice.core.v1.AutomationRunService.ListDirectory:output_type -> gitslice.core.v1.AutomationListDirectoryResponse
+	57, // 75: gitslice.core.v1.AutomationRunService.GetChangeset:output_type -> gitslice.core.v1.Changeset
+	54, // [54:76] is the sub-list for method output_type
+	32, // [32:54] is the sub-list for method input_type
+	32, // [32:32] is the sub-list for extension type_name
+	32, // [32:32] is the sub-list for extension extendee
+	0,  // [0:32] is the sub-list for field type_name
 }
 
 func init() { file_proto_core_v1_automation_proto_init() }
@@ -3521,14 +4052,14 @@ func file_proto_core_v1_automation_proto_init() {
 	file_proto_core_v1_changeset_proto_init()
 	file_proto_core_v1_check_proto_init()
 	file_proto_core_v1_common_proto_init()
-	file_proto_core_v1_automation_proto_msgTypes[33].OneofWrappers = []any{}
+	file_proto_core_v1_automation_proto_msgTypes[38].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_automation_proto_rawDesc), len(file_proto_core_v1_automation_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   46,
+			NumMessages:   54,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

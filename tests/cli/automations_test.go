@@ -68,3 +68,96 @@ automations:
 		t.Fatalf("auto run of a missing automation: %s", stderr)
 	}
 }
+
+func TestReusableTemplatesAndPipelinesCLI(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	ws := t.TempDir()
+	loginTestCLI(t, ts, home, ws)
+	runCLI(t, home, ws, "workspace", "init", "acme/payment")
+
+	dir := filepath.Join(ws, "acme", "payment", ".gitslice")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "automations.yaml"), []byte(`version: 1
+automations:
+  notify-template:
+    description: Reusable webhook notifier
+    on: [call]
+    inputs:
+      channel: { type: string, required: true }
+      env: { type: choice, options: [staging, prod], default: staging }
+    action:
+      http:
+        url: https://hooks.example.com/notify/${{ inputs.channel }}?env=${{ inputs.env }}
+
+  notify-ops:
+    on: [manual]
+    action:
+      uses: /acme/payment/notify-template
+      with:
+        channel: ops
+
+  release-pipe:
+    on: [manual]
+    action:
+      steps:
+        - id: first
+          uses: /acme/payment/notify-template
+          with:
+            channel: build
+        - id: second
+          if: always
+          http:
+            url: https://hooks.example.com/done
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runCLI(t, home, ws, "create", "--all", "--message", "reusable and pipeline")
+	runCLI(t, home, ws, "submit")
+
+	// gs auto ls shows uses and steps summaries.
+	lsOut := runCLI(t, home, ws, "auto", "ls", "/acme/payment")
+	if !strings.Contains(lsOut, "uses /acme/payment/notify-template") {
+		t.Fatalf("auto ls missing uses summary:\n%s", lsOut)
+	}
+	if !strings.Contains(lsOut, "steps 2 steps") {
+		t.Fatalf("auto ls missing steps summary:\n%s", lsOut)
+	}
+
+	// gs auto inspect resolves the reusable on:[call] template and displays its inputs.
+	inspectOut := runCLI(t, home, ws, "auto", "inspect", "/acme/payment/notify-template")
+	for _, want := range []string{
+		"template: payment/notify-template",
+		"description: Reusable webhook notifier",
+		"channel (string, required)",
+		"env (choice, optional, default=staging, options=staging|prod)",
+	} {
+		if !strings.Contains(inspectOut, want) {
+			t.Fatalf("auto inspect missing %q:\n%s", want, inspectOut)
+		}
+	}
+
+	// gs auto run on uses caller accepts inherited unbound input (env=prod).
+	runOut := runCLI(t, home, ws, "auto", "run", "notify-ops", "-i", "env=prod")
+	if !strings.Contains(runOut, "queued run trun_") {
+		t.Fatalf("auto run notify-ops = %q", runOut)
+	}
+	usesRunID := strings.Fields(runOut)[2]
+	showUses := runCLI(t, home, ws, "auto", "show", usesRunID)
+	if !strings.Contains(showUses, "template: /acme/payment/notify-template") {
+		t.Fatalf("auto show uses run missing template provenance:\n%s", showUses)
+	}
+
+	// gs auto run on pipeline starts parent run; gs auto show lists step(s).
+	pipeOut := runCLI(t, home, ws, "auto", "run", "release-pipe")
+	if !strings.Contains(pipeOut, "queued run trun_") {
+		t.Fatalf("auto run release-pipe = %q", pipeOut)
+	}
+	pipeRunID := strings.Fields(pipeOut)[2]
+	showPipe := runCLI(t, home, ws, "auto", "show", pipeRunID)
+	if !strings.Contains(showPipe, "automation: payment/release-pipe (steps)") {
+		t.Fatalf("auto show pipeline run = %q", showPipe)
+	}
+}

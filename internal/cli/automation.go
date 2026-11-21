@@ -148,7 +148,20 @@ Before an automation lands, try it in one of two ways:
 		},
 	}
 
-	autoCmd.AddCommand(lsCmd, runsCmd, showCmd, logsCmd, runCmd, rerunCmd, cancelCmd)
+	var inspectAccount string
+	inspectCmd := &cobra.Command{
+		Use:   "inspect <uses-ref>",
+		Short: "Inspect a reusable (on: [call]) automation template",
+		Long: "Resolve a reusable automation template reference (/<account>[/<dir>...]/<name>[@<tag>|@sha256:...])\n" +
+			"and show its inputs, secret slots, network requirements, resolved commit, and available immutable tags.",
+		Args: exactArgs(1, "gs automation inspect <uses-ref> [--account <caller-account>]"),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return r.runAutomationInspect(cmd.Context(), *opts, args[0], inspectAccount)
+		},
+	}
+	inspectCmd.Flags().StringVar(&inspectAccount, "account", "", "caller account for unpinned same-account lookup")
+
+	autoCmd.AddCommand(lsCmd, runsCmd, showCmd, logsCmd, runCmd, rerunCmd, cancelCmd, inspectCmd)
 	return autoCmd
 }
 
@@ -177,25 +190,45 @@ type automationBashOutput struct {
 	Include    []string `json:"include,omitempty"`
 }
 
+type automationUsesOutput struct {
+	Ref  string            `json:"ref"`
+	With map[string]string `json:"with,omitempty"`
+}
+
+type automationStepOutput struct {
+	ID        string                `json:"id,omitempty"`
+	Name      string                `json:"name,omitempty"`
+	Condition string                `json:"if,omitempty"`
+	Action    string                `json:"action"`
+	Uses      *automationUsesOutput `json:"uses,omitempty"`
+	Bash      *automationBashOutput `json:"bash,omitempty"`
+	Worker    string                `json:"worker,omitempty"`
+	URL       string                `json:"url,omitempty"`
+	Checks    []string              `json:"checks,omitempty"`
+}
+
 type automationOutput struct {
-	ID          string                  `json:"id"`
-	Folder      string                  `json:"folder"`
-	Description string                  `json:"description,omitempty"`
-	On          []string                `json:"on"`
-	Paths       []string                `json:"paths,omitempty"`
-	Changes     []string                `json:"changes,omitempty"`
-	Action      string                  `json:"action"`
-	Worker      string                  `json:"worker,omitempty"`
-	URL         string                  `json:"url,omitempty"`
-	Bash        *automationBashOutput   `json:"bash,omitempty"`
-	Egress      string                  `json:"egress,omitempty"`
-	Checks      []string                `json:"checks,omitempty"`
-	Secrets     []string                `json:"secrets,omitempty"`
-	Reveal      []string                `json:"reveal,omitempty"`
-	Network     []string                `json:"network,omitempty"`
-	Inputs      []automationInputOutput `json:"inputs,omitempty"`
-	Manual      *automationManualOutput `json:"manual,omitempty"`
-	Concurrency string                  `json:"concurrency"`
+	ID             string                  `json:"id"`
+	Folder         string                  `json:"folder"`
+	Description    string                  `json:"description,omitempty"`
+	On             []string                `json:"on"`
+	Paths          []string                `json:"paths,omitempty"`
+	Changes        []string                `json:"changes,omitempty"`
+	Action         string                  `json:"action"`
+	Worker         string                  `json:"worker,omitempty"`
+	URL            string                  `json:"url,omitempty"`
+	Bash           *automationBashOutput   `json:"bash,omitempty"`
+	Uses           *automationUsesOutput   `json:"uses,omitempty"`
+	Steps          []automationStepOutput  `json:"steps,omitempty"`
+	Egress         string                  `json:"egress,omitempty"`
+	Checks         []string                `json:"checks,omitempty"`
+	Secrets        []string                `json:"secrets,omitempty"`
+	SecretBindings map[string]string       `json:"secret_bindings,omitempty"`
+	Reveal         []string                `json:"reveal,omitempty"`
+	Network        []string                `json:"network,omitempty"`
+	Inputs         []automationInputOutput `json:"inputs,omitempty"`
+	Manual         *automationManualOutput `json:"manual,omitempty"`
+	Concurrency    string                  `json:"concurrency"`
 }
 
 func automationDefToOutput(t *corev1.AutomationDefinition) automationOutput {
@@ -205,7 +238,8 @@ func automationDefToOutput(t *corev1.AutomationDefinition) automationOutput {
 		Changes: append([]string(nil), t.GetChanges()...), Action: t.GetAction(),
 		Worker: t.GetWorker(), URL: t.GetHttpUrl(), Egress: t.GetEgress(),
 		Checks: append([]string(nil), t.GetChecks()...), Secrets: append([]string(nil), t.GetSecrets()...),
-		Reveal: append([]string(nil), t.GetReveal()...), Network: append([]string(nil), t.GetNetwork()...),
+		SecretBindings: t.GetSecretBindings(),
+		Reveal:         append([]string(nil), t.GetReveal()...), Network: append([]string(nil), t.GetNetwork()...),
 		Concurrency: t.GetConcurrency(),
 	}
 	if b := t.GetBash(); b != nil {
@@ -213,6 +247,26 @@ func automationDefToOutput(t *corev1.AutomationDefinition) automationOutput {
 			Runtime: b.GetRuntime(), Size: b.GetSize(), Checkout: b.GetCheckout(),
 			Script: b.GetScript(), WorkingDir: b.GetWorkingDir(), Include: append([]string(nil), b.GetInclude()...),
 		}
+	}
+	if u := t.GetUses(); u != nil {
+		out.Uses = &automationUsesOutput{Ref: u.GetRef(), With: u.GetWith()}
+	}
+	for _, st := range t.GetSteps() {
+		so := automationStepOutput{
+			ID: st.GetId(), Name: st.GetName(), Condition: st.GetCondition(),
+			Action: st.GetAction(), Worker: st.GetWorker(), URL: st.GetHttpUrl(),
+			Checks: append([]string(nil), st.GetChecks()...),
+		}
+		if u := st.GetUses(); u != nil {
+			so.Uses = &automationUsesOutput{Ref: u.GetRef(), With: u.GetWith()}
+		}
+		if b := st.GetBash(); b != nil {
+			so.Bash = &automationBashOutput{
+				Runtime: b.GetRuntime(), Size: b.GetSize(), Checkout: b.GetCheckout(),
+				Script: b.GetScript(), WorkingDir: b.GetWorkingDir(), Include: append([]string(nil), b.GetInclude()...),
+			}
+		}
+		out.Steps = append(out.Steps, so)
 	}
 	if m := t.GetManual(); m != nil {
 		out.Manual = &automationManualOutput{
@@ -235,6 +289,16 @@ func automationActionSummary(t automationOutput) string {
 		return t.URL
 	case "check":
 		return strings.Join(t.Checks, ",")
+	case "uses":
+		if t.Uses != nil {
+			return t.Uses.Ref
+		}
+		return ""
+	case "steps":
+		if len(t.Steps) == 1 {
+			return "1 step"
+		}
+		return fmt.Sprintf("%d steps", len(t.Steps))
 	case "bash":
 		parts := []string{}
 		if t.Bash != nil && t.Bash.Runtime != "" {
@@ -253,32 +317,40 @@ func automationActionSummary(t automationOutput) string {
 }
 
 type automationRunOutput struct {
-	ID              string            `json:"id"`
-	Automation      string            `json:"automation"`
-	Status          string            `json:"status"`
-	Event           string            `json:"event"`
-	EventID         string            `json:"event_id"`
-	Action          string            `json:"action"`
-	TriggeredBy     string            `json:"triggered_by,omitempty"`
-	TriggeredByKind string            `json:"triggered_by_kind,omitempty"`
-	Inputs          map[string]string `json:"inputs,omitempty"`
-	Changeset       string            `json:"changeset,omitempty"`
-	Attempt         int32             `json:"attempt"`
-	MaxAttempts     int32             `json:"max_attempts"`
-	Error           string            `json:"error,omitempty"`
-	CreatedAt       string            `json:"created_at"`
-	FinishedAt      string            `json:"finished_at,omitempty"`
-	Definition      string            `json:"definition_commit,omitempty"`
-	DetailsURL      string            `json:"details_url,omitempty"`
+	ID               string                `json:"id"`
+	Automation       string                `json:"automation"`
+	Status           string                `json:"status"`
+	Event            string                `json:"event"`
+	EventID          string                `json:"event_id"`
+	Action           string                `json:"action"`
+	TriggeredBy      string                `json:"triggered_by,omitempty"`
+	TriggeredByKind  string                `json:"triggered_by_kind,omitempty"`
+	Inputs           map[string]string     `json:"inputs,omitempty"`
+	Outputs          map[string]string     `json:"outputs,omitempty"`
+	Changeset        string                `json:"changeset,omitempty"`
+	Attempt          int32                 `json:"attempt"`
+	MaxAttempts      int32                 `json:"max_attempts"`
+	Error            string                `json:"error,omitempty"`
+	CreatedAt        string                `json:"created_at"`
+	FinishedAt       string                `json:"finished_at,omitempty"`
+	Definition       string                `json:"definition_commit,omitempty"`
+	DetailsURL       string                `json:"details_url,omitempty"`
+	TemplateID       string                `json:"template_id,omitempty"`
+	TemplateCommitID string                `json:"template_commit_id,omitempty"`
+	ParentRunID      string                `json:"parent_run_id,omitempty"`
+	StepIndex        int32                 `json:"step_index,omitempty"`
+	StepID           string                `json:"step_id,omitempty"`
+	Steps            []automationRunOutput `json:"steps,omitempty"`
 }
 
 func automationRunToOutput(run *corev1.AutomationRun) automationRunOutput {
 	return automationRunOutput{
 		ID: run.Id, Automation: run.AutomationId, Status: run.Status, Event: run.EventKind, EventID: run.EventId, Action: run.Action,
-		TriggeredBy: run.TriggeredBy, TriggeredByKind: run.TriggeredByKind, Inputs: run.Inputs,
+		TriggeredBy: run.TriggeredBy, TriggeredByKind: run.TriggeredByKind, Inputs: run.Inputs, Outputs: run.Outputs,
 		Changeset: model.ShortChangesetID(run.ChangesetId), Attempt: run.Attempt, MaxAttempts: run.MaxAttempts,
 		Error: run.Error, CreatedAt: run.CreatedAt, FinishedAt: run.FinishedAt, Definition: run.DefinitionCommitId,
-		DetailsURL: run.DetailsUrl,
+		DetailsURL: run.DetailsUrl, TemplateID: run.TemplateId, TemplateCommitID: run.TemplateCommitId,
+		ParentRunID: run.ParentRunId, StepIndex: run.StepIndex, StepID: run.StepId,
 	}
 }
 
@@ -429,16 +501,45 @@ func (r Runner) runAutomationRuns(ctx context.Context, opts commandOptions, acco
 	return nil
 }
 
+func formatKVMap(m map[string]string) string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, k+"="+m[k])
+	}
+	return strings.Join(parts, " ")
+}
+
 func (r Runner) runAutomationShow(ctx context.Context, opts commandOptions, runID string) error {
 	var run *corev1.AutomationRun
+	var stepRuns []*corev1.AutomationRun
 	if err := r.withSession(ctx, func(s *Session) error {
 		var err error
 		run, err = s.Automation().GetAutomationRun(s.Ctx(), &corev1.GetAutomationRunRequest{RunId: strings.TrimSpace(runID)})
-		return automationError(err)
+		if err != nil {
+			return automationError(err)
+		}
+		if run.Action == "steps" {
+			resp, serr := s.Automation().ListAutomationRuns(s.Ctx(), &corev1.ListAutomationRunsRequest{
+				ParentRunId: run.Id,
+				Limit:       200,
+			})
+			if serr == nil {
+				stepRuns = resp.Runs
+			}
+		}
+		return nil
 	}); err != nil {
 		return err
 	}
 	out := automationRunToOutput(run)
+	for _, sr := range stepRuns {
+		out.Steps = append(out.Steps, automationRunToOutput(sr))
+	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
@@ -447,6 +548,20 @@ func (r Runner) runAutomationShow(ctx context.Context, opts commandOptions, runI
 	}
 	fmt.Fprintf(r.Stdout, "run: %s\nautomation: %s (%s)\nstatus: %s\nevent: %s %s\nattempt: %d of %d\ncreated: %s\n",
 		out.ID, out.Automation, out.Action, out.Status, out.Event, out.EventID, out.Attempt, out.MaxAttempts, out.CreatedAt)
+	if out.TemplateID != "" {
+		tpl := out.TemplateID
+		if out.TemplateCommitID != "" {
+			tpl += " @" + out.TemplateCommitID
+		}
+		fmt.Fprintf(r.Stdout, "template: %s\n", tpl)
+	}
+	if out.ParentRunID != "" {
+		stepLabel := fmt.Sprintf("#%d", out.StepIndex+1)
+		if out.StepID != "" {
+			stepLabel += " " + out.StepID
+		}
+		fmt.Fprintf(r.Stdout, "parent_run: %s (step %s)\n", out.ParentRunID, stepLabel)
+	}
 	if out.TriggeredBy != "" {
 		actor := out.TriggeredBy
 		if out.TriggeredByKind != "" {
@@ -455,16 +570,10 @@ func (r Runner) runAutomationShow(ctx context.Context, opts commandOptions, runI
 		fmt.Fprintf(r.Stdout, "triggered_by: %s\n", actor)
 	}
 	if len(out.Inputs) > 0 {
-		keys := make([]string, 0, len(out.Inputs))
-		for k := range out.Inputs {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		parts := make([]string, 0, len(keys))
-		for _, k := range keys {
-			parts = append(parts, k+"="+out.Inputs[k])
-		}
-		fmt.Fprintf(r.Stdout, "inputs: %s\n", strings.Join(parts, " "))
+		fmt.Fprintf(r.Stdout, "inputs: %s\n", formatKVMap(out.Inputs))
+	}
+	if len(out.Outputs) > 0 {
+		fmt.Fprintf(r.Stdout, "outputs: %s\n", formatKVMap(out.Outputs))
 	}
 	if out.Changeset != "" {
 		fmt.Fprintf(r.Stdout, "changeset: %s\n", out.Changeset)
@@ -477,6 +586,107 @@ func (r Runner) runAutomationShow(ctx context.Context, opts commandOptions, runI
 	}
 	if out.Error != "" {
 		fmt.Fprintf(r.Stdout, "error: %s\n", out.Error)
+	}
+	if len(out.Steps) > 0 {
+		fmt.Fprintln(r.Stdout, "steps:")
+		for _, st := range out.Steps {
+			name := st.StepID
+			if name == "" {
+				name = fmt.Sprintf("step_%d", st.StepIndex+1)
+			}
+			line := fmt.Sprintf("  %d. %s\t%s\t%s\t%s", st.StepIndex+1, name, st.Status, st.Action, st.ID)
+			if len(st.Outputs) > 0 {
+				line += "\toutputs " + formatKVMap(st.Outputs)
+			}
+			if st.Error != "" {
+				line += "\t" + oneLineSummary(st.Error)
+			}
+			fmt.Fprintln(r.Stdout, line)
+		}
+	}
+	return nil
+}
+
+func (r Runner) runAutomationInspect(ctx context.Context, opts commandOptions, rawRef, rawAccount string) error {
+	ref := strings.TrimSpace(rawRef)
+	var resp *corev1.InspectAutomationTemplateResponse
+	if err := r.withSession(ctx, func(s *Session) error {
+		callerAccount := strings.TrimSpace(rawAccount)
+		if callerAccount != "" {
+			var err error
+			if callerAccount, err = r.resolveAutomationAccount(s, callerAccount); err != nil {
+				return err
+			}
+		} else if acc, err := r.resolveAutomationAccount(s, ""); err == nil {
+			callerAccount = acc
+		}
+		var err error
+		resp, err = s.Automation().InspectAutomationTemplate(s.Ctx(), &corev1.InspectAutomationTemplateRequest{
+			Ref:           ref,
+			CallerAccount: callerAccount,
+		})
+		return automationError(err)
+	}); err != nil {
+		return err
+	}
+	tpl := automationDefToOutput(resp.GetTemplate())
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, map[string]any{
+			"template":       tpl,
+			"account":        resp.GetAccount(),
+			"folder":         resp.GetFolder(),
+			"commit_id":      resp.GetCommitId(),
+			"resolved_ref":   resp.GetResolvedRef(),
+			"available_tags": resp.GetAvailableTags(),
+		})
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "template: %s\nresolved_ref: %s\ncommit: %s\nfolder: %s\naction: %s",
+		tpl.ID, resp.GetResolvedRef(), resp.GetCommitId(), resp.GetFolder(), tpl.Action)
+	if summary := automationActionSummary(tpl); summary != "" {
+		fmt.Fprintf(r.Stdout, " (%s)", summary)
+	}
+	fmt.Fprintln(r.Stdout)
+	if tpl.Description != "" {
+		fmt.Fprintf(r.Stdout, "description: %s\n", tpl.Description)
+	}
+	if tpl.Egress != "" {
+		fmt.Fprintf(r.Stdout, "egress: %s\n", tpl.Egress)
+	}
+	if len(tpl.Secrets) > 0 {
+		fmt.Fprintf(r.Stdout, "secrets: %s\n", strings.Join(tpl.Secrets, ", "))
+	}
+	if len(tpl.Reveal) > 0 {
+		fmt.Fprintf(r.Stdout, "reveal: %s\n", strings.Join(tpl.Reveal, ", "))
+	}
+	if len(tpl.Network) > 0 {
+		fmt.Fprintf(r.Stdout, "network: %s\n", strings.Join(tpl.Network, ", "))
+	}
+	if len(tpl.Inputs) > 0 {
+		fmt.Fprintln(r.Stdout, "inputs:")
+		for _, in := range tpl.Inputs {
+			req := "optional"
+			if in.Required {
+				req = "required"
+			}
+			line := fmt.Sprintf("  %s (%s, %s", in.Name, in.Type, req)
+			if in.Default != "" {
+				line += ", default=" + in.Default
+			}
+			if len(in.Options) > 0 {
+				line += ", options=" + strings.Join(in.Options, "|")
+			}
+			line += ")"
+			if in.Description != "" {
+				line += " — " + in.Description
+			}
+			fmt.Fprintln(r.Stdout, line)
+		}
+	}
+	if len(resp.GetAvailableTags()) > 0 {
+		fmt.Fprintf(r.Stdout, "tags: %s\n", strings.Join(resp.GetAvailableTags(), ", "))
 	}
 	return nil
 }
@@ -529,6 +739,54 @@ func (r Runner) followAutomationRun(ctx context.Context, runID string) (*corev1.
 	var after int64
 	var finalRun *corev1.AutomationRun
 	shownDetails := ""
+	childAfter := map[string]int64{}
+	childHeader := map[string]bool{}
+	childDetails := map[string]string{}
+	childDone := map[string]bool{}
+	drainChildren := func(s *Session) {
+		resp, err := s.Automation().ListAutomationRuns(s.Ctx(), &corev1.ListAutomationRunsRequest{
+			ParentRunId: runID,
+			Limit:       200,
+		})
+		if err != nil {
+			return
+		}
+		for _, child := range resp.Runs {
+			name := child.StepId
+			if name == "" {
+				name = fmt.Sprintf("step_%d", child.StepIndex+1)
+			}
+			if !childHeader[child.Id] {
+				childHeader[child.Id] = true
+				fmt.Fprintf(r.stderr(), "==> step %d: %s (%s)\n", child.StepIndex+1, name, child.Id)
+			}
+			for {
+				lresp, lerr := s.Automation().ListAutomationRunLogs(s.Ctx(), &corev1.ListAutomationRunLogsRequest{
+					RunId:    child.Id,
+					AfterSeq: childAfter[child.Id],
+				})
+				if lerr != nil || len(lresp.Logs) == 0 {
+					break
+				}
+				for _, l := range lresp.Logs {
+					r.printRunLogChunk(l)
+					childAfter[child.Id] = l.Seq
+				}
+			}
+			if child.DetailsUrl != "" && child.DetailsUrl != childDetails[child.Id] {
+				childDetails[child.Id] = child.DetailsUrl
+				fmt.Fprintf(r.stderr(), "details (%s): %s\n", name, child.DetailsUrl)
+			}
+			if automationRunFinal(child.Status) && !childDone[child.Id] {
+				childDone[child.Id] = true
+				msg := fmt.Sprintf("<== step %d: %s %s", child.StepIndex+1, name, child.Status)
+				if child.Error != "" {
+					msg += " (" + oneLineSummary(child.Error) + ")"
+				}
+				fmt.Fprintln(r.stderr(), msg)
+			}
+		}
+	}
 	err := r.withSession(ctx, func(s *Session) error {
 		for {
 			resp, err := s.Automation().ListAutomationRunLogs(s.Ctx(), &corev1.ListAutomationRunLogsRequest{RunId: runID, AfterSeq: after})
@@ -548,6 +806,9 @@ func (r Runner) followAutomationRun(ctx context.Context, runID string) (*corev1.
 				shownDetails = run.DetailsUrl
 				fmt.Fprintf(r.stderr(), "details: %s\n", run.DetailsUrl)
 			}
+			if run.Action == "steps" {
+				drainChildren(s)
+			}
 			if automationRunFinal(run.Status) {
 				// Drain any final lines emitted right before status flipped.
 				tail, terr := s.Automation().ListAutomationRunLogs(s.Ctx(), &corev1.ListAutomationRunLogsRequest{RunId: runID, AfterSeq: after})
@@ -556,6 +817,9 @@ func (r Runner) followAutomationRun(ctx context.Context, runID string) (*corev1.
 						r.printRunLogChunk(l)
 						after = l.Seq
 					}
+				}
+				if run.Action == "steps" {
+					drainChildren(s)
 				}
 				return nil
 			}

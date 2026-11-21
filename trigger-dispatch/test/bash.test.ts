@@ -186,6 +186,39 @@ describe("handleBridgeRequest", () => {
       { stream: "stdout", text: "leaked *** here" },
     ]);
 
+    // Output set scrubs secret values before forwarding to SetRunOutput.
+    const outRes = await handleBridgeRequest(
+      new Request("http://gitslice.internal/gs/output/set", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ key: "release_note", value: "token=real-secret-value" }),
+      }),
+      ctx,
+    );
+    assert.equal(outRes.status, 200);
+    assert.equal(calls[1].method, "SetRunOutput");
+    assert.deepEqual(calls[1].body, {
+      runToken: "gstr_tok",
+      key: "release_note",
+      value: "token=***",
+    });
+
+    // Details URL forwards to SetRunDetailsUrl.
+    const detRes = await handleBridgeRequest(
+      new Request("http://gitslice.internal/gs/details-url/set", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ detailsUrl: "https://dash.example.com/builds/42" }),
+      }),
+      ctx,
+    );
+    assert.equal(detRes.status, 200);
+    assert.equal(calls[2].method, "SetRunDetailsUrl");
+    assert.deepEqual(calls[2].body, {
+      runToken: "gstr_tok",
+      detailsUrl: "https://dash.example.com/builds/42",
+    });
+
     // Finish reports to FinishRun and triggers container destruction.
     const finRes = await handleBridgeRequest(
       new Request("http://gitslice.internal/finish", {
@@ -197,6 +230,6 @@ describe("handleBridgeRequest", () => {
     );
     assert.equal(finRes.status, 200);
     assert.equal(destroyed, true);
-    assert.equal(calls[1].method, "FinishRun");
+    assert.equal(calls[3].method, "FinishRun");
   });
 });

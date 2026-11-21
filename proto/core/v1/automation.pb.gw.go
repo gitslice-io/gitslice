@@ -251,6 +251,33 @@ func local_request_AutomationService_CancelAutomationRun_0(ctx context.Context, 
 	return msg, metadata, err
 }
 
+func request_AutomationService_InspectAutomationTemplate_0(ctx context.Context, marshaler runtime.Marshaler, client AutomationServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq InspectAutomationTemplateRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	msg, err := client.InspectAutomationTemplate(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_AutomationService_InspectAutomationTemplate_0(ctx context.Context, marshaler runtime.Marshaler, server AutomationServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq InspectAutomationTemplateRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.InspectAutomationTemplate(ctx, &protoReq)
+	return msg, metadata, err
+}
+
 func request_AutomationRunService_StartRun_0(ctx context.Context, marshaler runtime.Marshaler, client AutomationRunServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var (
 		protoReq StartAutomationRunRequest
@@ -437,6 +464,33 @@ func local_request_AutomationRunService_SetRunDetailsUrl_0(ctx context.Context, 
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 	msg, err := server.SetRunDetailsUrl(ctx, &protoReq)
+	return msg, metadata, err
+}
+
+func request_AutomationRunService_SetRunOutput_0(ctx context.Context, marshaler runtime.Marshaler, client AutomationRunServiceClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq SetAutomationRunOutputRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	if req.Body != nil {
+		_, _ = io.Copy(io.Discard, req.Body)
+	}
+	msg, err := client.SetRunOutput(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+}
+
+func local_request_AutomationRunService_SetRunOutput_0(ctx context.Context, marshaler runtime.Marshaler, server AutomationRunServiceServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var (
+		protoReq SetAutomationRunOutputRequest
+		metadata runtime.ServerMetadata
+	)
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && !errors.Is(err, io.EOF) {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+	msg, err := server.SetRunOutput(ctx, &protoReq)
 	return msg, metadata, err
 }
 
@@ -741,6 +795,26 @@ func RegisterAutomationServiceHandlerServer(ctx context.Context, mux *runtime.Se
 		}
 		forward_AutomationService_CancelAutomationRun_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_AutomationService_InspectAutomationTemplate_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/gitslice.core.v1.AutomationService/InspectAutomationTemplate", runtime.WithHTTPPathPattern("/gitslice.core.v1.AutomationService/InspectAutomationTemplate"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_AutomationService_InspectAutomationTemplate_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_AutomationService_InspectAutomationTemplate_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 
 	return nil
 }
@@ -890,6 +964,26 @@ func RegisterAutomationRunServiceHandlerServer(ctx context.Context, mux *runtime
 			return
 		}
 		forward_AutomationRunService_SetRunDetailsUrl_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
+	mux.Handle(http.MethodPost, pattern_AutomationRunService_SetRunOutput_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/gitslice.core.v1.AutomationRunService/SetRunOutput", runtime.WithHTTPPathPattern("/gitslice.core.v1.AutomationRunService/SetRunOutput"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_AutomationRunService_SetRunOutput_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_AutomationRunService_SetRunOutput_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
 	mux.Handle(http.MethodPost, pattern_AutomationRunService_CreateCheck_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
@@ -1167,29 +1261,48 @@ func RegisterAutomationServiceHandlerClient(ctx context.Context, mux *runtime.Se
 		}
 		forward_AutomationService_CancelAutomationRun_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_AutomationService_InspectAutomationTemplate_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/gitslice.core.v1.AutomationService/InspectAutomationTemplate", runtime.WithHTTPPathPattern("/gitslice.core.v1.AutomationService/InspectAutomationTemplate"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_AutomationService_InspectAutomationTemplate_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_AutomationService_InspectAutomationTemplate_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	return nil
 }
 
 var (
-	pattern_AutomationService_GetFolderPolicy_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "GetFolderPolicy"}, ""))
-	pattern_AutomationService_ListAutomations_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "ListAutomations"}, ""))
-	pattern_AutomationService_ListAutomationRuns_0    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "ListAutomationRuns"}, ""))
-	pattern_AutomationService_GetAutomationRun_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "GetAutomationRun"}, ""))
-	pattern_AutomationService_ListAutomationRunLogs_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "ListAutomationRunLogs"}, ""))
-	pattern_AutomationService_RunAutomation_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "RunAutomation"}, ""))
-	pattern_AutomationService_RerunAutomationRun_0    = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "RerunAutomationRun"}, ""))
-	pattern_AutomationService_CancelAutomationRun_0   = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "CancelAutomationRun"}, ""))
+	pattern_AutomationService_GetFolderPolicy_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "GetFolderPolicy"}, ""))
+	pattern_AutomationService_ListAutomations_0           = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "ListAutomations"}, ""))
+	pattern_AutomationService_ListAutomationRuns_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "ListAutomationRuns"}, ""))
+	pattern_AutomationService_GetAutomationRun_0          = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "GetAutomationRun"}, ""))
+	pattern_AutomationService_ListAutomationRunLogs_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "ListAutomationRunLogs"}, ""))
+	pattern_AutomationService_RunAutomation_0             = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "RunAutomation"}, ""))
+	pattern_AutomationService_RerunAutomationRun_0        = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "RerunAutomationRun"}, ""))
+	pattern_AutomationService_CancelAutomationRun_0       = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "CancelAutomationRun"}, ""))
+	pattern_AutomationService_InspectAutomationTemplate_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationService", "InspectAutomationTemplate"}, ""))
 )
 
 var (
-	forward_AutomationService_GetFolderPolicy_0       = runtime.ForwardResponseMessage
-	forward_AutomationService_ListAutomations_0       = runtime.ForwardResponseMessage
-	forward_AutomationService_ListAutomationRuns_0    = runtime.ForwardResponseMessage
-	forward_AutomationService_GetAutomationRun_0      = runtime.ForwardResponseMessage
-	forward_AutomationService_ListAutomationRunLogs_0 = runtime.ForwardResponseMessage
-	forward_AutomationService_RunAutomation_0         = runtime.ForwardResponseMessage
-	forward_AutomationService_RerunAutomationRun_0    = runtime.ForwardResponseMessage
-	forward_AutomationService_CancelAutomationRun_0   = runtime.ForwardResponseMessage
+	forward_AutomationService_GetFolderPolicy_0           = runtime.ForwardResponseMessage
+	forward_AutomationService_ListAutomations_0           = runtime.ForwardResponseMessage
+	forward_AutomationService_ListAutomationRuns_0        = runtime.ForwardResponseMessage
+	forward_AutomationService_GetAutomationRun_0          = runtime.ForwardResponseMessage
+	forward_AutomationService_ListAutomationRunLogs_0     = runtime.ForwardResponseMessage
+	forward_AutomationService_RunAutomation_0             = runtime.ForwardResponseMessage
+	forward_AutomationService_RerunAutomationRun_0        = runtime.ForwardResponseMessage
+	forward_AutomationService_CancelAutomationRun_0       = runtime.ForwardResponseMessage
+	forward_AutomationService_InspectAutomationTemplate_0 = runtime.ForwardResponseMessage
 )
 
 // RegisterAutomationRunServiceHandlerFromEndpoint is same as RegisterAutomationRunServiceHandler but
@@ -1347,6 +1460,23 @@ func RegisterAutomationRunServiceHandlerClient(ctx context.Context, mux *runtime
 		}
 		forward_AutomationRunService_SetRunDetailsUrl_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 	})
+	mux.Handle(http.MethodPost, pattern_AutomationRunService_SetRunOutput_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		annotatedContext, err := runtime.AnnotateContext(ctx, mux, req, "/gitslice.core.v1.AutomationRunService/SetRunOutput", runtime.WithHTTPPathPattern("/gitslice.core.v1.AutomationRunService/SetRunOutput"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_AutomationRunService_SetRunOutput_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		forward_AutomationRunService_SetRunOutput_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+	})
 	mux.Handle(http.MethodPost, pattern_AutomationRunService_CreateCheck_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -1443,6 +1573,7 @@ var (
 	pattern_AutomationRunService_GetRunState_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationRunService", "GetRunState"}, ""))
 	pattern_AutomationRunService_SetRunState_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationRunService", "SetRunState"}, ""))
 	pattern_AutomationRunService_SetRunDetailsUrl_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationRunService", "SetRunDetailsUrl"}, ""))
+	pattern_AutomationRunService_SetRunOutput_0     = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationRunService", "SetRunOutput"}, ""))
 	pattern_AutomationRunService_CreateCheck_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationRunService", "CreateCheck"}, ""))
 	pattern_AutomationRunService_UpdateCheck_0      = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationRunService", "UpdateCheck"}, ""))
 	pattern_AutomationRunService_ReadFile_0         = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1}, []string{"gitslice.core.v1.AutomationRunService", "ReadFile"}, ""))
@@ -1458,6 +1589,7 @@ var (
 	forward_AutomationRunService_GetRunState_0      = runtime.ForwardResponseMessage
 	forward_AutomationRunService_SetRunState_0      = runtime.ForwardResponseMessage
 	forward_AutomationRunService_SetRunDetailsUrl_0 = runtime.ForwardResponseMessage
+	forward_AutomationRunService_SetRunOutput_0     = runtime.ForwardResponseMessage
 	forward_AutomationRunService_CreateCheck_0      = runtime.ForwardResponseMessage
 	forward_AutomationRunService_UpdateCheck_0      = runtime.ForwardResponseMessage
 	forward_AutomationRunService_ReadFile_0         = runtime.ForwardResponseMessage

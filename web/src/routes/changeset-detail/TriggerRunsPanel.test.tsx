@@ -64,6 +64,78 @@ describe("TriggerRunsPanel", () => {
     await waitFor(() => expect(listAutomationRuns).toHaveBeenCalled());
     expect(container).toBeEmptyDOMElement();
   });
+
+  it("renders template badge, outputs, and expandable pipeline steps", async () => {
+    const listAutomationRuns = vi.fn().mockImplementation((req: { parentRunId?: string }) => {
+      if (req.parentRunId === "trun_pipe") {
+        return Promise.resolve({
+          runs: [
+            {
+              id: "trun_step_1",
+              automationId: "billing/release",
+              status: "succeeded",
+              eventKind: "changeset.updated",
+              action: "bash",
+              parentRunId: "trun_pipe",
+              stepIndex: 0,
+              stepId: "build",
+              outputs: { image: "gcr.io/acme/billing:v1" }
+            },
+            {
+              id: "trun_step_2",
+              automationId: "billing/release",
+              status: "succeeded",
+              eventKind: "changeset.updated",
+              action: "bash",
+              parentRunId: "trun_pipe",
+              stepIndex: 1,
+              stepId: "deploy",
+              templateId: "platform/deploy-cloudrun"
+            }
+          ]
+        });
+      }
+      return Promise.resolve({
+        runs: [
+          {
+            id: "trun_pipe",
+            automationId: "billing/release",
+            status: "succeeded",
+            eventKind: "changeset.updated",
+            action: "steps",
+            patchsetId: "ps_2",
+            outputs: { release: "ok" }
+          }
+        ]
+      });
+    });
+    const listAutomationRunLogs = vi.fn().mockImplementation((req: { runId: string }) => {
+      if (req.runId === "trun_step_1") {
+        return Promise.resolve({ logs: [{ seq: "1", chunk: "built image v1\n" }] });
+      }
+      return Promise.resolve({ logs: [] });
+    });
+    apiMock.current = {
+      listAutomationRuns,
+      listAutomationRunLogs,
+      rerunAutomationRun: vi.fn(),
+      cancelAutomationRun: vi.fn()
+    };
+
+    renderWithQuery(<TriggerRunsPanel changesetId="cs_1" patchsetId="ps_2" />);
+
+    expect(await screen.findByText("billing/release")).toBeInTheDocument();
+    expect(screen.getByText("release=ok")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("billing/release"));
+    expect(await screen.findByText("Pipeline steps (2)")).toBeInTheDocument();
+    expect(screen.getByText("build")).toBeInTheDocument();
+    expect(screen.getByText("image=gcr.io/acme/billing:v1")).toBeInTheDocument();
+    expect(screen.getByText("uses platform/deploy-cloudrun")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /1\.\s*build/i }));
+    expect(await screen.findByText("built image v1")).toBeInTheDocument();
+  });
 });
 
 describe("ChecksPanel with a trigger's check", () => {

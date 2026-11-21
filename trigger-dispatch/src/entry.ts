@@ -110,6 +110,7 @@ function api(gs, run) {
     finish: () => gs.finish(),
     fail: (message) => gs.fail(String(message ?? "")),
     setDetailsUrl: (url) => gs.setDetailsUrl(String(url ?? "")),
+    setOutput: (key, value) => gs.setOutput(String(key ?? ""), String(value ?? "")),
   };
 }
 

@@ -34,14 +34,16 @@ function fakeGs() {
       fail: record("fail"),
       waitForCallback: record("waitForCallback"),
       setDetailsUrl: async (url: string) => record("setDetailsUrl")(url),
+      setOutput: async (key: string, value: string) => record("setOutput")(key, value),
     },
   };
 }
 
-test("gs.fail and gs.setDetailsUrl reach the dispatcher's gs", async () => {
+test("gs.fail, gs.setDetailsUrl, and gs.setOutput reach the dispatcher's gs", async () => {
   const entry = await loadEntry(`export default {
     async onEvent(event, gs) {
       await gs.setDetailsUrl("https://ci.example.com/builds/7");
+      await gs.setOutput("image_tag", "v1.2.3");
       gs.fail("tests failed: 3 of 120");
     },
   };`);
@@ -51,6 +53,7 @@ test("gs.fail and gs.setDetailsUrl reach the dispatcher's gs", async () => {
     calls.filter((c) => c.method !== "log"),
     [
       { method: "setDetailsUrl", args: ["https://ci.example.com/builds/7"] },
+      { method: "setOutput", args: ["image_tag", "v1.2.3"] },
       { method: "fail", args: ["tests failed: 3 of 120"] },
     ],
   );

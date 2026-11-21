@@ -16,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/automation.proto.
  */
 export const file_proto_core_v1_automation: GenFile = /*@__PURE__*/
-  fileDesc("Ch5wcm90by9jb3JlL3YxL2F1dG9tYXRpb24ucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEikQEKE0F1dG9tYXRpb25JbnB1dFNwZWMSDAoEbmFtZRgBIAEoCRIMCgR0eXBlGAIgASgJEhMKC2Rlc2NyaXB0aW9uGAMgASgJEhAKCHJlcXVpcmVkGAQgASgIEhUKDWRlZmF1bHRfdmFsdWUYBSABKAkSDwoHb3B0aW9ucxgGIAMoCRIPCgdwYXR0ZXJuGAcgASgJIk8KFkF1dG9tYXRpb25NYW51YWxQb2xpY3kSDQoFcm9sZXMYASADKAkSFQoNcmVxdWlyZV9odW1hbhgCIAEoCBIPCgdjb25maXJtGAMgASgJIvQBChRBdXRvbWF0aW9uQmFzaEFjdGlvbhILCgNydW4YASABKAkSDgoGc2NyaXB0GAIgASgJEg8KB3J1bnRpbWUYAyABKAkSDAoEc2l6ZRgEIAEoCRIQCghjaGVja291dBgFIAEoCRIPCgdpbmNsdWRlGAYgAygJEhMKC3dvcmtpbmdfZGlyGAcgASgJEjwKA2VudhgIIAMoCzIvLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvbkJhc2hBY3Rpb24uRW52RW50cnkaKgoIRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASLyAwoUQXV0b21hdGlvbkRlZmluaXRpb24SCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIOCgZmb2xkZXIYAyABKAkSCgoCb24YBCADKAkSDQoFcGF0aHMYBSADKAkSDwoHY2hhbmdlcxgGIAMoCRIMCgRyZWZzGAcgAygJEg8KB3NlY3JldHMYCCADKAkSDwoHbmV0d29yaxgJIAMoCRIOCgZjaGVja3MYCiADKAkSEwoLY29uY3VycmVuY3kYCyABKAkSEgoKdGltZW91dF9tcxgMIAEoAxINCgVyZXRyeRgNIAEoBRIOCgZhY3Rpb24YDiABKAkSEAoIaHR0cF91cmwYDyABKAkSDgoGd29ya2VyGBAgASgJEhMKC2Rlc2NyaXB0aW9uGBEgASgJEjUKBmlucHV0cxgSIAMoCzIlLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvbklucHV0U3BlYxI4CgZtYW51YWwYEyABKAsyKC5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25NYW51YWxQb2xpY3kSDgoGcmV2ZWFsGBQgAygJEg4KBmVncmVzcxgVIAEoCRI0CgRiYXNoGBYgASgLMiYuZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uQmFzaEFjdGlvbiJGChVBdXRvbWF0aW9uRmlsZVByb2JsZW0SDgoGZm9sZGVyGAEgASgJEgwKBGZpbGUYAiABKAkSDwoHbWVzc2FnZRgDIAEoCSLZBAoNQXV0b21hdGlvblJ1bhIKCgJpZBgBIAEoCRIPCgdhY2NvdW50GAIgASgJEhUKDWF1dG9tYXRpb25faWQYAyABKAkSDgoGZm9sZGVyGAQgASgJEg4KBmFjdGlvbhgFIAEoCRIQCghldmVudF9pZBgGIAEoCRISCgpldmVudF9raW5kGAcgASgJEhQKDGNoYW5nZXNldF9pZBgIIAEoCRITCgtwYXRjaHNldF9pZBgJIAEoCRIRCgljb21taXRfaWQYCiABKAkSEgoKdGFyZ2V0X3JlZhgLIAEoCRIcChRkZWZpbml0aW9uX2NvbW1pdF9pZBgMIAEoCRIOCgZzdGF0dXMYDSABKAkSDwoHYXR0ZW1wdBgOIAEoBRIUCgxtYXhfYXR0ZW1wdHMYDyABKAUSDQoFZXJyb3IYECABKAkSFwoPcmVzcG9uc2Vfc3RhdHVzGBEgASgFEhIKCmNyZWF0ZWRfYXQYEiABKAkSEgoKc3RhcnRlZF9hdBgTIAEoCRITCgtmaW5pc2hlZF9hdBgUIAEoCRIQCghkZWFkbGluZRgVIAEoCRIUCgx0cmlnZ2VyZWRfYnkYFiABKAkSGQoRdHJpZ2dlcmVkX2J5X2tpbmQYFyABKAkSOwoGaW5wdXRzGBggAygLMisuZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uUnVuLklucHV0c0VudHJ5EhMKC2RldGFpbHNfdXJsGBkgASgJGi0KC0lucHV0c0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiMwoWTGlzdEF1dG9tYXRpb25zUmVxdWVzdBIMCgRwYXRoGAEgASgJEgsKA3JlZhgCIAEoCSIzChZHZXRGb2xkZXJQb2xpY3lSZXF1ZXN0EgwKBHBhdGgYASABKAkSCwoDcmVmGAIgASgJIlgKD0ZvbGRlck93bmVyUnVsZRINCgVwYXRocxgBIAMoCRIOCgZvd25lcnMYAiADKAkSDwoHcmVxdWlyZRgDIAEoBRIVCg1yZXF1aXJlX2h1bWFuGAQgASgFIpgBChVGb2xkZXJDaGVja0RlZmluaXRpb24SCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIOCgZmb2xkZXIYAyABKAkSEwoLY29uZmlnX3BhdGgYBCABKAkSCwoDcnVuGAUgASgJEg0KBXBhdGhzGAYgAygJEhIKCnN0YXJ0ZWRfYnkYByABKAkSEAoIcmVxdWlyZWQYCCABKAgiWgoRRm9sZGVyU2VjcmV0RW50cnkSDAoEbmFtZRgBIAEoCRIRCglzZWNyZXRfaWQYAiABKAkSFQoNc291cmNlX2ZvbGRlchgDIAEoCRINCgVwYXRocxgEIAMoCSJSChNGb2xkZXJQb2xpY3lQcm9ibGVtEgwKBGtpbmQYASABKAkSDgoGZm9sZGVyGAIgASgJEgwKBGZpbGUYAyABKAkSDwoHbWVzc2FnZRgEIAEoCSLrAwoURm9sZGVyUG9saWN5UmVzcG9uc2USDgoGZm9sZGVyGAEgASgJEg8KB2FjY291bnQYAiABKAkSEQoJY29tbWl0X2lkGAMgASgJEhkKEW93bmVyX2NvbmZpZ19wYXRoGAQgASgJEhsKE293bmVyX3NvdXJjZV9mb2xkZXIYBSABKAkSNgoLb3duZXJfcnVsZXMYBiADKAsyIS5naXRzbGljZS5jb3JlLnYxLkZvbGRlck93bmVyUnVsZRI3CgZjaGVja3MYByADKAsyJy5naXRzbGljZS5jb3JlLnYxLkZvbGRlckNoZWNrRGVmaW5pdGlvbhI7CgthdXRvbWF0aW9ucxgIIAMoCzImLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvbkRlZmluaXRpb24SNAoHc2VjcmV0cxgJIAMoCzIjLmdpdHNsaWNlLmNvcmUudjEuRm9sZGVyU2VjcmV0RW50cnkSGgoSY2FuX21hbmFnZV9zZWNyZXRzGAogASgIEhUKDWNpX2RhZW1vbl9pZHMYCyADKAkSFwoPY2lfZGFlbW9uX25hbWVzGAwgAygJEjcKCHByb2JsZW1zGA0gAygLMiUuZ2l0c2xpY2UuY29yZS52MS5Gb2xkZXJQb2xpY3lQcm9ibGVtIqQBChdMaXN0QXV0b21hdGlvbnNSZXNwb25zZRI7CgthdXRvbWF0aW9ucxgBIAMoCzImLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvbkRlZmluaXRpb24SOQoIcHJvYmxlbXMYAiADKAsyJy5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25GaWxlUHJvYmxlbRIRCgljb21taXRfaWQYAyABKAkiaAoZTGlzdEF1dG9tYXRpb25SdW5zUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEhUKDWF1dG9tYXRpb25faWQYAiABKAkSFAoMY2hhbmdlc2V0X2lkGAMgASgJEg0KBWxpbWl0GAQgASgFIksKGkxpc3RBdXRvbWF0aW9uUnVuc1Jlc3BvbnNlEi0KBHJ1bnMYASADKAsyHy5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25SdW4iKQoXR2V0QXV0b21hdGlvblJ1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJIkEKHExpc3RBdXRvbWF0aW9uUnVuTG9nc1JlcXVlc3QSDgoGcnVuX2lkGAEgASgJEhEKCWFmdGVyX3NlcRgCIAEoAyJSChBBdXRvbWF0aW9uUnVuTG9nEgsKA3NlcRgBIAEoAxIOCgZzdHJlYW0YAiABKAkSDQoFY2h1bmsYAyABKAkSEgoKY3JlYXRlZF9hdBgEIAEoCSJRCh1MaXN0QXV0b21hdGlvblJ1bkxvZ3NSZXNwb25zZRIwCgRsb2dzGAEgAygLMiIuZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uUnVuTG9nIvcBChRSdW5BdXRvbWF0aW9uUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEhUKDWF1dG9tYXRpb25faWQYAiABKAkSCwoDcmVmGAMgASgJEhQKDGNoYW5nZXNldF9pZBgEIAEoCRJCCgZpbnB1dHMYBSADKAsyMi5naXRzbGljZS5jb3JlLnYxLlJ1bkF1dG9tYXRpb25SZXF1ZXN0LklucHV0c0VudHJ5EiEKGWRlZmluaXRpb25fZnJvbV9jaGFuZ2VzZXQYBiABKAgaLQoLSW5wdXRzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASIrChlSZXJ1bkF1dG9tYXRpb25SdW5SZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSIsChpDYW5jZWxBdXRvbWF0aW9uUnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkiXwoZU3RhcnRBdXRvbWF0aW9uUnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkSFgoOZGlzcGF0Y2hlcl9rZXkYAiABKAkSGgoSY2FsbGJhY2tfc2lnbmF0dXJlGAMgASgJIqUHChpTdGFydEF1dG9tYXRpb25SdW5SZXNwb25zZRIsCgNydW4YASABKAsyHy5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25SdW4SEgoKZXZlbnRfanNvbhgCIAEoCRJKCgdtb2R1bGVzGAMgAygLMjkuZ2l0c2xpY2UuY29yZS52MS5TdGFydEF1dG9tYXRpb25SdW5SZXNwb25zZS5Nb2R1bGVzRW50cnkSEwoLbWFpbl9tb2R1bGUYBCABKAkSEQoJY29kZV9oYXNoGAUgASgJEkoKB3NlY3JldHMYBiADKAsyOS5naXRzbGljZS5jb3JlLnYxLlN0YXJ0QXV0b21hdGlvblJ1blJlc3BvbnNlLlNlY3JldHNFbnRyeRIOCgZyZXZlYWwYByADKAkSDwoHbmV0d29yaxgIIAMoCRIRCglydW5fdG9rZW4YCSABKAkSFAoMY2FsbGJhY2tfdXJsGAogASgJEhIKCnN0YXRlX2pzb24YCyABKAkSGAoQZGVhZGxpbmVfdW5peF9tcxgMIAEoAxIOCgZhY3Rpb24YDSABKAkSDgoGZWdyZXNzGA4gASgJEhMKC2Jhc2hfc2NyaXB0GA8gASgJEhQKDGJhc2hfcnVudGltZRgQIAEoCRIRCgliYXNoX3NpemUYESABKAkSFQoNYmFzaF9jaGVja291dBgSIAEoCRIUCgxiYXNoX2luY2x1ZGUYEyADKAkSGAoQYmFzaF93b3JraW5nX2RpchgUIAEoCRJLCghiYXNoX2VudhgVIAMoCzI5LmdpdHNsaWNlLmNvcmUudjEuU3RhcnRBdXRvbWF0aW9uUnVuUmVzcG9uc2UuQmFzaEVudkVudHJ5EkgKBmlucHV0cxgWIAMoCzI4LmdpdHNsaWNlLmNvcmUudjEuU3RhcnRBdXRvbWF0aW9uUnVuUmVzcG9uc2UuSW5wdXRzRW50cnkSEgoKdGltZW91dF9tcxgXIAEoAxouCgxNb2R1bGVzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ARouCgxTZWNyZXRzRW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ARouCgxCYXNoRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ARotCgtJbnB1dHNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIi4KGUF1dG9tYXRpb25SdW5Ub2tlblJlcXVlc3QSEQoJcnVuX3Rva2VuGAEgASgJIn8KGkZpbmlzaEF1dG9tYXRpb25SdW5SZXF1ZXN0EhEKCXJ1bl90b2tlbhgBIAEoCRIPCgdvdXRjb21lGAIgASgJEg0KBWVycm9yGAMgASgJEgwKBHdhaXQYBCABKAgSDgoGZmluaXNoGAUgASgIEhAKCGNhbGxiYWNrGAYgASgIIjQKFEF1dG9tYXRpb25SdW5Mb2dMaW5lEg4KBnN0cmVhbRgBIAEoCRIMCgR0ZXh0GAIgASgJImkKHUFwcGVuZEF1dG9tYXRpb25SdW5Mb2dSZXF1ZXN0EhEKCXJ1bl90b2tlbhgBIAEoCRI1CgVsaW5lcxgCIAMoCzImLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvblJ1bkxvZ0xpbmUiKAoSQXV0b21hdGlvblJ1blN0YXRlEhIKCnN0YXRlX2pzb24YASABKAkiSwohU2V0QXV0b21hdGlvblJ1bkRldGFpbHNVcmxSZXF1ZXN0EhEKCXJ1bl90b2tlbhgBIAEoCRITCgtkZXRhaWxzX3VybBgCIAEoCSJFChxTZXRBdXRvbWF0aW9uUnVuU3RhdGVSZXF1ZXN0EhEKCXJ1bl90b2tlbhgBIAEoCRISCgpzdGF0ZV9qc29uGAIgASgJIq0BChxDcmVhdGVBdXRvbWF0aW9uQ2hlY2tSZXF1ZXN0EhEKCXJ1bl90b2tlbhgBIAEoCRIMCgRuYW1lGAIgASgJEg4KBnN0YXR1cxgDIAEoCRIPCgdzdW1tYXJ5GAQgASgJEhMKC2RldGFpbHNfdXJsGAUgASgJEjYKC2Fubm90YXRpb25zGAYgAygLMiEuZ2l0c2xpY2UuY29yZS52MS5DaGVja0Fubm90YXRpb24i2wEKHFVwZGF0ZUF1dG9tYXRpb25DaGVja1JlcXVlc3QSEQoJcnVuX3Rva2VuGAEgASgJEhQKDGNoZWNrX3J1bl9pZBgCIAEoCRIOCgZzdGF0dXMYAyABKAkSFAoHc3VtbWFyeRgEIAEoCUgAiAEBEhgKC2RldGFpbHNfdXJsGAUgASgJSAGIAQESNgoLYW5ub3RhdGlvbnMYBiADKAsyIS5naXRzbGljZS5jb3JlLnYxLkNoZWNrQW5ub3RhdGlvbkIKCghfc3VtbWFyeUIOCgxfZGV0YWlsc191cmwiSAoZQXV0b21hdGlvblJlYWRGaWxlUmVxdWVzdBIRCglydW5fdG9rZW4YASABKAkSDAoEcGF0aBgCIAEoCRIKCgJhdBgDIAEoCSI8ChpBdXRvbWF0aW9uUmVhZEZpbGVSZXNwb25zZRINCgVmb3VuZBgBIAEoCBIPCgdjb250ZW50GAIgASgMIk0KHkF1dG9tYXRpb25MaXN0RGlyZWN0b3J5UmVxdWVzdBIRCglydW5fdG9rZW4YASABKAkSDAoEcGF0aBgCIAEoCRIKCgJhdBgDIAEoCSJEChhBdXRvbWF0aW9uRGlyZWN0b3J5RW50cnkSDAoEbmFtZRgBIAEoCRIMCgRwYXRoGAIgASgJEgwKBGtpbmQYAyABKAkibQofQXV0b21hdGlvbkxpc3REaXJlY3RvcnlSZXNwb25zZRINCgVmb3VuZBgBIAEoCBI7CgdlbnRyaWVzGAIgAygLMiouZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uRGlyZWN0b3J5RW50cnkyzwYKEUF1dG9tYXRpb25TZXJ2aWNlEmMKD0dldEZvbGRlclBvbGljeRIoLmdpdHNsaWNlLmNvcmUudjEuR2V0Rm9sZGVyUG9saWN5UmVxdWVzdBomLmdpdHNsaWNlLmNvcmUudjEuRm9sZGVyUG9saWN5UmVzcG9uc2USZgoPTGlzdEF1dG9tYXRpb25zEiguZ2l0c2xpY2UuY29yZS52MS5MaXN0QXV0b21hdGlvbnNSZXF1ZXN0GikuZ2l0c2xpY2UuY29yZS52MS5MaXN0QXV0b21hdGlvbnNSZXNwb25zZRJvChJMaXN0QXV0b21hdGlvblJ1bnMSKy5naXRzbGljZS5jb3JlLnYxLkxpc3RBdXRvbWF0aW9uUnVuc1JlcXVlc3QaLC5naXRzbGljZS5jb3JlLnYxLkxpc3RBdXRvbWF0aW9uUnVuc1Jlc3BvbnNlEl4KEEdldEF1dG9tYXRpb25SdW4SKS5naXRzbGljZS5jb3JlLnYxLkdldEF1dG9tYXRpb25SdW5SZXF1ZXN0Gh8uZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uUnVuEngKFUxpc3RBdXRvbWF0aW9uUnVuTG9ncxIuLmdpdHNsaWNlLmNvcmUudjEuTGlzdEF1dG9tYXRpb25SdW5Mb2dzUmVxdWVzdBovLmdpdHNsaWNlLmNvcmUudjEuTGlzdEF1dG9tYXRpb25SdW5Mb2dzUmVzcG9uc2USWAoNUnVuQXV0b21hdGlvbhImLmdpdHNsaWNlLmNvcmUudjEuUnVuQXV0b21hdGlvblJlcXVlc3QaHy5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25SdW4SYgoSUmVydW5BdXRvbWF0aW9uUnVuEisuZ2l0c2xpY2UuY29yZS52MS5SZXJ1bkF1dG9tYXRpb25SdW5SZXF1ZXN0Gh8uZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uUnVuEmQKE0NhbmNlbEF1dG9tYXRpb25SdW4SLC5naXRzbGljZS5jb3JlLnYxLkNhbmNlbEF1dG9tYXRpb25SdW5SZXF1ZXN0Gh8uZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uUnVuMqgJChRBdXRvbWF0aW9uUnVuU2VydmljZRJlCghTdGFydFJ1bhIrLmdpdHNsaWNlLmNvcmUudjEuU3RhcnRBdXRvbWF0aW9uUnVuUmVxdWVzdBosLmdpdHNsaWNlLmNvcmUudjEuU3RhcnRBdXRvbWF0aW9uUnVuUmVzcG9uc2USagoNU3RhcnRDYWxsYmFjaxIrLmdpdHNsaWNlLmNvcmUudjEuU3RhcnRBdXRvbWF0aW9uUnVuUmVxdWVzdBosLmdpdHNsaWNlLmNvcmUudjEuU3RhcnRBdXRvbWF0aW9uUnVuUmVzcG9uc2USWgoJRmluaXNoUnVuEiwuZ2l0c2xpY2UuY29yZS52MS5GaW5pc2hBdXRvbWF0aW9uUnVuUmVxdWVzdBofLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvblJ1bhJYCgxBcHBlbmRSdW5Mb2cSLy5naXRzbGljZS5jb3JlLnYxLkFwcGVuZEF1dG9tYXRpb25SdW5Mb2dSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5FbXB0eRJgCgtHZXRSdW5TdGF0ZRIrLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvblJ1blRva2VuUmVxdWVzdBokLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvblJ1blN0YXRlElYKC1NldFJ1blN0YXRlEi4uZ2l0c2xpY2UuY29yZS52MS5TZXRBdXRvbWF0aW9uUnVuU3RhdGVSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5FbXB0eRJgChBTZXRSdW5EZXRhaWxzVXJsEjMuZ2l0c2xpY2UuY29yZS52MS5TZXRBdXRvbWF0aW9uUnVuRGV0YWlsc1VybFJlcXVlc3QaFy5naXRzbGljZS5jb3JlLnYxLkVtcHR5ElkKC0NyZWF0ZUNoZWNrEi4uZ2l0c2xpY2UuY29yZS52MS5DcmVhdGVBdXRvbWF0aW9uQ2hlY2tSZXF1ZXN0GhouZ2l0c2xpY2UuY29yZS52MS5DaGVja1J1bhJZCgtVcGRhdGVDaGVjaxIuLmdpdHNsaWNlLmNvcmUudjEuVXBkYXRlQXV0b21hdGlvbkNoZWNrUmVxdWVzdBoaLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tSdW4SZQoIUmVhZEZpbGUSKy5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25SZWFkRmlsZVJlcXVlc3QaLC5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25SZWFkRmlsZVJlc3BvbnNlEnQKDUxpc3REaXJlY3RvcnkSMC5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25MaXN0RGlyZWN0b3J5UmVxdWVzdBoxLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvbkxpc3REaXJlY3RvcnlSZXNwb25zZRJYCgxHZXRDaGFuZ2VzZXQSKy5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25SdW5Ub2tlblJlcXVlc3QaGy5naXRzbGljZS5jb3JlLnYxLkNoYW5nZXNldEIrWilnaXRzbGljZS5pby9naXRzbGljZS9wcm90by9jb3JlL3YxO2NvcmV2MWIGcHJvdG8z", [file_proto_core_v1_changeset, file_proto_core_v1_check, file_proto_core_v1_common]);
+  fileDesc("Ch5wcm90by9jb3JlL3YxL2F1dG9tYXRpb24ucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEikQEKE0F1dG9tYXRpb25JbnB1dFNwZWMSDAoEbmFtZRgBIAEoCRIMCgR0eXBlGAIgASgJEhMKC2Rlc2NyaXB0aW9uGAMgASgJEhAKCHJlcXVpcmVkGAQgASgIEhUKDWRlZmF1bHRfdmFsdWUYBSABKAkSDwoHb3B0aW9ucxgGIAMoCRIPCgdwYXR0ZXJuGAcgASgJIk8KFkF1dG9tYXRpb25NYW51YWxQb2xpY3kSDQoFcm9sZXMYASADKAkSFQoNcmVxdWlyZV9odW1hbhgCIAEoCBIPCgdjb25maXJtGAMgASgJIvQBChRBdXRvbWF0aW9uQmFzaEFjdGlvbhILCgNydW4YASABKAkSDgoGc2NyaXB0GAIgASgJEg8KB3J1bnRpbWUYAyABKAkSDAoEc2l6ZRgEIAEoCRIQCghjaGVja291dBgFIAEoCRIPCgdpbmNsdWRlGAYgAygJEhMKC3dvcmtpbmdfZGlyGAcgASgJEjwKA2VudhgIIAMoCzIvLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvbkJhc2hBY3Rpb24uRW52RW50cnkaKgoIRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4ASLvBQoUQXV0b21hdGlvbkRlZmluaXRpb24SCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIOCgZmb2xkZXIYAyABKAkSCgoCb24YBCADKAkSDQoFcGF0aHMYBSADKAkSDwoHY2hhbmdlcxgGIAMoCRIMCgRyZWZzGAcgAygJEg8KB3NlY3JldHMYCCADKAkSDwoHbmV0d29yaxgJIAMoCRIOCgZjaGVja3MYCiADKAkSEwoLY29uY3VycmVuY3kYCyABKAkSEgoKdGltZW91dF9tcxgMIAEoAxINCgVyZXRyeRgNIAEoBRIOCgZhY3Rpb24YDiABKAkSEAoIaHR0cF91cmwYDyABKAkSDgoGd29ya2VyGBAgASgJEhMKC2Rlc2NyaXB0aW9uGBEgASgJEjUKBmlucHV0cxgSIAMoCzIlLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvbklucHV0U3BlYxI4CgZtYW51YWwYEyABKAsyKC5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25NYW51YWxQb2xpY3kSDgoGcmV2ZWFsGBQgAygJEg4KBmVncmVzcxgVIAEoCRI0CgRiYXNoGBYgASgLMiYuZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uQmFzaEFjdGlvbhI0CgR1c2VzGBcgASgLMiYuZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uVXNlc0FjdGlvbhI5CgVzdGVwcxgYIAMoCzIqLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvblN0ZXBEZWZpbml0aW9uElMKD3NlY3JldF9iaW5kaW5ncxgZIAMoCzI6LmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvbkRlZmluaXRpb24uU2VjcmV0QmluZGluZ3NFbnRyeRo1ChNTZWNyZXRCaW5kaW5nc0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEikAEKFEF1dG9tYXRpb25Vc2VzQWN0aW9uEgsKA3JlZhgBIAEoCRI+CgR3aXRoGAIgAygLMjAuZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uVXNlc0FjdGlvbi5XaXRoRW50cnkaKwoJV2l0aEVudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiiQIKGEF1dG9tYXRpb25TdGVwRGVmaW5pdGlvbhIKCgJpZBgBIAEoCRIMCgRuYW1lGAIgASgJEhEKCWNvbmRpdGlvbhgDIAEoCRIOCgZhY3Rpb24YBCABKAkSNAoEdXNlcxgFIAEoCzImLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvblVzZXNBY3Rpb24SNAoEYmFzaBgGIAEoCzImLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvbkJhc2hBY3Rpb24SDgoGd29ya2VyGAcgASgJEhAKCGh0dHBfdXJsGAggASgJEg4KBmNoZWNrcxgJIAMoCRISCgp0aW1lb3V0X21zGAogASgDIkYKFUF1dG9tYXRpb25GaWxlUHJvYmxlbRIOCgZmb2xkZXIYASABKAkSDAoEZmlsZRgCIAEoCRIPCgdtZXNzYWdlGAMgASgJIrUGCg1BdXRvbWF0aW9uUnVuEgoKAmlkGAEgASgJEg8KB2FjY291bnQYAiABKAkSFQoNYXV0b21hdGlvbl9pZBgDIAEoCRIOCgZmb2xkZXIYBCABKAkSDgoGYWN0aW9uGAUgASgJEhAKCGV2ZW50X2lkGAYgASgJEhIKCmV2ZW50X2tpbmQYByABKAkSFAoMY2hhbmdlc2V0X2lkGAggASgJEhMKC3BhdGNoc2V0X2lkGAkgASgJEhEKCWNvbW1pdF9pZBgKIAEoCRISCgp0YXJnZXRfcmVmGAsgASgJEhwKFGRlZmluaXRpb25fY29tbWl0X2lkGAwgASgJEg4KBnN0YXR1cxgNIAEoCRIPCgdhdHRlbXB0GA4gASgFEhQKDG1heF9hdHRlbXB0cxgPIAEoBRINCgVlcnJvchgQIAEoCRIXCg9yZXNwb25zZV9zdGF0dXMYESABKAUSEgoKY3JlYXRlZF9hdBgSIAEoCRISCgpzdGFydGVkX2F0GBMgASgJEhMKC2ZpbmlzaGVkX2F0GBQgASgJEhAKCGRlYWRsaW5lGBUgASgJEhQKDHRyaWdnZXJlZF9ieRgWIAEoCRIZChF0cmlnZ2VyZWRfYnlfa2luZBgXIAEoCRI7CgZpbnB1dHMYGCADKAsyKy5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25SdW4uSW5wdXRzRW50cnkSEwoLZGV0YWlsc191cmwYGSABKAkSEwoLdGVtcGxhdGVfaWQYGiABKAkSGgoSdGVtcGxhdGVfY29tbWl0X2lkGBsgASgJEhUKDXBhcmVudF9ydW5faWQYHCABKAkSEgoKc3RlcF9pbmRleBgdIAEoBRIPCgdzdGVwX2lkGB4gASgJEj0KB291dHB1dHMYHyADKAsyLC5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25SdW4uT3V0cHV0c0VudHJ5Gi0KC0lucHV0c0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEaLgoMT3V0cHV0c0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiMwoWTGlzdEF1dG9tYXRpb25zUmVxdWVzdBIMCgRwYXRoGAEgASgJEgsKA3JlZhgCIAEoCSIzChZHZXRGb2xkZXJQb2xpY3lSZXF1ZXN0EgwKBHBhdGgYASABKAkSCwoDcmVmGAIgASgJIlgKD0ZvbGRlck93bmVyUnVsZRINCgVwYXRocxgBIAMoCRIOCgZvd25lcnMYAiADKAkSDwoHcmVxdWlyZRgDIAEoBRIVCg1yZXF1aXJlX2h1bWFuGAQgASgFIpgBChVGb2xkZXJDaGVja0RlZmluaXRpb24SCgoCaWQYASABKAkSDAoEbmFtZRgCIAEoCRIOCgZmb2xkZXIYAyABKAkSEwoLY29uZmlnX3BhdGgYBCABKAkSCwoDcnVuGAUgASgJEg0KBXBhdGhzGAYgAygJEhIKCnN0YXJ0ZWRfYnkYByABKAkSEAoIcmVxdWlyZWQYCCABKAgiWgoRRm9sZGVyU2VjcmV0RW50cnkSDAoEbmFtZRgBIAEoCRIRCglzZWNyZXRfaWQYAiABKAkSFQoNc291cmNlX2ZvbGRlchgDIAEoCRINCgVwYXRocxgEIAMoCSJSChNGb2xkZXJQb2xpY3lQcm9ibGVtEgwKBGtpbmQYASABKAkSDgoGZm9sZGVyGAIgASgJEgwKBGZpbGUYAyABKAkSDwoHbWVzc2FnZRgEIAEoCSLrAwoURm9sZGVyUG9saWN5UmVzcG9uc2USDgoGZm9sZGVyGAEgASgJEg8KB2FjY291bnQYAiABKAkSEQoJY29tbWl0X2lkGAMgASgJEhkKEW93bmVyX2NvbmZpZ19wYXRoGAQgASgJEhsKE293bmVyX3NvdXJjZV9mb2xkZXIYBSABKAkSNgoLb3duZXJfcnVsZXMYBiADKAsyIS5naXRzbGljZS5jb3JlLnYxLkZvbGRlck93bmVyUnVsZRI3CgZjaGVja3MYByADKAsyJy5naXRzbGljZS5jb3JlLnYxLkZvbGRlckNoZWNrRGVmaW5pdGlvbhI7CgthdXRvbWF0aW9ucxgIIAMoCzImLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvbkRlZmluaXRpb24SNAoHc2VjcmV0cxgJIAMoCzIjLmdpdHNsaWNlLmNvcmUudjEuRm9sZGVyU2VjcmV0RW50cnkSGgoSY2FuX21hbmFnZV9zZWNyZXRzGAogASgIEhUKDWNpX2RhZW1vbl9pZHMYCyADKAkSFwoPY2lfZGFlbW9uX25hbWVzGAwgAygJEjcKCHByb2JsZW1zGA0gAygLMiUuZ2l0c2xpY2UuY29yZS52MS5Gb2xkZXJQb2xpY3lQcm9ibGVtIqQBChdMaXN0QXV0b21hdGlvbnNSZXNwb25zZRI7CgthdXRvbWF0aW9ucxgBIAMoCzImLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvbkRlZmluaXRpb24SOQoIcHJvYmxlbXMYAiADKAsyJy5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25GaWxlUHJvYmxlbRIRCgljb21taXRfaWQYAyABKAkifwoZTGlzdEF1dG9tYXRpb25SdW5zUmVxdWVzdBIPCgdhY2NvdW50GAEgASgJEhUKDWF1dG9tYXRpb25faWQYAiABKAkSFAoMY2hhbmdlc2V0X2lkGAMgASgJEg0KBWxpbWl0GAQgASgFEhUKDXBhcmVudF9ydW5faWQYBSABKAkiSwoaTGlzdEF1dG9tYXRpb25SdW5zUmVzcG9uc2USLQoEcnVucxgBIAMoCzIfLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvblJ1biIpChdHZXRBdXRvbWF0aW9uUnVuUmVxdWVzdBIOCgZydW5faWQYASABKAkiQQocTGlzdEF1dG9tYXRpb25SdW5Mb2dzUmVxdWVzdBIOCgZydW5faWQYASABKAkSEQoJYWZ0ZXJfc2VxGAIgASgDIlIKEEF1dG9tYXRpb25SdW5Mb2cSCwoDc2VxGAEgASgDEg4KBnN0cmVhbRgCIAEoCRINCgVjaHVuaxgDIAEoCRISCgpjcmVhdGVkX2F0GAQgASgJIlEKHUxpc3RBdXRvbWF0aW9uUnVuTG9nc1Jlc3BvbnNlEjAKBGxvZ3MYASADKAsyIi5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25SdW5Mb2ci9wEKFFJ1bkF1dG9tYXRpb25SZXF1ZXN0Eg8KB2FjY291bnQYASABKAkSFQoNYXV0b21hdGlvbl9pZBgCIAEoCRILCgNyZWYYAyABKAkSFAoMY2hhbmdlc2V0X2lkGAQgASgJEkIKBmlucHV0cxgFIAMoCzIyLmdpdHNsaWNlLmNvcmUudjEuUnVuQXV0b21hdGlvblJlcXVlc3QuSW5wdXRzRW50cnkSIQoZZGVmaW5pdGlvbl9mcm9tX2NoYW5nZXNldBgGIAEoCBotCgtJbnB1dHNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBIisKGVJlcnVuQXV0b21hdGlvblJ1blJlcXVlc3QSDgoGcnVuX2lkGAEgASgJIiwKGkNhbmNlbEF1dG9tYXRpb25SdW5SZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCSJfChlTdGFydEF1dG9tYXRpb25SdW5SZXF1ZXN0Eg4KBnJ1bl9pZBgBIAEoCRIWCg5kaXNwYXRjaGVyX2tleRgCIAEoCRIaChJjYWxsYmFja19zaWduYXR1cmUYAyABKAkipQcKGlN0YXJ0QXV0b21hdGlvblJ1blJlc3BvbnNlEiwKA3J1bhgBIAEoCzIfLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvblJ1bhISCgpldmVudF9qc29uGAIgASgJEkoKB21vZHVsZXMYAyADKAsyOS5naXRzbGljZS5jb3JlLnYxLlN0YXJ0QXV0b21hdGlvblJ1blJlc3BvbnNlLk1vZHVsZXNFbnRyeRITCgttYWluX21vZHVsZRgEIAEoCRIRCgljb2RlX2hhc2gYBSABKAkSSgoHc2VjcmV0cxgGIAMoCzI5LmdpdHNsaWNlLmNvcmUudjEuU3RhcnRBdXRvbWF0aW9uUnVuUmVzcG9uc2UuU2VjcmV0c0VudHJ5Eg4KBnJldmVhbBgHIAMoCRIPCgduZXR3b3JrGAggAygJEhEKCXJ1bl90b2tlbhgJIAEoCRIUCgxjYWxsYmFja191cmwYCiABKAkSEgoKc3RhdGVfanNvbhgLIAEoCRIYChBkZWFkbGluZV91bml4X21zGAwgASgDEg4KBmFjdGlvbhgNIAEoCRIOCgZlZ3Jlc3MYDiABKAkSEwoLYmFzaF9zY3JpcHQYDyABKAkSFAoMYmFzaF9ydW50aW1lGBAgASgJEhEKCWJhc2hfc2l6ZRgRIAEoCRIVCg1iYXNoX2NoZWNrb3V0GBIgASgJEhQKDGJhc2hfaW5jbHVkZRgTIAMoCRIYChBiYXNoX3dvcmtpbmdfZGlyGBQgASgJEksKCGJhc2hfZW52GBUgAygLMjkuZ2l0c2xpY2UuY29yZS52MS5TdGFydEF1dG9tYXRpb25SdW5SZXNwb25zZS5CYXNoRW52RW50cnkSSAoGaW5wdXRzGBYgAygLMjguZ2l0c2xpY2UuY29yZS52MS5TdGFydEF1dG9tYXRpb25SdW5SZXNwb25zZS5JbnB1dHNFbnRyeRISCgp0aW1lb3V0X21zGBcgASgDGi4KDE1vZHVsZXNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBGi4KDFNlY3JldHNFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBGi4KDEJhc2hFbnZFbnRyeRILCgNrZXkYASABKAkSDQoFdmFsdWUYAiABKAk6AjgBGi0KC0lucHV0c0VudHJ5EgsKA2tleRgBIAEoCRINCgV2YWx1ZRgCIAEoCToCOAEiLgoZQXV0b21hdGlvblJ1blRva2VuUmVxdWVzdBIRCglydW5fdG9rZW4YASABKAkifwoaRmluaXNoQXV0b21hdGlvblJ1blJlcXVlc3QSEQoJcnVuX3Rva2VuGAEgASgJEg8KB291dGNvbWUYAiABKAkSDQoFZXJyb3IYAyABKAkSDAoEd2FpdBgEIAEoCBIOCgZmaW5pc2gYBSABKAgSEAoIY2FsbGJhY2sYBiABKAgiNAoUQXV0b21hdGlvblJ1bkxvZ0xpbmUSDgoGc3RyZWFtGAEgASgJEgwKBHRleHQYAiABKAkiaQodQXBwZW5kQXV0b21hdGlvblJ1bkxvZ1JlcXVlc3QSEQoJcnVuX3Rva2VuGAEgASgJEjUKBWxpbmVzGAIgAygLMiYuZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uUnVuTG9nTGluZSIoChJBdXRvbWF0aW9uUnVuU3RhdGUSEgoKc3RhdGVfanNvbhgBIAEoCSJLCiFTZXRBdXRvbWF0aW9uUnVuRGV0YWlsc1VybFJlcXVlc3QSEQoJcnVuX3Rva2VuGAEgASgJEhMKC2RldGFpbHNfdXJsGAIgASgJIk4KHVNldEF1dG9tYXRpb25SdW5PdXRwdXRSZXF1ZXN0EhEKCXJ1bl90b2tlbhgBIAEoCRILCgNrZXkYAiABKAkSDQoFdmFsdWUYAyABKAkiRwogSW5zcGVjdEF1dG9tYXRpb25UZW1wbGF0ZVJlcXVlc3QSCwoDcmVmGAEgASgJEhYKDmNhbGxlcl9hY2NvdW50GAIgASgJIr8BCiFJbnNwZWN0QXV0b21hdGlvblRlbXBsYXRlUmVzcG9uc2USOAoIdGVtcGxhdGUYASABKAsyJi5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25EZWZpbml0aW9uEg8KB2FjY291bnQYAiABKAkSDgoGZm9sZGVyGAMgASgJEhEKCWNvbW1pdF9pZBgEIAEoCRIUCgxyZXNvbHZlZF9yZWYYBSABKAkSFgoOYXZhaWxhYmxlX3RhZ3MYBiADKAkiRQocU2V0QXV0b21hdGlvblJ1blN0YXRlUmVxdWVzdBIRCglydW5fdG9rZW4YASABKAkSEgoKc3RhdGVfanNvbhgCIAEoCSKtAQocQ3JlYXRlQXV0b21hdGlvbkNoZWNrUmVxdWVzdBIRCglydW5fdG9rZW4YASABKAkSDAoEbmFtZRgCIAEoCRIOCgZzdGF0dXMYAyABKAkSDwoHc3VtbWFyeRgEIAEoCRITCgtkZXRhaWxzX3VybBgFIAEoCRI2Cgthbm5vdGF0aW9ucxgGIAMoCzIhLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tBbm5vdGF0aW9uItsBChxVcGRhdGVBdXRvbWF0aW9uQ2hlY2tSZXF1ZXN0EhEKCXJ1bl90b2tlbhgBIAEoCRIUCgxjaGVja19ydW5faWQYAiABKAkSDgoGc3RhdHVzGAMgASgJEhQKB3N1bW1hcnkYBCABKAlIAIgBARIYCgtkZXRhaWxzX3VybBgFIAEoCUgBiAEBEjYKC2Fubm90YXRpb25zGAYgAygLMiEuZ2l0c2xpY2UuY29yZS52MS5DaGVja0Fubm90YXRpb25CCgoIX3N1bW1hcnlCDgoMX2RldGFpbHNfdXJsIkgKGUF1dG9tYXRpb25SZWFkRmlsZVJlcXVlc3QSEQoJcnVuX3Rva2VuGAEgASgJEgwKBHBhdGgYAiABKAkSCgoCYXQYAyABKAkiPAoaQXV0b21hdGlvblJlYWRGaWxlUmVzcG9uc2USDQoFZm91bmQYASABKAgSDwoHY29udGVudBgCIAEoDCJNCh5BdXRvbWF0aW9uTGlzdERpcmVjdG9yeVJlcXVlc3QSEQoJcnVuX3Rva2VuGAEgASgJEgwKBHBhdGgYAiABKAkSCgoCYXQYAyABKAkiRAoYQXV0b21hdGlvbkRpcmVjdG9yeUVudHJ5EgwKBG5hbWUYASABKAkSDAoEcGF0aBgCIAEoCRIMCgRraW5kGAMgASgJIm0KH0F1dG9tYXRpb25MaXN0RGlyZWN0b3J5UmVzcG9uc2USDQoFZm91bmQYASABKAgSOwoHZW50cmllcxgCIAMoCzIqLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvbkRpcmVjdG9yeUVudHJ5MtYHChFBdXRvbWF0aW9uU2VydmljZRJjCg9HZXRGb2xkZXJQb2xpY3kSKC5naXRzbGljZS5jb3JlLnYxLkdldEZvbGRlclBvbGljeVJlcXVlc3QaJi5naXRzbGljZS5jb3JlLnYxLkZvbGRlclBvbGljeVJlc3BvbnNlEmYKD0xpc3RBdXRvbWF0aW9ucxIoLmdpdHNsaWNlLmNvcmUudjEuTGlzdEF1dG9tYXRpb25zUmVxdWVzdBopLmdpdHNsaWNlLmNvcmUudjEuTGlzdEF1dG9tYXRpb25zUmVzcG9uc2USbwoSTGlzdEF1dG9tYXRpb25SdW5zEisuZ2l0c2xpY2UuY29yZS52MS5MaXN0QXV0b21hdGlvblJ1bnNSZXF1ZXN0GiwuZ2l0c2xpY2UuY29yZS52MS5MaXN0QXV0b21hdGlvblJ1bnNSZXNwb25zZRJeChBHZXRBdXRvbWF0aW9uUnVuEikuZ2l0c2xpY2UuY29yZS52MS5HZXRBdXRvbWF0aW9uUnVuUmVxdWVzdBofLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvblJ1bhJ4ChVMaXN0QXV0b21hdGlvblJ1bkxvZ3MSLi5naXRzbGljZS5jb3JlLnYxLkxpc3RBdXRvbWF0aW9uUnVuTG9nc1JlcXVlc3QaLy5naXRzbGljZS5jb3JlLnYxLkxpc3RBdXRvbWF0aW9uUnVuTG9nc1Jlc3BvbnNlElgKDVJ1bkF1dG9tYXRpb24SJi5naXRzbGljZS5jb3JlLnYxLlJ1bkF1dG9tYXRpb25SZXF1ZXN0Gh8uZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uUnVuEmIKElJlcnVuQXV0b21hdGlvblJ1bhIrLmdpdHNsaWNlLmNvcmUudjEuUmVydW5BdXRvbWF0aW9uUnVuUmVxdWVzdBofLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvblJ1bhJkChNDYW5jZWxBdXRvbWF0aW9uUnVuEiwuZ2l0c2xpY2UuY29yZS52MS5DYW5jZWxBdXRvbWF0aW9uUnVuUmVxdWVzdBofLmdpdHNsaWNlLmNvcmUudjEuQXV0b21hdGlvblJ1bhKEAQoZSW5zcGVjdEF1dG9tYXRpb25UZW1wbGF0ZRIyLmdpdHNsaWNlLmNvcmUudjEuSW5zcGVjdEF1dG9tYXRpb25UZW1wbGF0ZVJlcXVlc3QaMy5naXRzbGljZS5jb3JlLnYxLkluc3BlY3RBdXRvbWF0aW9uVGVtcGxhdGVSZXNwb25zZTKCCgoUQXV0b21hdGlvblJ1blNlcnZpY2USZQoIU3RhcnRSdW4SKy5naXRzbGljZS5jb3JlLnYxLlN0YXJ0QXV0b21hdGlvblJ1blJlcXVlc3QaLC5naXRzbGljZS5jb3JlLnYxLlN0YXJ0QXV0b21hdGlvblJ1blJlc3BvbnNlEmoKDVN0YXJ0Q2FsbGJhY2sSKy5naXRzbGljZS5jb3JlLnYxLlN0YXJ0QXV0b21hdGlvblJ1blJlcXVlc3QaLC5naXRzbGljZS5jb3JlLnYxLlN0YXJ0QXV0b21hdGlvblJ1blJlc3BvbnNlEloKCUZpbmlzaFJ1bhIsLmdpdHNsaWNlLmNvcmUudjEuRmluaXNoQXV0b21hdGlvblJ1blJlcXVlc3QaHy5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25SdW4SWAoMQXBwZW5kUnVuTG9nEi8uZ2l0c2xpY2UuY29yZS52MS5BcHBlbmRBdXRvbWF0aW9uUnVuTG9nUmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuRW1wdHkSYAoLR2V0UnVuU3RhdGUSKy5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25SdW5Ub2tlblJlcXVlc3QaJC5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25SdW5TdGF0ZRJWCgtTZXRSdW5TdGF0ZRIuLmdpdHNsaWNlLmNvcmUudjEuU2V0QXV0b21hdGlvblJ1blN0YXRlUmVxdWVzdBoXLmdpdHNsaWNlLmNvcmUudjEuRW1wdHkSYAoQU2V0UnVuRGV0YWlsc1VybBIzLmdpdHNsaWNlLmNvcmUudjEuU2V0QXV0b21hdGlvblJ1bkRldGFpbHNVcmxSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5FbXB0eRJYCgxTZXRSdW5PdXRwdXQSLy5naXRzbGljZS5jb3JlLnYxLlNldEF1dG9tYXRpb25SdW5PdXRwdXRSZXF1ZXN0GhcuZ2l0c2xpY2UuY29yZS52MS5FbXB0eRJZCgtDcmVhdGVDaGVjaxIuLmdpdHNsaWNlLmNvcmUudjEuQ3JlYXRlQXV0b21hdGlvbkNoZWNrUmVxdWVzdBoaLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tSdW4SWQoLVXBkYXRlQ2hlY2sSLi5naXRzbGljZS5jb3JlLnYxLlVwZGF0ZUF1dG9tYXRpb25DaGVja1JlcXVlc3QaGi5naXRzbGljZS5jb3JlLnYxLkNoZWNrUnVuEmUKCFJlYWRGaWxlEisuZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uUmVhZEZpbGVSZXF1ZXN0GiwuZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uUmVhZEZpbGVSZXNwb25zZRJ0Cg1MaXN0RGlyZWN0b3J5EjAuZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uTGlzdERpcmVjdG9yeVJlcXVlc3QaMS5naXRzbGljZS5jb3JlLnYxLkF1dG9tYXRpb25MaXN0RGlyZWN0b3J5UmVzcG9uc2USWAoMR2V0Q2hhbmdlc2V0EisuZ2l0c2xpY2UuY29yZS52MS5BdXRvbWF0aW9uUnVuVG9rZW5SZXF1ZXN0GhsuZ2l0c2xpY2UuY29yZS52MS5DaGFuZ2VzZXRCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw", [file_proto_core_v1_changeset, file_proto_core_v1_check, file_proto_core_v1_common]);
 
 /**
  * AutomationInputSpec declares one typed input for a manual automation.
@@ -289,6 +289,27 @@ export type AutomationDefinition = Message<"gitslice.core.v1.AutomationDefinitio
    * @generated from field: gitslice.core.v1.AutomationBashAction bash = 22;
    */
   bash?: AutomationBashAction | undefined;
+
+  /**
+   * Set when action == "uses": calls a reusable on:[call] template.
+   *
+   * @generated from field: gitslice.core.v1.AutomationUsesAction uses = 23;
+   */
+  uses?: AutomationUsesAction | undefined;
+
+  /**
+   * Set when action == "steps": sequential multi-step pipeline.
+   *
+   * @generated from field: repeated gitslice.core.v1.AutomationStepDefinition steps = 24;
+   */
+  steps: AutomationStepDefinition[];
+
+  /**
+   * Explicit template secret slot -> caller secret name mapping (when remapped).
+   *
+   * @generated from field: map<string, string> secret_bindings = 25;
+   */
+  secretBindings: { [key: string]: string };
 };
 
 /**
@@ -297,6 +318,98 @@ export type AutomationDefinition = Message<"gitslice.core.v1.AutomationDefinitio
  */
 export const AutomationDefinitionSchema: GenMessage<AutomationDefinition> = /*@__PURE__*/
   messageDesc(file_proto_core_v1_automation, 3);
+
+/**
+ * AutomationUsesAction invokes a reusable (on: [call]) automation template.
+ *
+ * @generated from message gitslice.core.v1.AutomationUsesAction
+ */
+export type AutomationUsesAction = Message<"gitslice.core.v1.AutomationUsesAction"> & {
+  /**
+   * @generated from field: string ref = 1;
+   */
+  ref: string;
+
+  /**
+   * @generated from field: map<string, string> with = 2;
+   */
+  with: { [key: string]: string };
+};
+
+/**
+ * Describes the message gitslice.core.v1.AutomationUsesAction.
+ * Use `create(AutomationUsesActionSchema)` to create a new message.
+ */
+export const AutomationUsesActionSchema: GenMessage<AutomationUsesAction> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_automation, 4);
+
+/**
+ * AutomationStepDefinition describes one step in a multi-step pipeline.
+ *
+ * @generated from message gitslice.core.v1.AutomationStepDefinition
+ */
+export type AutomationStepDefinition = Message<"gitslice.core.v1.AutomationStepDefinition"> & {
+  /**
+   * @generated from field: string id = 1;
+   */
+  id: string;
+
+  /**
+   * @generated from field: string name = 2;
+   */
+  name: string;
+
+  /**
+   * "success" (default), "failure", or "always".
+   *
+   * @generated from field: string condition = 3;
+   */
+  condition: string;
+
+  /**
+   * "uses", "bash", "worker", "http", or "check".
+   *
+   * @generated from field: string action = 4;
+   */
+  action: string;
+
+  /**
+   * @generated from field: gitslice.core.v1.AutomationUsesAction uses = 5;
+   */
+  uses?: AutomationUsesAction | undefined;
+
+  /**
+   * @generated from field: gitslice.core.v1.AutomationBashAction bash = 6;
+   */
+  bash?: AutomationBashAction | undefined;
+
+  /**
+   * @generated from field: string worker = 7;
+   */
+  worker: string;
+
+  /**
+   * @generated from field: string http_url = 8;
+   */
+  httpUrl: string;
+
+  /**
+   * @generated from field: repeated string checks = 9;
+   */
+  checks: string[];
+
+  /**
+   * @generated from field: int64 timeout_ms = 10;
+   */
+  timeoutMs: bigint;
+};
+
+/**
+ * Describes the message gitslice.core.v1.AutomationStepDefinition.
+ * Use `create(AutomationStepDefinitionSchema)` to create a new message.
+ */
+export const AutomationStepDefinitionSchema: GenMessage<AutomationStepDefinition> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_automation, 5);
 
 /**
  * @generated from message gitslice.core.v1.AutomationFileProblem
@@ -323,7 +436,7 @@ export type AutomationFileProblem = Message<"gitslice.core.v1.AutomationFileProb
  * Use `create(AutomationFileProblemSchema)` to create a new message.
  */
 export const AutomationFileProblemSchema: GenMessage<AutomationFileProblem> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 4);
+  messageDesc(file_proto_core_v1_automation, 6);
 
 /**
  * @generated from message gitslice.core.v1.AutomationRun
@@ -464,6 +577,42 @@ export type AutomationRun = Message<"gitslice.core.v1.AutomationRun"> & {
    * @generated from field: string details_url = 25;
    */
   detailsUrl: string;
+
+  /**
+   * Reusable template provenance when executed via action.uses.
+   *
+   * @generated from field: string template_id = 26;
+   */
+  templateId: string;
+
+  /**
+   * @generated from field: string template_commit_id = 27;
+   */
+  templateCommitId: string;
+
+  /**
+   * Multi-step pipeline linkage (set on child step runs).
+   *
+   * @generated from field: string parent_run_id = 28;
+   */
+  parentRunId: string;
+
+  /**
+   * @generated from field: int32 step_index = 29;
+   */
+  stepIndex: number;
+
+  /**
+   * @generated from field: string step_id = 30;
+   */
+  stepId: string;
+
+  /**
+   * Named outputs emitted by this run (gs.setOutput / gs-auto set-output).
+   *
+   * @generated from field: map<string, string> outputs = 31;
+   */
+  outputs: { [key: string]: string };
 };
 
 /**
@@ -471,7 +620,7 @@ export type AutomationRun = Message<"gitslice.core.v1.AutomationRun"> & {
  * Use `create(AutomationRunSchema)` to create a new message.
  */
 export const AutomationRunSchema: GenMessage<AutomationRun> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 5);
+  messageDesc(file_proto_core_v1_automation, 7);
 
 /**
  * @generated from message gitslice.core.v1.ListAutomationsRequest
@@ -497,7 +646,7 @@ export type ListAutomationsRequest = Message<"gitslice.core.v1.ListAutomationsRe
  * Use `create(ListAutomationsRequestSchema)` to create a new message.
  */
 export const ListAutomationsRequestSchema: GenMessage<ListAutomationsRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 6);
+  messageDesc(file_proto_core_v1_automation, 8);
 
 /**
  * @generated from message gitslice.core.v1.GetFolderPolicyRequest
@@ -523,7 +672,7 @@ export type GetFolderPolicyRequest = Message<"gitslice.core.v1.GetFolderPolicyRe
  * Use `create(GetFolderPolicyRequestSchema)` to create a new message.
  */
 export const GetFolderPolicyRequestSchema: GenMessage<GetFolderPolicyRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 7);
+  messageDesc(file_proto_core_v1_automation, 9);
 
 /**
  * @generated from message gitslice.core.v1.FolderOwnerRule
@@ -555,7 +704,7 @@ export type FolderOwnerRule = Message<"gitslice.core.v1.FolderOwnerRule"> & {
  * Use `create(FolderOwnerRuleSchema)` to create a new message.
  */
 export const FolderOwnerRuleSchema: GenMessage<FolderOwnerRule> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 8);
+  messageDesc(file_proto_core_v1_automation, 10);
 
 /**
  * @generated from message gitslice.core.v1.FolderCheckDefinition
@@ -613,7 +762,7 @@ export type FolderCheckDefinition = Message<"gitslice.core.v1.FolderCheckDefinit
  * Use `create(FolderCheckDefinitionSchema)` to create a new message.
  */
 export const FolderCheckDefinitionSchema: GenMessage<FolderCheckDefinition> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 9);
+  messageDesc(file_proto_core_v1_automation, 11);
 
 /**
  * @generated from message gitslice.core.v1.FolderSecretEntry
@@ -653,7 +802,7 @@ export type FolderSecretEntry = Message<"gitslice.core.v1.FolderSecretEntry"> & 
  * Use `create(FolderSecretEntrySchema)` to create a new message.
  */
 export const FolderSecretEntrySchema: GenMessage<FolderSecretEntry> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 10);
+  messageDesc(file_proto_core_v1_automation, 12);
 
 /**
  * @generated from message gitslice.core.v1.FolderPolicyProblem
@@ -687,7 +836,7 @@ export type FolderPolicyProblem = Message<"gitslice.core.v1.FolderPolicyProblem"
  * Use `create(FolderPolicyProblemSchema)` to create a new message.
  */
 export const FolderPolicyProblemSchema: GenMessage<FolderPolicyProblem> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 11);
+  messageDesc(file_proto_core_v1_automation, 13);
 
 /**
  * @generated from message gitslice.core.v1.FolderPolicyResponse
@@ -766,7 +915,7 @@ export type FolderPolicyResponse = Message<"gitslice.core.v1.FolderPolicyRespons
  * Use `create(FolderPolicyResponseSchema)` to create a new message.
  */
 export const FolderPolicyResponseSchema: GenMessage<FolderPolicyResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 12);
+  messageDesc(file_proto_core_v1_automation, 14);
 
 /**
  * @generated from message gitslice.core.v1.ListAutomationsResponse
@@ -795,7 +944,7 @@ export type ListAutomationsResponse = Message<"gitslice.core.v1.ListAutomationsR
  * Use `create(ListAutomationsResponseSchema)` to create a new message.
  */
 export const ListAutomationsResponseSchema: GenMessage<ListAutomationsResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 13);
+  messageDesc(file_proto_core_v1_automation, 15);
 
 /**
  * @generated from message gitslice.core.v1.ListAutomationRunsRequest
@@ -822,6 +971,13 @@ export type ListAutomationRunsRequest = Message<"gitslice.core.v1.ListAutomation
    * @generated from field: int32 limit = 4;
    */
   limit: number;
+
+  /**
+   * Optional: list child step runs belonging to a pipeline run (ordered by step_index).
+   *
+   * @generated from field: string parent_run_id = 5;
+   */
+  parentRunId: string;
 };
 
 /**
@@ -829,7 +985,7 @@ export type ListAutomationRunsRequest = Message<"gitslice.core.v1.ListAutomation
  * Use `create(ListAutomationRunsRequestSchema)` to create a new message.
  */
 export const ListAutomationRunsRequestSchema: GenMessage<ListAutomationRunsRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 14);
+  messageDesc(file_proto_core_v1_automation, 16);
 
 /**
  * @generated from message gitslice.core.v1.ListAutomationRunsResponse
@@ -846,7 +1002,7 @@ export type ListAutomationRunsResponse = Message<"gitslice.core.v1.ListAutomatio
  * Use `create(ListAutomationRunsResponseSchema)` to create a new message.
  */
 export const ListAutomationRunsResponseSchema: GenMessage<ListAutomationRunsResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 15);
+  messageDesc(file_proto_core_v1_automation, 17);
 
 /**
  * @generated from message gitslice.core.v1.GetAutomationRunRequest
@@ -863,7 +1019,7 @@ export type GetAutomationRunRequest = Message<"gitslice.core.v1.GetAutomationRun
  * Use `create(GetAutomationRunRequestSchema)` to create a new message.
  */
 export const GetAutomationRunRequestSchema: GenMessage<GetAutomationRunRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 16);
+  messageDesc(file_proto_core_v1_automation, 18);
 
 /**
  * @generated from message gitslice.core.v1.ListAutomationRunLogsRequest
@@ -885,7 +1041,7 @@ export type ListAutomationRunLogsRequest = Message<"gitslice.core.v1.ListAutomat
  * Use `create(ListAutomationRunLogsRequestSchema)` to create a new message.
  */
 export const ListAutomationRunLogsRequestSchema: GenMessage<ListAutomationRunLogsRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 17);
+  messageDesc(file_proto_core_v1_automation, 19);
 
 /**
  * @generated from message gitslice.core.v1.AutomationRunLog
@@ -917,7 +1073,7 @@ export type AutomationRunLog = Message<"gitslice.core.v1.AutomationRunLog"> & {
  * Use `create(AutomationRunLogSchema)` to create a new message.
  */
 export const AutomationRunLogSchema: GenMessage<AutomationRunLog> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 18);
+  messageDesc(file_proto_core_v1_automation, 20);
 
 /**
  * @generated from message gitslice.core.v1.ListAutomationRunLogsResponse
@@ -934,7 +1090,7 @@ export type ListAutomationRunLogsResponse = Message<"gitslice.core.v1.ListAutoma
  * Use `create(ListAutomationRunLogsResponseSchema)` to create a new message.
  */
 export const ListAutomationRunLogsResponseSchema: GenMessage<ListAutomationRunLogsResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 19);
+  messageDesc(file_proto_core_v1_automation, 21);
 
 /**
  * @generated from message gitslice.core.v1.RunAutomationRequest
@@ -986,7 +1142,7 @@ export type RunAutomationRequest = Message<"gitslice.core.v1.RunAutomationReques
  * Use `create(RunAutomationRequestSchema)` to create a new message.
  */
 export const RunAutomationRequestSchema: GenMessage<RunAutomationRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 20);
+  messageDesc(file_proto_core_v1_automation, 22);
 
 /**
  * @generated from message gitslice.core.v1.RerunAutomationRunRequest
@@ -1003,7 +1159,7 @@ export type RerunAutomationRunRequest = Message<"gitslice.core.v1.RerunAutomatio
  * Use `create(RerunAutomationRunRequestSchema)` to create a new message.
  */
 export const RerunAutomationRunRequestSchema: GenMessage<RerunAutomationRunRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 21);
+  messageDesc(file_proto_core_v1_automation, 23);
 
 /**
  * @generated from message gitslice.core.v1.CancelAutomationRunRequest
@@ -1020,7 +1176,7 @@ export type CancelAutomationRunRequest = Message<"gitslice.core.v1.CancelAutomat
  * Use `create(CancelAutomationRunRequestSchema)` to create a new message.
  */
 export const CancelAutomationRunRequestSchema: GenMessage<CancelAutomationRunRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 22);
+  messageDesc(file_proto_core_v1_automation, 24);
 
 /**
  * @generated from message gitslice.core.v1.StartAutomationRunRequest
@@ -1051,7 +1207,7 @@ export type StartAutomationRunRequest = Message<"gitslice.core.v1.StartAutomatio
  * Use `create(StartAutomationRunRequestSchema)` to create a new message.
  */
 export const StartAutomationRunRequestSchema: GenMessage<StartAutomationRunRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 23);
+  messageDesc(file_proto_core_v1_automation, 25);
 
 /**
  * @generated from message gitslice.core.v1.StartAutomationRunResponse
@@ -1194,7 +1350,7 @@ export type StartAutomationRunResponse = Message<"gitslice.core.v1.StartAutomati
  * Use `create(StartAutomationRunResponseSchema)` to create a new message.
  */
 export const StartAutomationRunResponseSchema: GenMessage<StartAutomationRunResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 24);
+  messageDesc(file_proto_core_v1_automation, 26);
 
 /**
  * @generated from message gitslice.core.v1.AutomationRunTokenRequest
@@ -1211,7 +1367,7 @@ export type AutomationRunTokenRequest = Message<"gitslice.core.v1.AutomationRunT
  * Use `create(AutomationRunTokenRequestSchema)` to create a new message.
  */
 export const AutomationRunTokenRequestSchema: GenMessage<AutomationRunTokenRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 25);
+  messageDesc(file_proto_core_v1_automation, 27);
 
 /**
  * @generated from message gitslice.core.v1.FinishAutomationRunRequest
@@ -1261,7 +1417,7 @@ export type FinishAutomationRunRequest = Message<"gitslice.core.v1.FinishAutomat
  * Use `create(FinishAutomationRunRequestSchema)` to create a new message.
  */
 export const FinishAutomationRunRequestSchema: GenMessage<FinishAutomationRunRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 26);
+  messageDesc(file_proto_core_v1_automation, 28);
 
 /**
  * @generated from message gitslice.core.v1.AutomationRunLogLine
@@ -1283,7 +1439,7 @@ export type AutomationRunLogLine = Message<"gitslice.core.v1.AutomationRunLogLin
  * Use `create(AutomationRunLogLineSchema)` to create a new message.
  */
 export const AutomationRunLogLineSchema: GenMessage<AutomationRunLogLine> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 27);
+  messageDesc(file_proto_core_v1_automation, 29);
 
 /**
  * @generated from message gitslice.core.v1.AppendAutomationRunLogRequest
@@ -1305,7 +1461,7 @@ export type AppendAutomationRunLogRequest = Message<"gitslice.core.v1.AppendAuto
  * Use `create(AppendAutomationRunLogRequestSchema)` to create a new message.
  */
 export const AppendAutomationRunLogRequestSchema: GenMessage<AppendAutomationRunLogRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 28);
+  messageDesc(file_proto_core_v1_automation, 30);
 
 /**
  * @generated from message gitslice.core.v1.AutomationRunState
@@ -1322,7 +1478,7 @@ export type AutomationRunState = Message<"gitslice.core.v1.AutomationRunState"> 
  * Use `create(AutomationRunStateSchema)` to create a new message.
  */
 export const AutomationRunStateSchema: GenMessage<AutomationRunState> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 29);
+  messageDesc(file_proto_core_v1_automation, 31);
 
 /**
  * @generated from message gitslice.core.v1.SetAutomationRunDetailsUrlRequest
@@ -1346,7 +1502,102 @@ export type SetAutomationRunDetailsUrlRequest = Message<"gitslice.core.v1.SetAut
  * Use `create(SetAutomationRunDetailsUrlRequestSchema)` to create a new message.
  */
 export const SetAutomationRunDetailsUrlRequestSchema: GenMessage<SetAutomationRunDetailsUrlRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 30);
+  messageDesc(file_proto_core_v1_automation, 32);
+
+/**
+ * @generated from message gitslice.core.v1.SetAutomationRunOutputRequest
+ */
+export type SetAutomationRunOutputRequest = Message<"gitslice.core.v1.SetAutomationRunOutputRequest"> & {
+  /**
+   * @generated from field: string run_token = 1;
+   */
+  runToken: string;
+
+  /**
+   * @generated from field: string key = 2;
+   */
+  key: string;
+
+  /**
+   * @generated from field: string value = 3;
+   */
+  value: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.SetAutomationRunOutputRequest.
+ * Use `create(SetAutomationRunOutputRequestSchema)` to create a new message.
+ */
+export const SetAutomationRunOutputRequestSchema: GenMessage<SetAutomationRunOutputRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_automation, 33);
+
+/**
+ * @generated from message gitslice.core.v1.InspectAutomationTemplateRequest
+ */
+export type InspectAutomationTemplateRequest = Message<"gitslice.core.v1.InspectAutomationTemplateRequest"> & {
+  /**
+   * Template ref: /<account>/<folder>/<name>[@<tag>|@sha256:...]
+   *
+   * @generated from field: string ref = 1;
+   */
+  ref: string;
+
+  /**
+   * Optional caller account for unpinned same-account lookup.
+   *
+   * @generated from field: string caller_account = 2;
+   */
+  callerAccount: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.InspectAutomationTemplateRequest.
+ * Use `create(InspectAutomationTemplateRequestSchema)` to create a new message.
+ */
+export const InspectAutomationTemplateRequestSchema: GenMessage<InspectAutomationTemplateRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_automation, 34);
+
+/**
+ * @generated from message gitslice.core.v1.InspectAutomationTemplateResponse
+ */
+export type InspectAutomationTemplateResponse = Message<"gitslice.core.v1.InspectAutomationTemplateResponse"> & {
+  /**
+   * @generated from field: gitslice.core.v1.AutomationDefinition template = 1;
+   */
+  template?: AutomationDefinition | undefined;
+
+  /**
+   * @generated from field: string account = 2;
+   */
+  account: string;
+
+  /**
+   * @generated from field: string folder = 3;
+   */
+  folder: string;
+
+  /**
+   * @generated from field: string commit_id = 4;
+   */
+  commitId: string;
+
+  /**
+   * @generated from field: string resolved_ref = 5;
+   */
+  resolvedRef: string;
+
+  /**
+   * @generated from field: repeated string available_tags = 6;
+   */
+  availableTags: string[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.InspectAutomationTemplateResponse.
+ * Use `create(InspectAutomationTemplateResponseSchema)` to create a new message.
+ */
+export const InspectAutomationTemplateResponseSchema: GenMessage<InspectAutomationTemplateResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_automation, 35);
 
 /**
  * @generated from message gitslice.core.v1.SetAutomationRunStateRequest
@@ -1370,7 +1621,7 @@ export type SetAutomationRunStateRequest = Message<"gitslice.core.v1.SetAutomati
  * Use `create(SetAutomationRunStateRequestSchema)` to create a new message.
  */
 export const SetAutomationRunStateRequestSchema: GenMessage<SetAutomationRunStateRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 31);
+  messageDesc(file_proto_core_v1_automation, 36);
 
 /**
  * @generated from message gitslice.core.v1.CreateAutomationCheckRequest
@@ -1414,7 +1665,7 @@ export type CreateAutomationCheckRequest = Message<"gitslice.core.v1.CreateAutom
  * Use `create(CreateAutomationCheckRequestSchema)` to create a new message.
  */
 export const CreateAutomationCheckRequestSchema: GenMessage<CreateAutomationCheckRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 32);
+  messageDesc(file_proto_core_v1_automation, 37);
 
 /**
  * @generated from message gitslice.core.v1.UpdateAutomationCheckRequest
@@ -1458,7 +1709,7 @@ export type UpdateAutomationCheckRequest = Message<"gitslice.core.v1.UpdateAutom
  * Use `create(UpdateAutomationCheckRequestSchema)` to create a new message.
  */
 export const UpdateAutomationCheckRequestSchema: GenMessage<UpdateAutomationCheckRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 33);
+  messageDesc(file_proto_core_v1_automation, 38);
 
 /**
  * @generated from message gitslice.core.v1.AutomationReadFileRequest
@@ -1489,7 +1740,7 @@ export type AutomationReadFileRequest = Message<"gitslice.core.v1.AutomationRead
  * Use `create(AutomationReadFileRequestSchema)` to create a new message.
  */
 export const AutomationReadFileRequestSchema: GenMessage<AutomationReadFileRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 34);
+  messageDesc(file_proto_core_v1_automation, 39);
 
 /**
  * @generated from message gitslice.core.v1.AutomationReadFileResponse
@@ -1511,7 +1762,7 @@ export type AutomationReadFileResponse = Message<"gitslice.core.v1.AutomationRea
  * Use `create(AutomationReadFileResponseSchema)` to create a new message.
  */
 export const AutomationReadFileResponseSchema: GenMessage<AutomationReadFileResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 35);
+  messageDesc(file_proto_core_v1_automation, 40);
 
 /**
  * @generated from message gitslice.core.v1.AutomationListDirectoryRequest
@@ -1538,7 +1789,7 @@ export type AutomationListDirectoryRequest = Message<"gitslice.core.v1.Automatio
  * Use `create(AutomationListDirectoryRequestSchema)` to create a new message.
  */
 export const AutomationListDirectoryRequestSchema: GenMessage<AutomationListDirectoryRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 36);
+  messageDesc(file_proto_core_v1_automation, 41);
 
 /**
  * @generated from message gitslice.core.v1.AutomationDirectoryEntry
@@ -1567,7 +1818,7 @@ export type AutomationDirectoryEntry = Message<"gitslice.core.v1.AutomationDirec
  * Use `create(AutomationDirectoryEntrySchema)` to create a new message.
  */
 export const AutomationDirectoryEntrySchema: GenMessage<AutomationDirectoryEntry> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 37);
+  messageDesc(file_proto_core_v1_automation, 42);
 
 /**
  * @generated from message gitslice.core.v1.AutomationListDirectoryResponse
@@ -1589,7 +1840,7 @@ export type AutomationListDirectoryResponse = Message<"gitslice.core.v1.Automati
  * Use `create(AutomationListDirectoryResponseSchema)` to create a new message.
  */
 export const AutomationListDirectoryResponseSchema: GenMessage<AutomationListDirectoryResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_automation, 38);
+  messageDesc(file_proto_core_v1_automation, 43);
 
 /**
  * AutomationService shows the automations that apply to folders and their runs,
@@ -1675,6 +1926,18 @@ export const AutomationService: GenService<{
     input: typeof CancelAutomationRunRequestSchema;
     output: typeof AutomationRunSchema;
   },
+  /**
+   * InspectAutomationTemplate resolves a reusable automation reference
+   * (/<account>/<folder>/<name>[@<tag>|@sha256:...]) and returns its inputs,
+   * secret slots, network requirements, commit, and available immutable tags.
+   *
+   * @generated from rpc gitslice.core.v1.AutomationService.InspectAutomationTemplate
+   */
+  inspectAutomationTemplate: {
+    methodKind: "unary";
+    input: typeof InspectAutomationTemplateRequestSchema;
+    output: typeof InspectAutomationTemplateResponseSchema;
+  },
 }> = /*@__PURE__*/
   serviceDesc(file_proto_core_v1_automation, 0);
 
@@ -1754,6 +2017,17 @@ export const AutomationRunService: GenService<{
   setRunDetailsUrl: {
     methodKind: "unary";
     input: typeof SetAutomationRunDetailsUrlRequestSchema;
+    output: typeof EmptySchema;
+  },
+  /**
+   * SetRunOutput records a named key/value output on the run (gs.setOutput /
+   * gs-auto set-output) for downstream pipeline steps and inspection.
+   *
+   * @generated from rpc gitslice.core.v1.AutomationRunService.SetRunOutput
+   */
+  setRunOutput: {
+    methodKind: "unary";
+    input: typeof SetAutomationRunOutputRequestSchema;
     output: typeof EmptySchema;
   },
   /**

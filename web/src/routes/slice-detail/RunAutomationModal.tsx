@@ -91,6 +91,7 @@ export function RunAutomationModal({
   const adminOnly = roles.length > 0 && !roles.includes("writer");
   const requireHuman = Boolean(automation.manual?.requireHuman);
 
+  const stepCount = (automation.steps ?? []).length;
   const egressLabel =
     automation.action === "bash"
       ? automation.egress === "direct"
@@ -98,11 +99,19 @@ export function RunAutomationModal({
         : automation.egress === "http-gate" || network.length > 0
           ? `HTTPS gate (${network.join(", ")})`
           : "Offline (no internet)"
-      : network.length > 0
-        ? `HTTPS gate (${network.join(", ")})`
-        : automation.action === "http"
-          ? automation.httpUrl || "HTTP webhook"
-          : "Offline";
+      : automation.action === "uses"
+        ? network.length > 0
+          ? `Template via HTTPS gate (${network.join(", ")})`
+          : automation.egress === "direct"
+            ? "Template with direct internet"
+            : "Template ceiling (caller-bounded)"
+        : automation.action === "steps"
+          ? `${stepCount} sequential step${stepCount === 1 ? "" : "s"}`
+          : network.length > 0
+            ? `HTTPS gate (${network.join(", ")})`
+            : automation.action === "http"
+              ? automation.httpUrl || "HTTP webhook"
+              : "Offline";
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -150,6 +159,15 @@ export function RunAutomationModal({
                 <p className="mt-0.5 break-all font-mono text-xs text-slate-600 dark:text-zinc-300">
                   {automation.id}
                 </p>
+                {automation.action === "uses" && automation.uses?.ref ? (
+                  <p className="mt-0.5 break-all font-mono text-[11px] text-indigo-700 dark:text-indigo-300">
+                    uses {automation.uses.ref}
+                  </p>
+                ) : automation.action === "steps" ? (
+                  <p className="mt-0.5 text-[11px] text-slate-500 dark:text-zinc-400">
+                    Pipeline ({stepCount} step{stepCount === 1 ? "" : "s"})
+                  </p>
+                ) : null}
                 {automation.description ? (
                   <p className="mt-1 text-xs text-slate-600 dark:text-zinc-400">{automation.description}</p>
                 ) : null}

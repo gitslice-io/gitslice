@@ -150,8 +150,10 @@ export type ListSecretsResponse = NormalizedMessage<SecretProto.ListSecretsRespo
 export type CreateSecretRequest = NormalizedRequest<SecretProto.CreateSecretRequest>;
 export type UpdateSecretRequest = NormalizedRequest<SecretProto.UpdateSecretRequest>;
 
-// Triggers & folder policy
+// Automations & folder policy
 export type AutomationDefinition = NormalizedMessage<AutomationProto.AutomationDefinition>;
+export type AutomationUsesAction = NormalizedMessage<AutomationProto.AutomationUsesAction>;
+export type AutomationStepDefinition = NormalizedMessage<AutomationProto.AutomationStepDefinition>;
 export type AutomationFileProblem = NormalizedMessage<AutomationProto.AutomationFileProblem>;
 export type AutomationRun = NormalizedMessage<AutomationProto.AutomationRun>;
 export type AutomationRunLog = NormalizedMessage<AutomationProto.AutomationRunLog>;
@@ -168,3 +170,5 @@ export type ListAutomationRunsResponse = NormalizedMessage<AutomationProto.ListA
 export type RunAutomationRequest = NormalizedRequest<AutomationProto.RunAutomationRequest>;
 export type ListAutomationRunLogsRequest = NormalizedRequest<AutomationProto.ListAutomationRunLogsRequest>;
 export type ListAutomationRunLogsResponse = NormalizedMessage<AutomationProto.ListAutomationRunLogsResponse>;
+export type InspectAutomationTemplateRequest = NormalizedRequest<AutomationProto.InspectAutomationTemplateRequest>;
+export type InspectAutomationTemplateResponse = NormalizedMessage<AutomationProto.InspectAutomationTemplateResponse>;

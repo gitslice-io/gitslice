@@ -246,8 +246,13 @@ export async function handleBridgeRequest(request: Request, ctx: BridgeContext):
       "/gs/check/update": "UpdateCheck",
       "/gs/state/get": "GetRunState",
       "/gs/state/set": "SetRunState",
+      "/gs/output/set": "SetRunOutput",
+      "/gs/details-url/set": "SetRunDetailsUrl",
     };
     const rpcMethod = methodMap[path];
+    if (rpcMethod === "SetRunOutput" && typeof body.value === "string") {
+      body = { ...body, value: maskSecrets(body.value, variants) };
+    }
     if (!rpcMethod) {
       return new Response("unknown bridge endpoint", { status: 404 });
     }

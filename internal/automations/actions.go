@@ -79,6 +79,7 @@ func (e *Engine) launch(ctx context.Context, queued storage.AutomationRun) {
 	fail := func(reason string) {
 		if updated, err := e.stores.Automations.UpdateAutomationRun(ctx, run.ID, []string{storage.AutomationRunRunning}, storage.AutomationRunUpdate{Status: storage.AutomationRunErrored, Error: reason}); err == nil {
 			e.CloseChecks(ctx, *updated, "errored", reason)
+			e.OnRunFinished(ctx, *updated)
 		}
 	}
 	var spec RunSpec
@@ -105,7 +106,9 @@ func (e *Engine) launch(ctx context.Context, queued storage.AutomationRun) {
 		return
 	case created == 0:
 		// Nothing to run: every check was skipped or ran already.
-		_, _ = e.stores.Automations.UpdateAutomationRun(ctx, run.ID, []string{storage.AutomationRunRunning}, storage.AutomationRunUpdate{Status: storage.AutomationRunSucceeded})
+		if updated, uerr := e.stores.Automations.UpdateAutomationRun(ctx, run.ID, []string{storage.AutomationRunRunning}, storage.AutomationRunUpdate{Status: storage.AutomationRunSucceeded}); uerr == nil {
+			e.OnRunFinished(ctx, *updated)
+		}
 		return
 	}
 	update := storage.AutomationRunUpdate{Status: storage.AutomationRunWaiting, Deadline: time.Now().Add(spec.Automation.Timeout)}
@@ -146,7 +149,9 @@ func (e *Engine) FinishIfDone(ctx context.Context, runID string) {
 	if (run.Status != storage.AutomationRunWaiting && !inCallback) || len(e.OpenChecks(ctx, *run)) > 0 {
 		return
 	}
-	_, _ = e.stores.Automations.UpdateAutomationRun(ctx, run.ID, []string{storage.AutomationRunWaiting, storage.AutomationRunRunning}, storage.AutomationRunUpdate{Status: e.ChecksOutcome(ctx, *run), Error: run.Error})
+	if updated, err := e.stores.Automations.UpdateAutomationRun(ctx, run.ID, []string{storage.AutomationRunWaiting, storage.AutomationRunRunning}, storage.AutomationRunUpdate{Status: e.ChecksOutcome(ctx, *run), Error: run.Error}); err == nil {
+		e.OnRunFinished(ctx, *updated)
+	}
 }
 
 // sendHTTP makes one attempt of an http action.
@@ -170,8 +175,11 @@ func (e *Engine) sendHTTP(ctx context.Context, queued storage.AutomationRun) {
 		update.Status = storage.AutomationRunQueued
 		update.NextAttemptAt = time.Now().Add(outbound.RetryDelay(run.Attempt))
 	}
-	if _, err := e.stores.Automations.UpdateAutomationRun(ctx, run.ID, []string{storage.AutomationRunRunning}, update); err != nil && !errors.Is(err, storage.ErrConflict) {
+	updated, err := e.stores.Automations.UpdateAutomationRun(ctx, run.ID, []string{storage.AutomationRunRunning}, update)
+	if err != nil && !errors.Is(err, storage.ErrConflict) {
 		slog.Warn("record trigger http attempt", "run", run.ID, "error", err)
+	} else if err == nil && storage.AutomationRunFinal(updated.Status) {
+		e.OnRunFinished(ctx, *updated)
 	}
 }
 
@@ -258,9 +266,11 @@ func mustWait(run storage.AutomationRun, open []storage.AutomationRun) bool {
 // StartRun. A post that is lost is posted again when its hold ends.
 func (e *Engine) post(ctx context.Context, run storage.AutomationRun) {
 	if !e.DispatchConfigured() {
-		_, _ = e.stores.Automations.UpdateAutomationRun(ctx, run.ID, []string{storage.AutomationRunQueued}, storage.AutomationRunUpdate{
+		if updated, err := e.stores.Automations.UpdateAutomationRun(ctx, run.ID, []string{storage.AutomationRunQueued}, storage.AutomationRunUpdate{
 			Status: storage.AutomationRunErrored, Error: "this server runs no automation workers or containers: GITSLICE_TRIGGER_DISPATCH_URL is not set",
-		})
+		}); err == nil {
+			e.OnRunFinished(ctx, *updated)
+		}
 		return
 	}
 	var spec RunSpec
@@ -342,6 +352,7 @@ func (e *Engine) settleExpired(ctx context.Context) {
 					reason := "timed out waiting for callbacks"
 					if updated, err := e.stores.Automations.UpdateAutomationRun(ctx, run.ID, []string{storage.AutomationRunRunning}, storage.AutomationRunUpdate{Status: storage.AutomationRunTimedOut, Error: reason}); err == nil {
 						e.CloseChecks(ctx, *updated, "errored", "the trigger run "+reason)
+						e.OnRunFinished(ctx, *updated)
 					}
 					continue
 				}
@@ -363,11 +374,16 @@ func (e *Engine) settleExpired(ctx context.Context) {
 			reason := "interrupted: the run stopped before it finished; rerun it if it is safe to repeat"
 			if updated, err := e.stores.Automations.UpdateAutomationRun(ctx, run.ID, []string{storage.AutomationRunRunning}, storage.AutomationRunUpdate{Status: storage.AutomationRunErrored, Error: reason}); err == nil {
 				e.CloseChecks(ctx, *updated, "errored", "the trigger run was interrupted")
+				e.OnRunFinished(ctx, *updated)
 			}
 		case storage.AutomationRunWaiting:
 			reason := "timed out waiting for callbacks"
 			if updated, err := e.stores.Automations.UpdateAutomationRun(ctx, run.ID, []string{storage.AutomationRunWaiting}, storage.AutomationRunUpdate{Status: storage.AutomationRunTimedOut, Error: reason}); err == nil {
 				e.CloseChecks(ctx, *updated, "errored", "the trigger run "+reason)
+				if updated.Action == ActionSteps {
+					e.cancelPipelineChildren(ctx, updated.ID, reason)
+				}
+				e.OnRunFinished(ctx, *updated)
 			}
 		}
 	}
@@ -430,15 +446,45 @@ func (e *Engine) NewManualRun(ctx context.Context, account, triggerID, ref, chan
 	if err != nil {
 		return nil, err
 	}
-	validatedInputs, err := ValidateInputs(match.Automation.Inputs, inputs)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %v", storage.ErrInvalid, err)
+	treeID := definitionTree
+	if treeID == "" && headCommit != "" {
+		if treeID, err = e.stores.Repository.RootTreeForCommit(ctx, headCommit); err != nil {
+			return nil, err
+		}
+	}
+	var validatedInputs map[string]string
+	if match.Automation.Action.Kind == ActionUses {
+		// Caller-declared inputs plus unbound template inputs are validated by BindTemplate inside newRun.
+		validatedInputs = cloneStringMap(inputs)
+		if len(match.Automation.Inputs) > 0 {
+			callerSubset := map[string]string{}
+			for k := range match.Automation.Inputs {
+				if v, ok := inputs[k]; ok {
+					callerSubset[k] = v
+				}
+			}
+			checked, err := ValidateInputs(match.Automation.Inputs, callerSubset)
+			if err != nil {
+				return nil, fmt.Errorf("%w: %v", storage.ErrInvalid, err)
+			}
+			if validatedInputs == nil {
+				validatedInputs = map[string]string{}
+			}
+			for k, v := range checked {
+				validatedInputs[k] = v
+			}
+		}
+	} else {
+		validatedInputs, err = ValidateInputs(match.Automation.Inputs, inputs)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", storage.ErrInvalid, err)
+		}
 	}
 	id, err := objectid.RandomID("evt_manual")
 	if err != nil {
 		return nil, err
 	}
-	run, err := e.newRun(info, match, EventManual, id, headCommit, envelope, 0, actor, triggeredBy, triggeredByKind, validatedInputs)
+	run, err := e.newRun(ctx, info, match, EventManual, id, headCommit, treeID, envelope, 0, actor, triggeredBy, triggeredByKind, validatedInputs)
 	if err != nil {
 		return nil, err
 	}
@@ -475,6 +521,8 @@ func (e *Engine) Rerun(ctx context.Context, run storage.AutomationRun) (*storage
 	again := run
 	again.ID, again.Status, again.Error, again.Attempt, again.ResponseStatus, again.State = "", storage.AutomationRunQueued, "", 0, 0, nil
 	again.DetailsURL = ""
+	again.Outputs = nil
+	again.ParentRunID, again.StepIndex, again.StepID = "", 0, ""
 	again.EventID = base + ".rerun." + strconv.Itoa(n)
 	created, err := e.stores.Automations.CreateAutomationRuns(ctx, []storage.AutomationRun{again})
 	if err != nil {

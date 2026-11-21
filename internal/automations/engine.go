@@ -66,17 +66,26 @@ type Options struct {
 	// Client sends http actions; DispatchClient posts runs (tests).
 	Client         *http.Client
 	DispatchClient *http.Client
+	// Templates resolves action.uses references (tags, commits, access control).
+	Templates TemplateLookup
 }
 
-// RunSpec is what a run keeps of its trigger (trigger_runs.spec).
+// RunSpec is what a run keeps of its automation (trigger_runs.spec).
 type RunSpec struct {
 	Name       string            `json:"name"`
 	Automation Automation        `json:"trigger"`
 	Depth      int               `json:"depth"`
 	Inputs     map[string]string `json:"inputs,omitempty"`
-	// DefinitionTree is the tree the trigger and its script were read from
+	// DefinitionTree is the tree the automation and its script were read from
 	// when that was a changeset's patchset rather than a commit.
 	DefinitionTree string `json:"definition_tree,omitempty"`
+	// Template fields are set when the run came from action.uses; scripts and
+	// modules load from TemplateTreeID + TemplateFolder while checkouts and
+	// secrets stay scoped to the caller's folder.
+	TemplateID       string `json:"template_id,omitempty"`
+	TemplateFolder   string `json:"template_folder,omitempty"`
+	TemplateCommitID string `json:"template_commit_id,omitempty"`
+	TemplateTreeID   string `json:"template_tree_id,omitempty"`
 }
 
 // LeaseFor is how long a started run may go without a sign of life. A bash
@@ -98,12 +107,13 @@ type CheckLauncher interface {
 
 // Engine turns events into trigger runs and runs them (design/34).
 type Engine struct {
-	stores   Stores
-	opts     Options
-	key      []byte
-	client   *http.Client
-	dispatch *http.Client
-	launcher CheckLauncher
+	stores    Stores
+	opts      Options
+	key       []byte
+	client    *http.Client
+	dispatch  *http.Client
+	launcher  CheckLauncher
+	templates TemplateLookup
 
 	mu          sync.Mutex
 	hasFiles    bool
@@ -128,12 +138,22 @@ func NewEngine(stores Stores, opts Options) *Engine {
 		dispatch = &http.Client{Timeout: dispatchWindow}
 	}
 	opts.DispatchURL = strings.TrimRight(opts.DispatchURL, "/")
-	return &Engine{stores: stores, opts: opts, key: key, client: client, dispatch: dispatch}
+	return &Engine{stores: stores, opts: opts, key: key, client: client, dispatch: dispatch, templates: opts.Templates}
 }
 
 // SetCheckLauncher gives the engine what runs check actions.
 func (e *Engine) SetCheckLauncher(l CheckLauncher) {
 	e.launcher = l
+}
+
+// SetTemplateLookup configures how the engine resolves action.uses references.
+func (e *Engine) SetTemplateLookup(l TemplateLookup) {
+	e.templates = l
+}
+
+// TemplateLookup returns the configured TemplateLookup (may be nil).
+func (e *Engine) TemplateLookup() TemplateLookup {
+	return e.templates
 }
 
 // DispatchConfigured says whether worker actions can run.
@@ -312,9 +332,16 @@ func (e *Engine) fanOut(ctx context.Context, event storage.Event, entities stora
 			if info.account+":"+m.ID == parentTrigger {
 				continue // an automation never sets itself off
 			}
-			run, err := e.newRun(info, m, kind, eventID, headCommit, envelope, depth, event.ActorSubjectID, "", "", nil)
+			run, err := e.newRun(ctx, info, m, kind, eventID, headCommit, treeID, envelope, depth, event.ActorSubjectID, "", "", nil)
 			if err != nil {
-				return err
+				runs = append(runs, storage.AutomationRun{
+					Account: info.account, AutomationID: m.ID, Folder: m.Folder, Action: m.Automation.Action.Kind,
+					EventID: eventID, EventKind: kind,
+					ChangesetID: info.changesetID, PatchsetID: info.patchsetID, CommitID: info.commitID,
+					TargetRef: info.ref, DefinitionCommitID: headCommit, Status: storage.AutomationRunErrored,
+					Error: err.Error(), Spec: []byte("{}"), Payload: envelope,
+				})
+				continue
 			}
 			if m.Automation.Concurrency == ConcurrencyCancelSuperseded && info.changesetID != "" {
 				e.cancelSuperseded(ctx, info.account, m.ID, info.changesetID, info.patchsetID)
@@ -331,7 +358,33 @@ func (e *Engine) fanOut(ctx context.Context, event storage.Event, entities stora
 // newRun builds a queued run of a matched automation, with its payload: the
 // event payload plus the automation, the changes it matched, the commit its
 // definition was read from, and how deep in a chain of automations it is.
-func (e *Engine) newRun(info *eventInfo, m Match, kind, eventID, headCommit string, envelope []byte, depth int, actor, triggeredBy, triggeredByKind string, inputs map[string]string) (storage.AutomationRun, error) {
+func (e *Engine) newRun(ctx context.Context, info *eventInfo, m Match, kind, eventID, headCommit, headTreeID string, envelope []byte, depth int, actor, triggeredBy, triggeredByKind string, inputs map[string]string) (storage.AutomationRun, error) {
+	templateID, templateFolder, templateCommitID, templateTreeID := "", "", "", ""
+	if m.Automation.Action.Kind == ActionUses && m.Automation.Action.Uses != nil {
+		ref, err := ParseUsesRef(m.Automation.Action.Uses.Ref)
+		if err != nil {
+			return storage.AutomationRun{}, err
+		}
+		callerTree := m.DefinitionTree
+		if callerTree == "" {
+			callerTree = headTreeID
+		}
+		loaded, err := ResolveTemplate(ctx, e.opts.Tree, e.templates, info.account, headCommit, callerTree, ref)
+		if err != nil {
+			return storage.AutomationRun{}, err
+		}
+		bound, err := BindTemplate(m.Automation, info.account, loaded, inputs, nil)
+		if err != nil {
+			return storage.AutomationRun{}, err
+		}
+		m.Automation = bound.Automation
+		inputs = bound.Inputs
+		templateID = bound.TemplateID
+		templateFolder = bound.TemplateFolder
+		templateCommitID = bound.TemplateCommitID
+		templateTreeID = bound.TemplateTreeID
+	}
+
 	payload := map[string]any{}
 	if len(envelope) > 0 {
 		if err := json.Unmarshal(envelope, &payload); err != nil {
@@ -349,6 +402,9 @@ func (e *Engine) newRun(info *eventInfo, m Match, kind, eventID, headCommit stri
 	}
 	payload["changes"] = changes
 	payload["definition_commit"] = headCommit
+	if templateID != "" {
+		payload["template"] = map[string]string{"id": templateID, "folder": templateFolder, "commit": templateCommitID}
+	}
 	sender, _ := payload["sender"].(map[string]any)
 	if sender == nil {
 		sender = map[string]any{}
@@ -369,7 +425,17 @@ func (e *Engine) newRun(info *eventInfo, m Match, kind, eventID, headCommit stri
 	if err != nil {
 		return storage.AutomationRun{}, err
 	}
-	spec, err := json.Marshal(RunSpec{Name: m.Name, Automation: m.Automation, Depth: depth, Inputs: inputs, DefinitionTree: m.DefinitionTree})
+	spec, err := json.Marshal(RunSpec{
+		Name:             m.Name,
+		Automation:       m.Automation,
+		Depth:            depth,
+		Inputs:           inputs,
+		DefinitionTree:   m.DefinitionTree,
+		TemplateID:       templateID,
+		TemplateFolder:   templateFolder,
+		TemplateCommitID: templateCommitID,
+		TemplateTreeID:   templateTreeID,
+	})
 	if err != nil {
 		return storage.AutomationRun{}, err
 	}
@@ -377,7 +443,7 @@ func (e *Engine) newRun(info *eventInfo, m Match, kind, eventID, headCommit stri
 	switch m.Automation.Action.Kind {
 	case ActionHTTP:
 		maxAttempts = len(outbound.DefaultRetryDelays) + 1
-	case ActionCheck:
+	case ActionCheck, ActionSteps:
 		maxAttempts = 1
 	}
 	return storage.AutomationRun{
@@ -385,6 +451,7 @@ func (e *Engine) newRun(info *eventInfo, m Match, kind, eventID, headCommit stri
 		EventID: eventID, EventKind: kind, TriggeredBy: triggeredBy, TriggeredByKind: triggeredByKind,
 		ChangesetID: info.changesetID, PatchsetID: info.patchsetID,
 		CommitID: info.commitID, TargetRef: info.ref, DefinitionCommitID: headCommit,
+		TemplateID: templateID, TemplateCommitID: templateCommitID,
 		ConcurrencyGroup: m.Automation.ConcurrencyGroup,
 		Spec:             spec, Payload: body, Status: storage.AutomationRunQueued, MaxAttempts: maxAttempts,
 	}, nil
@@ -412,6 +479,12 @@ func (e *Engine) Cancel(ctx context.Context, run storage.AutomationRun, reason s
 	if updated.Action == ActionBash && e.DispatchConfigured() {
 		go e.postCancel(updated.ID)
 	}
+	if updated.Action == ActionSteps {
+		e.cancelPipelineChildren(ctx, updated.ID, reason)
+	}
+	if updated.ParentRunID != "" {
+		e.OnRunFinished(ctx, *updated)
+	}
 	return updated, nil
 }
 
@@ -436,14 +509,7 @@ func (e *Engine) Drain(ctx context.Context) {
 				<-sem
 				wg.Done()
 			}()
-			switch run.Action {
-			case ActionHTTP:
-				e.sendHTTP(ctx, run)
-			case ActionWorker, ActionBash:
-				e.post(ctx, run)
-			case ActionCheck:
-				e.launch(ctx, run)
-			}
+			e.dispatchRun(ctx, run)
 		}()
 	}
 	wg.Wait()

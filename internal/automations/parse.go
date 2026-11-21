@@ -31,12 +31,13 @@ const (
 	EventChangesetAbandoned = storage.EventChangesetAbandoned
 	EventCheckRunCompleted  = storage.EventCheckRunCompleted
 	EventManual             = "manual"
+	EventCall               = "call"
 )
 
 var eventNames = map[string]bool{
 	EventPush: true, EventTagCreated: true, EventChangesetCreated: true, EventChangesetUpdated: true,
 	EventChangesetApproved: true, EventChangesetSubmitted: true, EventChangesetAbandoned: true,
-	EventCheckRunCompleted: true, EventManual: true,
+	EventCheckRunCompleted: true, EventManual: true, EventCall: true,
 }
 
 // Kinds of change to a file.
@@ -64,7 +65,21 @@ const (
 	// ActionBash runs a bash command or script inside an ephemeral Cloudflare
 	// Container.
 	ActionBash = "bash"
+	// ActionUses invokes a reusable (on: [call]) automation template.
+	ActionUses = "uses"
+	// ActionSteps runs a sequential multi-step pipeline of actions/templates.
+	ActionSteps = "steps"
 )
+
+// Step execution conditions (if:).
+const (
+	StepIfSuccess = "success"
+	StepIfFailure = "failure"
+	StepIfAlways  = "always"
+)
+
+// MaxSteps bounds the number of steps in a single pipeline automation.
+const MaxSteps = 20
 
 // RunTokenSecret is the name an automation lists in reveal to hand its run
 // token to an outside system.
@@ -92,30 +107,33 @@ type File struct {
 
 // Trigger is one entry of an automations file.
 type Automation struct {
-	Description string               `json:"description,omitempty"`
-	On          []string             `json:"on"`
-	Paths       []string             `json:"paths,omitempty"`
-	Changes     []string             `json:"changes,omitempty"`
-	Refs        []string             `json:"refs,omitempty"`
-	Inputs      map[string]InputSpec `json:"inputs,omitempty"`
-	Manual      *ManualPolicy        `json:"manual,omitempty"`
-	Secrets     []string             `json:"secrets,omitempty"`
-	Reveal      []string             `json:"reveal,omitempty"`
-	Network     []string             `json:"network,omitempty"`
-	Egress      string               `json:"egress,omitempty"`
-	Checks      []string             `json:"checks,omitempty"`
-	Concurrency string               `json:"concurrency"`
+	Description    string               `json:"description,omitempty"`
+	On             []string             `json:"on"`
+	Paths          []string             `json:"paths,omitempty"`
+	Changes        []string             `json:"changes,omitempty"`
+	Refs           []string             `json:"refs,omitempty"`
+	Inputs         map[string]InputSpec `json:"inputs,omitempty"`
+	Manual         *ManualPolicy        `json:"manual,omitempty"`
+	Secrets        []string             `json:"secrets,omitempty"`
+	SecretBindings map[string]string    `json:"secret_bindings,omitempty"`
+	Reveal         []string             `json:"reveal,omitempty"`
+	Network        []string             `json:"network,omitempty"`
+	Egress         string               `json:"egress,omitempty"`
+	Checks         []string             `json:"checks,omitempty"`
+	Concurrency    string               `json:"concurrency"`
 	// ConcurrencyGroup: no two runs of the account's automations in this
 	// group run at once; the others wait their turn, oldest first.
 	ConcurrencyGroup string `json:"concurrency_group,omitempty"`
 	// Timeout bounds how long a run may execute or wait for callbacks.
-	Timeout time.Duration `json:"timeout"`
-	Retry   int           `json:"retry,omitempty"`
-	Action  Action        `json:"action"`
+	Timeout         time.Duration `json:"timeout"`
+	TimeoutExplicit bool          `json:"timeout_explicit,omitempty"`
+	Retry           int           `json:"retry,omitempty"`
+	Action          Action        `json:"action"`
 }
 
-// Action is what an automation does: an HTTP call, a worker script, checks, or
-// bash in a Cloudflare Container.
+// Action is what an automation does: an HTTP call, a worker script, checks,
+// bash in a Cloudflare Container, a reusable template call (uses), or a
+// multi-step pipeline (steps).
 type Action struct {
 	Kind string      `json:"kind"`
 	HTTP *HTTPAction `json:"http,omitempty"`
@@ -125,6 +143,31 @@ type Action struct {
 	Check []string `json:"check,omitempty"`
 	// Bash runs a bash command or script in a Cloudflare Container.
 	Bash *BashAction `json:"bash,omitempty"`
+	// Uses calls a reusable on:[call] automation template.
+	Uses *UsesAction `json:"uses,omitempty"`
+	// Steps executes a sequential multi-step pipeline.
+	Steps []StepSpec `json:"steps,omitempty"`
+}
+
+// UsesAction invokes a reusable automation template at Ref with static/interpolated inputs.
+type UsesAction struct {
+	Ref  string            `json:"ref"`
+	With map[string]string `json:"with,omitempty"`
+}
+
+// StepSpec is one sequential step in an ActionSteps pipeline.
+type StepSpec struct {
+	ID              string            `json:"id"`
+	Name            string            `json:"name,omitempty"`
+	If              string            `json:"if,omitempty"`
+	Secrets         []string          `json:"secrets,omitempty"`
+	SecretBindings  map[string]string `json:"secret_bindings,omitempty"`
+	Reveal          []string          `json:"reveal,omitempty"`
+	Network         []string          `json:"network,omitempty"`
+	Egress          string            `json:"egress,omitempty"`
+	Timeout         time.Duration     `json:"timeout,omitempty"`
+	TimeoutExplicit bool              `json:"timeout_explicit,omitempty"`
+	Action          Action            `json:"action"`
 }
 
 // HTTPAction posts the event envelope to a URL. URL and header values may
@@ -146,6 +189,32 @@ type rawFile struct {
 	Automations map[string]rawAutomation `yaml:"automations"`
 }
 
+type rawSecrets struct {
+	List     []string
+	Bindings map[string]string
+}
+
+func (r *rawSecrets) UnmarshalYAML(value *yaml.Node) error {
+	switch value.Kind {
+	case yaml.SequenceNode:
+		var list []string
+		if err := value.Decode(&list); err != nil {
+			return err
+		}
+		r.List = list
+		return nil
+	case yaml.MappingNode:
+		var m map[string]string
+		if err := value.Decode(&m); err != nil {
+			return err
+		}
+		r.Bindings = m
+		return nil
+	default:
+		return fmt.Errorf("secrets must be a list of secret names or a map of template_slot: caller_secret")
+	}
+}
+
 type rawAutomation struct {
 	Description string                  `yaml:"description"`
 	On          []string                `yaml:"on"`
@@ -154,7 +223,7 @@ type rawAutomation struct {
 	Refs        []string                `yaml:"refs"`
 	Inputs      map[string]rawInputSpec `yaml:"inputs"`
 	Manual      *rawManualPolicy        `yaml:"manual"`
-	Secrets     []string                `yaml:"secrets"`
+	Secrets     rawSecrets              `yaml:"secrets"`
 	Reveal      []string                `yaml:"reveal"`
 	Network     []string                `yaml:"network"`
 	Egress      string                  `yaml:"egress"`
@@ -173,6 +242,26 @@ type rawAction struct {
 	Worker string         `yaml:"worker"`
 	Check  []string       `yaml:"check"`
 	Bash   *rawBashAction `yaml:"bash"`
+	Uses   string         `yaml:"uses"`
+	With   map[string]any `yaml:"with"`
+	Steps  []rawStep      `yaml:"steps"`
+}
+
+type rawStep struct {
+	ID      string         `yaml:"id"`
+	Name    string         `yaml:"name"`
+	If      string         `yaml:"if"`
+	Secrets rawSecrets     `yaml:"secrets"`
+	Reveal  []string       `yaml:"reveal"`
+	Network []string       `yaml:"network"`
+	Egress  string         `yaml:"egress"`
+	Timeout string         `yaml:"timeout"`
+	HTTP    *rawHTTP       `yaml:"http"`
+	Worker  string         `yaml:"worker"`
+	Check   []string       `yaml:"check"`
+	Bash    *rawBashAction `yaml:"bash"`
+	Uses    string         `yaml:"uses"`
+	With    map[string]any `yaml:"with"`
 }
 
 type rawHTTP struct {
@@ -271,18 +360,18 @@ func parseAutomation(raw rawAutomation) (Automation, error) {
 		}
 		t.Refs = appendUnique(t.Refs, ref)
 	}
-	for _, name := range raw.Secrets {
-		if !secretNamePattern.MatchString(name) {
-			return t, fmt.Errorf("secret name %q must match ^[A-Z_][A-Z0-9_]*$", name)
-		}
-		t.Secrets = appendUnique(t.Secrets, name)
+	secrets, bindings, err := parseSecretSpecs(raw.Secrets)
+	if err != nil {
+		return t, err
 	}
+	t.Secrets = secrets
+	t.SecretBindings = bindings
 	inputs, err := parseInputs(raw.Inputs)
 	if err != nil {
 		return t, err
 	}
-	if len(inputs) > 0 && !contains(t.On, EventManual) {
-		return t, fmt.Errorf("inputs require manual in on")
+	if len(inputs) > 0 && !contains(t.On, EventManual) && !contains(t.On, EventCall) {
+		return t, fmt.Errorf("inputs require manual or call in on")
 	}
 	t.Inputs = inputs
 	manual, err := parseManualPolicy(raw.Manual, t.On)
@@ -291,7 +380,7 @@ func parseAutomation(raw rawAutomation) (Automation, error) {
 	}
 	t.Manual = manual
 	for _, name := range raw.Reveal {
-		if name != RunTokenSecret && !contains(t.Secrets, name) {
+		if name != RunTokenSecret && !contains(t.Secrets, name) && t.SecretBindings[name] == "" {
 			return t, fmt.Errorf("reveal %s: list it in secrets first", name)
 		}
 		t.Reveal = appendUnique(t.Reveal, name)
@@ -337,14 +426,24 @@ func parseAutomation(raw rawAutomation) (Automation, error) {
 		return t, fmt.Errorf("action is required")
 	}
 	kinds := 0
-	for _, set := range []bool{raw.Action.HTTP != nil, raw.Action.Worker != "", raw.Action.Check != nil, raw.Action.Bash != nil} {
+	for _, set := range []bool{
+		raw.Action.HTTP != nil,
+		raw.Action.Worker != "",
+		raw.Action.Check != nil,
+		raw.Action.Bash != nil,
+		strings.TrimSpace(raw.Action.Uses) != "",
+		raw.Action.Steps != nil,
+	} {
 		if set {
 			kinds++
 		}
 	}
+	if len(raw.Action.With) > 0 && strings.TrimSpace(raw.Action.Uses) == "" {
+		return t, fmt.Errorf("action.with requires action.uses")
+	}
 	switch {
 	case kinds > 1:
-		return t, fmt.Errorf("action takes one of http, worker, check or bash")
+		return t, fmt.Errorf("action takes one of http, worker, check, bash, uses or steps")
 	case raw.Action.Check != nil:
 		if len(raw.Action.Check) == 0 {
 			return t, fmt.Errorf("action.check names no checks")
@@ -391,11 +490,32 @@ func parseAutomation(raw rawAutomation) (Automation, error) {
 		}
 		t.Egress = egress
 		t.Action = Action{Kind: ActionBash, Bash: bash}
+	case strings.TrimSpace(raw.Action.Uses) != "":
+		if contains(t.On, EventCall) {
+			return t, fmt.Errorf("reusable (on: [call]) templates cannot use action.uses (no nested templates)")
+		}
+		uses, err := parseUsesAction(raw.Action.Uses, raw.Action.With)
+		if err != nil {
+			return t, err
+		}
+		if t.Egress != "" && t.Egress != EgressOffline && t.Egress != EgressHTTPGate && t.Egress != EgressDirect {
+			return t, fmt.Errorf("egress %q (use offline, http-gate or direct)", t.Egress)
+		}
+		t.Action = Action{Kind: ActionUses, Uses: uses}
+	case raw.Action.Steps != nil:
+		if contains(t.On, EventCall) {
+			return t, fmt.Errorf("reusable (on: [call]) templates cannot use action.steps")
+		}
+		steps, err := parseSteps(raw.Action.Steps, t)
+		if err != nil {
+			return t, err
+		}
+		t.Action = Action{Kind: ActionSteps, Steps: steps}
 	default:
-		return t, fmt.Errorf("action needs http, worker, check or bash")
+		return t, fmt.Errorf("action needs http, worker, check, bash, uses or steps")
 	}
-	if t.ConcurrencyGroup != "" && t.Action.Kind != ActionWorker && t.Action.Kind != ActionBash {
-		return t, fmt.Errorf("concurrency_group applies to worker and bash actions")
+	if t.ConcurrencyGroup != "" && t.Action.Kind != ActionWorker && t.Action.Kind != ActionBash && t.Action.Kind != ActionUses && t.Action.Kind != ActionSteps {
+		return t, fmt.Errorf("concurrency_group applies to worker, bash, uses and steps actions")
 	}
 	if t.Action.Kind == ActionBash {
 		t.Timeout = DefaultBashTimeout
@@ -408,6 +528,7 @@ func parseAutomation(raw rawAutomation) (Automation, error) {
 				return t, fmt.Errorf("bash timeout must be between 1s and %s", MaxBashTimeout)
 			}
 			t.Timeout = timeout
+			t.TimeoutExplicit = true
 		}
 	} else {
 		t.Timeout = DefaultTimeout
@@ -420,6 +541,7 @@ func parseAutomation(raw rawAutomation) (Automation, error) {
 				return t, fmt.Errorf("timeout must be between 1s and 7d")
 			}
 			t.Timeout = timeout
+			t.TimeoutExplicit = true
 		}
 	}
 	if raw.Retry != nil {

@@ -174,6 +174,12 @@ class Gs extends RpcTarget {
     if (parsed.protocol !== "https:") throw new Error("a details URL must use https");
     await this.call("SetRunDetailsUrl", { detailsUrl: parsed.href });
   }
+
+  // setOutput records a named output key/value on the run for downstream
+  // pipeline steps (steps.<id>.outputs.<key>) and run inspection.
+  async setOutput(key: string, value: string): Promise<void> {
+    await this.call("SetRunOutput", { key: String(key ?? ""), value: String(value ?? "") });
+  }
 }
 
 // placeholders seals each listed secret for this tenant/folder/script scope,

@@ -59,6 +59,15 @@ type AutomationRun struct {
 	ConcurrencyGroup string
 	// DetailsURL is an outside page about the run (gs.setDetailsUrl).
 	DetailsURL string
+	// Reusable template provenance when executed via action.uses.
+	TemplateID       string
+	TemplateCommitID string
+	// Multi-step pipeline linkage (set on child step runs).
+	ParentRunID string
+	StepIndex   int
+	StepID      string
+	// Outputs stores named key/value outputs emitted by this run.
+	Outputs map[string]string
 	// Spec is the trigger as resolved (JSON), Payload the event envelope
 	// (JSON), State what the script kept between calls (JSON or nil).
 	Spec    []byte
@@ -89,11 +98,13 @@ type AutomationRunUpdate struct {
 	Deadline       time.Time
 }
 
-// AutomationRunFilter selects runs to list, newest first.
+// AutomationRunFilter selects runs to list, newest first (or by step_index
+// ascending when ParentRunID is set).
 type AutomationRunFilter struct {
 	Account      string
 	AutomationID string
 	ChangesetID  string
+	ParentRunID  string
 	Limit        int
 }
 
@@ -138,6 +149,8 @@ type AutomationStore interface {
 	OpenAutomationRunsInGroup(ctx context.Context, account, group string) ([]AutomationRun, error)
 	// SetAutomationRunDetailsURL sets the details URL of an unfinished run.
 	SetAutomationRunDetailsURL(ctx context.Context, id, url string) error
+	// SetAutomationRunOutput sets a named output key/value on an unfinished run.
+	SetAutomationRunOutput(ctx context.Context, id, key, value string) error
 	// CountActiveAutomationRuns counts the account's running and waiting runs.
 	CountActiveAutomationRuns(ctx context.Context, account string) (int, error)
 	// CountActiveAutomationRunsByAction counts the account's running and waiting

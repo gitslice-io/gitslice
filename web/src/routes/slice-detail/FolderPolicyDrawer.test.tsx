@@ -200,4 +200,64 @@ describe("FolderPolicyDrawer", () => {
       })
     );
   });
+
+  it("renders Reusable badge for on:[call] templates and summarizes uses and steps actions", async () => {
+    const getFolderPolicy = vi.fn().mockResolvedValue({
+      folder: "/acme/platform",
+      account: "acme",
+      commitId: "commit_3",
+      ownerRules: [],
+      checks: [],
+      automations: [
+        {
+          id: "platform/deploy-cloudrun",
+          name: "deploy-cloudrun",
+          folder: "/acme/platform",
+          on: ["call"],
+          action: "bash",
+          bash: { runtime: "cloud" }
+        },
+        {
+          id: "platform/deploy-api",
+          name: "deploy-api",
+          folder: "/acme/platform",
+          on: ["manual"],
+          action: "uses",
+          uses: { ref: "/acme/platform/deploy-cloudrun" }
+        },
+        {
+          id: "platform/release",
+          name: "release",
+          folder: "/acme/platform",
+          on: ["manual"],
+          action: "steps",
+          steps: [
+            { id: "build", action: "bash" },
+            { id: "deploy", action: "uses", uses: { ref: "/acme/platform/deploy-cloudrun" } }
+          ]
+        }
+      ],
+      secrets: [],
+      canManageSecrets: false,
+      ciDaemonIds: [],
+      ciDaemonNames: [],
+      problems: []
+    });
+    const api = {
+      getFolderPolicy,
+      listAutomationRuns: vi.fn().mockResolvedValue({ runs: [] }),
+      listAutomationRunLogs: vi.fn().mockResolvedValue({ logs: [] }),
+      runAutomation: vi.fn()
+    } as unknown as ApiClient;
+    apiMock.current = api;
+
+    renderWithQuery(<FolderPolicyDrawer api={api} folder="/acme/platform" onClose={() => {}} open />);
+
+    expect(await screen.findByText("platform/deploy-cloudrun")).toBeInTheDocument();
+    expect(screen.getByText("Reusable")).toBeInTheDocument();
+    expect(screen.getByText("/acme/platform/deploy-cloudrun")).toBeInTheDocument();
+    expect(screen.getByText("2 steps")).toBeInTheDocument();
+    // Only the two manual automations get Run buttons (not the on:[call] template).
+    expect(screen.getAllByRole("button", { name: "Run" })).toHaveLength(2);
+  });
 });

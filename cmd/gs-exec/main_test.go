@@ -153,3 +153,34 @@ func TestHelperCLICheckAndState(t *testing.T) {
 		t.Fatalf("stdout = %q", out.String())
 	}
 }
+
+func TestHelperCLISetOutputAndDetailsURL(t *testing.T) {
+	var seenPaths []string
+	var seenBodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seenPaths = append(seenPaths, r.URL.Path)
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		seenBodies = append(seenBodies, body)
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer srv.Close()
+	t.Setenv("GITSLICE_BRIDGE_URL", srv.URL)
+
+	var out, errBuf bytes.Buffer
+	if err := runHelperCLI([]string{"set-output", "image_tag", "v1.2.3"}, &out, &errBuf); err != nil {
+		t.Fatalf("set-output: %v", err)
+	}
+	if err := runHelperCLI([]string{"set-details-url", "https://dash.example.com/run/1"}, &out, &errBuf); err != nil {
+		t.Fatalf("set-details-url: %v", err)
+	}
+	if len(seenPaths) != 2 || seenPaths[0] != "/gs/output/set" || seenPaths[1] != "/gs/details-url/set" {
+		t.Fatalf("seenPaths = %v", seenPaths)
+	}
+	if seenBodies[0]["key"] != "image_tag" || seenBodies[0]["value"] != "v1.2.3" {
+		t.Fatalf("set-output body = %+v", seenBodies[0])
+	}
+	if seenBodies[1]["detailsUrl"] != "https://dash.example.com/run/1" {
+		t.Fatalf("set-details-url body = %+v", seenBodies[1])
+	}
+}

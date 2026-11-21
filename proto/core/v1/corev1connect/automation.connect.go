@@ -59,6 +59,9 @@ const (
 	// AutomationServiceCancelAutomationRunProcedure is the fully-qualified name of the
 	// AutomationService's CancelAutomationRun RPC.
 	AutomationServiceCancelAutomationRunProcedure = "/gitslice.core.v1.AutomationService/CancelAutomationRun"
+	// AutomationServiceInspectAutomationTemplateProcedure is the fully-qualified name of the
+	// AutomationService's InspectAutomationTemplate RPC.
+	AutomationServiceInspectAutomationTemplateProcedure = "/gitslice.core.v1.AutomationService/InspectAutomationTemplate"
 	// AutomationRunServiceStartRunProcedure is the fully-qualified name of the AutomationRunService's
 	// StartRun RPC.
 	AutomationRunServiceStartRunProcedure = "/gitslice.core.v1.AutomationRunService/StartRun"
@@ -80,6 +83,9 @@ const (
 	// AutomationRunServiceSetRunDetailsUrlProcedure is the fully-qualified name of the
 	// AutomationRunService's SetRunDetailsUrl RPC.
 	AutomationRunServiceSetRunDetailsUrlProcedure = "/gitslice.core.v1.AutomationRunService/SetRunDetailsUrl"
+	// AutomationRunServiceSetRunOutputProcedure is the fully-qualified name of the
+	// AutomationRunService's SetRunOutput RPC.
+	AutomationRunServiceSetRunOutputProcedure = "/gitslice.core.v1.AutomationRunService/SetRunOutput"
 	// AutomationRunServiceCreateCheckProcedure is the fully-qualified name of the
 	// AutomationRunService's CreateCheck RPC.
 	AutomationRunServiceCreateCheckProcedure = "/gitslice.core.v1.AutomationRunService/CreateCheck"
@@ -115,6 +121,10 @@ type AutomationServiceClient interface {
 	// RerunAutomationRun runs a finished run's automation again for the same event.
 	RerunAutomationRun(context.Context, *connect.Request[v1.RerunAutomationRunRequest]) (*connect.Response[v1.AutomationRun], error)
 	CancelAutomationRun(context.Context, *connect.Request[v1.CancelAutomationRunRequest]) (*connect.Response[v1.AutomationRun], error)
+	// InspectAutomationTemplate resolves a reusable automation reference
+	// (/<account>/<folder>/<name>[@<tag>|@sha256:...]) and returns its inputs,
+	// secret slots, network requirements, commit, and available immutable tags.
+	InspectAutomationTemplate(context.Context, *connect.Request[v1.InspectAutomationTemplateRequest]) (*connect.Response[v1.InspectAutomationTemplateResponse], error)
 }
 
 // NewAutomationServiceClient constructs a client for the gitslice.core.v1.AutomationService
@@ -176,19 +186,26 @@ func NewAutomationServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(automationServiceMethods.ByName("CancelAutomationRun")),
 			connect.WithClientOptions(opts...),
 		),
+		inspectAutomationTemplate: connect.NewClient[v1.InspectAutomationTemplateRequest, v1.InspectAutomationTemplateResponse](
+			httpClient,
+			baseURL+AutomationServiceInspectAutomationTemplateProcedure,
+			connect.WithSchema(automationServiceMethods.ByName("InspectAutomationTemplate")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
 // automationServiceClient implements AutomationServiceClient.
 type automationServiceClient struct {
-	getFolderPolicy       *connect.Client[v1.GetFolderPolicyRequest, v1.FolderPolicyResponse]
-	listAutomations       *connect.Client[v1.ListAutomationsRequest, v1.ListAutomationsResponse]
-	listAutomationRuns    *connect.Client[v1.ListAutomationRunsRequest, v1.ListAutomationRunsResponse]
-	getAutomationRun      *connect.Client[v1.GetAutomationRunRequest, v1.AutomationRun]
-	listAutomationRunLogs *connect.Client[v1.ListAutomationRunLogsRequest, v1.ListAutomationRunLogsResponse]
-	runAutomation         *connect.Client[v1.RunAutomationRequest, v1.AutomationRun]
-	rerunAutomationRun    *connect.Client[v1.RerunAutomationRunRequest, v1.AutomationRun]
-	cancelAutomationRun   *connect.Client[v1.CancelAutomationRunRequest, v1.AutomationRun]
+	getFolderPolicy           *connect.Client[v1.GetFolderPolicyRequest, v1.FolderPolicyResponse]
+	listAutomations           *connect.Client[v1.ListAutomationsRequest, v1.ListAutomationsResponse]
+	listAutomationRuns        *connect.Client[v1.ListAutomationRunsRequest, v1.ListAutomationRunsResponse]
+	getAutomationRun          *connect.Client[v1.GetAutomationRunRequest, v1.AutomationRun]
+	listAutomationRunLogs     *connect.Client[v1.ListAutomationRunLogsRequest, v1.ListAutomationRunLogsResponse]
+	runAutomation             *connect.Client[v1.RunAutomationRequest, v1.AutomationRun]
+	rerunAutomationRun        *connect.Client[v1.RerunAutomationRunRequest, v1.AutomationRun]
+	cancelAutomationRun       *connect.Client[v1.CancelAutomationRunRequest, v1.AutomationRun]
+	inspectAutomationTemplate *connect.Client[v1.InspectAutomationTemplateRequest, v1.InspectAutomationTemplateResponse]
 }
 
 // GetFolderPolicy calls gitslice.core.v1.AutomationService.GetFolderPolicy.
@@ -231,6 +248,11 @@ func (c *automationServiceClient) CancelAutomationRun(ctx context.Context, req *
 	return c.cancelAutomationRun.CallUnary(ctx, req)
 }
 
+// InspectAutomationTemplate calls gitslice.core.v1.AutomationService.InspectAutomationTemplate.
+func (c *automationServiceClient) InspectAutomationTemplate(ctx context.Context, req *connect.Request[v1.InspectAutomationTemplateRequest]) (*connect.Response[v1.InspectAutomationTemplateResponse], error) {
+	return c.inspectAutomationTemplate.CallUnary(ctx, req)
+}
+
 // AutomationServiceHandler is an implementation of the gitslice.core.v1.AutomationService service.
 type AutomationServiceHandler interface {
 	// GetFolderPolicy returns the effective folder policy at a canonical folder:
@@ -249,6 +271,10 @@ type AutomationServiceHandler interface {
 	// RerunAutomationRun runs a finished run's automation again for the same event.
 	RerunAutomationRun(context.Context, *connect.Request[v1.RerunAutomationRunRequest]) (*connect.Response[v1.AutomationRun], error)
 	CancelAutomationRun(context.Context, *connect.Request[v1.CancelAutomationRunRequest]) (*connect.Response[v1.AutomationRun], error)
+	// InspectAutomationTemplate resolves a reusable automation reference
+	// (/<account>/<folder>/<name>[@<tag>|@sha256:...]) and returns its inputs,
+	// secret slots, network requirements, commit, and available immutable tags.
+	InspectAutomationTemplate(context.Context, *connect.Request[v1.InspectAutomationTemplateRequest]) (*connect.Response[v1.InspectAutomationTemplateResponse], error)
 }
 
 // NewAutomationServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -306,6 +332,12 @@ func NewAutomationServiceHandler(svc AutomationServiceHandler, opts ...connect.H
 		connect.WithSchema(automationServiceMethods.ByName("CancelAutomationRun")),
 		connect.WithHandlerOptions(opts...),
 	)
+	automationServiceInspectAutomationTemplateHandler := connect.NewUnaryHandler(
+		AutomationServiceInspectAutomationTemplateProcedure,
+		svc.InspectAutomationTemplate,
+		connect.WithSchema(automationServiceMethods.ByName("InspectAutomationTemplate")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.AutomationService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AutomationServiceGetFolderPolicyProcedure:
@@ -324,6 +356,8 @@ func NewAutomationServiceHandler(svc AutomationServiceHandler, opts ...connect.H
 			automationServiceRerunAutomationRunHandler.ServeHTTP(w, r)
 		case AutomationServiceCancelAutomationRunProcedure:
 			automationServiceCancelAutomationRunHandler.ServeHTTP(w, r)
+		case AutomationServiceInspectAutomationTemplateProcedure:
+			automationServiceInspectAutomationTemplateHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -365,6 +399,10 @@ func (UnimplementedAutomationServiceHandler) CancelAutomationRun(context.Context
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AutomationService.CancelAutomationRun is not implemented"))
 }
 
+func (UnimplementedAutomationServiceHandler) InspectAutomationTemplate(context.Context, *connect.Request[v1.InspectAutomationTemplateRequest]) (*connect.Response[v1.InspectAutomationTemplateResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AutomationService.InspectAutomationTemplate is not implemented"))
+}
+
 // AutomationRunServiceClient is a client for the gitslice.core.v1.AutomationRunService service.
 type AutomationRunServiceClient interface {
 	// StartRun claims a queued run for the dispatcher and returns what it
@@ -383,6 +421,9 @@ type AutomationRunServiceClient interface {
 	// SetRunDetailsUrl links the run to an outside page, such as the build it
 	// started (gs.setDetailsUrl).
 	SetRunDetailsUrl(context.Context, *connect.Request[v1.SetAutomationRunDetailsUrlRequest]) (*connect.Response[v1.Empty], error)
+	// SetRunOutput records a named key/value output on the run (gs.setOutput /
+	// gs-auto set-output) for downstream pipeline steps and inspection.
+	SetRunOutput(context.Context, *connect.Request[v1.SetAutomationRunOutputRequest]) (*connect.Response[v1.Empty], error)
 	CreateCheck(context.Context, *connect.Request[v1.CreateAutomationCheckRequest]) (*connect.Response[v1.CheckRun], error)
 	UpdateCheck(context.Context, *connect.Request[v1.UpdateAutomationCheckRequest]) (*connect.Response[v1.CheckRun], error)
 	ReadFile(context.Context, *connect.Request[v1.AutomationReadFileRequest]) (*connect.Response[v1.AutomationReadFileResponse], error)
@@ -443,6 +484,12 @@ func NewAutomationRunServiceClient(httpClient connect.HTTPClient, baseURL string
 			connect.WithSchema(automationRunServiceMethods.ByName("SetRunDetailsUrl")),
 			connect.WithClientOptions(opts...),
 		),
+		setRunOutput: connect.NewClient[v1.SetAutomationRunOutputRequest, v1.Empty](
+			httpClient,
+			baseURL+AutomationRunServiceSetRunOutputProcedure,
+			connect.WithSchema(automationRunServiceMethods.ByName("SetRunOutput")),
+			connect.WithClientOptions(opts...),
+		),
 		createCheck: connect.NewClient[v1.CreateAutomationCheckRequest, v1.CheckRun](
 			httpClient,
 			baseURL+AutomationRunServiceCreateCheckProcedure,
@@ -485,6 +532,7 @@ type automationRunServiceClient struct {
 	getRunState      *connect.Client[v1.AutomationRunTokenRequest, v1.AutomationRunState]
 	setRunState      *connect.Client[v1.SetAutomationRunStateRequest, v1.Empty]
 	setRunDetailsUrl *connect.Client[v1.SetAutomationRunDetailsUrlRequest, v1.Empty]
+	setRunOutput     *connect.Client[v1.SetAutomationRunOutputRequest, v1.Empty]
 	createCheck      *connect.Client[v1.CreateAutomationCheckRequest, v1.CheckRun]
 	updateCheck      *connect.Client[v1.UpdateAutomationCheckRequest, v1.CheckRun]
 	readFile         *connect.Client[v1.AutomationReadFileRequest, v1.AutomationReadFileResponse]
@@ -525,6 +573,11 @@ func (c *automationRunServiceClient) SetRunState(ctx context.Context, req *conne
 // SetRunDetailsUrl calls gitslice.core.v1.AutomationRunService.SetRunDetailsUrl.
 func (c *automationRunServiceClient) SetRunDetailsUrl(ctx context.Context, req *connect.Request[v1.SetAutomationRunDetailsUrlRequest]) (*connect.Response[v1.Empty], error) {
 	return c.setRunDetailsUrl.CallUnary(ctx, req)
+}
+
+// SetRunOutput calls gitslice.core.v1.AutomationRunService.SetRunOutput.
+func (c *automationRunServiceClient) SetRunOutput(ctx context.Context, req *connect.Request[v1.SetAutomationRunOutputRequest]) (*connect.Response[v1.Empty], error) {
+	return c.setRunOutput.CallUnary(ctx, req)
 }
 
 // CreateCheck calls gitslice.core.v1.AutomationRunService.CreateCheck.
@@ -571,6 +624,9 @@ type AutomationRunServiceHandler interface {
 	// SetRunDetailsUrl links the run to an outside page, such as the build it
 	// started (gs.setDetailsUrl).
 	SetRunDetailsUrl(context.Context, *connect.Request[v1.SetAutomationRunDetailsUrlRequest]) (*connect.Response[v1.Empty], error)
+	// SetRunOutput records a named key/value output on the run (gs.setOutput /
+	// gs-auto set-output) for downstream pipeline steps and inspection.
+	SetRunOutput(context.Context, *connect.Request[v1.SetAutomationRunOutputRequest]) (*connect.Response[v1.Empty], error)
 	CreateCheck(context.Context, *connect.Request[v1.CreateAutomationCheckRequest]) (*connect.Response[v1.CheckRun], error)
 	UpdateCheck(context.Context, *connect.Request[v1.UpdateAutomationCheckRequest]) (*connect.Response[v1.CheckRun], error)
 	ReadFile(context.Context, *connect.Request[v1.AutomationReadFileRequest]) (*connect.Response[v1.AutomationReadFileResponse], error)
@@ -627,6 +683,12 @@ func NewAutomationRunServiceHandler(svc AutomationRunServiceHandler, opts ...con
 		connect.WithSchema(automationRunServiceMethods.ByName("SetRunDetailsUrl")),
 		connect.WithHandlerOptions(opts...),
 	)
+	automationRunServiceSetRunOutputHandler := connect.NewUnaryHandler(
+		AutomationRunServiceSetRunOutputProcedure,
+		svc.SetRunOutput,
+		connect.WithSchema(automationRunServiceMethods.ByName("SetRunOutput")),
+		connect.WithHandlerOptions(opts...),
+	)
 	automationRunServiceCreateCheckHandler := connect.NewUnaryHandler(
 		AutomationRunServiceCreateCheckProcedure,
 		svc.CreateCheck,
@@ -673,6 +735,8 @@ func NewAutomationRunServiceHandler(svc AutomationRunServiceHandler, opts ...con
 			automationRunServiceSetRunStateHandler.ServeHTTP(w, r)
 		case AutomationRunServiceSetRunDetailsUrlProcedure:
 			automationRunServiceSetRunDetailsUrlHandler.ServeHTTP(w, r)
+		case AutomationRunServiceSetRunOutputProcedure:
+			automationRunServiceSetRunOutputHandler.ServeHTTP(w, r)
 		case AutomationRunServiceCreateCheckProcedure:
 			automationRunServiceCreateCheckHandler.ServeHTTP(w, r)
 		case AutomationRunServiceUpdateCheckProcedure:
@@ -718,6 +782,10 @@ func (UnimplementedAutomationRunServiceHandler) SetRunState(context.Context, *co
 
 func (UnimplementedAutomationRunServiceHandler) SetRunDetailsUrl(context.Context, *connect.Request[v1.SetAutomationRunDetailsUrlRequest]) (*connect.Response[v1.Empty], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AutomationRunService.SetRunDetailsUrl is not implemented"))
+}
+
+func (UnimplementedAutomationRunServiceHandler) SetRunOutput(context.Context, *connect.Request[v1.SetAutomationRunOutputRequest]) (*connect.Response[v1.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AutomationRunService.SetRunOutput is not implemented"))
 }
 
 func (UnimplementedAutomationRunServiceHandler) CreateCheck(context.Context, *connect.Request[v1.CreateAutomationCheckRequest]) (*connect.Response[v1.CheckRun], error) {

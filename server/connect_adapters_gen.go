@@ -261,6 +261,10 @@ func (a connectAutomationRunServiceAdapter) SetRunDetailsUrl(ctx context.Context
 	return connectResponse(a.svc.SetRunDetailsUrl(ctx, req.Msg))
 }
 
+func (a connectAutomationRunServiceAdapter) SetRunOutput(ctx context.Context, req *connect.Request[corev1.SetAutomationRunOutputRequest]) (*connect.Response[corev1.Empty], error) {
+	return connectResponse(a.svc.SetRunOutput(ctx, req.Msg))
+}
+
 func (a connectAutomationRunServiceAdapter) CreateCheck(ctx context.Context, req *connect.Request[corev1.CreateAutomationCheckRequest]) (*connect.Response[corev1.CheckRun], error) {
 	return connectResponse(a.svc.CreateCheck(ctx, req.Msg))
 }
@@ -315,6 +319,10 @@ func (a connectAutomationServiceAdapter) RerunAutomationRun(ctx context.Context,
 
 func (a connectAutomationServiceAdapter) CancelAutomationRun(ctx context.Context, req *connect.Request[corev1.CancelAutomationRunRequest]) (*connect.Response[corev1.AutomationRun], error) {
 	return connectResponse(a.svc.CancelAutomationRun(ctx, req.Msg))
+}
+
+func (a connectAutomationServiceAdapter) InspectAutomationTemplate(ctx context.Context, req *connect.Request[corev1.InspectAutomationTemplateRequest]) (*connect.Response[corev1.InspectAutomationTemplateResponse], error) {
+	return connectResponse(a.svc.InspectAutomationTemplate(ctx, req.Msg))
 }
 
 type connectBlobServiceAdapter struct {

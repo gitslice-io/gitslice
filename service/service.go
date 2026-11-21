@@ -158,6 +158,13 @@ func (h *Handlers) SetAutomationEngine(engine *automations.Engine) {
 	if h.Changeset != nil && h.Changeset.dispatcher != nil {
 		engine.SetCheckLauncher(h.Changeset.dispatcher)
 	}
+	if engine != nil && engine.TemplateLookup() == nil {
+		engine.SetTemplateLookup(&sliceTemplateLookup{
+			Repository: h.Automation.Repository,
+			Slices:     h.Automation.Slices,
+			Auth:       h.Automation.Auth,
+		})
+	}
 }
 
 func captureAnalytics(ctx context.Context, tracker analytics.Client, eventName string, props map[string]any) {

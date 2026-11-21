@@ -197,6 +197,8 @@ folder-scoped secrets. Its action is:
   - bash:   bash command or script in an ephemeral Cloudflare Container
   - check:  runs checks from the folder's checks.yaml on the CI runner pool
             (mark them started_by: automation so they wait for the automation)
+  - uses:   calls a reusable template (on: [call]) with typed inputs & secret bindings
+  - steps:  runs a sequential multi-step pipeline with step outputs & conditions
 
   version: 1
   automations:
@@ -230,12 +232,23 @@ folder-scoped secrets. Its action is:
           sign: HOOK_TOKEN                   # X-Gitslice-Signature-256
 
   gs auto ls [folder]                        # automations applying at a folder
+  gs auto inspect <uses-ref>                 # inspect a reusable on:[call] template
   gs auto runs --changeset <id>              # runs of a changeset (or --automation, --account)
-  gs auto show <run-id>
+  gs auto show <run-id>                      # show a run (and child steps for pipelines)
   gs auto logs <run-id> [--follow]
   gs auto run <id> [-i k=v]... [--yes] [-f]  # invoke a manual automation
   gs auto rerun <run-id>
   gs auto cancel <run-id>
+
+Reusable templates & pipelines
+  Any folder can define reusable templates with on: [call]. Callers invoke them
+  via action: { uses: /<account>[/<dir>...]/<name>[@<tag>|@sha256:...], with: {...} }
+  or chain steps via action: { steps: [...] }. Same-account unpinned refs follow
+  the caller's tree; cross-account refs must pin a public slice tag or commit SHA.
+  Secrets always come from the caller's folder and can be remapped via
+  secrets: { TEMPLATE_SLOT: CALLER_SECRET }. Steps emit outputs with
+  gs.setOutput(key, value) (worker) or gs-auto set-output <key> <value> (bash)
+  and pass them downstream via ${{ steps.<id>.outputs.<key> }}.
 
 Definitions and scripts always come from the head of the target ref (never an
 unsubmitted draft), and any change under .gitslice/ requires account owner or

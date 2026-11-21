@@ -16,7 +16,7 @@ const fieldRows: Array<[string, string]> = [
   ],
   [
     "on",
-    "Events that start the automation: push, tag.created, changeset.created, changeset.updated, changeset.approved, changeset.submitted, changeset.abandoned, check_run.completed, manual.",
+    "Events that start the automation: push, tag.created, changeset.created, changeset.updated, changeset.approved, changeset.submitted, changeset.abandoned, check_run.completed, manual, or call (reusable template invoked via action.uses).",
   ],
   [
     "paths",
@@ -37,7 +37,7 @@ const fieldRows: Array<[string, string]> = [
   ],
   [
     "secrets",
-    "Folder secrets the automation may use. Sealed as opaque placeholders by default in worker and http-gate bash runs.",
+    "Folder secrets the automation may use (list [FOO] or slot mapping { TEMPLATE_SLOT: CALLER_SECRET } for action.uses). Sealed as opaque placeholders by default in worker and http-gate bash runs.",
   ],
   [
     "reveal",
@@ -73,7 +73,7 @@ const fieldRows: Array<[string, string]> = [
   ],
   [
     "action",
-    "http (url, headers, sign), worker (.js/.mjs module under .gitslice/), bash (Cloudflare Container shell run/script), or check (checks from the folder's checks.yaml).",
+    "http (url, headers, sign), worker (.js/.mjs module under .gitslice/), bash (Cloudflare Container shell run/script), check (checks from checks.yaml), uses (call an on:[call] reusable template), or steps (sequential multi-step pipeline).",
   ],
 ];
 
@@ -136,6 +136,10 @@ const apiRows: Array<[string, string]> = [
   [
     "gs.setDetailsUrl(url)",
     "Link the run to an https page outside Gitslice, such as the build it started; gs auto show and --follow print it.",
+  ],
+  [
+    "gs.setOutput(key, value)",
+    "Emit a named output on the run (secret-masked) for downstream pipeline steps (${{ steps.<id>.outputs.<key> }}) and inspection.",
   ],
   [
     "gs.state.get() / .set(value)",
@@ -314,9 +318,11 @@ automations:
             and the server.
           </BulletPoint>
           <BulletPoint label="Helper CLI inside the container:">
-            Use <InlineCode>gs-auto check create|update</InlineCode> and{" "}
-            <InlineCode>gs-auto state get|set</InlineCode> to report checks or
-            persist run state without exposing the run token to shell code.
+            Use <InlineCode>gs-auto check create|update</InlineCode>,{" "}
+            <InlineCode>gs-auto state get|set</InlineCode>,{" "}
+            <InlineCode>gs-auto set-output &lt;key&gt; &lt;value&gt;</InlineCode>
+            , and <InlineCode>gs-auto set-details-url &lt;url&gt;</InlineCode>{" "}
+            without exposing the run token to shell code.
           </BulletPoint>
         </ul>
         <CommandBlock label="direct-egress database migration example">{`# services/billing/.gitslice/automations.yaml
@@ -414,11 +420,121 @@ export default {
         />
       </DocSectionCard>
 
+      <DocSectionCard title="Reusable automation templates">
+        <p>
+          Define a reusable template in any folder by adding{" "}
+          <InlineCode>on: [call]</InlineCode> in{" "}
+          <InlineCode>.gitslice/automations.yaml</InlineCode>. Callers invoke it
+          with <InlineCode>action.uses</InlineCode>, pass static or interpolated
+          parameters via <InlineCode>with</InlineCode>, and bind folder secrets
+          by name or slot mapping. Unbound template inputs automatically appear
+          on the caller&apos;s manual Run modal and CLI prompt.
+        </p>
+        <CommandBlock label="template and caller example">{`# /acme/platform/.gitslice/automations.yaml  (reusable template)
+version: 1
+automations:
+  deploy-cloudrun:
+    description: Deploy a service to Google Cloud Run
+    on: [call]
+    inputs:
+      service: { type: string, required: true }
+      region:  { type: choice, options: [us-central1, europe-west1], default: us-central1 }
+      image:   { type: string, required: true }
+    secrets: [GCP_SA_KEY]
+    reveal: [GCP_SA_KEY]
+    egress: direct
+    action:
+      bash:
+        runtime: cloud
+        run: |
+          gcloud auth activate-service-account --key-file="$GITSLICE_SECRETS_DIR/GCP_SA_KEY"
+          gcloud run deploy "$INPUT_SERVICE" --region="$INPUT_REGION" --image="$INPUT_IMAGE"
+          gs-auto set-output service_url "https://$INPUT_SERVICE.run.app"
+
+# /acme/services/billing/.gitslice/automations.yaml  (caller)
+version: 1
+automations:
+  deploy-prod:
+    on: [manual]
+    manual: { roles: [admin], require_human: true, confirm: "Deploy billing to prod?" }
+    secrets:
+      GCP_SA_KEY: BILLING_PROD_GCP_KEY     # template slot -> caller folder secret
+    reveal: [BILLING_PROD_GCP_KEY]         # caller explicitly grants reveal + direct egress
+    egress: direct
+    action:
+      uses: /acme/platform/deploy-cloudrun # same-account live; cross-account must pin @v1.0.0 or @sha256:...
+      with:
+        service: billing-api               # bound here; "region" and "image" stay promptable inputs`}</CommandBlock>
+        <ul className="space-y-2">
+          <BulletPoint label="Pinning rules:">
+            Same-account references may omit a version pin to follow the
+            caller&apos;s tree live, or pin{" "}
+            <InlineCode>@&lt;slice-tag&gt;</InlineCode> /{" "}
+            <InlineCode>@sha256:&lt;commit&gt;</InlineCode>. Cross-account
+            references must always pin an immutable public slice tag or commit
+            SHA.
+          </BulletPoint>
+          <BulletPoint label="Caller-bounded security ceilings:">
+            Secrets always resolve from the caller&apos;s folder (never the
+            template&apos;s). A template cannot reveal secrets, use{" "}
+            <InlineCode>egress: direct</InlineCode>, or exceed the caller&apos;s
+            explicit <InlineCode>timeout</InlineCode> without caller opt-in.
+            Cross-account callers must also allowlist every host the template
+            declares in <InlineCode>network</InlineCode>.
+          </BulletPoint>
+        </ul>
+      </DocSectionCard>
+
+      <DocSectionCard title="Multi-step pipelines">
+        <p>
+          Chain up to 20 sequential steps with{" "}
+          <InlineCode>action.steps</InlineCode>. Each step can invoke a reusable
+          template (<InlineCode>uses</InlineCode>) or run inline{" "}
+          <InlineCode>bash</InlineCode>, <InlineCode>worker</InlineCode>,{" "}
+          <InlineCode>http</InlineCode>, or <InlineCode>check</InlineCode>{" "}
+          actions. Steps emit outputs via{" "}
+          <InlineCode>gs-auto set-output</InlineCode> (bash) or{" "}
+          <InlineCode>gs.setOutput</InlineCode> (worker) and pass them
+          downstream with{" "}
+          <InlineCode>{"${{ steps.<id>.outputs.<key> }}"}</InlineCode>. Control
+          error handling with <InlineCode>if: success</InlineCode> (default),{" "}
+          <InlineCode>if: failure</InlineCode>, or{" "}
+          <InlineCode>if: always</InlineCode>.
+        </p>
+        <CommandBlock label="pipeline example">{`# /acme/services/billing/.gitslice/automations.yaml
+version: 1
+automations:
+  release:
+    on: [manual]
+    secrets: [GCP_SA_KEY, SLACK_WEBHOOK]
+    reveal: [GCP_SA_KEY]
+    egress: direct
+    action:
+      steps:
+        - id: build
+          bash:
+            runtime: go
+            checkout: folder
+            run: |
+              TAG="v$(date +%Y%m%d%H%M)"
+              gs-auto set-output image "gcr.io/acme/billing:$TAG"
+        - id: deploy
+          uses: /acme/platform/deploy-cloudrun
+          with:
+            service: billing-api
+            image: \${{ steps.build.outputs.image }}
+        - id: notify
+          if: always
+          http:
+            url: https://hooks.slack.com/services/\${{ secrets.SLACK_WEBHOOK }}`}</CommandBlock>
+      </DocSectionCard>
+
       <DocSectionCard title="Inspect and run automations">
         <CommandBlock label="automation CLI commands">{`gs auto ls [folder]                                  # automations applying at a folder
+gs auto inspect /acme/platform/deploy-cloudrun       # inspect a reusable on:[call] template & tags
 gs auto runs --changeset <id>                        # runs for a changeset (or --automation, --account)
-gs auto show <run-id>                                # run status, actor attribution, and inputs
-gs auto logs <run-id> --follow                       # stream live stdout/stderr
+gs auto show <run-id>                                # run status, template, outputs, and pipeline steps
+gs auto logs <run-id> --follow                       # stream live stdout/stderr (including pipeline steps)
 gs auto run <id> -i version=v1.4.2 --yes --follow    # invoke a manual automation and follow logs
 gs auto rerun <run-id>                               # rerun a finished automation
 gs auto cancel <run-id>                              # stop a queued, running, or waiting run`}</CommandBlock>

@@ -19,14 +19,15 @@ import (
 const _ = grpc.SupportPackageIsVersion7
 
 const (
-	AutomationService_GetFolderPolicy_FullMethodName       = "/gitslice.core.v1.AutomationService/GetFolderPolicy"
-	AutomationService_ListAutomations_FullMethodName       = "/gitslice.core.v1.AutomationService/ListAutomations"
-	AutomationService_ListAutomationRuns_FullMethodName    = "/gitslice.core.v1.AutomationService/ListAutomationRuns"
-	AutomationService_GetAutomationRun_FullMethodName      = "/gitslice.core.v1.AutomationService/GetAutomationRun"
-	AutomationService_ListAutomationRunLogs_FullMethodName = "/gitslice.core.v1.AutomationService/ListAutomationRunLogs"
-	AutomationService_RunAutomation_FullMethodName         = "/gitslice.core.v1.AutomationService/RunAutomation"
-	AutomationService_RerunAutomationRun_FullMethodName    = "/gitslice.core.v1.AutomationService/RerunAutomationRun"
-	AutomationService_CancelAutomationRun_FullMethodName   = "/gitslice.core.v1.AutomationService/CancelAutomationRun"
+	AutomationService_GetFolderPolicy_FullMethodName           = "/gitslice.core.v1.AutomationService/GetFolderPolicy"
+	AutomationService_ListAutomations_FullMethodName           = "/gitslice.core.v1.AutomationService/ListAutomations"
+	AutomationService_ListAutomationRuns_FullMethodName        = "/gitslice.core.v1.AutomationService/ListAutomationRuns"
+	AutomationService_GetAutomationRun_FullMethodName          = "/gitslice.core.v1.AutomationService/GetAutomationRun"
+	AutomationService_ListAutomationRunLogs_FullMethodName     = "/gitslice.core.v1.AutomationService/ListAutomationRunLogs"
+	AutomationService_RunAutomation_FullMethodName             = "/gitslice.core.v1.AutomationService/RunAutomation"
+	AutomationService_RerunAutomationRun_FullMethodName        = "/gitslice.core.v1.AutomationService/RerunAutomationRun"
+	AutomationService_CancelAutomationRun_FullMethodName       = "/gitslice.core.v1.AutomationService/CancelAutomationRun"
+	AutomationService_InspectAutomationTemplate_FullMethodName = "/gitslice.core.v1.AutomationService/InspectAutomationTemplate"
 )
 
 // AutomationServiceClient is the client API for AutomationService service.
@@ -49,6 +50,10 @@ type AutomationServiceClient interface {
 	// RerunAutomationRun runs a finished run's automation again for the same event.
 	RerunAutomationRun(ctx context.Context, in *RerunAutomationRunRequest, opts ...grpc.CallOption) (*AutomationRun, error)
 	CancelAutomationRun(ctx context.Context, in *CancelAutomationRunRequest, opts ...grpc.CallOption) (*AutomationRun, error)
+	// InspectAutomationTemplate resolves a reusable automation reference
+	// (/<account>/<folder>/<name>[@<tag>|@sha256:...]) and returns its inputs,
+	// secret slots, network requirements, commit, and available immutable tags.
+	InspectAutomationTemplate(ctx context.Context, in *InspectAutomationTemplateRequest, opts ...grpc.CallOption) (*InspectAutomationTemplateResponse, error)
 }
 
 type automationServiceClient struct {
@@ -131,6 +136,15 @@ func (c *automationServiceClient) CancelAutomationRun(ctx context.Context, in *C
 	return out, nil
 }
 
+func (c *automationServiceClient) InspectAutomationTemplate(ctx context.Context, in *InspectAutomationTemplateRequest, opts ...grpc.CallOption) (*InspectAutomationTemplateResponse, error) {
+	out := new(InspectAutomationTemplateResponse)
+	err := c.cc.Invoke(ctx, AutomationService_InspectAutomationTemplate_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AutomationServiceServer is the server API for AutomationService service.
 // All implementations should embed UnimplementedAutomationServiceServer
 // for forward compatibility
@@ -151,6 +165,10 @@ type AutomationServiceServer interface {
 	// RerunAutomationRun runs a finished run's automation again for the same event.
 	RerunAutomationRun(context.Context, *RerunAutomationRunRequest) (*AutomationRun, error)
 	CancelAutomationRun(context.Context, *CancelAutomationRunRequest) (*AutomationRun, error)
+	// InspectAutomationTemplate resolves a reusable automation reference
+	// (/<account>/<folder>/<name>[@<tag>|@sha256:...]) and returns its inputs,
+	// secret slots, network requirements, commit, and available immutable tags.
+	InspectAutomationTemplate(context.Context, *InspectAutomationTemplateRequest) (*InspectAutomationTemplateResponse, error)
 }
 
 // UnimplementedAutomationServiceServer should be embedded to have forward compatible implementations.
@@ -180,6 +198,9 @@ func (UnimplementedAutomationServiceServer) RerunAutomationRun(context.Context, 
 }
 func (UnimplementedAutomationServiceServer) CancelAutomationRun(context.Context, *CancelAutomationRunRequest) (*AutomationRun, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CancelAutomationRun not implemented")
+}
+func (UnimplementedAutomationServiceServer) InspectAutomationTemplate(context.Context, *InspectAutomationTemplateRequest) (*InspectAutomationTemplateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method InspectAutomationTemplate not implemented")
 }
 
 // UnsafeAutomationServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -337,6 +358,24 @@ func _AutomationService_CancelAutomationRun_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AutomationService_InspectAutomationTemplate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InspectAutomationTemplateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AutomationServiceServer).InspectAutomationTemplate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AutomationService_InspectAutomationTemplate_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AutomationServiceServer).InspectAutomationTemplate(ctx, req.(*InspectAutomationTemplateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AutomationService_ServiceDesc is the grpc.ServiceDesc for AutomationService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -376,6 +415,10 @@ var AutomationService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "CancelAutomationRun",
 			Handler:    _AutomationService_CancelAutomationRun_Handler,
 		},
+		{
+			MethodName: "InspectAutomationTemplate",
+			Handler:    _AutomationService_InspectAutomationTemplate_Handler,
+		},
 	},
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/core/v1/automation.proto",
@@ -389,6 +432,7 @@ const (
 	AutomationRunService_GetRunState_FullMethodName      = "/gitslice.core.v1.AutomationRunService/GetRunState"
 	AutomationRunService_SetRunState_FullMethodName      = "/gitslice.core.v1.AutomationRunService/SetRunState"
 	AutomationRunService_SetRunDetailsUrl_FullMethodName = "/gitslice.core.v1.AutomationRunService/SetRunDetailsUrl"
+	AutomationRunService_SetRunOutput_FullMethodName     = "/gitslice.core.v1.AutomationRunService/SetRunOutput"
 	AutomationRunService_CreateCheck_FullMethodName      = "/gitslice.core.v1.AutomationRunService/CreateCheck"
 	AutomationRunService_UpdateCheck_FullMethodName      = "/gitslice.core.v1.AutomationRunService/UpdateCheck"
 	AutomationRunService_ReadFile_FullMethodName         = "/gitslice.core.v1.AutomationRunService/ReadFile"
@@ -416,6 +460,9 @@ type AutomationRunServiceClient interface {
 	// SetRunDetailsUrl links the run to an outside page, such as the build it
 	// started (gs.setDetailsUrl).
 	SetRunDetailsUrl(ctx context.Context, in *SetAutomationRunDetailsUrlRequest, opts ...grpc.CallOption) (*Empty, error)
+	// SetRunOutput records a named key/value output on the run (gs.setOutput /
+	// gs-auto set-output) for downstream pipeline steps and inspection.
+	SetRunOutput(ctx context.Context, in *SetAutomationRunOutputRequest, opts ...grpc.CallOption) (*Empty, error)
 	CreateCheck(ctx context.Context, in *CreateAutomationCheckRequest, opts ...grpc.CallOption) (*CheckRun, error)
 	UpdateCheck(ctx context.Context, in *UpdateAutomationCheckRequest, opts ...grpc.CallOption) (*CheckRun, error)
 	ReadFile(ctx context.Context, in *AutomationReadFileRequest, opts ...grpc.CallOption) (*AutomationReadFileResponse, error)
@@ -494,6 +541,15 @@ func (c *automationRunServiceClient) SetRunDetailsUrl(ctx context.Context, in *S
 	return out, nil
 }
 
+func (c *automationRunServiceClient) SetRunOutput(ctx context.Context, in *SetAutomationRunOutputRequest, opts ...grpc.CallOption) (*Empty, error) {
+	out := new(Empty)
+	err := c.cc.Invoke(ctx, AutomationRunService_SetRunOutput_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *automationRunServiceClient) CreateCheck(ctx context.Context, in *CreateAutomationCheckRequest, opts ...grpc.CallOption) (*CheckRun, error) {
 	out := new(CheckRun)
 	err := c.cc.Invoke(ctx, AutomationRunService_CreateCheck_FullMethodName, in, out, opts...)
@@ -559,6 +615,9 @@ type AutomationRunServiceServer interface {
 	// SetRunDetailsUrl links the run to an outside page, such as the build it
 	// started (gs.setDetailsUrl).
 	SetRunDetailsUrl(context.Context, *SetAutomationRunDetailsUrlRequest) (*Empty, error)
+	// SetRunOutput records a named key/value output on the run (gs.setOutput /
+	// gs-auto set-output) for downstream pipeline steps and inspection.
+	SetRunOutput(context.Context, *SetAutomationRunOutputRequest) (*Empty, error)
 	CreateCheck(context.Context, *CreateAutomationCheckRequest) (*CheckRun, error)
 	UpdateCheck(context.Context, *UpdateAutomationCheckRequest) (*CheckRun, error)
 	ReadFile(context.Context, *AutomationReadFileRequest) (*AutomationReadFileResponse, error)
@@ -590,6 +649,9 @@ func (UnimplementedAutomationRunServiceServer) SetRunState(context.Context, *Set
 }
 func (UnimplementedAutomationRunServiceServer) SetRunDetailsUrl(context.Context, *SetAutomationRunDetailsUrlRequest) (*Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SetRunDetailsUrl not implemented")
+}
+func (UnimplementedAutomationRunServiceServer) SetRunOutput(context.Context, *SetAutomationRunOutputRequest) (*Empty, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetRunOutput not implemented")
 }
 func (UnimplementedAutomationRunServiceServer) CreateCheck(context.Context, *CreateAutomationCheckRequest) (*CheckRun, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CreateCheck not implemented")
@@ -744,6 +806,24 @@ func _AutomationRunService_SetRunDetailsUrl_Handler(srv interface{}, ctx context
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AutomationRunService_SetRunOutput_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetAutomationRunOutputRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AutomationRunServiceServer).SetRunOutput(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AutomationRunService_SetRunOutput_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AutomationRunServiceServer).SetRunOutput(ctx, req.(*SetAutomationRunOutputRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AutomationRunService_CreateCheck_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CreateAutomationCheckRequest)
 	if err := dec(in); err != nil {
@@ -868,6 +948,10 @@ var AutomationRunService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SetRunDetailsUrl",
 			Handler:    _AutomationRunService_SetRunDetailsUrl_Handler,
+		},
+		{
+			MethodName: "SetRunOutput",
+			Handler:    _AutomationRunService_SetRunOutput_Handler,
 		},
 		{
 			MethodName: "CreateCheck",

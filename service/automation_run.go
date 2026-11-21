@@ -113,6 +113,7 @@ func (s *AutomationRunService) StartRun(ctx context.Context, req *corev1.StartAu
 		reason := status.Convert(err).Message()
 		if updated, uerr := s.Automations.UpdateAutomationRun(ctx, run.ID, []string{storage.AutomationRunRunning}, storage.AutomationRunUpdate{Status: storage.AutomationRunErrored, Error: reason}); uerr == nil {
 			s.Engine.CloseChecks(ctx, *updated, "errored", reason)
+			s.Engine.OnRunFinished(ctx, *updated)
 		}
 		return nil, err
 	}
@@ -173,12 +174,30 @@ func (s *AutomationRunService) startResponse(ctx context.Context, run *storage.A
 			return nil, grpcError(err)
 		}
 	}
-	secrets, missing, err := s.Engine.SecretsFor(ctx, run.Folder, spec.Automation.Secrets)
+	scriptTree := tree
+	if spec.TemplateTreeID != "" {
+		scriptTree = spec.TemplateTreeID
+	} else if spec.TemplateCommitID != "" {
+		var err error
+		if scriptTree, err = s.Repository.RootTreeForCommit(ctx, spec.TemplateCommitID); err != nil {
+			return nil, grpcError(err)
+		}
+	}
+	rawSecrets, missing, err := s.Engine.SecretsFor(ctx, run.Folder, spec.Automation.Secrets)
 	if err != nil {
 		return nil, grpcError(err)
 	}
 	if len(missing) > 0 {
 		return nil, status.Errorf(codes.FailedPrecondition, "no secret %s applies at %s", strings.Join(missing, ", "), run.Folder)
+	}
+	secrets := rawSecrets
+	if len(spec.Automation.SecretBindings) > 0 {
+		secrets = make(map[string]string, len(spec.Automation.SecretBindings))
+		for slot, callerName := range spec.Automation.SecretBindings {
+			if val, ok := rawSecrets[callerName]; ok {
+				secrets[slot] = val
+			}
+		}
 	}
 	deadline := run.Deadline
 	if deadline.IsZero() {
@@ -200,10 +219,13 @@ func (s *AutomationRunService) startResponse(ctx context.Context, run *storage.A
 		TimeoutMs:      spec.Automation.Timeout.Milliseconds(),
 	}
 	dotGitslice := run.Folder + "/.gitslice"
+	if spec.TemplateFolder != "" {
+		dotGitslice = spec.TemplateFolder + "/.gitslice"
+	}
 	hash := sha256.New()
 	fmt.Fprintf(hash, "account\x00%s\x00folder\x00%s\x00action\x00%s\x00", run.Account, run.Folder, kind)
 	if kind == automations.ActionWorker {
-		modules, err := loadTriggerModules(ctx, s.Tree, tree, dotGitslice, spec.Automation.Action.Worker)
+		modules, err := loadTriggerModules(ctx, s.Tree, scriptTree, dotGitslice, spec.Automation.Action.Worker)
 		if err != nil {
 			return nil, status.Error(codes.FailedPrecondition, err.Error())
 		}
@@ -228,7 +250,7 @@ func (s *AutomationRunService) startResponse(ctx context.Context, run *storage.A
 	}
 	scriptBody := bash.Run
 	if bash.Script != "" {
-		rawScript, err := s.Tree.ReadFile(ctx, tree, dotGitslice+"/"+bash.Script)
+		rawScript, err := s.Tree.ReadFile(ctx, scriptTree, dotGitslice+"/"+bash.Script)
 		if errors.Is(err, automations.ErrNotFound) {
 			return nil, status.Errorf(codes.FailedPrecondition, "bash script %s/%s not found", dotGitslice, bash.Script)
 		}
@@ -306,6 +328,7 @@ func (s *AutomationRunService) FinishRun(ctx context.Context, req *corev1.Finish
 			reason = "the trigger run " + updated.Status + ": " + updated.Error
 		}
 		s.Engine.CloseChecks(call.ctx, *updated, "errored", truncate(reason, 500))
+		s.Engine.OnRunFinished(ctx, *updated)
 	}
 	return automationRunProto(*updated), nil
 }
@@ -390,6 +413,46 @@ func (s *AutomationRunService) SetRunDetailsUrl(ctx context.Context, req *corev1
 		return nil, status.Error(codes.InvalidArgument, "details URL must be an https URL without credentials")
 	}
 	if err := s.Automations.SetAutomationRunDetailsURL(ctx, call.run.ID, u.String()); err != nil {
+		return nil, grpcError(err)
+	}
+	return &corev1.Empty{}, nil
+}
+
+// SetRunOutput records a named output key/value on the run (gs.setOutput /
+// gs-auto set-output), masking any secrets belonging to the run's folder.
+func (s *AutomationRunService) SetRunOutput(ctx context.Context, req *corev1.SetAutomationRunOutputRequest) (*corev1.Empty, error) {
+	call, err := s.call(ctx, req.GetRunToken())
+	if err != nil {
+		return nil, err
+	}
+	key := strings.TrimSpace(req.GetKey())
+	if !automations.ValidOutputKey(key) {
+		return nil, status.Errorf(codes.InvalidArgument, "output key %q must match ^[A-Za-z_][A-Za-z0-9_-]{0,63}$", key)
+	}
+	val := strings.ToValidUTF8(req.GetValue(), "?")
+	if len(val) > automations.MaxRunOutputBytes {
+		return nil, status.Errorf(codes.InvalidArgument, "output %s exceeds %d bytes", key, automations.MaxRunOutputBytes)
+	}
+	existing := call.run.Outputs
+	if _, already := existing[key]; !already && len(existing) >= automations.MaxRunOutputs {
+		return nil, status.Errorf(codes.InvalidArgument, "at most %d outputs per run", automations.MaxRunOutputs)
+	}
+	totalBytes := len(key) + len(val)
+	for k, v := range existing {
+		if k == key {
+			continue
+		}
+		totalBytes += len(k) + len(v)
+	}
+	if totalBytes > automations.MaxRunOutputsTotal {
+		return nil, status.Errorf(codes.InvalidArgument, "total outputs exceed %d bytes", automations.MaxRunOutputsTotal)
+	}
+	if s.Slices != nil && call.run.Folder != "" {
+		if folderSecrets, err := s.Slices.SecretValuesAt(ctx, call.run.Folder); err == nil && len(folderSecrets) > 0 {
+			val = secretmask.New(secretValuesOf(folderSecrets)).Mask(val)
+		}
+	}
+	if err := s.Automations.SetAutomationRunOutput(ctx, call.run.ID, key, val); err != nil {
 		return nil, grpcError(err)
 	}
 	return &corev1.Empty{}, nil

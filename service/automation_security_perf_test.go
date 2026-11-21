@@ -37,6 +37,11 @@ func newAutomationTestServices(mem *memory.Stores, dispatchSecret string) (*auto
 		DispatchURL:         "https://automations.test",
 		DispatchSecret:      dispatchSecret,
 		AllowPrivateTargets: true,
+		Templates: &sliceTemplateLookup{
+			Repository: mem.Repository,
+			Slices:     mem.Slices,
+			Auth:       mem.Auth,
+		},
 	})
 	trigSvc := &AutomationService{
 		Auth:        mem.Auth,

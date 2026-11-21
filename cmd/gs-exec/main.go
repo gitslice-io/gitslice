@@ -510,12 +510,23 @@ func postFinish(ctx context.Context, client *http.Client, bridge, outcome string
 // scripts never need raw access to runToken.
 func runHelperCLI(args []string, stdout, stderr io.Writer) error {
 	if len(args) < 2 {
-		return errors.New("usage: gs-auto <check|state> <subcommand> [flags]")
+		return errors.New("usage: gs-auto <check|state|set-output|set-details-url> ...")
 	}
 	bridge := bridgeURL()
 	client := &http.Client{Timeout: 30 * time.Second}
 
 	switch args[0] {
+	case "set-output":
+		if len(args) < 3 {
+			return errors.New("usage: gs-auto set-output <key> <value>")
+		}
+		return callBridgeJSON(client, bridge+"/gs/output/set", map[string]any{
+			"key": args[1], "value": args[2],
+		}, stdout)
+	case "set-details-url":
+		return callBridgeJSON(client, bridge+"/gs/details-url/set", map[string]any{
+			"detailsUrl": args[1],
+		}, stdout)
 	case "check":
 		switch args[1] {
 		case "create":

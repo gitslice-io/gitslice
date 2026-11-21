@@ -137,6 +137,7 @@ func (s *AutomationService) GetFolderPolicy(ctx context.Context, req *corev1.Get
 		return nil, grpcError(err)
 	}
 	for _, m := range matches {
+		m = s.enrichAutomationMatch(ctx, account, head.GetCommitId(), tree, m)
 		out.Automations = append(out.Automations, automationDefinitionProto(m))
 	}
 	for _, p := range trigProblems {

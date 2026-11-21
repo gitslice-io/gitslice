@@ -96,6 +96,7 @@ func (s *AutomationService) ListAutomations(ctx context.Context, req *corev1.Lis
 	}
 	out := &corev1.ListAutomationsResponse{CommitId: head.GetCommitId()}
 	for _, m := range matches {
+		m = s.enrichAutomationMatch(ctx, account, head.GetCommitId(), tree, m)
 		out.Automations = append(out.Automations, automationDefinitionProto(m))
 	}
 	for _, p := range problems {
@@ -113,10 +114,18 @@ func (s *AutomationService) ListAutomationRuns(ctx context.Context, req *corev1.
 		Account:      strings.TrimSpace(req.GetAccount()),
 		AutomationID: strings.TrimSpace(req.GetAutomationId()),
 		ChangesetID:  strings.TrimSpace(req.GetChangesetId()),
+		ParentRunID:  strings.TrimSpace(req.GetParentRunId()),
 		Limit:        int(req.GetLimit()),
 	}
 	filterByFolder := false
 	switch {
+	case filter.ParentRunID != "":
+		parent, err := s.authorizedRun(ctx, filter.ParentRunID, authz.ActionRead)
+		if err != nil {
+			return nil, err
+		}
+		filter.ParentRunID = parent.ID
+		filter.Account = parent.Account
 	case filter.ChangesetID != "":
 		cs, err := s.authorizedChangeset(ctx, subjectID, filter.ChangesetID, authz.ActionRead)
 		if err != nil {
@@ -511,6 +520,42 @@ func automationDefinitionProto(m automations.Match) *corev1.AutomationDefinition
 			Checkout: b.Checkout, Include: b.Include, WorkingDir: b.WorkingDir, Env: b.Env,
 		}
 	}
+	if t.Action.Uses != nil {
+		out.Uses = &corev1.AutomationUsesAction{
+			Ref:  t.Action.Uses.Ref,
+			With: t.Action.Uses.With,
+		}
+	}
+	if len(t.Action.Steps) > 0 {
+		for _, step := range t.Action.Steps {
+			sd := &corev1.AutomationStepDefinition{
+				Id:        step.ID,
+				Name:      step.Name,
+				Condition: step.If,
+				Action:    step.Action.Kind,
+				Worker:    step.Action.Worker,
+				Checks:    step.Action.Check,
+				TimeoutMs: step.Timeout.Milliseconds(),
+			}
+			if step.Action.Uses != nil {
+				sd.Uses = &corev1.AutomationUsesAction{Ref: step.Action.Uses.Ref, With: step.Action.Uses.With}
+			}
+			if step.Action.Bash != nil {
+				b := step.Action.Bash
+				sd.Bash = &corev1.AutomationBashAction{
+					Run: b.Run, Script: b.Script, Runtime: b.Runtime, Size: b.Size,
+					Checkout: b.Checkout, Include: b.Include, WorkingDir: b.WorkingDir, Env: b.Env,
+				}
+			}
+			if step.Action.HTTP != nil {
+				sd.HttpUrl = step.Action.HTTP.URL
+			}
+			out.Steps = append(out.Steps, sd)
+		}
+	}
+	if len(t.SecretBindings) > 0 {
+		out.SecretBindings = t.SecretBindings
+	}
 	if t.Manual != nil {
 		out.Manual = &corev1.AutomationManualPolicy{
 			Roles: t.Manual.Roles, RequireHuman: t.Manual.RequireHuman, Confirm: t.Manual.Confirm,
@@ -547,5 +592,8 @@ func automationRunProto(run storage.AutomationRun) *corev1.AutomationRun {
 		ResponseStatus: int32(run.ResponseStatus), CreatedAt: formatTime(run.CreatedAt), StartedAt: formatTime(run.StartedAt),
 		FinishedAt: formatTime(run.FinishedAt), Deadline: formatTime(run.Deadline),
 		DetailsUrl: run.DetailsURL,
+		TemplateId: run.TemplateID, TemplateCommitId: run.TemplateCommitID,
+		ParentRunId: run.ParentRunID, StepIndex: int32(run.StepIndex), StepId: run.StepID,
+		Outputs: run.Outputs,
 	}
 }

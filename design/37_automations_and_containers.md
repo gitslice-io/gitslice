@@ -1,7 +1,9 @@
 # 37. Folder Automations, Manual Runbooks & Bash on Cloudflare Containers
 
 > **Status:** Implemented (2026-11-19). Supersedes the naming and extends the
-> runtime architecture of `design/34_triggers.md`.
+> runtime architecture of `design/34_triggers.md`. See also
+> `design/38_reusable_automations_and_pipelines.md` for `on: [call]` reusable
+> templates, `action.uses`, `action.steps` pipelines, and step outputs.
 
 ## Summary
 
