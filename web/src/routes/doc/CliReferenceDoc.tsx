@@ -22,7 +22,7 @@ export function CliReferenceDoc() {
 
       <nav
         aria-label="CLI reference sections"
-        className="mt-6 flex flex-wrap gap-2 text-xs"
+        className="mt-6 flex flex-nowrap gap-2 overflow-x-auto pb-1 text-xs sm:flex-wrap sm:overflow-visible sm:pb-0"
       >
         {[
           ["install", "Install"],
@@ -30,7 +30,7 @@ export function CliReferenceDoc() {
           ...commandGroups.map((group) => [group.id, group.title] as [string, string])
         ].map(([id, label]) => (
           <a
-            className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-1 font-medium text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50"
+            className="shrink-0 whitespace-nowrap rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-1.5 font-medium text-slate-700 dark:text-zinc-300 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50"
             href={`#${id}`}
             key={id}
           >

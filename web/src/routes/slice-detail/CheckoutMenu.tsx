@@ -37,7 +37,7 @@ export function CheckoutMenu({ gitUrl, sliceRef }: CheckoutMenuProps) {
 
   return (
     <details className="group relative" ref={detailsRef}>
-      <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium text-slate-500 dark:text-zinc-400 transition hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-800 dark:hover:text-zinc-200">
+      <summary className="flex cursor-pointer list-none items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950">
         Checkout
         <span aria-hidden="true" className="text-[0.65rem] text-slate-400 dark:text-zinc-500 transition group-open:rotate-180">
           ▾

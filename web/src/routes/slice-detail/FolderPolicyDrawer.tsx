@@ -189,27 +189,40 @@ export function FolderPolicyDrawer({
     >
       <div className="flex h-full w-full justify-end">
         <div
-          className="flex h-full w-full max-w-xl flex-col bg-white text-zinc-950 shadow-xl dark:bg-zinc-900 dark:text-zinc-50"
+          className="flex h-full w-full max-w-xl flex-col bg-white text-zinc-950 outline-none shadow-xl dark:bg-zinc-900 dark:text-zinc-50"
           ref={sheetRef}
+          tabIndex={-1}
         >
-          <div className="border-b border-slate-200 px-4 py-4 dark:border-zinc-800">
+          <div className="border-b border-slate-200 px-4 py-3 dark:border-zinc-800">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50" id={`${baseId}-title`}>
+                <h2 className="text-base font-semibold tracking-tight text-zinc-950 dark:text-zinc-50" id={`${baseId}-title`}>
                   Folder policy
                 </h2>
-                <p className="mt-1 break-all font-mono text-xs text-slate-600 dark:text-zinc-300">{folder}</p>
+                <p className="mt-0.5 break-all font-mono text-xs text-slate-600 dark:text-zinc-300">{folder}</p>
                 <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
                   Effective rules, checks, automations, and secrets for this folder at the head of main.
                 </p>
               </div>
               <button
-                autoFocus
-                className="shrink-0 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
+                aria-label="Close folder policy"
+                className="inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-zinc-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 active:scale-[0.98] dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
                 onClick={onClose}
                 type="button"
               >
-                Close
+                <svg
+                  aria-hidden="true"
+                  className="h-4 w-4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                  viewBox="0 0 24 24"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="m6 6 12 12" />
+                </svg>
               </button>
             </div>
           </div>
@@ -252,7 +265,7 @@ export function FolderPolicyDrawer({
             })}
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
             {policyQuery.isPending ? (
               <div className="grid gap-2 px-4 py-4">
                 <div className="h-16 animate-pulse rounded-md bg-slate-100 dark:bg-zinc-800" />
@@ -569,10 +582,12 @@ function CheckCard({ check, folder }: { check: FolderCheckDefinition; folder: st
         <InheritanceBadge currentFolder={folder} sourceFolder={check.folder ?? ""} />
       </div>
       {check.run ? (
-        <p className="mt-1 break-all font-mono text-xs text-slate-600 dark:text-zinc-400">{check.run}</p>
+        <pre className="mt-1.5 overflow-x-auto whitespace-pre-wrap break-words rounded bg-slate-50 px-2 py-1.5 font-mono text-xs text-slate-600 dark:bg-zinc-950/70 dark:text-zinc-400">
+          {check.run}
+        </pre>
       ) : null}
       {(check.paths ?? []).length > 0 ? (
-        <p className="mt-1 break-all text-xs text-slate-500 dark:text-zinc-400">
+        <p className="mt-1.5 break-words font-mono text-[11px] text-slate-500 dark:text-zinc-400">
           paths {(check.paths ?? []).join(" ")}
         </p>
       ) : null}

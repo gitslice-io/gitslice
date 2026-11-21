@@ -117,9 +117,71 @@ async function tagPage(request: Request, bucket: ReleaseBucket, tag: string) {
     .filter((fields) => fields.length === 2 && segment.test(fields[1].replace(/^\*/, "")))
     .map(([sha, name]) => ({ name: name.replace(/^\*/, ""), sha }));
   const rows = assets
-    .map((a) => `<li><a href="/releases/download/${tag}/${a.name}">${a.name}</a> <code>${a.sha}</code></li>`)
+    .map(
+      (a) =>
+        `<li><a class="asset" href="/releases/download/${tag}/${a.name}">${a.name}</a><code class="sha">${a.sha}</code></li>`
+    )
     .join("");
-  const html = `<!doctype html><meta charset="utf-8"><title>gs ${tag}</title><h1>gs ${tag}</h1><ul>${rows}<li><a href="/releases/download/${tag}/checksums.txt">checksums.txt</a></li></ul><p>Install: <code>curl -fsSL https://gitslice.io/install.sh | sh</code> or <code>gs upgrade</code>.</p>`;
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>gs ${tag} · Gitslice Releases</title>
+<style>
+  :root { color-scheme: light dark; --bg: #f8fafc; --surface: #ffffff; --border: #e2e8f0; --fg: #09090b; --muted: #64748b; --accent: #0369a1; --code-bg: #f1f5f9; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #09090b; --surface: #18181b; --border: #27272a; --fg: #fafafa; --muted: #a1a1aa; --accent: #7dd3fc; --code-bg: #27272a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--fg); line-height: 1.5; }
+  header { border-bottom: 1px solid var(--border); background: var(--surface); }
+  .bar { max-width: 48rem; margin: 0 auto; padding: 0.875rem 1rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .brand { color: var(--fg); text-decoration: none; font-weight: 600; font-size: 0.9375rem; }
+  .nav-link { color: var(--muted); text-decoration: none; font-size: 0.8125rem; font-weight: 500; }
+  .nav-link:hover { color: var(--fg); }
+  main { max-width: 48rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+  h1 { margin: 0 0 0.25rem; font-size: 1.5rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: -0.02em; }
+  .sub { margin: 0 0 1.25rem; color: var(--muted); font-size: 0.875rem; }
+  .install { background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; padding: 0.875rem 1rem; margin-bottom: 1.25rem; font-size: 0.875rem; }
+  .install p { margin: 0 0 0.5rem; color: var(--muted); font-size: 0.8125rem; }
+  .install pre { margin: 0; overflow-x: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8125rem; background: var(--code-bg); padding: 0.625rem 0.75rem; border-radius: 0.375rem; }
+  .install .alt { margin: 0.625rem 0 0; }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; }
+  .alt code { background: var(--code-bg); padding: 0.125rem 0.375rem; border-radius: 0.25rem; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 0.5rem; overflow: hidden; }
+  .card h2 { margin: 0; padding: 0.75rem 1rem; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); border-bottom: 1px solid var(--border); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 0.25rem; }
+  li:last-child { border-bottom: 0; }
+  a.asset { color: var(--accent); text-decoration: none; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.875rem; font-weight: 600; overflow-wrap: anywhere; }
+  a.asset:hover { text-decoration: underline; }
+  code.sha { color: var(--muted); font-size: 0.75rem; overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+  <header>
+    <div class="bar">
+      <a class="brand" href="/">Gitslice</a>
+      <a class="nav-link" href="/slices/gitslice/gitslice?tags=true">All tags</a>
+    </div>
+  </header>
+  <main>
+    <h1>gs ${tag}</h1>
+    <p class="sub">Release archives and SHA-256 checksums</p>
+    <section class="install">
+      <p>Install or upgrade</p>
+      <pre>curl -fsSL https://gitslice.io/install.sh | sh</pre>
+      <p class="alt">Or run <code>gs upgrade</code> if you already have <code>gs</code> installed.</p>
+    </section>
+    <section class="card">
+      <h2>Files</h2>
+      <ul>${rows}<li><a class="asset" href="/releases/download/${tag}/checksums.txt">checksums.txt</a></li></ul>
+    </section>
+  </main>
+</body>
+</html>`;
   return new Response(request.method === "HEAD" ? null : html, {
     headers: { "Cache-Control": "public, max-age=300", "Content-Type": "text/html; charset=utf-8" }
   });

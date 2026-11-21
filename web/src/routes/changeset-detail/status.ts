@@ -37,15 +37,15 @@ export function statusClass(status?: string) {
     case "published":
     case "merged":
     case "submitted":
-      return "border-emerald-200 bg-emerald-50 text-emerald-800";
+      return "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800/80 dark:bg-emerald-950/45 dark:text-emerald-300";
     case "pending_publish":
-      return "border-amber-200 bg-amber-50 text-amber-900";
+      return "border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800/80 dark:bg-amber-950/45 dark:text-amber-200";
     case "abandoned":
-      return "border-rose-200 bg-rose-50 text-rose-800";
+      return "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-800/80 dark:bg-rose-950/45 dark:text-rose-300";
     case "draft":
-      return "border-slate-200 bg-slate-50 text-slate-700";
+      return "border-slate-200 bg-slate-50 text-slate-700 dark:border-zinc-700 dark:bg-zinc-800/70 dark:text-zinc-300";
     default:
-      return "border-slate-200 bg-slate-50 text-slate-700";
+      return "border-slate-200 bg-slate-50 text-slate-700 dark:border-zinc-700 dark:bg-zinc-800/70 dark:text-zinc-300";
   }
 }
 

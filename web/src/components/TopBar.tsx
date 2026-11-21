@@ -93,13 +93,7 @@ export function TopBar() {
   const pathname = useRouterState({
     select: (state) => state.location.pathname
   });
-  const isSlicesActive =
-    pathname === "/" ||
-    pathname.startsWith("/slices") ||
-    pathname.startsWith("/accounts") ||
-    pathname.startsWith("/source") ||
-    pathname.startsWith("/changesets") ||
-    pathname.startsWith("/cs");
+  const isSlicesActive = pathname === "/" || pathname === "/slices";
   const isDocActive = pathname.startsWith("/doc");
   const isBlogActive = pathname.startsWith("/blogs");
   const isConversationsActive = pathname.startsWith("/conversations");
@@ -111,20 +105,20 @@ export function TopBar() {
     (section === "conversations" && isConversationsActive);
 
   return (
-    <header className="border-b border-slate-200 bg-white/95 px-3 backdrop-blur transition-colors duration-200 dark:border-zinc-800 dark:bg-zinc-950/90 sm:px-4 md:px-6">
-      <div className="mx-auto flex min-h-14 w-full max-w-[100rem] flex-wrap items-center justify-between gap-x-3 gap-y-2 py-2 sm:min-h-16 sm:flex-nowrap sm:py-0">
-        <div className="flex min-w-0 items-center gap-3 sm:gap-5">
+    <header className="border-b border-slate-200 bg-white/95 px-2.5 backdrop-blur transition-colors duration-200 dark:border-zinc-800 dark:bg-zinc-950/90 sm:px-4 md:px-6">
+      <div className="mx-auto flex min-h-14 w-full max-w-[100rem] flex-nowrap items-center justify-between gap-2 py-1.5 sm:min-h-16 sm:gap-3 sm:py-0">
+        <div className="flex min-w-0 shrink-0 items-center gap-3 sm:gap-5">
           <Link
-            className="-my-2 flex shrink-0 items-center gap-2 py-2 text-sm font-semibold tracking-normal text-zinc-950 dark:text-zinc-50"
+            className="-my-2 flex shrink-0 items-center gap-1.5 py-2 text-sm font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 sm:gap-2"
             params={home.params as never}
             to={home.to as never}
           >
-            <BrandMark className="size-6" />
-            Gitslice
+            <BrandMark className="size-6 shrink-0" />
+            <span>Gitslice</span>
           </Link>
         </div>
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <nav aria-label="Primary" className="flex items-center gap-1">
+        <div className="flex min-w-0 items-center gap-1.5 sm:gap-3">
+          <nav aria-label="Primary" className="flex items-center gap-0.5 sm:gap-1">
             {navItems
               // The blog is for visitors; signed-in people work in the app.
               .filter((item) => !(isSignedIn && item.section === "blog"))
@@ -132,7 +126,7 @@ export function TopBar() {
               <Link
                 aria-current={isActive(item.section) ? "page" : undefined}
                 className={cn(
-                  "inline-flex items-center gap-2 rounded-md px-2.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50 sm:px-3",
+                  "inline-flex min-h-9 min-w-9 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50 sm:gap-2 sm:px-3 sm:py-2",
                   isActive(item.section) &&
                     "bg-zinc-950 text-white hover:bg-zinc-950 hover:text-white dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white dark:hover:text-zinc-950"
                 )}
@@ -178,7 +172,7 @@ export function TopBar() {
             </div>
           ) : (
             <Link
-              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              className="shrink-0 whitespace-nowrap rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800 sm:px-3 sm:py-2 sm:text-sm"
               reloadDocument
               to="/login"
             >

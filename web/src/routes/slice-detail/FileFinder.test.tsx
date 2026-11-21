@@ -125,8 +125,10 @@ describe("FileFinder", () => {
     expect(onClose).not.toHaveBeenCalled();
     fireEvent.keyDown(box(), { key: "Escape" });
     expect(onClose).toHaveBeenCalledTimes(1);
-    fireEvent.mouseDown(view.container.firstElementChild as HTMLElement);
+    fireEvent.click(screen.getByRole("button", { name: "Close file finder" }));
     expect(onClose).toHaveBeenCalledTimes(2);
+    fireEvent.mouseDown(view.container.firstElementChild as HTMLElement);
+    expect(onClose).toHaveBeenCalledTimes(3);
   });
 
   it("says when nothing matches, and when the slice has no files", async () => {

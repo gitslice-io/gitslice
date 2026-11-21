@@ -24,11 +24,11 @@ export function VisitorBanner({ show }: { show: boolean }) {
       role="region"
     >
       <div className="mx-auto flex w-full max-w-[100rem] flex-wrap items-center gap-x-4 gap-y-2">
-        <p className="min-w-0 flex-1 basis-60 leading-5">
+        <p className="min-w-0 flex-1 basis-56 leading-5">
           <span className="font-semibold">Gitslice</span> is source control for fleets of agents and the people who
           work with them.
         </p>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex w-full shrink-0 items-center gap-2 sm:w-auto">
           <Link
             className="inline-flex min-h-8 items-center rounded-md px-2 text-sm font-medium text-sky-800 underline-offset-2 hover:underline dark:text-sky-200"
             to="/"
@@ -44,7 +44,7 @@ export function VisitorBanner({ show }: { show: boolean }) {
           </Link>
           <button
             aria-label="Dismiss"
-            className="inline-flex size-8 items-center justify-center rounded-md text-base leading-none text-sky-800 transition hover:bg-sky-100 dark:text-sky-200 dark:hover:bg-sky-900/50"
+            className="ml-auto inline-flex size-8 shrink-0 items-center justify-center rounded-md text-base leading-none text-sky-800 transition hover:bg-sky-100 dark:text-sky-200 dark:hover:bg-sky-900/50 sm:ml-0"
             onClick={() => {
               // Remembered for thirty days, and seen by the server render.
               document.cookie = dismissalCookie(window.location.protocol === "https:");

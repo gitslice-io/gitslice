@@ -145,7 +145,7 @@ export function DirectoryHeader({
   ) : null;
 
   return (
-    <div className={cn("border-b border-slate-200 dark:border-zinc-800 px-4 py-4 sm:px-5", mode === "" && foldedOnPhone)}>
+    <div className={cn("border-b border-slate-200 dark:border-zinc-800 px-4 py-3 sm:px-5 sm:py-4", selectedPath && mode === "" && foldedOnPhone)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <h2
