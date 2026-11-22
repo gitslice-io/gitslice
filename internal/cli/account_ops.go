@@ -80,7 +80,7 @@ func (r Runner) runAccountInvite(ctx context.Context, opts commandOptions, org, 
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if !opts.Quiet {
@@ -113,7 +113,7 @@ func (r Runner) runAccountInvitations(ctx context.Context, opts commandOptions, 
 	for _, invitation := range invitations {
 		out = append(out, invitationFromProto(invitation))
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"invitations": out})
 	}
 	if opts.Quiet {
@@ -142,7 +142,7 @@ func (r Runner) runAccountRespond(ctx context.Context, opts commandOptions, org 
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		out := map[string]any{"account": strings.TrimSpace(org), "accepted": accept}
 		if m := resp.GetMembership(); m != nil {
 			out["role"] = m.GetRole()
@@ -169,7 +169,7 @@ func (r Runner) runAccountCancelInvite(ctx context.Context, opts commandOptions,
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"account": strings.TrimSpace(org), "username": strings.TrimSpace(username), "cancelled": true})
 	}
 	if !opts.Quiet {
@@ -203,7 +203,7 @@ func (r Runner) runAccountUse(ctx context.Context, opts commandOptions, account 
 	if err := r.writeUserConfig(cfg); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"active_account": account})
 	}
 	if !opts.Quiet {
@@ -235,7 +235,7 @@ func (r Runner) runAccountCurrent(ctx context.Context, opts commandOptions) erro
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"account": active, "source": source})
 	}
 	if !opts.Quiet {
@@ -315,7 +315,7 @@ func (r Runner) runAccountCreateOrg(ctx context.Context, opts commandOptions, sl
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if !opts.Quiet {

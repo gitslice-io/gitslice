@@ -85,7 +85,7 @@ func (r Runner) runTagList(ctx context.Context, opts commandOptions, slice strin
 		for _, tag := range resp.Tags {
 			out = append(out, tagToOutput(tag))
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{"tags": out})
 		}
 		for _, tag := range out {

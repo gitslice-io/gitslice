@@ -153,7 +153,7 @@ func (r Runner) runGroupList(ctx context.Context, opts commandOptions, rawAccoun
 	for _, g := range resp.GetGroups() {
 		groups = append(groups, groupFromProto(g))
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
 			"account": resp.GetAccount(),
 			"groups":  groups,
@@ -248,7 +248,7 @@ func (r Runner) runGroupDelete(ctx context.Context, opts commandOptions, rawGrou
 		return err
 	}
 	handle := model.FormatGroupHandle(account, name)
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
 			"account": account,
 			"name":    name,

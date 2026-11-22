@@ -45,7 +45,7 @@ func (r Runner) runClaimsList(ctx context.Context, opts commandOptions) error {
 			RequestedRole:    claim.GetRequestedRole(),
 		})
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if len(out) == 0 {
@@ -93,7 +93,7 @@ func (r Runner) runClaimsAccept(ctx context.Context, opts commandOptions, agentS
 	if resp.GetGrantedSlice().GetAccount() != "" && resp.GetGrantedSlice().GetSlice() != "" {
 		grantedSlice = resp.GetGrantedSlice().GetAccount() + "/" + resp.GetGrantedSlice().GetSlice()
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		payload := map[string]any{
 			"agent_subject_id": strings.TrimSpace(agentSubjectID),
 			"account":          resp.Account,

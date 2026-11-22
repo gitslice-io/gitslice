@@ -13,7 +13,7 @@ import (
 func TestProgressReportsLongRunsOnly(t *testing.T) {
 	// A run that ends before the first report prints nothing.
 	var quick bytes.Buffer
-	p := startProgressEvery(progressSink{w: &quick}, "uploading", "files", 10, time.Hour, time.Hour)
+	p := startProgressEvery(progressSink{W: &quick}, "uploading", "files", 10, time.Hour, time.Hour)
 	p.Add(10)
 	p.Finish()
 	if quick.Len() != 0 {
@@ -22,7 +22,7 @@ func TestProgressReportsLongRunsOnly(t *testing.T) {
 
 	// A longer one prints a line per interval and a final count.
 	var slow bytes.Buffer
-	p = startProgressEvery(progressSink{w: &slow}, "uploading", "files", 1742, time.Millisecond, 5*time.Millisecond)
+	p = startProgressEvery(progressSink{W: &slow}, "uploading", "files", 1742, time.Millisecond, 5*time.Millisecond)
 	p.Add(500)
 	time.Sleep(30 * time.Millisecond)
 	p.Add(1242)
@@ -45,7 +45,7 @@ func TestProgressReportsLongRunsOnly(t *testing.T) {
 
 	// On a terminal the line rewrites itself; an unknown total is a count.
 	var tty bytes.Buffer
-	p = startProgressEvery(progressSink{w: &tty, tty: true}, "hydrating", "files", 0, time.Millisecond, time.Millisecond)
+	p = startProgressEvery(progressSink{W: &tty, TTY: true}, "hydrating", "files", 0, time.Millisecond, time.Millisecond)
 	p.Add(7)
 	time.Sleep(20 * time.Millisecond)
 	p.Finish()

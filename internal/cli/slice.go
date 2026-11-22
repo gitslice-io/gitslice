@@ -66,7 +66,7 @@ func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account s
 			}
 		}
 		if sharedOnly {
-			if opts.jsonOutput() {
+			if opts.JSONOutput() {
 				return r.writeJSONOutput(opts, map[string]any{"shared": nonNilShared(shared)})
 			}
 			if opts.Quiet {
@@ -98,7 +98,7 @@ func (r Runner) runSliceList(ctx context.Context, opts commandOptions, account s
 		for _, slice := range slices {
 			out = append(out, sliceToOutput(slice))
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			payload := map[string]any{
 				"account": account,
 				"slices":  out,
@@ -165,7 +165,7 @@ func (r Runner) runSlicePaths(ctx context.Context, opts commandOptions, sliceRef
 		return err
 	}
 	out := sliceToOutput(slice)
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
 			"ref":            out.Ref,
 			"included_paths": out.IncludedPaths,
@@ -200,7 +200,7 @@ func (r Runner) runSliceHistory(ctx context.Context, opts commandOptions, sliceR
 		for _, version := range res.Versions {
 			versions = append(versions, sliceDefinitionVersionToOutput(version))
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
 				"ref":      sliceRefLabel(slice.Ref),
 				"slice_id": slice.Id,
@@ -346,7 +346,7 @@ func (r Runner) runSliceDelete(ctx context.Context, opts commandOptions, sliceRe
 		if err != nil {
 			return err
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
 				"slice_id":     slice.Id,
 				"ref":          sliceRefLabel(slice.Ref),

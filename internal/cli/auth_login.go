@@ -76,7 +76,7 @@ func (r Runner) runAuthLoginClerkBrowser(ctx context.Context, opts commandOption
 	}
 
 	promptWriter := r.stdout()
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		promptWriter = r.stderr()
 	}
 	if !opts.Quiet {
@@ -163,7 +163,7 @@ func (r Runner) persistAndReportLogin(opts commandOptions, cfg UserConfig) error
 	if err := r.writeUserConfig(cfg); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
 			"server_addr": cfg.ServerAddr,
 			"subject_id":  cfg.SubjectID,

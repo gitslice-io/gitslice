@@ -17,7 +17,7 @@ func (r Runner) runConfigList(opts commandOptions) error {
 	if err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {
@@ -55,7 +55,7 @@ func (r Runner) runConfigGet(opts commandOptions, key string) error {
 	default:
 		return userError("unknown_config_key", "unknown config key "+key, "Supported keys: config_path, server_addr, subject_id, token_present.")
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{key: value})
 	}
 	if opts.Quiet {
@@ -87,7 +87,7 @@ func (r Runner) runConfigSet(opts commandOptions, key, value string) error {
 		return err
 	}
 	out := configOutputFromUserConfig(r.userConfigPath(), cfg)
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {

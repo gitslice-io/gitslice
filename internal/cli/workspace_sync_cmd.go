@@ -305,7 +305,7 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions, rawMe
 }
 
 func (r Runner) writeWorkspaceSyncOutput(opts commandOptions, oldBaseCommitID, newBaseCommitID string, output workspaceSyncOutput) error {
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		if output.UpdatedPaths == nil {
 			output.UpdatedPaths = []string{}
 		}

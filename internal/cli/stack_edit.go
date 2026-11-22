@@ -103,7 +103,7 @@ func (r Runner) runStackMove(ctx context.Context, opts commandOptions, entry, on
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		out := stackOutputFromProto(updated)
 		out.RestackedChangesets = restackedIDs
 		return r.writeJSONOutput(opts, out)
@@ -208,7 +208,7 @@ func (r Runner) runStackDetach(ctx context.Context, opts commandOptions, entry, 
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		out := stackOutputFromProto(detachedStack)
 		out.RestackedChangesets = restackedIDs
 		return r.writeJSONOutput(opts, out)
@@ -316,7 +316,7 @@ func (r Runner) runStackInsert(ctx context.Context, opts commandOptions, parentS
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, changesetOutput{
 			ChangesetID:    inserted.Id,
 			PatchsetID:     patchset.Id,

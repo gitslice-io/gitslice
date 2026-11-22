@@ -101,7 +101,7 @@ func (r Runner) runAuthRegisterAgent(ctx context.Context, opts commandOptions, i
 	if err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {

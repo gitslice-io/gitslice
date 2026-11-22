@@ -130,7 +130,7 @@ func (r Runner) runCommitLog(ctx context.Context, opts commandOptions, logOpts c
 				All:         scopeAll,
 			}
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, output)
 		}
 		if opts.Quiet {
@@ -159,7 +159,7 @@ func (r Runner) runCommitShow(ctx context.Context, opts commandOptions, commitID
 			return err
 		}
 		out := commitToOutput(commit)
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, out)
 		}
 		if opts.Quiet {
@@ -183,7 +183,7 @@ func (r Runner) runCommitShow(ctx context.Context, opts commandOptions, commitID
 			if err != nil {
 				return err
 			}
-			_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, showOpts.DiffContext.lines()), color))
+			_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, showOpts.DiffContext.Lines()), color))
 			return err
 		}
 		printCommitDetails(r.Stdout, commit, showOpts.Full, color)

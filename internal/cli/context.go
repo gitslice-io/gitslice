@@ -76,7 +76,7 @@ func (r Runner) runContext(ctx context.Context, opts commandOptions) error {
 		out.ActiveSlice = authStatus.Accounts[0] + ":home"
 		out.ActiveSliceSource = "signed_in_home"
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {

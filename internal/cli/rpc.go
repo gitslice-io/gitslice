@@ -29,7 +29,7 @@ type rpcMethodOutput struct {
 
 func (r Runner) runRPCList(opts commandOptions) error {
 	methods := generatedRPCMethods()
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"methods": methods})
 	}
 	if opts.Quiet {

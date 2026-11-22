@@ -162,7 +162,7 @@ func (r Runner) runCheckList(ctx context.Context, opts commandOptions, requested
 		for _, run := range runs {
 			out = append(out, checkRunOutput{Name: run.GetCheckName(), Status: run.GetStatus(), RunID: run.GetId(), Attempt: run.GetAttempt(), Summary: run.GetSummary(), Daemon: run.GetDaemonName(), DurationMs: run.GetDurationMs()})
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{"changeset": firstNonEmpty(displayChangesetID(cs), cs.GetId()), "checks": out})
 		}
 		if opts.Quiet {
@@ -322,7 +322,7 @@ func (r Runner) runCheckRerun(ctx context.Context, opts commandOptions, changese
 			return err
 		}
 		out := checkRunOutput{Name: next.GetCheckName(), Status: next.GetStatus(), RunID: next.GetId(), Attempt: next.GetAttempt()}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, out)
 		}
 		if !opts.Quiet {
@@ -382,7 +382,7 @@ var failingCheckPattern = regexp.MustCompile(`required check "([^"]+)" is failin
 // reportFailingChecks prints the end of each failing required check's log
 // after a blocked submit, so the reason is on screen without another command.
 func (r Runner) reportFailingChecks(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, opts commandOptions, res *corev1.SubmitStackResponse) {
-	if res == nil || opts.Quiet || opts.jsonOutput() {
+	if res == nil || opts.Quiet || opts.JSONOutput() {
 		return
 	}
 	for _, result := range res.GetResults() {

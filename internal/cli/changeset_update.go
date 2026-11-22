@@ -55,7 +55,7 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 	label := firstNonEmpty(model.ShortChangesetID(state.CurrentChangesetID), state.CurrentChangesetID)
 	webURL := webResourceURL("/cs/" + label)
 	if previousPatchsetID != "" && patchset.Id == previousPatchsetID {
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, changesetOutput{
 				ChangesetID:    state.CurrentChangesetID,
 				PatchsetID:     patchset.Id,
@@ -77,7 +77,7 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 			return err
 		}
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, changesetOutput{
 			ChangesetID:    state.CurrentChangesetID,
 			PatchsetID:     patchset.Id,
@@ -182,7 +182,7 @@ func (r Runner) runStackModify(ctx context.Context, opts commandOptions, message
 			restacked = append(restacked, entry.Id)
 		}
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, changesetOutput{
 			ChangesetID:    cs.Id,
 			PatchsetID:     patchset.Id,

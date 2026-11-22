@@ -68,7 +68,7 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 			return err
 		}
 		if watch && (cs.Status != "submitted" || cs.CommitId == "") {
-			cs, _, err = r.waitForChangesetSubmitted(ctx, s.Conn(), s.Config(), target.ChangesetID, displayChangesetID(cs), cs, watchTimeout, !opts.Quiet && !opts.jsonOutput(), false)
+			cs, _, err = r.waitForChangesetSubmitted(ctx, s.Conn(), s.Config(), target.ChangesetID, displayChangesetID(cs), cs, watchTimeout, !opts.Quiet && !opts.JSONOutput(), false)
 			if err != nil {
 				return err
 			}
@@ -91,7 +91,7 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 		if cs.Status != "submitted" && cs.Status != "abandoned" {
 			output.Checks = currentPatchsetChecks(s.Ctx(), s.Conn(), cs.Id, cs.CurrentPatchsetId)
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, output)
 		}
 		if opts.Quiet {
@@ -139,7 +139,7 @@ func (r Runner) runChangesetShow(ctx context.Context, opts commandOptions, reque
 			return err
 		}
 		cs.SubmitBlockedReason = displaySubmitBlockedReason(cs.SubmitBlockedReason)
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, cs)
 		}
 		if opts.Quiet {
@@ -197,7 +197,7 @@ func (r Runner) runChangesetConversation(ctx context.Context, opts commandOption
 			views = append(views, view)
 		}
 
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{"changeset_id": cs.GetId(), "patchsets": views})
 		}
 		if opts.Quiet {
@@ -236,7 +236,7 @@ func (r Runner) runChangesetExplain(ctx context.Context, opts commandOptions, re
 			return err
 		}
 		cs.SubmitBlockedReason = displaySubmitBlockedReason(cs.SubmitBlockedReason)
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, cs)
 		}
 		if opts.Quiet {
@@ -253,7 +253,7 @@ func (r Runner) runChangesetVersions(ctx context.Context, opts commandOptions, r
 		if err != nil {
 			return err
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
 				"changeset_id": cs.Id,
 				"patchsets":    cs.Patchsets,
@@ -280,7 +280,7 @@ func (r Runner) runChangesetDiff(ctx context.Context, opts commandOptions, reque
 		if err != nil {
 			return err
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, res)
 		}
 		if opts.Quiet {
@@ -294,7 +294,7 @@ func (r Runner) runChangesetDiff(ctx context.Context, opts commandOptions, reque
 			printUnifiedDiffStatColor(r.Stdout, res.ChangedPaths, res.Diff, r.colorEnabled(opts))
 			return nil
 		}
-		_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(res.Diff, diffCtx.lines()), r.colorEnabled(opts)))
+		_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(res.Diff, diffCtx.Lines()), r.colorEnabled(opts)))
 		return err
 	})
 }
@@ -312,12 +312,12 @@ func (r Runner) runChangesetList(ctx context.Context, opts commandOptions, slice
 			Limit:          int32(limit),
 			// The text list shows each changeset's own fields; --json keeps the
 			// full answer, patchsets included, for scripts that read them.
-			Summary: !opts.jsonOutput(),
+			Summary: !opts.JSONOutput(),
 		})
 		if err != nil {
 			return err
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, res)
 		}
 		if opts.Quiet {

@@ -77,7 +77,7 @@ func (r Runner) runAgentCreate(ctx context.Context, opts commandOptions, name st
 	}
 
 	key := apiKeyToOutput(resp.GetKey())
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		out := map[string]any{
 			"agent_subject_id": resp.GetAgentSubjectId(),
 			"account":          resp.GetAccount(),

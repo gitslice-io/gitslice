@@ -65,7 +65,7 @@ func (r Runner) runCI(ctx context.Context, opts commandOptions) error {
 		return err
 	}
 
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, ciOutput{
 			Workspace:        ws.Account + ":" + ws.Slice,
 			ChangedPathCount: len(changedPaths),
@@ -109,7 +109,7 @@ func (r Runner) captureBundledCheckRuns(ctx context.Context, opts commandOptions
 		r.printCaptureCheckSummary(opts, run)
 	}
 	for _, result := range leftToCI {
-		if !opts.Quiet && !opts.jsonOutput() {
+		if !opts.Quiet && !opts.JSONOutput() {
 			fmt.Fprintf(r.Stdout, "check %s: left to the CI daemon (%s)\n", result.Name, oneLineSummary(result.Summary))
 		}
 	}
@@ -276,7 +276,7 @@ func bundledCheckRunFromWorkspaceResult(result WorkspaceCheckResult) *corev1.Bun
 }
 
 func (r Runner) printCaptureCheckSummary(opts commandOptions, run *corev1.BundledCheckRun) {
-	if opts.Quiet || opts.jsonOutput() || run == nil {
+	if opts.Quiet || opts.JSONOutput() || run == nil {
 		return
 	}
 	summary := strings.TrimSpace(run.Summary)

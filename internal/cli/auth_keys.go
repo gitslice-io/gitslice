@@ -231,7 +231,7 @@ func (r Runner) runAuthKeysList(ctx context.Context, opts commandOptions, agent 
 	for _, key := range resp.Keys {
 		keys = append(keys, apiKeyToOutput(key))
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"account": resp.Account, "agent_subject_id": resp.AgentSubjectId, "keys": keys})
 	}
 	if opts.Quiet {
@@ -309,7 +309,7 @@ func (r Runner) runAuthKeysCreate(ctx context.Context, opts commandOptions, crea
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
 			"account": resp.Account, "agent_subject_id": resp.AgentSubjectId,
 			"key": apiKeyToOutput(resp.Key), "secret": resp.Secret,
@@ -343,7 +343,7 @@ func (r Runner) runAuthKeysRevoke(ctx context.Context, opts commandOptions, agen
 		return err
 	}
 	key := apiKeyToOutput(resp.Key)
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"key": key})
 	}
 	if opts.Quiet {
@@ -394,7 +394,7 @@ func (r Runner) runAuthUseKey(ctx context.Context, opts commandOptions, serverAd
 	if accounts := status.GetAccounts(); len(accounts) > 0 {
 		account = accounts[0]
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"server_addr": serverAddr, "subject_id": cfg.SubjectID, "account": account})
 	}
 	if opts.Quiet {

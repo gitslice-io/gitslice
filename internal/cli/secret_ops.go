@@ -28,7 +28,7 @@ func (r Runner) runSecretList(ctx context.Context, opts commandOptions, account 
 	for _, secret := range resp.Secrets {
 		out = append(out, secretToOutput(secret))
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"secrets": out})
 	}
 	if opts.Quiet {
@@ -81,7 +81,7 @@ func (r Runner) runSecretCreate(ctx context.Context, opts commandOptions, accoun
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if !opts.Quiet {
@@ -157,7 +157,7 @@ func (r Runner) runSecretUpdate(ctx context.Context, opts commandOptions, accoun
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if !opts.Quiet {
@@ -178,7 +178,7 @@ func (r Runner) runSecretDelete(ctx context.Context, opts commandOptions, accoun
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"deleted": id})
 	}
 	if !opts.Quiet {

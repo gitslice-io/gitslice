@@ -220,7 +220,7 @@ func (r Runner) printRunLogChunk(l *corev1.AutomationRunLog) {
 }
 
 func (r Runner) printAutomationRun(opts commandOptions, verb string, run *corev1.AutomationRun) error {
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, automationRunToOutput(run))
 	}
 	if !opts.Quiet {

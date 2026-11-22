@@ -44,7 +44,7 @@ func (r Runner) runAccountMembers(ctx context.Context, opts commandOptions, acco
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	r.printAccountMembers(out.Members)
@@ -109,7 +109,7 @@ func (r Runner) runAccountSetMember(ctx context.Context, opts commandOptions, ac
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, member)
 	}
 	if !opts.Quiet {
@@ -131,7 +131,7 @@ func (r Runner) runAccountRemoveMember(ctx context.Context, opts commandOptions,
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"account": strings.TrimSpace(account), "username": strings.TrimSpace(username), "removed": true})
 	}
 	if !opts.Quiet {

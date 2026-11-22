@@ -49,7 +49,7 @@ func (r Runner) runChangesetEdit(ctx context.Context, opts commandOptions, reque
 		if err != nil {
 			return err
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
 				"changeset":   firstNonEmpty(displayChangesetID(cs), cs.Id),
 				"title":       cs.Title,

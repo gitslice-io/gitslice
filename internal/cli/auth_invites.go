@@ -165,7 +165,7 @@ func (r Runner) runAuthCreateAgentInvite(ctx context.Context, opts commandOption
 		ExpiresAt:         inv.GetExpiresAt(),
 		JoinCommand:       joinCmd,
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {
@@ -189,7 +189,7 @@ func (r Runner) runAuthListAgentInvites(ctx context.Context, opts commandOptions
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, resp.GetInvites())
 	}
 	if len(resp.GetInvites()) == 0 {
@@ -222,7 +222,7 @@ func (r Runner) runAuthRevokeAgentInvite(ctx context.Context, opts commandOption
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"invite_id": inviteID, "revoked": true})
 	}
 	if !opts.Quiet {
@@ -236,7 +236,7 @@ func (r Runner) runAuthJoinInvite(ctx context.Context, opts commandOptions, in j
 	if err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {

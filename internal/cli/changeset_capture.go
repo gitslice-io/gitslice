@@ -32,18 +32,18 @@ func (r Runner) runChangesetCapture(ctx context.Context, opts commandOptions, ti
 	}
 	switch res.Outcome {
 	case captureNoChanges:
-		if !opts.jsonOutput() && !opts.Quiet {
+		if !opts.JSONOutput() && !opts.Quiet {
 			fmt.Fprintln(r.Stdout, "no changes to capture")
 		}
 	case captureUnchangedPatchset:
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, changesetOutput{ChangesetID: res.ChangesetID, PatchsetID: res.PatchsetID, PatchsetNumber: res.PatchsetNumber})
 		}
 		if !opts.Quiet {
 			fmt.Fprintln(r.Stdout, "no changes to capture")
 		}
 	default:
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, changesetOutput{ChangesetID: res.ChangesetID, PatchsetID: res.PatchsetID, PatchsetNumber: res.PatchsetNumber})
 		}
 		if !opts.Quiet {

@@ -82,7 +82,7 @@ func (r Runner) runDoctor(ctx context.Context, opts commandOptions, sliceArg str
 			out.OK = false
 		}
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		if err := r.writeJSONOutput(opts, out); err != nil {
 			return err
 		}

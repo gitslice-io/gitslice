@@ -340,7 +340,7 @@ func localEditsError(dir string, paths []string) error {
 }
 
 func (r Runner) reportWorkspaceDelete(opts commandOptions, out workspaceDeleteOutput, removedDir bool) error {
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {

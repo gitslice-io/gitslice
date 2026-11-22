@@ -54,7 +54,7 @@ func (r Runner) runSliceRename(ctx context.Context, opts commandOptions, sliceRe
 			return err
 		}
 		r.followRenamedWorkspace(ref, renamed.GetRef())
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			out := sliceToOutput(renamed)
 			return r.writeJSONOutput(opts, struct {
 				sliceOutput
@@ -76,7 +76,7 @@ func (r Runner) runSliceArchive(ctx context.Context, opts commandOptions, sliceR
 		if err != nil {
 			return err
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
 				"id":       updated.Id,
 				"ref":      sliceRefLabel(updated.Ref),

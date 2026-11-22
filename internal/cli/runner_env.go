@@ -7,7 +7,6 @@ import (
 
 	"gitslice.io/gitslice/internal/agentd"
 	"gitslice.io/gitslice/internal/clientcache"
-	"golang.org/x/term"
 )
 
 func (r Runner) stdin() io.Reader {
@@ -50,14 +49,6 @@ func (r Runner) shellLineEditorEnabled(opts commandOptions) bool {
 		return false
 	}
 	return r.stdin() == os.Stdin && r.stdout() == os.Stdout && isTerminal(os.Stdin) && isTerminal(os.Stdout)
-}
-
-func isTerminal(w any) bool {
-	file, ok := w.(*os.File)
-	if !ok {
-		return false
-	}
-	return term.IsTerminal(int(file.Fd()))
 }
 
 func (r Runner) objectCache() (*clientcache.ObjectCache, error) {

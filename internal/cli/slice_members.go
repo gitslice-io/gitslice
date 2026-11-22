@@ -126,7 +126,7 @@ func (r Runner) runSliceRemoveMember(ctx context.Context, opts commandOptions, s
 			return sliceMemberError(err, ref)
 		}
 		label := ref.Account + "/" + ref.Slice
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{"slice": label, "removed": firstNonEmpty(strings.TrimSpace(username), "you")})
 		}
 		if opts.Quiet {

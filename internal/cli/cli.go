@@ -36,24 +36,6 @@ type Runner struct {
 	changesetWait     *changesetWaitConfig
 }
 
-type commandOptions struct {
-	Format         string
-	JSONFields     []string
-	JQ             string
-	Template       string
-	Quiet          bool
-	NonInteractive bool
-	NoColor        bool
-	Verbose        bool
-	Debug          bool
-	Trace          bool
-	Insecure       bool
-}
-
-func (o commandOptions) jsonOutput() bool {
-	return o.Format == "json" || len(o.JSONFields) > 0 || o.JQ != "" || o.Template != ""
-}
-
 func Main(args []string, stdout, stderr io.Writer) int {
 	r := Runner{Stdout: stdout, Stderr: stderr, Stdin: os.Stdin}
 	if err := r.Run(context.Background(), args); err != nil {
@@ -124,7 +106,7 @@ func (r Runner) rootCommand() *cobra.Command {
 			if opts.JQ != "" && opts.Template != "" {
 				return userError("invalid_format", "cannot use --jq and --template together", "Use --jq to filter JSON or --template to format output.")
 			}
-			if !opts.Quiet && !opts.jsonOutput() {
+			if !opts.Quiet && !opts.JSONOutput() {
 				cmd.SetContext(withProgress(cmd.Context(), r.stderr()))
 			}
 			return nil

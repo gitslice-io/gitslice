@@ -4,39 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/spf13/cobra"
 )
-
-// defaultDiffContext is how many unchanged lines gs diff shows around each
-// change, as git does.
-const defaultDiffContext = 3
-
-// diffContextOption holds -U/--unified for a diff-printing command.
-type diffContextOption struct {
-	Context int
-	Set     bool
-}
-
-func (d diffContextOption) lines() int {
-	if d.Set {
-		return d.Context
-	}
-	return defaultDiffContext
-}
-
-// addDiffContextFlag adds -U/--unified to a command that prints diffs.
-func addDiffContextFlag(cmd *cobra.Command, value *int) {
-	cmd.Flags().IntVarP(value, "unified", "U", defaultDiffContext, "unchanged lines of context around each change; a negative number shows the whole file")
-}
-
-// diffContextFromFlag returns the diffContextOption chosen by cmd's -U flag.
-func diffContextFromFlag(cmd *cobra.Command, value int) diffContextOption {
-	return diffContextOption{
-		Context: value,
-		Set:     cmd.Flags().Changed("unified"),
-	}
-}
 
 // compactUnifiedDiff rewrites a diff whose files are each one hunk covering the
 // whole file, as diffutil and the server produce them (the web viewer folds the

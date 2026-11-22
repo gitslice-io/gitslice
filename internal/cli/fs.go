@@ -61,7 +61,7 @@ func (r Runner) runFSList(ctx context.Context, opts commandOptions, requestedPat
 		return err
 	}
 	color := r.colorEnabled(opts)
-	if usingDefaultPath && !opts.jsonOutput() && !opts.Quiet {
+	if usingDefaultPath && !opts.JSONOutput() && !opts.Quiet {
 		scope := slice.Ref.Account + ":" + slice.Ref.Slice
 		fmt.Fprintf(r.stderr(), "%s listing %s at %s\n", colorize(color, ansiDim, "remote:"), scope, p)
 	}
@@ -85,7 +85,7 @@ func (r Runner) runFSList(ctx context.Context, opts commandOptions, requestedPat
 	sort.Slice(entries, func(i, j int) bool {
 		return fsEntryName(entries[i]) < fsEntryName(entries[j])
 	})
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		out := fsListOutput{
 			Path:     p,
 			Slice:    slice.Ref.Account + ":" + slice.Ref.Slice,
@@ -131,7 +131,7 @@ func (r Runner) runFSCat(ctx context.Context, opts commandOptions, requestedPath
 	}
 	if resolved.Entry.Size > blobStreamThresholdBytes && resolved.Entry.ContentHash != "" {
 		blobClient := corev1.NewBlobServiceClient(conn)
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			data, err := readBlobStreamBytes(callCtx, blobClient, slice.Ref, resolved.Entry.ContentHash, 0, 0)
 			if err != nil {
 				return err
@@ -153,7 +153,7 @@ func (r Runner) runFSCat(ctx context.Context, opts commandOptions, requestedPath
 	if err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, fsCatOutput{
 			Path:        p,
 			Slice:       slice.Ref.Account + ":" + slice.Ref.Slice,

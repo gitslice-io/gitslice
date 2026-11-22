@@ -1,138 +1,12 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"strings"
 
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )
-
-type commandError struct {
-	Code               string
-	Message            string
-	Hint               string
-	RemediationCommand string
-	RemediationURL     string
-	Retriable          bool
-	Cause              error
-}
-
-func (e commandError) Error() string {
-	if e.Hint == "" {
-		return e.Message
-	}
-	return e.Message + "\nhint: " + e.Hint
-}
-
-func (e commandError) Unwrap() error {
-	return e.Cause
-}
-
-type userCodedError interface {
-	UserError() (code, message, hint string)
-}
-
-func asCommandError(err error) (commandError, bool) {
-	var cmdErr commandError
-	if errors.As(err, &cmdErr) {
-		return cmdErr, true
-	}
-	var coded userCodedError
-	if errors.As(err, &coded) {
-		code, msg, hint := coded.UserError()
-		return commandError{Code: code, Message: msg, Hint: hint, Cause: err}, true
-	}
-	return commandError{}, false
-}
-
-type errorResponse struct {
-	Error errorBody `json:"error"`
-}
-
-type errorBody struct {
-	Code               string `json:"code"`
-	Message            string `json:"message"`
-	Hint               string `json:"hint,omitempty"`
-	RemediationCommand string `json:"remediation_command,omitempty"`
-	RemediationURL     string `json:"remediation_url,omitempty"`
-	Retriable          bool   `json:"retriable"`
-}
-
-type domainErrorOverride struct {
-	Code    string
-	Message string
-	Hint    string
-	HintFn  func(message string) string
-}
-
-type domainErrorOverrides map[codes.Code]domainErrorOverride
-
-type domainHintedError struct {
-	cause     error
-	overrides domainErrorOverrides
-}
-
-func (e *domainHintedError) Error() string {
-	return e.cause.Error()
-}
-
-func (e *domainHintedError) Unwrap() error {
-	return e.cause
-}
-
-func withDomainErrorHints(err error, overrides domainErrorOverrides) error {
-	if err == nil {
-		return nil
-	}
-	var cmdErr commandError
-	if errors.As(err, &cmdErr) {
-		return err
-	}
-	return &domainHintedError{cause: err, overrides: overrides}
-}
-
-func extractDomainErrorOverrides(err error) (error, domainErrorOverrides) {
-	var hinted *domainHintedError
-	if errors.As(err, &hinted) && hinted != nil {
-		return hinted.cause, hinted.overrides
-	}
-	return err, nil
-}
-
-func isTransportOrAuthGRPCStatus(code codes.Code) bool {
-	switch code {
-	case codes.Unavailable, codes.DeadlineExceeded, codes.Canceled, codes.Unauthenticated:
-		return true
-	default:
-		return false
-	}
-}
-
-func applyDomainErrorOverride(cmdErr commandError, code codes.Code, stMsg string, overrides domainErrorOverrides) commandError {
-	if len(overrides) == 0 || isTransportOrAuthGRPCStatus(code) {
-		return cmdErr
-	}
-	ov, ok := overrides[code]
-	if !ok {
-		return cmdErr
-	}
-	if ov.Code != "" {
-		cmdErr.Code = ov.Code
-	}
-	if ov.Message != "" {
-		cmdErr.Message = ov.Message
-	}
-	if ov.HintFn != nil {
-		if hint := ov.HintFn(stMsg); hint != "" {
-			cmdErr.Hint = hint
-		}
-	} else if ov.Hint != "" {
-		cmdErr.Hint = ov.Hint
-	}
-	return cmdErr
-}
 
 func grpcStatusCommandError(err error, st *grpcstatus.Status) (commandError, bool) {
 	if st == nil || st.Code() == codes.OK || st.Code() == codes.Unknown {
@@ -173,27 +47,6 @@ func grpcStatusCommandError(err error, st *grpcstatus.Status) (commandError, boo
 	default:
 		return commandError{}, false
 	}
-}
-
-func exitCodeForError(err error) int {
-	if err == nil {
-		return 0
-	}
-	if errors.Is(err, context.Canceled) {
-		return 2
-	}
-	if cmdErr, ok := asCommandError(err); ok {
-		switch cmdErr.Code {
-		case "not_logged_in", "invalid_user_config", "unauthenticated":
-			return 4
-		case "sync_conflicts":
-			return 3
-		}
-	}
-	if grpcstatus.Code(err) == codes.Unauthenticated {
-		return 4
-	}
-	return 1
 }
 
 func (r Runner) enhanceCommandError(err error) error {
@@ -301,15 +154,6 @@ func (r Runner) permissionDeniedCommandError(err error) commandError {
 
 func claimsURL() string {
 	return firstNonEmpty(webResourceURL("/claims"), "https://gitslice.io/claims")
-}
-
-func userError(code, message, hint string) error {
-	return commandError{Code: code, Message: message, Hint: hint}
-}
-
-func isUserErrorCode(err error, code string) bool {
-	cmdErr, ok := asCommandError(err)
-	return ok && cmdErr.Code == code
 }
 
 func classifyError(err error) errorResponse {

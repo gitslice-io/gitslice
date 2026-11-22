@@ -194,7 +194,7 @@ func (r Runner) runIntentList(ctx context.Context, opts commandOptions, rawSlice
 		if label == "" {
 			label = sliceRefLabel(sliceRef)
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
 				"slice":   label,
 				"intents": items,
@@ -242,7 +242,7 @@ func (r Runner) runIntentClear(ctx context.Context, opts commandOptions, sliceFl
 			if _, err := csClient.DeletePathIntent(callCtx, &corev1.DeletePathIntentRequest{IntentId: target}); err != nil {
 				return intentRPCError(err)
 			}
-			if opts.jsonOutput() {
+			if opts.JSONOutput() {
 				return r.writeJSONOutput(opts, map[string]any{
 					"deleted_ids": []string{target},
 					"deleted":     1,
@@ -294,7 +294,7 @@ func (r Runner) runIntentClear(ctx context.Context, opts commandOptions, sliceFl
 			deletedIDs = append(deletedIDs, item.GetId())
 		}
 
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
 				"slice":       sliceRefLabel(sliceRef),
 				"deleted_ids": deletedIDs,

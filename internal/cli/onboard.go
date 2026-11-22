@@ -196,7 +196,7 @@ func (r Runner) runOnboard(ctx context.Context, opts commandOptions, in onboardO
 		out.NextCommands = append(out.NextCommands, "gs skill install")
 	}
 
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {

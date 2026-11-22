@@ -31,7 +31,7 @@ func (r Runner) skillCommand(opts *commandOptions) *cobra.Command {
 		Short: "Print the canonical Gitslice SKILL.md to stdout",
 		Args:  noArgs("gs skill print"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if opts.jsonOutput() {
+			if opts.JSONOutput() {
 				return r.writeJSONOutput(*opts, map[string]any{
 					"name":    "gitslice",
 					"content": embeddedSkillMarkdown,
@@ -61,7 +61,7 @@ if none exist, it installs into ~/.agents/skills/gitslice/SKILL.md. Pass
 			if err != nil {
 				return err
 			}
-			if opts.jsonOutput() {
+			if opts.JSONOutput() {
 				return r.writeJSONOutput(*opts, res)
 			}
 			if opts.Quiet {

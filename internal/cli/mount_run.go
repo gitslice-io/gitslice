@@ -34,7 +34,7 @@ func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dir
 			return err
 		}
 	}
-	rec, created, err := r.mountRecordFor(ctx, sliceArg, dir, workspaceID, strings.TrimSpace(agentConversationID), !opts.Quiet && !opts.jsonOutput())
+	rec, created, err := r.mountRecordFor(ctx, sliceArg, dir, workspaceID, strings.TrimSpace(agentConversationID), !opts.Quiet && !opts.JSONOutput())
 	if err != nil {
 		return err
 	}
@@ -75,18 +75,18 @@ func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dir
 	}
 	if foreground {
 		return r.serveMount(ctx, rec, debug, func() {
-			if !opts.Quiet && !opts.jsonOutput() {
+			if !opts.Quiet && !opts.JSONOutput() {
 				fmt.Fprintf(r.stderr(), "mounted %s:%s at %s; serving until gs unmount\n", rec.Account, rec.Slice, dir)
 			}
 		})
 	}
-	if !opts.Quiet && !opts.jsonOutput() {
+	if !opts.Quiet && !opts.JSONOutput() {
 		fmt.Fprintf(r.stderr(), "mounting %s:%s (%d files) at %s...\n", rec.Account, rec.Slice, rec.Files, dir)
 	}
 	if err := r.attachViaSupervisor(rec); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"id": rec.ID, "ref": rec.Account + ":" + rec.Slice, "mount_path": rec.MountPath, "base_commit": rec.BaseCommit, "files": rec.Files})
 	}
 	if !opts.Quiet {
@@ -250,7 +250,7 @@ func (r Runner) runUnmount(ctx context.Context, opts commandOptions, selector st
 	if err := r.unmountLazyWorkspace(rec); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"id": rec.ID, "mount_path": rec.MountPath, "unmounted": true})
 	}
 	if !opts.Quiet {
@@ -308,7 +308,7 @@ func (r Runner) runMountList(opts commandOptions) error {
 	for _, rec := range records {
 		out = append(out, mountListEntry{ID: rec.ID, Ref: rec.Account + ":" + rec.Slice, MountPath: rec.MountPath, Mounted: isMounted(rec.MountPath), BaseCommit: rec.BaseCommit, Files: rec.Files})
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"workspaces": out})
 	}
 	if opts.Quiet {
@@ -352,7 +352,7 @@ func (r Runner) runMountStatus(ctx context.Context, opts commandOptions, selecto
 			localEdits = len(got.Edits)
 		}
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		payload := map[string]any{"id": rec.ID, "ref": rec.Account + ":" + rec.Slice, "mount_path": rec.MountPath, "mounted": mounted, "read_only": rec.ReadOnly, "base_commit": rec.BaseCommit, "files": rec.Files, "prefetch": rec.Prefetch, "daemon": status}
 		if localEdits >= 0 {
 			payload["local_edits"] = localEdits

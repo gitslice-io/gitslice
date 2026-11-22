@@ -1,27 +1,38 @@
-package cli
+package clibase
 
 import (
+	"os"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 const (
-	ansiReset  = "\x1b[0m"
-	ansiDim    = "\x1b[2m"
-	ansiBlue   = "\x1b[34m"
-	ansiCyan   = "\x1b[36m"
-	ansiGreen  = "\x1b[32m"
-	ansiRed    = "\x1b[31m"
-	ansiYellow = "\x1b[33m"
+	AnsiReset  = "\x1b[0m"
+	AnsiDim    = "\x1b[2m"
+	AnsiBlue   = "\x1b[34m"
+	AnsiCyan   = "\x1b[36m"
+	AnsiGreen  = "\x1b[32m"
+	AnsiRed    = "\x1b[31m"
+	AnsiYellow = "\x1b[33m"
 )
 
-func colorize(enabled bool, code, value string) string {
+func IsTerminal(w any) bool {
+	file, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	return term.IsTerminal(int(file.Fd()))
+}
+
+func Colorize(enabled bool, code, value string) string {
 	if !enabled {
 		return value
 	}
-	return code + value + ansiReset
+	return code + value + AnsiReset
 }
 
-func colorUnifiedDiff(diffText string, enabled bool) string {
+func ColorUnifiedDiff(diffText string, enabled bool) string {
 	if !enabled || diffText == "" {
 		return diffText
 	}
@@ -35,11 +46,11 @@ func colorUnifiedDiff(diffText string, enabled bool) string {
 		}
 		switch {
 		case strings.HasPrefix(trimmed, "diff --git") || strings.HasPrefix(trimmed, "index ") || strings.HasPrefix(trimmed, "@@"):
-			b.WriteString(colorize(true, ansiDim, trimmed))
+			b.WriteString(Colorize(true, AnsiDim, trimmed))
 		case strings.HasPrefix(trimmed, "+++") || strings.HasPrefix(trimmed, "+"):
-			b.WriteString(colorize(true, ansiGreen, trimmed))
+			b.WriteString(Colorize(true, AnsiGreen, trimmed))
 		case strings.HasPrefix(trimmed, "---") || strings.HasPrefix(trimmed, "-"):
-			b.WriteString(colorize(true, ansiRed, trimmed))
+			b.WriteString(Colorize(true, AnsiRed, trimmed))
 		default:
 			b.WriteString(trimmed)
 		}

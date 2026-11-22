@@ -73,7 +73,7 @@ func (r Runner) runAliasList(opts commandOptions) error {
 		return err
 	}
 	entries := aliasEntries(cfg.Aliases)
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"aliases": entries})
 	}
 	if opts.Quiet {
@@ -115,7 +115,7 @@ func (r Runner) runAliasSet(opts commandOptions, name, expansion string) error {
 		return err
 	}
 	entry := aliasEntryOutput{Name: name, Expansion: expansion}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, entry)
 	}
 	if opts.Quiet {
@@ -144,7 +144,7 @@ func (r Runner) runAliasDelete(opts commandOptions, name string) error {
 	if err := r.writeUserConfig(cfg); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"name": name, "deleted": true})
 	}
 	if opts.Quiet {

@@ -79,7 +79,7 @@ func (r Runner) runMountFetch(ctx context.Context, opts commandOptions, workspac
 	if err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"files": len(wanted), "fetched": fetched, "fetched_bytes": bytes, "already_cached": cached})
 	}
 	if !opts.Quiet {
@@ -127,7 +127,7 @@ func (r Runner) runRestore(ctx context.Context, opts commandOptions, args []stri
 	if err != nil {
 		return userError("restore_failed", err.Error(), "Is the workspace mounted? gs mount status "+root)
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"restored": req.Paths, "dropped": reply.Changed})
 	}
 	if !opts.Quiet {
@@ -164,7 +164,7 @@ func (r Runner) runMountDiscard(ctx context.Context, opts commandOptions, select
 	if err := os.RemoveAll(r.mountStateDir(rec.ID)); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"id": rec.ID, "discarded": true})
 	}
 	if !opts.Quiet {
@@ -183,7 +183,7 @@ func (r Runner) runInitLazy(ctx context.Context, opts commandOptions, sliceArg, 
 	if err := r.runMount(ctx, opts, sliceArg, dirArg, "", false, false, readOnly, prefetch, ""); err != nil {
 		return err
 	}
-	if atCurrent && !opts.jsonOutput() && !opts.Quiet {
+	if atCurrent && !opts.JSONOutput() && !opts.Quiet {
 		// The shell that ran this is still in the directory underneath the mount.
 		fmt.Fprintf(r.Stdout, "your shell is still in the directory under the mount: run  cd \"$PWD\"  to see it\n")
 	}

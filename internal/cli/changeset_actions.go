@@ -30,10 +30,10 @@ func (r Runner) runChangesetLink(ctx context.Context, opts commandOptions, reque
 		link := webResourceURL("/cs/" + handle)
 		_, commitShaped := model.CommitIDLookupPrefix(target.ChangesetID)
 		fromCommit := commitShaped && !sameChangesetSelector(target.ChangesetID, cs.Id)
-		if fromCommit && !opts.Quiet && !opts.jsonOutput() {
+		if fromCommit && !opts.Quiet && !opts.JSONOutput() {
 			fmt.Fprintf(r.Stderr, "%s is the commit changeset %s landed as; this is the changeset's link.\n", target.ChangesetID, handle)
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
 				"changeset_id":  cs.Id,
 				"changeset":     handle,
@@ -56,7 +56,7 @@ func (r Runner) runChangesetApprove(ctx context.Context, opts commandOptions, re
 		if err != nil {
 			return err
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, res)
 		}
 		if opts.Quiet {
@@ -80,7 +80,7 @@ func (r Runner) runChangesetCheck(ctx context.Context, opts commandOptions, requ
 		if err != nil {
 			return err
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, res)
 		}
 		if opts.Quiet {
@@ -112,7 +112,7 @@ func (r Runner) runChangesetAbandon(ctx context.Context, opts commandOptions, re
 				return err
 			}
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, changesetOutput{ChangesetID: cs.Id, Status: "abandoned"})
 		}
 		if opts.Quiet {

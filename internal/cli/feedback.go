@@ -163,7 +163,7 @@ func (r Runner) runFeedbackSend(ctx context.Context, opts commandOptions, args [
 		return err
 	}
 	out := feedbackToOutput(sent)
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {
@@ -266,7 +266,7 @@ func (r Runner) runFeedbackResolve(ctx context.Context, opts commandOptions, req
 		return err
 	}
 	out := feedbackToOutput(res)
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {

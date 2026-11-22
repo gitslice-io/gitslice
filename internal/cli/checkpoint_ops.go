@@ -32,7 +32,7 @@ func (r Runner) runCheckpoint(ctx context.Context, opts commandOptions, message 
 	if err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, checkpointSummary(cp))
 	}
 	if !opts.Quiet {
@@ -50,7 +50,7 @@ func (r Runner) runCheckpointList(opts commandOptions) error {
 	if err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		out := make([]map[string]any, 0, len(all))
 		for _, cp := range all {
 			out = append(out, checkpointSummary(cp))
@@ -141,7 +141,7 @@ func (r Runner) runRewind(ctx context.Context, opts commandOptions, selector str
 	if err := r.switchLazyWorkspace(ctx, conn, cfg, ws, lw, nil, snap); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, checkpointSummary(target))
 	}
 	if !opts.Quiet {
@@ -210,7 +210,7 @@ func (r Runner) runFork(ctx context.Context, opts commandOptions, selector, dir 
 			return err
 		}
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		out := checkpointSummary(cp)
 		out["mount_path"] = abs
 		return r.writeJSONOutput(opts, out)

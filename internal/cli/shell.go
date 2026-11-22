@@ -10,7 +10,7 @@ import (
 )
 
 func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID, sliceRef string) error {
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return userError("unsupported_format", "gs shell only supports text output", "Run gs shell without --json or --format json.")
 	}
 	cfg, err := r.readUserConfig()

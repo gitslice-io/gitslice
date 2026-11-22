@@ -59,7 +59,7 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 		return err
 	}
 	guides := r.discoverWorkspaceAgentGuides(slice.Definition.IncludedPaths)
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		payload := map[string]any{
 			"workspace":           ref.Account + ":" + ref.Slice,
 			"slice_ref":           ref.Account + "/" + ref.Slice,
@@ -194,7 +194,7 @@ func (r Runner) runWorkspaceHydrate(ctx context.Context, opts commandOptions, re
 	if err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
 			"workspace":           ws.Account + ":" + ws.Slice,
 			"base_commit_id":      baseCommitID,

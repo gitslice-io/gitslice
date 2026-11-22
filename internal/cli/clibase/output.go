@@ -1,4 +1,4 @@
-package cli
+package clibase
 
 import (
 	"encoding/json"
@@ -10,7 +10,7 @@ import (
 	"github.com/itchyny/gojq"
 )
 
-func wantsJSON(args []string) bool {
+func WantsJSON(args []string) bool {
 	for i, arg := range args {
 		if arg == "--json" {
 			return true
@@ -40,7 +40,7 @@ func wantsJSON(args []string) bool {
 	return false
 }
 
-func parseJSONFields(raw string) ([]string, error) {
+func ParseJSONFields(raw string) ([]string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || raw == "*" {
 		return nil, nil
@@ -51,11 +51,11 @@ func parseJSONFields(raw string) ([]string, error) {
 	for _, field := range fields {
 		field = strings.TrimSpace(field)
 		if field == "" {
-			return nil, userError("invalid_json_fields", "empty JSON field selector", "Use --json=field or --json=field,field.")
+			return nil, UserError("invalid_json_fields", "empty JSON field selector", "Use --json=field or --json=field,field.")
 		}
 		for _, ch := range field {
 			if !(ch == '_' || ch == '-' || ch >= '0' && ch <= '9' || ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z') {
-				return nil, userError("invalid_json_fields", "invalid JSON field selector "+field, "Use field names from gs schema.")
+				return nil, UserError("invalid_json_fields", "invalid JSON field selector "+field, "Use field names from gs schema.")
 			}
 		}
 		if _, ok := seen[field]; ok {
@@ -67,38 +67,37 @@ func parseJSONFields(raw string) ([]string, error) {
 	return out, nil
 }
 
-func writeJSON(w io.Writer, v any) error {
+func WriteJSON(w io.Writer, v any) error {
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
 	return enc.Encode(v)
 }
 
-func (r Runner) writeJSONOutput(opts commandOptions, v any) error {
+func WriteJSONOutput(w io.Writer, opts Options, v any) error {
 	output := v
 	if len(opts.JSONFields) > 0 {
-		projected, err := selectJSONFields(v, opts.JSONFields)
+		projected, err := SelectJSONFields(v, opts.JSONFields)
 		if err != nil {
 			return err
 		}
 		output = projected
 	}
 	if opts.JQ != "" {
-		return r.writeJQOutput(opts.JQ, output)
+		return WriteJQOutput(w, opts.JQ, output)
 	}
 	if opts.Template != "" {
-		return r.writeTemplateOutput(opts.Template, output)
+		return WriteTemplateOutput(w, opts.Template, output)
 	}
-	return writeJSON(r.Stdout, output)
+	return WriteJSON(w, output)
 }
 
-// writeSchemaOutput renders val as structured output when --json/--jq/--template
+// WriteSchemaOutput renders val as structured output when --json/--jq/--template
 // is active, suppresses human text when --quiet is set, and otherwise invokes
-// textFn. Pair with withSchemaOutput[T] on the Cobra command so gs schema's
-// machine_output and runtime --json output share the exact same Go type T.
-func writeSchemaOutput[T any](r Runner, opts commandOptions, val T, textFn func() error) error {
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, val)
+// textFn.
+func WriteSchemaOutput[T any](w io.Writer, opts Options, val T, textFn func() error) error {
+	if opts.JSONOutput() {
+		return WriteJSONOutput(w, opts, val)
 	}
 	if opts.Quiet || textFn == nil {
 		return nil
@@ -106,19 +105,14 @@ func writeSchemaOutput[T any](r Runner, opts commandOptions, val T, textFn func(
 	return textFn()
 }
 
-// renderCommandOutput is an alias for writeSchemaOutput.
-func renderCommandOutput[T any](r Runner, opts commandOptions, val T, textFn func() error) error {
-	return writeSchemaOutput(r, opts, val, textFn)
-}
-
-func (r Runner) writeJQOutput(rawQuery string, v any) error {
+func WriteJQOutput(w io.Writer, rawQuery string, v any) error {
 	data, err := templateData(v)
 	if err != nil {
 		return err
 	}
 	query, err := gojq.Parse(rawQuery)
 	if err != nil {
-		return userError("invalid_jq", "invalid jq expression: "+err.Error(), "Use jq syntax over fields from gs schema.")
+		return UserError("invalid_jq", "invalid jq expression: "+err.Error(), "Use jq syntax over fields from gs schema.")
 	}
 	iter := query.Run(data)
 	for {
@@ -127,9 +121,9 @@ func (r Runner) writeJQOutput(rawQuery string, v any) error {
 			return nil
 		}
 		if err, ok := value.(error); ok {
-			return userError("jq_failed", "jq execution failed: "+err.Error(), "Check field names and value types, or run the command with --json.")
+			return UserError("jq_failed", "jq execution failed: "+err.Error(), "Check field names and value types, or run the command with --json.")
 		}
-		if err := writeJQValue(r.Stdout, value); err != nil {
+		if err := writeJQValue(w, value); err != nil {
 			return err
 		}
 	}
@@ -159,7 +153,7 @@ func writeJQValue(w io.Writer, value any) error {
 	}
 }
 
-func (r Runner) writeTemplateOutput(rawTemplate string, v any) error {
+func WriteTemplateOutput(w io.Writer, rawTemplate string, v any) error {
 	data, err := templateData(v)
 	if err != nil {
 		return err
@@ -174,10 +168,10 @@ func (r Runner) writeTemplateOutput(rawTemplate string, v any) error {
 		},
 	}).Parse(rawTemplate)
 	if err != nil {
-		return userError("invalid_template", "invalid template: "+err.Error(), "Use Go text/template syntax over fields from gs schema.")
+		return UserError("invalid_template", "invalid template: "+err.Error(), "Use Go text/template syntax over fields from gs schema.")
 	}
-	if err := tpl.Execute(r.Stdout, data); err != nil {
-		return userError("template_failed", "template execution failed: "+err.Error(), "Check field names with gs schema or run the command with --json.")
+	if err := tpl.Execute(w, data); err != nil {
+		return UserError("template_failed", "template execution failed: "+err.Error(), "Check field names with gs schema or run the command with --json.")
 	}
 	return nil
 }
@@ -194,20 +188,20 @@ func templateData(v any) (any, error) {
 	return out, nil
 }
 
-func selectJSONFields(v any, fields []string) (map[string]any, error) {
+func SelectJSONFields(v any, fields []string) (map[string]any, error) {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return nil, err
 	}
 	var obj map[string]any
 	if err := json.Unmarshal(data, &obj); err != nil {
-		return nil, userError("invalid_json_fields", "JSON field selection requires an object output", "Run without field selection to inspect the full JSON output.")
+		return nil, UserError("invalid_json_fields", "JSON field selection requires an object output", "Run without field selection to inspect the full JSON output.")
 	}
 	out := make(map[string]any, len(fields))
 	for _, field := range fields {
 		value, ok := obj[field]
 		if !ok {
-			return nil, userError("unknown_json_field", "unknown JSON field "+field, "Run the command with --json to inspect available fields or use gs schema.")
+			return nil, UserError("unknown_json_field", "unknown JSON field "+field, "Run the command with --json to inspect available fields or use gs schema.")
 		}
 		out[field] = value
 	}

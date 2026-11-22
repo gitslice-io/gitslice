@@ -110,7 +110,7 @@ func (r Runner) runUpgrade(ctx context.Context, opts commandOptions, req upgrade
 }
 
 func (r Runner) writeUpgrade(opts commandOptions, out upgradeOutput, check bool) error {
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {

@@ -88,7 +88,7 @@ func (r Runner) runAuthToken(ctx context.Context, opts commandOptions) error {
 		ServerAddr: cfg.ServerAddr,
 		SubjectID:  subjectID,
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	fmt.Fprintln(r.Stdout, cfg.Token)
@@ -124,7 +124,7 @@ func (r Runner) runAuthLogout(opts commandOptions) error {
 	if cfg.ServerAddr != "" {
 		out["server_addr"] = cfg.ServerAddr
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {

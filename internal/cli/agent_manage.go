@@ -31,7 +31,7 @@ func (r Runner) runAgentStatus(ctx context.Context, opts commandOptions, forSlic
 	for _, daemon := range res.GetDaemons() {
 		out.Daemons = append(out.Daemons, agentDaemonToOutput(daemon))
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {
@@ -82,7 +82,7 @@ func (r Runner) runAgentRename(ctx context.Context, opts commandOptions, selecto
 		return err
 	}
 	out := agentDaemonToOutput(renamed)
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {
@@ -122,7 +122,7 @@ func (r Runner) runAgentExpose(ctx context.Context, opts commandOptions, selecto
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, agentDaemonToOutput(updated))
 	}
 	if opts.Quiet {
@@ -177,7 +177,7 @@ func (r Runner) runAgentStop(opts commandOptions) error {
 		"status": "manual",
 		"hint":   "agent daemons stop when their gs agent start process receives Ctrl-C; installed daemons stop with gs agent uninstall <name>",
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {

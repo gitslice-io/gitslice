@@ -79,7 +79,7 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 		patchset.GetChangedPaths(),
 		[]string{cs.Id},
 	)
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, changesetOutput{
 			ChangesetID:     cs.Id,
 			PatchsetID:      patchset.Id,
@@ -128,7 +128,7 @@ func (r Runner) nothingToChange(opts commandOptions, ifChanged bool) error {
 		return userError("nothing_to_change", "nothing changed since the base, so no changeset was created",
 			"Edit files first. In a scheduled job, pass --if-changed to make this a no-op that exits 0; --allow-empty creates an empty changeset anyway.")
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"created": false, "reason": "nothing_to_change"})
 	}
 	if !opts.Quiet {
@@ -271,7 +271,7 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 		patchset.GetChangedPaths(),
 		excludeChangesetIDsFromStack(cs.Id, activeStack),
 	)
-	if !opts.jsonOutput() && !opts.Quiet {
+	if !opts.JSONOutput() && !opts.Quiet {
 		fmt.Fprintf(r.Stdout, "created %s patchset %d\n", firstNonEmpty(displayChangesetID(cs), cs.Id), patchset.Number)
 		if link != "" {
 			fmt.Fprintf(r.Stdout, "view: %s\n", link)
@@ -292,7 +292,7 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 		res, err := r.submitWhenChecksReport(ctx, opts, conn, cfg, state, submit.timeout)
 		if err != nil {
 			// The changeset exists either way; say which it is.
-			if opts.jsonOutput() {
+			if opts.JSONOutput() {
 				_ = r.writeJSONOutput(opts, out)
 			}
 			return err
@@ -303,12 +303,12 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 		if res.Status == "partial" {
 			submitErr = userError("submit_blocked", "created "+firstNonEmpty(displayChangesetID(cs), cs.Id)+" but could not submit it", "Fix what blocks it, then run gs submit.")
 		}
-		if !opts.jsonOutput() && !opts.Quiet {
+		if !opts.JSONOutput() && !opts.Quiet {
 			r.writeSubmitResultsText(res)
 		}
 		r.reportFailingChecks(ctx, conn, cfg, opts, res)
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		if err := r.writeJSONOutput(opts, out); err != nil {
 			return err
 		}

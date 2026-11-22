@@ -77,7 +77,7 @@ func (r Runner) runAutomationList(ctx context.Context, opts commandOptions, rawF
 	for _, t := range resp.Automations {
 		out = append(out, automationDefToOutput(t))
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		problems := make([]map[string]string, 0, len(resp.Problems))
 		for _, p := range resp.Problems {
 			problems = append(problems, map[string]string{"file": p.File, "message": p.Message})
@@ -137,7 +137,7 @@ func (r Runner) runAutomationRuns(ctx context.Context, opts commandOptions, acco
 	for _, run := range resp.Runs {
 		out = append(out, automationRunToOutput(run))
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{"runs": out})
 	}
 	if opts.Quiet {
@@ -186,7 +186,7 @@ func (r Runner) runAutomationShow(ctx context.Context, opts commandOptions, runI
 	for _, sr := range stepRuns {
 		out.Steps = append(out.Steps, automationRunToOutput(sr))
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {
@@ -219,7 +219,7 @@ func (r Runner) runAutomationInspect(ctx context.Context, opts commandOptions, r
 		return err
 	}
 	tpl := automationDefToOutput(resp.GetTemplate())
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, map[string]any{
 			"template":       tpl,
 			"account":        resp.GetAccount(),
@@ -237,7 +237,7 @@ func (r Runner) runAutomationInspect(ctx context.Context, opts commandOptions, r
 }
 
 func (r Runner) runAutomationLogs(ctx context.Context, opts commandOptions, runID string, follow bool) error {
-	if follow && !opts.jsonOutput() {
+	if follow && !opts.JSONOutput() {
 		_, err := r.followAutomationRun(ctx, runID)
 		return err
 	}
@@ -258,7 +258,7 @@ func (r Runner) runAutomationLogs(ctx context.Context, opts commandOptions, runI
 	}); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		lines := make([]map[string]any, 0, len(all))
 		for _, l := range all {
 			lines = append(lines, map[string]any{"seq": l.Seq, "stream": l.Stream, "chunk": l.Chunk, "created_at": l.CreatedAt})
@@ -424,7 +424,7 @@ func (r Runner) runAutomationRun(ctx context.Context, opts commandOptions, accou
 	}); err != nil {
 		return err
 	}
-	if follow && !opts.jsonOutput() {
+	if follow && !opts.JSONOutput() {
 		if !opts.Quiet {
 			fmt.Fprintf(r.stderr(), "started run %s of %s\n", run.Id, run.AutomationId)
 		}

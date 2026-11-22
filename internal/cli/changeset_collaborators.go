@@ -97,7 +97,7 @@ func (r Runner) runChangesetCollaboratorsList(ctx context.Context, opts commandO
 		}
 		handle := firstNonEmpty(displayChangesetID(cs), cs.GetId())
 		collaborators := nonNilCollaborators(cs)
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
 				"changeset":       handle,
 				"changeset_id":    cs.GetId(),
@@ -135,7 +135,7 @@ func (r Runner) runChangesetCollaboratorAdd(ctx context.Context, opts commandOpt
 		}
 		handle := firstNonEmpty(displayChangesetID(cs), cs.GetId())
 		collaborators := nonNilCollaborators(cs)
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
 				"changeset":     handle,
 				"changeset_id":  cs.GetId(),
@@ -164,7 +164,7 @@ func (r Runner) runChangesetCollaboratorRemove(ctx context.Context, opts command
 		}
 		handle := firstNonEmpty(displayChangesetID(cs), cs.GetId())
 		collaborators := nonNilCollaborators(cs)
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
 				"changeset":     handle,
 				"changeset_id":  cs.GetId(),
@@ -192,7 +192,7 @@ func (r Runner) runChangesetHandoff(ctx context.Context, opts commandOptions, re
 			return err
 		}
 		handle := firstNonEmpty(displayChangesetID(cs), cs.GetId())
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
 				"changeset":       handle,
 				"changeset_id":    cs.GetId(),

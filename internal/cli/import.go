@@ -69,13 +69,13 @@ func (r Runner) runImportGitRepository(ctx context.Context, opts commandOptions,
 		Resume:         resume,
 	}
 	client := corev1.NewRepositoryServiceClient(conn)
-	reporter := importProgressReporter{w: r.Stderr, quiet: opts.Quiet || opts.jsonOutput()}
+	reporter := importProgressReporter{w: r.Stderr, quiet: opts.Quiet || opts.JSONOutput()}
 	var retryOut io.Writer = r.Stderr
 	if opts.Quiet {
 		retryOut = nil
 	}
 	res, err := r.importWithRetries(ctx, importRetryPolicy{retries: retries, resume: resume}, retryOut, func(progress *int64) (*corev1.ImportGitRepositoryResponse, error) {
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return client.ImportGitRepository(callCtx, req)
 		}
 		return importAttempt(callCtx, client, req, &reporter, progress)
@@ -83,7 +83,7 @@ func (r Runner) runImportGitRepository(ctx context.Context, opts commandOptions,
 	if err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, res)
 	}
 	if opts.Quiet {

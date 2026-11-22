@@ -303,7 +303,7 @@ func (r Runner) agentHost(cfg UserConfig, opts commandOptions) agentd.HostCallba
 			WriteFile: writeConfinedWorkspaceFile,
 		},
 		ReportOnline: func(daemonID string) error {
-			if opts.jsonOutput() {
+			if opts.JSONOutput() {
 				return r.writeJSONOutput(opts, map[string]string{
 					"daemon_id": daemonID,
 					"status":    "online",
@@ -382,7 +382,7 @@ func (r Runner) agentDoctorCommand(opts *commandOptions) *cobra.Command {
 
 func (r Runner) runAgentDoctor(ctx context.Context, opts commandOptions, ci bool) error {
 	checks := r.agentDoctorChecks(ctx, ci)
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		if err := r.writeJSONOutput(opts, agentd.DoctorOutput{Checks: checks}); err != nil {
 			return err
 		}

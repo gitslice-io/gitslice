@@ -54,7 +54,7 @@ func (r Runner) runSliceSecretSet(ctx context.Context, opts commandOptions, slic
 		if err != nil {
 			return secretError(err)
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
 				"slice": sliceRefLabel(ref),
 				"name":  name,
@@ -81,7 +81,7 @@ func (r Runner) runSliceSecretRemove(ctx context.Context, opts commandOptions, s
 		if err != nil {
 			return secretError(err)
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
 				"slice":   sliceRefLabel(ref),
 				"name":    name,
@@ -114,7 +114,7 @@ func (r Runner) runSliceSecretList(ctx context.Context, opts commandOptions, sli
 		for _, secret := range res.Secrets {
 			sources = append(sources, sliceSecretOutput{Name: secret.Name, SecretID: secret.SecretId, Paths: append([]string{}, secret.Paths...)})
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			out := map[string]any{"names": res.Names}
 			if len(sources) > 0 {
 				out["secrets"] = sources

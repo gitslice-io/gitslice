@@ -115,7 +115,7 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 	status := res.Status
 	if watch && (refCommitID == "" || res.Status == "pending_publish") {
 		var err error
-		commitID, refCommitID, err = r.waitForChangesetPublished(ctx, conn, cfg, changesetID, changesetLabel, watchTimeout, !opts.Quiet && !opts.jsonOutput())
+		commitID, refCommitID, err = r.waitForChangesetPublished(ctx, conn, cfg, changesetID, changesetLabel, watchTimeout, !opts.Quiet && !opts.JSONOutput())
 		if err != nil {
 			return err
 		}
@@ -142,7 +142,7 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 		}
 	}
 	if mergedOnSubmit {
-		if !opts.Quiet && !opts.jsonOutput() {
+		if !opts.Quiet && !opts.JSONOutput() {
 			fmt.Fprintln(r.stderr(), "the base had moved, so the server merged this changeset onto the latest base before landing it; run gs sync to bring the merge into this workspace")
 		}
 	} else if status == "submitted" && usingWorkspaceCurrent && lazy != nil {
@@ -160,7 +160,7 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 	}
 	handle := firstNonEmpty(model.ShortChangesetID(changesetID), changesetID)
 	webURL := webResourceURL("/cs/" + handle)
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		// changeset and changeset_url name the changeset; commit_id is the
 		// native commit it landed as, which is not a changeset id and has no
 		// /cs/ page. Share changeset_url.
@@ -375,7 +375,7 @@ func (r Runner) submitActivePath(ctx context.Context, conn *grpc.ClientConn, cfg
 
 func (r Runner) writeSubmitDependencies(opts commandOptions, res *corev1.SubmitStackResponse) error {
 	displaySubmitStackResponse(res)
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, submitDependenciesOutputFromProto(res))
 	}
 	if opts.Quiet {

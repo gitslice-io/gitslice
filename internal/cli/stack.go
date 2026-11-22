@@ -45,7 +45,7 @@ func (r Runner) runStackShow(ctx context.Context, opts commandOptions, requested
 	if workspaceActiveID != "" {
 		out.ActiveChangesetID = workspaceActiveID
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {
@@ -131,7 +131,7 @@ func (r Runner) runStackRestack(ctx context.Context, opts commandOptions, entry 
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, stackOutput{StackID: res.StackId, Status: res.Status, RestackedChangesets: ids})
 	}
 	if opts.Quiet {
@@ -197,7 +197,7 @@ func (r Runner) runStackSwitch(ctx context.Context, opts commandOptions, entry s
 	if err := r.writeWorkspaceState(state); err != nil {
 		return err
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, changesetOutput{
 			ChangesetID:    state.CurrentChangesetID,
 			PatchsetID:     state.CurrentPatchsetID,

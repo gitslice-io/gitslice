@@ -77,7 +77,7 @@ func (r Runner) runSliceMirrorShow(ctx context.Context, opts commandOptions, sli
 	return r.withSliceSession(ctx, sliceRef, false, func(s *Session, ref *corev1.SliceRef) error {
 		mirror, err := s.Slice().GetSliceGitMirror(s.Ctx(), &corev1.GetSliceGitMirrorRequest{Slice: ref})
 		if grpcstatus.Code(err) == codes.NotFound {
-			if opts.jsonOutput() {
+			if opts.JSONOutput() {
 				return r.writeJSONOutput(opts, map[string]any{"mirror": nil})
 			}
 			return noMirrorError(sliceRef)
@@ -121,7 +121,7 @@ func (r Runner) runSliceMirrorRemove(ctx context.Context, opts commandOptions, s
 		if _, err := s.Slice().DeleteSliceGitMirror(s.Ctx(), &corev1.DeleteSliceGitMirrorRequest{Slice: ref}); err != nil {
 			return err
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{"removed": true})
 		}
 		if !opts.Quiet {
@@ -156,7 +156,7 @@ func (r Runner) writeSliceMirror(opts commandOptions, m *corev1.SliceGitMirror, 
 		LastPushedNativeCommit: m.GetLastPushedNativeCommit(), LastError: m.GetLastError(), NextAttemptAt: m.GetNextAttemptAt(),
 		Failures: m.GetFailures(),
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {

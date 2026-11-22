@@ -58,7 +58,7 @@ func profileFromProto(p *corev1.AccountProfile) profileOutput {
 }
 
 func (r Runner) writeProfile(opts commandOptions, p profileOutput) error {
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		return r.writeJSONOutput(opts, p)
 	}
 	if opts.Quiet {

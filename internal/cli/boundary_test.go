@@ -24,6 +24,7 @@ func TestCmdGSBinaryDoesNotLinkServerStorageStack(t *testing.T) {
 		"gitslice.io/gitslice/internal/agentd":      false,
 		"gitslice.io/gitslice/internal/workspace":   false,
 		"gitslice.io/gitslice/internal/remoteshell": false,
+		"gitslice.io/gitslice/internal/cli/clibase": false,
 	}
 	for _, dep := range deps {
 		dep = strings.TrimSpace(dep)

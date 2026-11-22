@@ -263,7 +263,7 @@ func (r Runner) runStatus(ctx context.Context, opts commandOptions, local, relat
 			excludeChangesetIDsFromStack(state.CurrentChangesetID, stack),
 		)
 	}
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		if output.ChangedPaths == nil {
 			output.ChangedPaths = []string{}
 		}

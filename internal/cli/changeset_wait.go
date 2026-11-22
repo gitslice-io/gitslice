@@ -133,7 +133,7 @@ func (r Runner) retrySubmitWhileChecksPending(
 	waitingFor := ""
 	var daemons *checkDaemonWatch
 	var progressOut io.Writer
-	if !opts.Quiet && !opts.jsonOutput() {
+	if !opts.Quiet && !opts.JSONOutput() {
 		progressOut = r.stderr()
 		daemons = newCheckDaemonWatch(progressOut)
 	}

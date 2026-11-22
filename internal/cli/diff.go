@@ -62,7 +62,7 @@ func (r Runner) runCommitDiff(ctx context.Context, opts commandOptions, commitAr
 		if err != nil {
 			return err
 		}
-		if opts.jsonOutput() {
+		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
 				"from_commit_id": oldCommitID(oldCommit),
 				"to_commit_id":   newCommit.Id,
@@ -82,7 +82,7 @@ func (r Runner) runCommitDiff(ctx context.Context, opts commandOptions, commitAr
 			printUnifiedDiffStatColor(r.Stdout, changed, diffText, color)
 			return nil
 		}
-		_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, diffCtx.lines()), color))
+		_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, diffCtx.Lines()), color))
 		return err
 	})
 }
@@ -115,7 +115,7 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 	}
 	edits, current := found.edits, found.current
 	changed := changedPathsFromEdits(edits)
-	if opts.jsonOutput() {
+	if opts.JSONOutput() {
 		diffText, err := r.workspaceDiffText(ctx, conn, cfg, ws, base, baseCommitID, current, changed)
 		if err != nil {
 			return err
@@ -146,7 +146,7 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 	if err != nil {
 		return err
 	}
-	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, diffCtx.lines()), r.colorEnabled(opts)))
+	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, diffCtx.Lines()), r.colorEnabled(opts)))
 	return err
 }
 
