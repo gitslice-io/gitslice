@@ -171,11 +171,11 @@ func importRetryable(err error) bool {
 		return false
 	}
 	switch st.Code() {
-	case codes.Unavailable, codes.Aborted:
+	case codes.Unavailable, codes.Aborted, codes.DeadlineExceeded:
 		return true
 	case codes.Internal, codes.Unknown, codes.Canceled:
 		msg := strings.ToLower(st.Message())
-		for _, transient := range []string{"context canceled", "rst_stream", "eof", "connection reset", "transport is closing", "goaway"} {
+		for _, transient := range []string{"context canceled", "rst_stream", "eof", "connection reset", "transport is closing", "goaway", "server closed the stream without sending trailers"} {
 			if strings.Contains(msg, transient) {
 				return true
 			}

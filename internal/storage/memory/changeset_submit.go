@@ -322,6 +322,92 @@ func (s *ChangesetStore) PublishPending(ctx context.Context, limit int) (publish
 	return published, nil
 }
 
+func (s *ChangesetStore) PublishGitImportBatch(ctx context.Context, in storage.GitImportBatchInput) ([]storage.GitImportPublishedCommit, error) {
+	if len(in.Commits) == 0 {
+		return nil, nil
+	}
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	targetRef := in.TargetRef
+	if targetRef == "" {
+		targetRef = storage.DefaultTargetRef
+	}
+	ref := s.b.refs[targetRef]
+	if ref == nil {
+		return nil, storage.ErrNotFound
+	}
+	if in.ImportID != "" && s.b.imports[in.ImportID] == nil {
+		return nil, storage.ErrNotFound
+	}
+	// Validate all edits against a staged copy before mutating backend state so
+	// a missing blob leaves the batch atomic.
+	stageFiles := cloneFileMap(s.b.commitFiles[ref.CommitId])
+	stageDirs := cloneDirSet(s.b.commitDirs[ref.CommitId])
+	type stagedCommit struct {
+		spec  storage.GitImportCommitSpec
+		files []storage.FileEntry
+		dirs  map[string]struct{}
+	}
+	staged := make([]stagedCommit, 0, len(in.Commits))
+	for _, spec := range in.Commits {
+		if err := s.b.applyMemoryFileEditsLocked(stageFiles, stageDirs, spec.FileEdits); err != nil {
+			return nil, err
+		}
+		files := make([]storage.FileEntry, 0, len(stageFiles))
+		for _, f := range stageFiles {
+			files = append(files, f)
+		}
+		staged = append(staged, stagedCommit{
+			spec:  spec,
+			files: files,
+			dirs:  cloneDirSet(stageDirs),
+		})
+	}
+	out := make([]storage.GitImportPublishedCommit, 0, len(staged))
+	for _, item := range staged {
+		commitID := s.b.nextIDLocked("commit")
+		msg := storage.CommitMessage(item.spec.Title, item.spec.Description)
+		if msg == "" {
+			msg = "Import git commit " + item.spec.GitCommitID
+		}
+		s.b.putCommitWithFilesAndDirsLocked(commitID, item.files, item.dirs, item.spec.ChangedPaths, msg)
+		if in.ImportID != "" {
+			record := storage.GitImportedCommitRecord{
+				ImportID:         in.ImportID,
+				GitCommitID:      item.spec.GitCommitID,
+				NativeCommitID:   commitID,
+				Message:          item.spec.Title,
+				Position:         item.spec.Position,
+				ChangedPathCount: len(item.spec.FileEdits),
+				AuthorName:       item.spec.AuthorName,
+				AuthorEmail:      item.spec.AuthorEmail,
+				AuthoredAt:       item.spec.AuthoredAt,
+				FullMessage:      item.spec.FullMessage,
+			}
+			replaced := false
+			for i, existing := range s.b.importedCommits[in.ImportID] {
+				if existing.GitCommitID == record.GitCommitID {
+					s.b.importedCommits[in.ImportID][i] = record
+					replaced = true
+					break
+				}
+			}
+			if !replaced {
+				s.b.importedCommits[in.ImportID] = append(s.b.importedCommits[in.ImportID], record)
+				s.b.imports[in.ImportID].ImportedCount++
+			}
+			s.b.imports[in.ImportID].LastGitCommitID = record.GitCommitID
+			s.b.imports[in.ImportID].FinalNativeCommitID = record.NativeCommitID
+		}
+		out = append(out, storage.GitImportPublishedCommit{
+			GitCommitID:    item.spec.GitCommitID,
+			NativeCommitID: commitID,
+			Message:        item.spec.Title,
+		})
+	}
+	return out, nil
+}
+
 func (s *ChangesetStore) PendingPublishDepth(ctx context.Context) (int, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()

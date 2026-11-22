@@ -2,6 +2,7 @@ syntax = "proto3";
 
 package gitslice.core.v1;
 
+import "proto/core/v1/changeset.proto";
 import "proto/core/v1/common.proto";
 import "proto/core/v1/slice.proto";
 
@@ -35,6 +36,15 @@ service RepositoryService {
   rpc GetRef(GetRefRequest) returns (Ref);
   rpc ImportGitRepository(ImportGitRepositoryRequest) returns (ImportGitRepositoryResponse);
   rpc ImportGitRepositoryStream(ImportGitRepositoryRequest) returns (stream ImportGitRepositoryProgress);
+  // BeginGitImport starts or resumes a client-driven Git import session,
+  // returning any already-imported commits and the current files under mount_path.
+  rpc BeginGitImport(BeginGitImportRequest) returns (BeginGitImportResponse);
+  // ImportGitCommitBatch validates and publishes a contiguous batch of
+  // client-uploaded Git commits in one tree edit chain and transaction.
+  rpc ImportGitCommitBatch(ImportGitCommitBatchRequest) returns (ImportGitCommitBatchResponse);
+  // CompleteGitImport finalizes a client-driven Git import session and drains
+  // derived indexes so imported history is queryable immediately.
+  rpc CompleteGitImport(CompleteGitImportRequest) returns (CompleteGitImportResponse);
 }
 
 message Ref {
@@ -304,6 +314,64 @@ message ImportGitRepositoryProgress {
   string native_commit_id = 6;
   int32 changed_path_count = 7;
   ImportGitRepositoryResponse result = 8;
+}
+
+message BeginGitImportRequest {
+  string source = 1;
+  string mount_path = 2;
+  SliceRef authoring_slice = 3;
+  string mode = 4;
+  string target_ref = 5;
+  int32 total_commits = 6;
+  bool resume = 7;
+}
+
+message BeginGitImportResponse {
+  string import_id = 1;
+  string target_ref = 2;
+  string mount_path = 3;
+  repeated ImportedGitCommit completed_commits = 4;
+  string final_commit_id = 5;
+  // Current files under mount_path at target_ref HEAD so the client can compute
+  // minimal edits for the first imported commit against an existing mount.
+  repeated TreeEntry mounted_files = 6;
+}
+
+message ImportGitCommitInput {
+  string git_commit_id = 1;
+  int32 position = 2;
+  string message = 3;
+  string description = 4;
+  string full_message = 5;
+  string author_name = 6;
+  string author_email = 7;
+  string authored_at = 8;
+  repeated FileEdit edits = 9;
+}
+
+message ImportGitCommitBatchRequest {
+  string import_id = 1;
+  SliceRef authoring_slice = 2;
+  string mount_path = 3;
+  string target_ref = 4;
+  repeated ImportGitCommitInput commits = 5;
+}
+
+message ImportGitCommitBatchResponse {
+  repeated ImportedGitCommit commits = 1;
+  string final_commit_id = 2;
+}
+
+message CompleteGitImportRequest {
+  string import_id = 1;
+  SliceRef authoring_slice = 2;
+  string mount_path = 3;
+  string target_ref = 4;
+  string final_commit_id = 5;
+}
+
+message CompleteGitImportResponse {
+  string final_commit_id = 1;
 }
 
 message BlameFileRequest {

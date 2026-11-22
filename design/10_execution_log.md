@@ -9907,3 +9907,16 @@ Clerk) and update the relevant design and CLI documentation.
   - Added unit tests `TestImportStreamsBlobsInBoundedBatches` and `TestImportCommitLimitPreservesResourceExhausted` (`service/git_import_resilience_test.go`).
 - **Verification:** `gofmt`, `go vet ./...`, `go test ./...`, and `go build ./cmd/...`.
 
+## 2026-11-22 — Client-Side Local-Clone Batched Git Import (`gs import --local`)
+
+- **Goal:** Enable importing full commit history of very large or private Git repositories (such as `okou-ai/okou` with 29,258 commits) without hitting Cloud Run's 1 GiB `/tmp` tmpfs clone limit or per-commit sequential publish latency.
+- **Decisions & implementation:**
+  - Added `BeginGitImport`, `ImportGitCommitBatch`, and `CompleteGitImport` RPCs to `proto/core/v1/repository.proto` (regenerated Go, gRPC, grpc-gateway, Connect, `server/connect_adapters_gen.go`, and `web/src/gen` TS stubs).
+  - Added `PublishGitImportBatch` on `storage.ChangesetStore` (`internal/postgres/git_import_publish.go`, `internal/storage/memory/changeset_submit.go`): applies up to 200 commits in one `treestore.ApplyEditChain` R2 flush and commits `commits`, final `path_heads`, `outbox`, `git_import_commits`, `git_imports`, and the CAS `refs` update in a single Postgres transaction.
+  - Updated `ProcessOutbox` (`internal/postgres/outbox.go`) to process up to 64 outbox rows per transaction with per-row savepoint isolation, and allowed empty Git import commits (`len(FileEdits) == 0 && len(ChangedPaths) == 0`) in `applyCommitPublishedOutboxTx`.
+  - Implemented `BeginGitImport`, `ImportGitCommitBatch` (enforcing slice submit rules, mount/slice bounds, `.gitslice/` admin approval, path-owner approvals, and idempotent retries), and `CompleteGitImport` in `service/git_import_batch.go`.
+  - Added `--local` and `--batch-size` flags to `gs import` (`internal/cli/commands_fs.go`, `internal/cli/import_local.go`): clones or reads locally on disk, streams unseen blobs in bounded 32 MiB chunks through `TransferManager.AttachAndUploadBlobs` (with `GetBlobStatus` dedup + gzip-compressed `UploadBlobs`), and publishes commits in gzip-compressed batches with resumable progress. Also added `"server closed the stream without sending trailers"` and `DeadlineExceeded` to `importRetryable` (`internal/cli/import.go`).
+  - Added unit tests in `service/git_import_batch_test.go` and `internal/cli/import_local_test.go`.
+- **Verification:** `gofmt`, `go vet ./...`, `go test ./...`, `go build ./cmd/...`, cross-OS `cmd/gs` builds, and `npm run build` in `web/`.
+
+

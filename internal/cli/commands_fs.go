@@ -136,14 +136,19 @@ func (r Runner) importCommand(opts *commandOptions) *cobra.Command {
 	importMaxCommits := 0
 	importResume := true
 	importRetries := defaultImportRetries
+	importLocal := false
+	importBatchSize := defaultLocalImportBatchSize
 	importCmd := &cobra.Command{
 		Use:   "import <source>",
 		Short: "Import a Git repository under a mounted path",
-		Args:  exactArgs(1, "gs import <source> --mount /acme/payment/vendor/repo [--slice payment|acme/payment] [--mode shallow|deep]"),
+		Args:  exactArgs(1, "gs import <source> --mount /acme/payment/vendor/repo [--slice payment|acme/payment] [--mode shallow|deep] [--local]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			mode := importMode
 			if importDeep {
 				mode = "deep"
+			}
+			if importLocal {
+				return r.runLocalGitImport(cmd.Context(), *opts, args[0], importMountPath, importSlice, mode, importMaxCommits, importResume, importRetries, importBatchSize)
 			}
 			return r.runImportGitRepository(cmd.Context(), *opts, args[0], importMountPath, importSlice, mode, importMaxCommits, importResume, importRetries)
 		},
@@ -155,6 +160,8 @@ func (r Runner) importCommand(opts *commandOptions) *cobra.Command {
 	importCmd.Flags().IntVar(&importMaxCommits, "max-commits", importMaxCommits, "maximum recent commits to import in deep mode")
 	importCmd.Flags().BoolVar(&importResume, "resume", importResume, "resume previously completed commits for the same import")
 	importCmd.Flags().IntVar(&importRetries, "retries", importRetries, "when the connection drops, reconnect and resume up to this many times in a row without progress (0 = never)")
+	importCmd.Flags().BoolVar(&importLocal, "local", importLocal, "clone/read the repository locally, upload blobs in batches, and publish commits in batches")
+	importCmd.Flags().IntVar(&importBatchSize, "batch-size", importBatchSize, "commits per server publish batch with --local (max 200)")
 
 	return importCmd
 }

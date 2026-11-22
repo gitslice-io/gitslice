@@ -23,6 +23,8 @@ func (e outboxRowError) Unwrap() error {
 	return e.err
 }
 
+const outboxTxBatchLimit = 64
+
 func (s *ChangesetStore) ProcessOutbox(ctx context.Context, limit int) (storage.OutboxProcessResult, error) {
 	if limit <= 0 {
 		limit = 64
@@ -30,90 +32,109 @@ func (s *ChangesetStore) ProcessOutbox(ctx context.Context, limit int) (storage.
 	var result storage.OutboxProcessResult
 	var lastID int64
 	for result.Processed+result.Failed < limit {
-		id, ok, err := s.processNextOutboxRow(ctx, lastID)
-		if !ok {
-			if err != nil {
-				return result, err
-			}
-			return result, nil
-		}
-		lastID = id
+		remaining := limit - (result.Processed + result.Failed)
+		chunkLimit := min(remaining, outboxTxBatchLimit)
+		step, err := s.processOutboxBatch(ctx, lastID, chunkLimit)
 		if err != nil {
-			var rowErr outboxRowError
-			if errors.As(err, &rowErr) {
-				result.Failed++
-				continue
-			}
 			return result, err
 		}
-		result.Processed++
+		result.Processed += step.processed
+		result.Failed += step.failed
+		if step.count == 0 {
+			return result, nil
+		}
+		lastID = step.lastID
+		if step.count < chunkLimit {
+			return result, nil
+		}
 	}
 	return result, nil
 }
 
-func (s *ChangesetStore) processNextOutboxRow(ctx context.Context, lastID int64) (int64, bool, error) {
-	type outboxStep struct {
-		id     int64
-		ok     bool
-		rowErr error
-	}
-	step, err := inTx(ctx, s.db, func(tx *sql.Tx) (outboxStep, error) {
-		if err := lockOutboxProcessorTx(ctx, tx); err != nil {
-			return outboxStep{}, err
-		}
+type outboxBatchStep struct {
+	lastID    int64
+	count     int
+	processed int
+	failed    int
+}
 
-		var id int64
-		var kind string
-		var payload []byte
-		err := tx.QueryRowContext(ctx, `
+func (s *ChangesetStore) processOutboxBatch(ctx context.Context, lastID int64, limit int) (outboxBatchStep, error) {
+	type rawOutboxRow struct {
+		id      int64
+		kind    string
+		payload []byte
+	}
+	return inTx(ctx, s.db, func(tx *sql.Tx) (outboxBatchStep, error) {
+		if err := lockOutboxProcessorTx(ctx, tx); err != nil {
+			return outboxBatchStep{}, err
+		}
+		rows, err := tx.QueryContext(ctx, `
 			select id, kind, payload
 			from outbox
 			where processed_at is null
 			  and id > $1
 			order by id
-			limit 1
+			limit $2
 			for update skip locked
-		`, lastID).Scan(&id, &kind, &payload)
-		if errors.Is(err, sql.ErrNoRows) {
-			return outboxStep{}, nil
-		}
+		`, lastID, limit)
 		if err != nil {
-			return outboxStep{}, err
+			return outboxBatchStep{}, err
+		}
+		var batch []rawOutboxRow
+		for rows.Next() {
+			var row rawOutboxRow
+			if err := rows.Scan(&row.id, &row.kind, &row.payload); err != nil {
+				_ = rows.Close()
+				return outboxBatchStep{}, err
+			}
+			batch = append(batch, row)
+		}
+		if err := rows.Close(); err != nil {
+			return outboxBatchStep{}, err
+		}
+		if len(batch) == 0 {
+			return outboxBatchStep{}, nil
 		}
 
-		if _, err := tx.ExecContext(ctx, `savepoint outbox_apply`); err != nil {
-			return outboxStep{id: id}, err
-		}
-		if err := s.applyOutboxRowTx(ctx, tx, kind, payload); err != nil {
-			if _, rollbackErr := tx.ExecContext(ctx, `rollback to savepoint outbox_apply`); rollbackErr != nil {
-				return outboxStep{id: id}, fmt.Errorf("rollback failed outbox row %d apply: %w", id, rollbackErr)
+		step := outboxBatchStep{count: len(batch)}
+		succeededIDs := make([]int64, 0, len(batch))
+		for _, row := range batch {
+			step.lastID = row.id
+			if _, err := tx.ExecContext(ctx, `savepoint outbox_apply`); err != nil {
+				return step, err
 			}
-			if _, attemptsErr := tx.ExecContext(ctx, `
+			if err := s.applyOutboxRowTx(ctx, tx, row.kind, row.payload); err != nil {
+				if _, rollbackErr := tx.ExecContext(ctx, `rollback to savepoint outbox_apply`); rollbackErr != nil {
+					return step, fmt.Errorf("rollback failed outbox row %d apply: %w", row.id, rollbackErr)
+				}
+				if _, attemptsErr := tx.ExecContext(ctx, `
+					update outbox
+					set attempts = attempts + 1
+					where id = $1
+					  and processed_at is null
+				`, row.id); attemptsErr != nil {
+					return step, fmt.Errorf("increment outbox attempts after row failure: %w", attemptsErr)
+				}
+				step.failed++
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, `release savepoint outbox_apply`); err != nil {
+				return step, err
+			}
+			succeededIDs = append(succeededIDs, row.id)
+			step.processed++
+		}
+		if len(succeededIDs) > 0 {
+			if _, err := tx.ExecContext(ctx, `
 				update outbox
-				set attempts = attempts + 1
-				where id = $1
-				  and processed_at is null
-			`, id); attemptsErr != nil {
-				return outboxStep{id: id}, fmt.Errorf("increment outbox attempts after row failure: %w", attemptsErr)
+				set processed_at = now()
+				where id = any($1)
+			`, succeededIDs); err != nil {
+				return step, err
 			}
-			return outboxStep{id: id, ok: true, rowErr: outboxRowError{id: id, err: err}}, nil
 		}
-		if _, err := tx.ExecContext(ctx, `release savepoint outbox_apply`); err != nil {
-			return outboxStep{id: id}, err
-		}
-		if _, err := tx.ExecContext(ctx, `
-			update outbox
-			set processed_at = now()
-			where id = $1
-		`, id); err != nil {
-			return outboxStep{id: id}, err
-		}
-		return outboxStep{id: id, ok: true}, nil
+		return step, nil
 	})
-	if err != nil {
-		return step.id, false, err
-	}
-	return step.id, step.ok, step.rowErr
 }
 
 func (s *ChangesetStore) applyOutboxRowTx(ctx context.Context, tx *sql.Tx, kind string, raw []byte) error {
@@ -130,7 +151,7 @@ func (s *ChangesetStore) applyOutboxRowTx(ctx context.Context, tx *sql.Tx, kind 
 }
 
 func (s *ChangesetStore) applyCommitPublishedOutboxTx(ctx context.Context, tx *sql.Tx, payload commitPublishedPayload) error {
-	if payload.TargetRef == "" || payload.CommitID == "" || payload.BaseCommitID == "" || (payload.PatchsetID == "" && len(payload.FileEdits) == 0) || payload.CommittedAt.IsZero() {
+	if payload.TargetRef == "" || payload.CommitID == "" || payload.BaseCommitID == "" || (payload.PatchsetID == "" && len(payload.FileEdits) == 0 && len(payload.ChangedPaths) > 0) || payload.CommittedAt.IsZero() {
 		return fmt.Errorf("%w: incomplete commit_published payload", ErrInvalid)
 	}
 	if err := insertCommitChangedPathsTx(ctx, tx, payload.TargetRef, payload.CommitID, payload.ChangedPaths, payload.CommittedAt); err != nil {

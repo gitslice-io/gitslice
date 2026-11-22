@@ -4,6 +4,8 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { FileEdit } from "./changeset_pb";
+import { file_proto_core_v1_changeset } from "./changeset_pb";
 import type { SliceRef, TreeEntry } from "./common_pb";
 import { file_proto_core_v1_common } from "./common_pb";
 import type { Slice } from "./slice_pb";
@@ -14,7 +16,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file proto/core/v1/repository.proto.
  */
 export const file_proto_core_v1_repository: GenFile = /*@__PURE__*/
-  fileDesc("Ch5wcm90by9jb3JlL3YxL3JlcG9zaXRvcnkucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEiTgoDUmVmEgwKBG5hbWUYASABKAkSEQoJY29tbWl0X2lkGAIgASgJEhIKCnVwZGF0ZWRfYXQYAyABKAkSEgoKdXBkYXRlZF9ieRgEIAEoCSLVAQoGQ29tbWl0EgoKAmlkGAEgASgJEhIKCnBhcmVudF9pZHMYAiADKAkSFAoMcm9vdF90cmVlX2lkGAMgASgJEg4KBmF1dGhvchgEIAEoCRIPCgdtZXNzYWdlGAUgASgJEhIKCmNyZWF0ZWRfYXQYBiABKAkSFQoNY2hhbmdlZF9wYXRocxgHIAMoCRIzCgpnaXRfaW1wb3J0GAggASgLMh8uZ2l0c2xpY2UuY29yZS52MS5HaXRJbXBvcnRJbmZvEhQKDGNoYW5nZXNldF9pZBgJIAEoCSJ3Cg1HaXRJbXBvcnRJbmZvEhUKDWdpdF9jb21taXRfaWQYASABKAkSEwoLYXV0aG9yX25hbWUYAiABKAkSFAoMYXV0aG9yX2VtYWlsGAMgASgJEhMKC2F1dGhvcmVkX2F0GAQgASgJEg8KB21lc3NhZ2UYBSABKAkidgoSUmVzb2x2ZVBhdGhSZXF1ZXN0EhEKCWNvbW1pdF9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEhQKDHJvb3RfdHJlZV9pZBgDIAEoCRIpCgVzbGljZRgEIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYiQQoTUmVzb2x2ZVBhdGhSZXNwb25zZRIqCgVlbnRyeRgBIAEoCzIbLmdpdHNsaWNlLmNvcmUudjEuVHJlZUVudHJ5Iq4BChRMaXN0RGlyZWN0b3J5UmVxdWVzdBIRCgljb21taXRfaWQYASABKAkSDAoEcGF0aBgCIAEoCRIOCgZjdXJzb3IYAyABKAkSEQoJcGFnZV9zaXplGAQgASgFEikKBXNsaWNlGAUgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIUCgxyb290X3RyZWVfaWQYBiABKAkSEQoJcmVjdXJzaXZlGAcgASgIIm0KFUxpc3REaXJlY3RvcnlSZXNwb25zZRIsCgdlbnRyaWVzGAEgAygLMhsuZ2l0c2xpY2UuY29yZS52MS5UcmVlRW50cnkSEwoLbmV4dF9jdXJzb3IYAiABKAkSEQoJcmVjdXJzaXZlGAMgASgIIpMBCg9SZWFkRmlsZVJlcXVlc3QSEQoJY29tbWl0X2lkGAEgASgJEgwKBHBhdGgYAiABKAkSDgoGb2Zmc2V0GAMgASgDEg4KBmxlbmd0aBgEIAEoAxIUCgxyb290X3RyZWVfaWQYBSABKAkSKQoFc2xpY2UYBiABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmIl8KEVJlbmRlckZpbGVSZXF1ZXN0EhEKCWNvbW1pdF9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEikKBXNsaWNlGAMgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiI4ChJSZW5kZXJGaWxlUmVzcG9uc2USDAoEaHRtbBgBIAEoCRIUCgxjb250ZW50X2hhc2gYAiABKAkiRgoQUmVhZEZpbGVSZXNwb25zZRIMCgRkYXRhGAEgASgMEg4KBm9mZnNldBgCIAEoAxIUCgxjb250ZW50X2hhc2gYAyABKAkixQEKD0NoZWNrb3V0UmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSEQoJY29tbWl0X2lkGAIgASgJEhcKD2luY2x1ZGVfY29udGVudBgDIAEoCBIUCgxyb290X3RyZWVfaWQYBCABKAkSDQoFcGF0aHMYBSADKAkSFwoPc2luY2VfY29tbWl0X2lkGAYgASgJEh0KFXNpbmNlX2RlZmluaXRpb25faGFzaBgHIAEoCSLyAQoQQ2hlY2tvdXRSZXNwb25zZRIyCgZoZWFkZXIYASABKAsyIC5naXRzbGljZS5jb3JlLnYxLkNoZWNrb3V0SGVhZGVySAASNAoHZW50cmllcxgCIAEoCzIhLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tvdXRFbnRyaWVzSAASNgoIY29udGVudHMYAyABKAsyIi5naXRzbGljZS5jb3JlLnYxLkNoZWNrb3V0Q29udGVudHNIABI0CgdyZW1vdmVkGAQgASgLMiEuZ2l0c2xpY2UuY29yZS52MS5DaGVja291dFJlbW92ZWRIAEIGCgRwYXJ0IloKDkNoZWNrb3V0SGVhZGVyEiYKBXNsaWNlGAEgASgLMhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRIRCgljb21taXRfaWQYAiABKAkSDQoFZGVsdGEYAyABKAgiPwoPQ2hlY2tvdXRFbnRyaWVzEiwKB2VudHJpZXMYASADKAsyGy5naXRzbGljZS5jb3JlLnYxLlRyZWVFbnRyeSIgCg9DaGVja291dFJlbW92ZWQSDQoFcGF0aHMYASADKAkiRwoQQ2hlY2tvdXRDb250ZW50cxIzCghjb250ZW50cxgBIAMoCzIhLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tvdXRDb250ZW50IjUKD0NoZWNrb3V0Q29udGVudBIUCgxjb250ZW50X2hhc2gYASABKAkSDAoEZGF0YRgCIAEoDCJ1ChBSZWFkRmlsZXNSZXF1ZXN0EhEKCWNvbW1pdF9pZBgBIAEoCRINCgVwYXRocxgCIAMoCRIUCgxyb290X3RyZWVfaWQYAyABKAkSKQoFc2xpY2UYBCABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmIkQKEVJlYWRGaWxlc1Jlc3BvbnNlEi8KBWZpbGVzGAEgAygLMiAuZ2l0c2xpY2UuY29yZS52MS5SZWFkRmlsZXNFbnRyeSJCCg5SZWFkRmlsZXNFbnRyeRIMCgRwYXRoGAEgASgJEgwKBGRhdGEYAiABKAwSFAoMY29udGVudF9oYXNoGAMgASgJIiUKEEdldENvbW1pdFJlcXVlc3QSEQoJY29tbWl0X2lkGAEgASgJIqABChRSZXNvbHZlQ29tbWl0UmVxdWVzdBIRCgljb21taXRfaWQYASABKAkSEAoIcmVmX25hbWUYAiABKAkSDAoEcGF0aBgDIAEoCRIpCgVzbGljZRgEIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSGQoMZm9sbG93X21vdmVzGAUgASgISACIAQFCDwoNX2ZvbGxvd19tb3ZlcyJZChVSZXNvbHZlQ29tbWl0UmVzcG9uc2USKAoGY29tbWl0GAEgASgLMhguZ2l0c2xpY2UuY29yZS52MS5Db21taXQSFgoObWF0Y2hlZF9wcmVmaXgYAiABKAkirgEKEkxpc3RDb21taXRzUmVxdWVzdBIQCghyZWZfbmFtZRgBIAEoCRINCgVsaW1pdBgCIAEoBRIMCgRwYXRoGAMgASgJEikKBXNsaWNlGAQgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhISCgpwYWdlX3Rva2VuGAUgASgJEhkKDGZvbGxvd19tb3ZlcxgGIAEoCEgAiAEBQg8KDV9mb2xsb3dfbW92ZXMiWQoTTGlzdENvbW1pdHNSZXNwb25zZRIpCgdjb21taXRzGAEgAygLMhguZ2l0c2xpY2UuY29yZS52MS5Db21taXQSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJIiEKDUdldFJlZlJlcXVlc3QSEAoIcmVmX25hbWUYASABKAkivAEKGkltcG9ydEdpdFJlcG9zaXRvcnlSZXF1ZXN0Eg4KBnNvdXJjZRgBIAEoCRISCgptb3VudF9wYXRoGAIgASgJEjMKD2F1dGhvcmluZ19zbGljZRgDIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSDAoEbW9kZRgEIAEoCRISCgp0YXJnZXRfcmVmGAUgASgJEhMKC21heF9jb21taXRzGAYgASgFEg4KBnJlc3VtZRgHIAEoCCJVChFJbXBvcnRlZEdpdENvbW1pdBIVCg1naXRfY29tbWl0X2lkGAEgASgJEhgKEG5hdGl2ZV9jb21taXRfaWQYAiABKAkSDwoHbWVzc2FnZRgDIAEoCSKyAQobSW1wb3J0R2l0UmVwb3NpdG9yeVJlc3BvbnNlEg4KBnNvdXJjZRgBIAEoCRISCgptb3VudF9wYXRoGAIgASgJEgwKBG1vZGUYAyABKAkSEgoKdGFyZ2V0X3JlZhgEIAEoCRIXCg9maW5hbF9jb21taXRfaWQYBSABKAkSNAoHY29tbWl0cxgGIAMoCzIjLmdpdHNsaWNlLmNvcmUudjEuSW1wb3J0ZWRHaXRDb21taXQi6QEKG0ltcG9ydEdpdFJlcG9zaXRvcnlQcm9ncmVzcxINCgVwaGFzZRgBIAEoCRIPCgdtZXNzYWdlGAIgASgJEg8KB2N1cnJlbnQYAyABKAMSDQoFdG90YWwYBCABKAMSFQoNZ2l0X2NvbW1pdF9pZBgFIAEoCRIYChBuYXRpdmVfY29tbWl0X2lkGAYgASgJEhoKEmNoYW5nZWRfcGF0aF9jb3VudBgHIAEoBRI9CgZyZXN1bHQYCCABKAsyLS5naXRzbGljZS5jb3JlLnYxLkltcG9ydEdpdFJlcG9zaXRvcnlSZXNwb25zZSJdChBCbGFtZUZpbGVSZXF1ZXN0EgwKBHBhdGgYASABKAkSKQoFc2xpY2UYAiABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhAKCHJlZl9uYW1lGAMgASgJIkcKCkJsYW1lUmFuZ2USEgoKc3RhcnRfbGluZRgBIAEoBRISCgpsaW5lX2NvdW50GAIgASgFEhEKCWNvbW1pdF9pZBgDIAEoCSK0AQoRQmxhbWVGaWxlUmVzcG9uc2USEQoJY29tbWl0X2lkGAEgASgJEgwKBHBhdGgYAiABKAkSEgoKbGluZV9jb3VudBgDIAEoBRIsCgZyYW5nZXMYBCADKAsyHC5naXRzbGljZS5jb3JlLnYxLkJsYW1lUmFuZ2USKQoHY29tbWl0cxgFIAMoCzIYLmdpdHNsaWNlLmNvcmUudjEuQ29tbWl0EhEKCXRydW5jYXRlZBgGIAEoCDK5CQoRUmVwb3NpdG9yeVNlcnZpY2USWgoLUmVzb2x2ZVBhdGgSJC5naXRzbGljZS5jb3JlLnYxLlJlc29sdmVQYXRoUmVxdWVzdBolLmdpdHNsaWNlLmNvcmUudjEuUmVzb2x2ZVBhdGhSZXNwb25zZRJgCg1MaXN0RGlyZWN0b3J5EiYuZ2l0c2xpY2UuY29yZS52MS5MaXN0RGlyZWN0b3J5UmVxdWVzdBonLmdpdHNsaWNlLmNvcmUudjEuTGlzdERpcmVjdG9yeVJlc3BvbnNlElEKCFJlYWRGaWxlEiEuZ2l0c2xpY2UuY29yZS52MS5SZWFkRmlsZVJlcXVlc3QaIi5naXRzbGljZS5jb3JlLnYxLlJlYWRGaWxlUmVzcG9uc2USVwoKUmVuZGVyRmlsZRIjLmdpdHNsaWNlLmNvcmUudjEuUmVuZGVyRmlsZVJlcXVlc3QaJC5naXRzbGljZS5jb3JlLnYxLlJlbmRlckZpbGVSZXNwb25zZRJUCglSZWFkRmlsZXMSIi5naXRzbGljZS5jb3JlLnYxLlJlYWRGaWxlc1JlcXVlc3QaIy5naXRzbGljZS5jb3JlLnYxLlJlYWRGaWxlc1Jlc3BvbnNlElMKCENoZWNrb3V0EiEuZ2l0c2xpY2UuY29yZS52MS5DaGVja291dFJlcXVlc3QaIi5naXRzbGljZS5jb3JlLnYxLkNoZWNrb3V0UmVzcG9uc2UwARJJCglHZXRDb21taXQSIi5naXRzbGljZS5jb3JlLnYxLkdldENvbW1pdFJlcXVlc3QaGC5naXRzbGljZS5jb3JlLnYxLkNvbW1pdBJgCg1SZXNvbHZlQ29tbWl0EiYuZ2l0c2xpY2UuY29yZS52MS5SZXNvbHZlQ29tbWl0UmVxdWVzdBonLmdpdHNsaWNlLmNvcmUudjEuUmVzb2x2ZUNvbW1pdFJlc3BvbnNlEloKC0xpc3RDb21taXRzEiQuZ2l0c2xpY2UuY29yZS52MS5MaXN0Q29tbWl0c1JlcXVlc3QaJS5naXRzbGljZS5jb3JlLnYxLkxpc3RDb21taXRzUmVzcG9uc2USVAoJQmxhbWVGaWxlEiIuZ2l0c2xpY2UuY29yZS52MS5CbGFtZUZpbGVSZXF1ZXN0GiMuZ2l0c2xpY2UuY29yZS52MS5CbGFtZUZpbGVSZXNwb25zZRJACgZHZXRSZWYSHy5naXRzbGljZS5jb3JlLnYxLkdldFJlZlJlcXVlc3QaFS5naXRzbGljZS5jb3JlLnYxLlJlZhJyChNJbXBvcnRHaXRSZXBvc2l0b3J5EiwuZ2l0c2xpY2UuY29yZS52MS5JbXBvcnRHaXRSZXBvc2l0b3J5UmVxdWVzdBotLmdpdHNsaWNlLmNvcmUudjEuSW1wb3J0R2l0UmVwb3NpdG9yeVJlc3BvbnNlEnoKGUltcG9ydEdpdFJlcG9zaXRvcnlTdHJlYW0SLC5naXRzbGljZS5jb3JlLnYxLkltcG9ydEdpdFJlcG9zaXRvcnlSZXF1ZXN0Gi0uZ2l0c2xpY2UuY29yZS52MS5JbXBvcnRHaXRSZXBvc2l0b3J5UHJvZ3Jlc3MwAUIrWilnaXRzbGljZS5pby9naXRzbGljZS9wcm90by9jb3JlL3YxO2NvcmV2MWIGcHJvdG8z", [file_proto_core_v1_common, file_proto_core_v1_slice]);
+  fileDesc("Ch5wcm90by9jb3JlL3YxL3JlcG9zaXRvcnkucHJvdG8SEGdpdHNsaWNlLmNvcmUudjEiTgoDUmVmEgwKBG5hbWUYASABKAkSEQoJY29tbWl0X2lkGAIgASgJEhIKCnVwZGF0ZWRfYXQYAyABKAkSEgoKdXBkYXRlZF9ieRgEIAEoCSLVAQoGQ29tbWl0EgoKAmlkGAEgASgJEhIKCnBhcmVudF9pZHMYAiADKAkSFAoMcm9vdF90cmVlX2lkGAMgASgJEg4KBmF1dGhvchgEIAEoCRIPCgdtZXNzYWdlGAUgASgJEhIKCmNyZWF0ZWRfYXQYBiABKAkSFQoNY2hhbmdlZF9wYXRocxgHIAMoCRIzCgpnaXRfaW1wb3J0GAggASgLMh8uZ2l0c2xpY2UuY29yZS52MS5HaXRJbXBvcnRJbmZvEhQKDGNoYW5nZXNldF9pZBgJIAEoCSJ3Cg1HaXRJbXBvcnRJbmZvEhUKDWdpdF9jb21taXRfaWQYASABKAkSEwoLYXV0aG9yX25hbWUYAiABKAkSFAoMYXV0aG9yX2VtYWlsGAMgASgJEhMKC2F1dGhvcmVkX2F0GAQgASgJEg8KB21lc3NhZ2UYBSABKAkidgoSUmVzb2x2ZVBhdGhSZXF1ZXN0EhEKCWNvbW1pdF9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEhQKDHJvb3RfdHJlZV9pZBgDIAEoCRIpCgVzbGljZRgEIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYiQQoTUmVzb2x2ZVBhdGhSZXNwb25zZRIqCgVlbnRyeRgBIAEoCzIbLmdpdHNsaWNlLmNvcmUudjEuVHJlZUVudHJ5Iq4BChRMaXN0RGlyZWN0b3J5UmVxdWVzdBIRCgljb21taXRfaWQYASABKAkSDAoEcGF0aBgCIAEoCRIOCgZjdXJzb3IYAyABKAkSEQoJcGFnZV9zaXplGAQgASgFEikKBXNsaWNlGAUgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIUCgxyb290X3RyZWVfaWQYBiABKAkSEQoJcmVjdXJzaXZlGAcgASgIIm0KFUxpc3REaXJlY3RvcnlSZXNwb25zZRIsCgdlbnRyaWVzGAEgAygLMhsuZ2l0c2xpY2UuY29yZS52MS5UcmVlRW50cnkSEwoLbmV4dF9jdXJzb3IYAiABKAkSEQoJcmVjdXJzaXZlGAMgASgIIpMBCg9SZWFkRmlsZVJlcXVlc3QSEQoJY29tbWl0X2lkGAEgASgJEgwKBHBhdGgYAiABKAkSDgoGb2Zmc2V0GAMgASgDEg4KBmxlbmd0aBgEIAEoAxIUCgxyb290X3RyZWVfaWQYBSABKAkSKQoFc2xpY2UYBiABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmIl8KEVJlbmRlckZpbGVSZXF1ZXN0EhEKCWNvbW1pdF9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEikKBXNsaWNlGAMgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZiI4ChJSZW5kZXJGaWxlUmVzcG9uc2USDAoEaHRtbBgBIAEoCRIUCgxjb250ZW50X2hhc2gYAiABKAkiRgoQUmVhZEZpbGVSZXNwb25zZRIMCgRkYXRhGAEgASgMEg4KBm9mZnNldBgCIAEoAxIUCgxjb250ZW50X2hhc2gYAyABKAkixQEKD0NoZWNrb3V0UmVxdWVzdBIpCgVzbGljZRgBIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSEQoJY29tbWl0X2lkGAIgASgJEhcKD2luY2x1ZGVfY29udGVudBgDIAEoCBIUCgxyb290X3RyZWVfaWQYBCABKAkSDQoFcGF0aHMYBSADKAkSFwoPc2luY2VfY29tbWl0X2lkGAYgASgJEh0KFXNpbmNlX2RlZmluaXRpb25faGFzaBgHIAEoCSLyAQoQQ2hlY2tvdXRSZXNwb25zZRIyCgZoZWFkZXIYASABKAsyIC5naXRzbGljZS5jb3JlLnYxLkNoZWNrb3V0SGVhZGVySAASNAoHZW50cmllcxgCIAEoCzIhLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tvdXRFbnRyaWVzSAASNgoIY29udGVudHMYAyABKAsyIi5naXRzbGljZS5jb3JlLnYxLkNoZWNrb3V0Q29udGVudHNIABI0CgdyZW1vdmVkGAQgASgLMiEuZ2l0c2xpY2UuY29yZS52MS5DaGVja291dFJlbW92ZWRIAEIGCgRwYXJ0IloKDkNoZWNrb3V0SGVhZGVyEiYKBXNsaWNlGAEgASgLMhcuZ2l0c2xpY2UuY29yZS52MS5TbGljZRIRCgljb21taXRfaWQYAiABKAkSDQoFZGVsdGEYAyABKAgiPwoPQ2hlY2tvdXRFbnRyaWVzEiwKB2VudHJpZXMYASADKAsyGy5naXRzbGljZS5jb3JlLnYxLlRyZWVFbnRyeSIgCg9DaGVja291dFJlbW92ZWQSDQoFcGF0aHMYASADKAkiRwoQQ2hlY2tvdXRDb250ZW50cxIzCghjb250ZW50cxgBIAMoCzIhLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tvdXRDb250ZW50IjUKD0NoZWNrb3V0Q29udGVudBIUCgxjb250ZW50X2hhc2gYASABKAkSDAoEZGF0YRgCIAEoDCJ1ChBSZWFkRmlsZXNSZXF1ZXN0EhEKCWNvbW1pdF9pZBgBIAEoCRINCgVwYXRocxgCIAMoCRIUCgxyb290X3RyZWVfaWQYAyABKAkSKQoFc2xpY2UYBCABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmIkQKEVJlYWRGaWxlc1Jlc3BvbnNlEi8KBWZpbGVzGAEgAygLMiAuZ2l0c2xpY2UuY29yZS52MS5SZWFkRmlsZXNFbnRyeSJCCg5SZWFkRmlsZXNFbnRyeRIMCgRwYXRoGAEgASgJEgwKBGRhdGEYAiABKAwSFAoMY29udGVudF9oYXNoGAMgASgJIiUKEEdldENvbW1pdFJlcXVlc3QSEQoJY29tbWl0X2lkGAEgASgJIqABChRSZXNvbHZlQ29tbWl0UmVxdWVzdBIRCgljb21taXRfaWQYASABKAkSEAoIcmVmX25hbWUYAiABKAkSDAoEcGF0aBgDIAEoCRIpCgVzbGljZRgEIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSGQoMZm9sbG93X21vdmVzGAUgASgISACIAQFCDwoNX2ZvbGxvd19tb3ZlcyJZChVSZXNvbHZlQ29tbWl0UmVzcG9uc2USKAoGY29tbWl0GAEgASgLMhguZ2l0c2xpY2UuY29yZS52MS5Db21taXQSFgoObWF0Y2hlZF9wcmVmaXgYAiABKAkirgEKEkxpc3RDb21taXRzUmVxdWVzdBIQCghyZWZfbmFtZRgBIAEoCRINCgVsaW1pdBgCIAEoBRIMCgRwYXRoGAMgASgJEikKBXNsaWNlGAQgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhISCgpwYWdlX3Rva2VuGAUgASgJEhkKDGZvbGxvd19tb3ZlcxgGIAEoCEgAiAEBQg8KDV9mb2xsb3dfbW92ZXMiWQoTTGlzdENvbW1pdHNSZXNwb25zZRIpCgdjb21taXRzGAEgAygLMhguZ2l0c2xpY2UuY29yZS52MS5Db21taXQSFwoPbmV4dF9wYWdlX3Rva2VuGAIgASgJIiEKDUdldFJlZlJlcXVlc3QSEAoIcmVmX25hbWUYASABKAkivAEKGkltcG9ydEdpdFJlcG9zaXRvcnlSZXF1ZXN0Eg4KBnNvdXJjZRgBIAEoCRISCgptb3VudF9wYXRoGAIgASgJEjMKD2F1dGhvcmluZ19zbGljZRgDIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSDAoEbW9kZRgEIAEoCRISCgp0YXJnZXRfcmVmGAUgASgJEhMKC21heF9jb21taXRzGAYgASgFEg4KBnJlc3VtZRgHIAEoCCJVChFJbXBvcnRlZEdpdENvbW1pdBIVCg1naXRfY29tbWl0X2lkGAEgASgJEhgKEG5hdGl2ZV9jb21taXRfaWQYAiABKAkSDwoHbWVzc2FnZRgDIAEoCSKyAQobSW1wb3J0R2l0UmVwb3NpdG9yeVJlc3BvbnNlEg4KBnNvdXJjZRgBIAEoCRISCgptb3VudF9wYXRoGAIgASgJEgwKBG1vZGUYAyABKAkSEgoKdGFyZ2V0X3JlZhgEIAEoCRIXCg9maW5hbF9jb21taXRfaWQYBSABKAkSNAoHY29tbWl0cxgGIAMoCzIjLmdpdHNsaWNlLmNvcmUudjEuSW1wb3J0ZWRHaXRDb21taXQi6QEKG0ltcG9ydEdpdFJlcG9zaXRvcnlQcm9ncmVzcxINCgVwaGFzZRgBIAEoCRIPCgdtZXNzYWdlGAIgASgJEg8KB2N1cnJlbnQYAyABKAMSDQoFdG90YWwYBCABKAMSFQoNZ2l0X2NvbW1pdF9pZBgFIAEoCRIYChBuYXRpdmVfY29tbWl0X2lkGAYgASgJEhoKEmNoYW5nZWRfcGF0aF9jb3VudBgHIAEoBRI9CgZyZXN1bHQYCCABKAsyLS5naXRzbGljZS5jb3JlLnYxLkltcG9ydEdpdFJlcG9zaXRvcnlSZXNwb25zZSK5AQoVQmVnaW5HaXRJbXBvcnRSZXF1ZXN0Eg4KBnNvdXJjZRgBIAEoCRISCgptb3VudF9wYXRoGAIgASgJEjMKD2F1dGhvcmluZ19zbGljZRgDIAEoCzIaLmdpdHNsaWNlLmNvcmUudjEuU2xpY2VSZWYSDAoEbW9kZRgEIAEoCRISCgp0YXJnZXRfcmVmGAUgASgJEhUKDXRvdGFsX2NvbW1pdHMYBiABKAUSDgoGcmVzdW1lGAcgASgIIuABChZCZWdpbkdpdEltcG9ydFJlc3BvbnNlEhEKCWltcG9ydF9pZBgBIAEoCRISCgp0YXJnZXRfcmVmGAIgASgJEhIKCm1vdW50X3BhdGgYAyABKAkSPgoRY29tcGxldGVkX2NvbW1pdHMYBCADKAsyIy5naXRzbGljZS5jb3JlLnYxLkltcG9ydGVkR2l0Q29tbWl0EhcKD2ZpbmFsX2NvbW1pdF9pZBgFIAEoCRIyCg1tb3VudGVkX2ZpbGVzGAYgAygLMhsuZ2l0c2xpY2UuY29yZS52MS5UcmVlRW50cnki5gEKFEltcG9ydEdpdENvbW1pdElucHV0EhUKDWdpdF9jb21taXRfaWQYASABKAkSEAoIcG9zaXRpb24YAiABKAUSDwoHbWVzc2FnZRgDIAEoCRITCgtkZXNjcmlwdGlvbhgEIAEoCRIUCgxmdWxsX21lc3NhZ2UYBSABKAkSEwoLYXV0aG9yX25hbWUYBiABKAkSFAoMYXV0aG9yX2VtYWlsGAcgASgJEhMKC2F1dGhvcmVkX2F0GAggASgJEikKBWVkaXRzGAkgAygLMhouZ2l0c2xpY2UuY29yZS52MS5GaWxlRWRpdCLGAQobSW1wb3J0R2l0Q29tbWl0QmF0Y2hSZXF1ZXN0EhEKCWltcG9ydF9pZBgBIAEoCRIzCg9hdXRob3Jpbmdfc2xpY2UYAiABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhIKCm1vdW50X3BhdGgYAyABKAkSEgoKdGFyZ2V0X3JlZhgEIAEoCRI3Cgdjb21taXRzGAUgAygLMiYuZ2l0c2xpY2UuY29yZS52MS5JbXBvcnRHaXRDb21taXRJbnB1dCJtChxJbXBvcnRHaXRDb21taXRCYXRjaFJlc3BvbnNlEjQKB2NvbW1pdHMYASADKAsyIy5naXRzbGljZS5jb3JlLnYxLkltcG9ydGVkR2l0Q29tbWl0EhcKD2ZpbmFsX2NvbW1pdF9pZBgCIAEoCSKjAQoYQ29tcGxldGVHaXRJbXBvcnRSZXF1ZXN0EhEKCWltcG9ydF9pZBgBIAEoCRIzCg9hdXRob3Jpbmdfc2xpY2UYAiABKAsyGi5naXRzbGljZS5jb3JlLnYxLlNsaWNlUmVmEhIKCm1vdW50X3BhdGgYAyABKAkSEgoKdGFyZ2V0X3JlZhgEIAEoCRIXCg9maW5hbF9jb21taXRfaWQYBSABKAkiNAoZQ29tcGxldGVHaXRJbXBvcnRSZXNwb25zZRIXCg9maW5hbF9jb21taXRfaWQYASABKAkiXQoQQmxhbWVGaWxlUmVxdWVzdBIMCgRwYXRoGAEgASgJEikKBXNsaWNlGAIgASgLMhouZ2l0c2xpY2UuY29yZS52MS5TbGljZVJlZhIQCghyZWZfbmFtZRgDIAEoCSJHCgpCbGFtZVJhbmdlEhIKCnN0YXJ0X2xpbmUYASABKAUSEgoKbGluZV9jb3VudBgCIAEoBRIRCgljb21taXRfaWQYAyABKAkitAEKEUJsYW1lRmlsZVJlc3BvbnNlEhEKCWNvbW1pdF9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEhIKCmxpbmVfY291bnQYAyABKAUSLAoGcmFuZ2VzGAQgAygLMhwuZ2l0c2xpY2UuY29yZS52MS5CbGFtZVJhbmdlEikKB2NvbW1pdHMYBSADKAsyGC5naXRzbGljZS5jb3JlLnYxLkNvbW1pdBIRCgl0cnVuY2F0ZWQYBiABKAgygwwKEVJlcG9zaXRvcnlTZXJ2aWNlEloKC1Jlc29sdmVQYXRoEiQuZ2l0c2xpY2UuY29yZS52MS5SZXNvbHZlUGF0aFJlcXVlc3QaJS5naXRzbGljZS5jb3JlLnYxLlJlc29sdmVQYXRoUmVzcG9uc2USYAoNTGlzdERpcmVjdG9yeRImLmdpdHNsaWNlLmNvcmUudjEuTGlzdERpcmVjdG9yeVJlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLkxpc3REaXJlY3RvcnlSZXNwb25zZRJRCghSZWFkRmlsZRIhLmdpdHNsaWNlLmNvcmUudjEuUmVhZEZpbGVSZXF1ZXN0GiIuZ2l0c2xpY2UuY29yZS52MS5SZWFkRmlsZVJlc3BvbnNlElcKClJlbmRlckZpbGUSIy5naXRzbGljZS5jb3JlLnYxLlJlbmRlckZpbGVSZXF1ZXN0GiQuZ2l0c2xpY2UuY29yZS52MS5SZW5kZXJGaWxlUmVzcG9uc2USVAoJUmVhZEZpbGVzEiIuZ2l0c2xpY2UuY29yZS52MS5SZWFkRmlsZXNSZXF1ZXN0GiMuZ2l0c2xpY2UuY29yZS52MS5SZWFkRmlsZXNSZXNwb25zZRJTCghDaGVja291dBIhLmdpdHNsaWNlLmNvcmUudjEuQ2hlY2tvdXRSZXF1ZXN0GiIuZ2l0c2xpY2UuY29yZS52MS5DaGVja291dFJlc3BvbnNlMAESSQoJR2V0Q29tbWl0EiIuZ2l0c2xpY2UuY29yZS52MS5HZXRDb21taXRSZXF1ZXN0GhguZ2l0c2xpY2UuY29yZS52MS5Db21taXQSYAoNUmVzb2x2ZUNvbW1pdBImLmdpdHNsaWNlLmNvcmUudjEuUmVzb2x2ZUNvbW1pdFJlcXVlc3QaJy5naXRzbGljZS5jb3JlLnYxLlJlc29sdmVDb21taXRSZXNwb25zZRJaCgtMaXN0Q29tbWl0cxIkLmdpdHNsaWNlLmNvcmUudjEuTGlzdENvbW1pdHNSZXF1ZXN0GiUuZ2l0c2xpY2UuY29yZS52MS5MaXN0Q29tbWl0c1Jlc3BvbnNlElQKCUJsYW1lRmlsZRIiLmdpdHNsaWNlLmNvcmUudjEuQmxhbWVGaWxlUmVxdWVzdBojLmdpdHNsaWNlLmNvcmUudjEuQmxhbWVGaWxlUmVzcG9uc2USQAoGR2V0UmVmEh8uZ2l0c2xpY2UuY29yZS52MS5HZXRSZWZSZXF1ZXN0GhUuZ2l0c2xpY2UuY29yZS52MS5SZWYScgoTSW1wb3J0R2l0UmVwb3NpdG9yeRIsLmdpdHNsaWNlLmNvcmUudjEuSW1wb3J0R2l0UmVwb3NpdG9yeVJlcXVlc3QaLS5naXRzbGljZS5jb3JlLnYxLkltcG9ydEdpdFJlcG9zaXRvcnlSZXNwb25zZRJ6ChlJbXBvcnRHaXRSZXBvc2l0b3J5U3RyZWFtEiwuZ2l0c2xpY2UuY29yZS52MS5JbXBvcnRHaXRSZXBvc2l0b3J5UmVxdWVzdBotLmdpdHNsaWNlLmNvcmUudjEuSW1wb3J0R2l0UmVwb3NpdG9yeVByb2dyZXNzMAESYwoOQmVnaW5HaXRJbXBvcnQSJy5naXRzbGljZS5jb3JlLnYxLkJlZ2luR2l0SW1wb3J0UmVxdWVzdBooLmdpdHNsaWNlLmNvcmUudjEuQmVnaW5HaXRJbXBvcnRSZXNwb25zZRJ1ChRJbXBvcnRHaXRDb21taXRCYXRjaBItLmdpdHNsaWNlLmNvcmUudjEuSW1wb3J0R2l0Q29tbWl0QmF0Y2hSZXF1ZXN0Gi4uZ2l0c2xpY2UuY29yZS52MS5JbXBvcnRHaXRDb21taXRCYXRjaFJlc3BvbnNlEmwKEUNvbXBsZXRlR2l0SW1wb3J0EiouZ2l0c2xpY2UuY29yZS52MS5Db21wbGV0ZUdpdEltcG9ydFJlcXVlc3QaKy5naXRzbGljZS5jb3JlLnYxLkNvbXBsZXRlR2l0SW1wb3J0UmVzcG9uc2VCK1opZ2l0c2xpY2UuaW8vZ2l0c2xpY2UvcHJvdG8vY29yZS92MTtjb3JldjFiBnByb3RvMw", [file_proto_core_v1_changeset, file_proto_core_v1_common, file_proto_core_v1_slice]);
 
 /**
  * @generated from message gitslice.core.v1.Ref
@@ -1077,6 +1079,268 @@ export const ImportGitRepositoryProgressSchema: GenMessage<ImportGitRepositoryPr
   messageDesc(file_proto_core_v1_repository, 30);
 
 /**
+ * @generated from message gitslice.core.v1.BeginGitImportRequest
+ */
+export type BeginGitImportRequest = Message<"gitslice.core.v1.BeginGitImportRequest"> & {
+  /**
+   * @generated from field: string source = 1;
+   */
+  source: string;
+
+  /**
+   * @generated from field: string mount_path = 2;
+   */
+  mountPath: string;
+
+  /**
+   * @generated from field: gitslice.core.v1.SliceRef authoring_slice = 3;
+   */
+  authoringSlice?: SliceRef | undefined;
+
+  /**
+   * @generated from field: string mode = 4;
+   */
+  mode: string;
+
+  /**
+   * @generated from field: string target_ref = 5;
+   */
+  targetRef: string;
+
+  /**
+   * @generated from field: int32 total_commits = 6;
+   */
+  totalCommits: number;
+
+  /**
+   * @generated from field: bool resume = 7;
+   */
+  resume: boolean;
+};
+
+/**
+ * Describes the message gitslice.core.v1.BeginGitImportRequest.
+ * Use `create(BeginGitImportRequestSchema)` to create a new message.
+ */
+export const BeginGitImportRequestSchema: GenMessage<BeginGitImportRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_repository, 31);
+
+/**
+ * @generated from message gitslice.core.v1.BeginGitImportResponse
+ */
+export type BeginGitImportResponse = Message<"gitslice.core.v1.BeginGitImportResponse"> & {
+  /**
+   * @generated from field: string import_id = 1;
+   */
+  importId: string;
+
+  /**
+   * @generated from field: string target_ref = 2;
+   */
+  targetRef: string;
+
+  /**
+   * @generated from field: string mount_path = 3;
+   */
+  mountPath: string;
+
+  /**
+   * @generated from field: repeated gitslice.core.v1.ImportedGitCommit completed_commits = 4;
+   */
+  completedCommits: ImportedGitCommit[];
+
+  /**
+   * @generated from field: string final_commit_id = 5;
+   */
+  finalCommitId: string;
+
+  /**
+   * Current files under mount_path at target_ref HEAD so the client can compute
+   * minimal edits for the first imported commit against an existing mount.
+   *
+   * @generated from field: repeated gitslice.core.v1.TreeEntry mounted_files = 6;
+   */
+  mountedFiles: TreeEntry[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.BeginGitImportResponse.
+ * Use `create(BeginGitImportResponseSchema)` to create a new message.
+ */
+export const BeginGitImportResponseSchema: GenMessage<BeginGitImportResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_repository, 32);
+
+/**
+ * @generated from message gitslice.core.v1.ImportGitCommitInput
+ */
+export type ImportGitCommitInput = Message<"gitslice.core.v1.ImportGitCommitInput"> & {
+  /**
+   * @generated from field: string git_commit_id = 1;
+   */
+  gitCommitId: string;
+
+  /**
+   * @generated from field: int32 position = 2;
+   */
+  position: number;
+
+  /**
+   * @generated from field: string message = 3;
+   */
+  message: string;
+
+  /**
+   * @generated from field: string description = 4;
+   */
+  description: string;
+
+  /**
+   * @generated from field: string full_message = 5;
+   */
+  fullMessage: string;
+
+  /**
+   * @generated from field: string author_name = 6;
+   */
+  authorName: string;
+
+  /**
+   * @generated from field: string author_email = 7;
+   */
+  authorEmail: string;
+
+  /**
+   * @generated from field: string authored_at = 8;
+   */
+  authoredAt: string;
+
+  /**
+   * @generated from field: repeated gitslice.core.v1.FileEdit edits = 9;
+   */
+  edits: FileEdit[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.ImportGitCommitInput.
+ * Use `create(ImportGitCommitInputSchema)` to create a new message.
+ */
+export const ImportGitCommitInputSchema: GenMessage<ImportGitCommitInput> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_repository, 33);
+
+/**
+ * @generated from message gitslice.core.v1.ImportGitCommitBatchRequest
+ */
+export type ImportGitCommitBatchRequest = Message<"gitslice.core.v1.ImportGitCommitBatchRequest"> & {
+  /**
+   * @generated from field: string import_id = 1;
+   */
+  importId: string;
+
+  /**
+   * @generated from field: gitslice.core.v1.SliceRef authoring_slice = 2;
+   */
+  authoringSlice?: SliceRef | undefined;
+
+  /**
+   * @generated from field: string mount_path = 3;
+   */
+  mountPath: string;
+
+  /**
+   * @generated from field: string target_ref = 4;
+   */
+  targetRef: string;
+
+  /**
+   * @generated from field: repeated gitslice.core.v1.ImportGitCommitInput commits = 5;
+   */
+  commits: ImportGitCommitInput[];
+};
+
+/**
+ * Describes the message gitslice.core.v1.ImportGitCommitBatchRequest.
+ * Use `create(ImportGitCommitBatchRequestSchema)` to create a new message.
+ */
+export const ImportGitCommitBatchRequestSchema: GenMessage<ImportGitCommitBatchRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_repository, 34);
+
+/**
+ * @generated from message gitslice.core.v1.ImportGitCommitBatchResponse
+ */
+export type ImportGitCommitBatchResponse = Message<"gitslice.core.v1.ImportGitCommitBatchResponse"> & {
+  /**
+   * @generated from field: repeated gitslice.core.v1.ImportedGitCommit commits = 1;
+   */
+  commits: ImportedGitCommit[];
+
+  /**
+   * @generated from field: string final_commit_id = 2;
+   */
+  finalCommitId: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.ImportGitCommitBatchResponse.
+ * Use `create(ImportGitCommitBatchResponseSchema)` to create a new message.
+ */
+export const ImportGitCommitBatchResponseSchema: GenMessage<ImportGitCommitBatchResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_repository, 35);
+
+/**
+ * @generated from message gitslice.core.v1.CompleteGitImportRequest
+ */
+export type CompleteGitImportRequest = Message<"gitslice.core.v1.CompleteGitImportRequest"> & {
+  /**
+   * @generated from field: string import_id = 1;
+   */
+  importId: string;
+
+  /**
+   * @generated from field: gitslice.core.v1.SliceRef authoring_slice = 2;
+   */
+  authoringSlice?: SliceRef | undefined;
+
+  /**
+   * @generated from field: string mount_path = 3;
+   */
+  mountPath: string;
+
+  /**
+   * @generated from field: string target_ref = 4;
+   */
+  targetRef: string;
+
+  /**
+   * @generated from field: string final_commit_id = 5;
+   */
+  finalCommitId: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.CompleteGitImportRequest.
+ * Use `create(CompleteGitImportRequestSchema)` to create a new message.
+ */
+export const CompleteGitImportRequestSchema: GenMessage<CompleteGitImportRequest> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_repository, 36);
+
+/**
+ * @generated from message gitslice.core.v1.CompleteGitImportResponse
+ */
+export type CompleteGitImportResponse = Message<"gitslice.core.v1.CompleteGitImportResponse"> & {
+  /**
+   * @generated from field: string final_commit_id = 1;
+   */
+  finalCommitId: string;
+};
+
+/**
+ * Describes the message gitslice.core.v1.CompleteGitImportResponse.
+ * Use `create(CompleteGitImportResponseSchema)` to create a new message.
+ */
+export const CompleteGitImportResponseSchema: GenMessage<CompleteGitImportResponse> = /*@__PURE__*/
+  messageDesc(file_proto_core_v1_repository, 37);
+
+/**
  * @generated from message gitslice.core.v1.BlameFileRequest
  */
 export type BlameFileRequest = Message<"gitslice.core.v1.BlameFileRequest"> & {
@@ -1108,7 +1372,7 @@ export type BlameFileRequest = Message<"gitslice.core.v1.BlameFileRequest"> & {
  * Use `create(BlameFileRequestSchema)` to create a new message.
  */
 export const BlameFileRequestSchema: GenMessage<BlameFileRequest> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_repository, 31);
+  messageDesc(file_proto_core_v1_repository, 38);
 
 /**
  * A run of lines last changed by one commit.
@@ -1139,7 +1403,7 @@ export type BlameRange = Message<"gitslice.core.v1.BlameRange"> & {
  * Use `create(BlameRangeSchema)` to create a new message.
  */
 export const BlameRangeSchema: GenMessage<BlameRange> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_repository, 32);
+  messageDesc(file_proto_core_v1_repository, 39);
 
 /**
  * @generated from message gitslice.core.v1.BlameFileResponse
@@ -1191,7 +1455,7 @@ export type BlameFileResponse = Message<"gitslice.core.v1.BlameFileResponse"> & 
  * Use `create(BlameFileResponseSchema)` to create a new message.
  */
 export const BlameFileResponseSchema: GenMessage<BlameFileResponse> = /*@__PURE__*/
-  messageDesc(file_proto_core_v1_repository, 33);
+  messageDesc(file_proto_core_v1_repository, 40);
 
 /**
  * @generated from service gitslice.core.v1.RepositoryService
@@ -1318,6 +1582,39 @@ export const RepositoryService: GenService<{
     methodKind: "server_streaming";
     input: typeof ImportGitRepositoryRequestSchema;
     output: typeof ImportGitRepositoryProgressSchema;
+  },
+  /**
+   * BeginGitImport starts or resumes a client-driven Git import session,
+   * returning any already-imported commits and the current files under mount_path.
+   *
+   * @generated from rpc gitslice.core.v1.RepositoryService.BeginGitImport
+   */
+  beginGitImport: {
+    methodKind: "unary";
+    input: typeof BeginGitImportRequestSchema;
+    output: typeof BeginGitImportResponseSchema;
+  },
+  /**
+   * ImportGitCommitBatch validates and publishes a contiguous batch of
+   * client-uploaded Git commits in one tree edit chain and transaction.
+   *
+   * @generated from rpc gitslice.core.v1.RepositoryService.ImportGitCommitBatch
+   */
+  importGitCommitBatch: {
+    methodKind: "unary";
+    input: typeof ImportGitCommitBatchRequestSchema;
+    output: typeof ImportGitCommitBatchResponseSchema;
+  },
+  /**
+   * CompleteGitImport finalizes a client-driven Git import session and drains
+   * derived indexes so imported history is queryable immediately.
+   *
+   * @generated from rpc gitslice.core.v1.RepositoryService.CompleteGitImport
+   */
+  completeGitImport: {
+    methodKind: "unary";
+    input: typeof CompleteGitImportRequestSchema;
+    output: typeof CompleteGitImportResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_proto_core_v1_repository, 0);

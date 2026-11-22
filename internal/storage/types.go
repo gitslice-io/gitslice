@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gitslice.io/gitslice/internal/model"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 const DefaultTargetRef = model.DefaultTargetRef
@@ -269,6 +270,33 @@ type GitImportedCommitRecord struct {
 	AuthorEmail string
 	AuthoredAt  string // RFC 3339; empty when unknown
 	FullMessage string
+}
+
+type GitImportCommitSpec struct {
+	GitCommitID  string
+	Position     int
+	Title        string
+	Description  string
+	FullMessage  string
+	AuthorName   string
+	AuthorEmail  string
+	AuthoredAt   string
+	ChangedPaths []string
+	FileEdits    []*corev1.FileEdit
+}
+
+type GitImportBatchInput struct {
+	ImportID  string
+	SubjectID string
+	SliceID   string
+	TargetRef string
+	Commits   []GitImportCommitSpec
+}
+
+type GitImportPublishedCommit struct {
+	GitCommitID    string
+	NativeCommitID string
+	Message        string
 }
 
 type HistoryEntityRef struct {

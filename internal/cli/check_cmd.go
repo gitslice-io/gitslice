@@ -394,11 +394,18 @@ func (r Runner) reportFailingChecks(ctx context.Context, conn *grpc.ClientConn, 
 		if err != nil {
 			continue
 		}
-		text, err := r.checkRunLog(ctx, conn, cfg, run, false)
-		if err != nil || strings.TrimSpace(text) == "" {
-			continue
-		}
-		fmt.Fprintf(r.stderr(), "--- last lines of %s (%s); full log: gs check logs %s ---\n", run.GetCheckName(), run.GetId(), run.GetId())
-		fmt.Fprint(r.stderr(), tailLines(text, 30))
+		r.printCheckRunLogTail(ctx, conn, cfg, run)
 	}
+}
+
+func (r Runner) printCheckRunLogTail(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, run *corev1.CheckRun) {
+	if run == nil {
+		return
+	}
+	text, err := r.checkRunLog(ctx, conn, cfg, run, false)
+	if err != nil || strings.TrimSpace(text) == "" {
+		return
+	}
+	fmt.Fprintf(r.stderr(), "--- last lines of %s (%s); full log: gs check logs %s ---\n", run.GetCheckName(), run.GetId(), run.GetId())
+	fmt.Fprint(r.stderr(), tailLines(text, 30))
 }

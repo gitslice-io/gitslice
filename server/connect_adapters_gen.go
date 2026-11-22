@@ -585,6 +585,18 @@ func (a connectRepositoryServiceAdapter) ImportGitRepositoryStream(ctx context.C
 	return connectError(a.svc.ImportGitRepositoryStream(req.Msg, newConnectServerStream(ctx, stream)))
 }
 
+func (a connectRepositoryServiceAdapter) BeginGitImport(ctx context.Context, req *connect.Request[corev1.BeginGitImportRequest]) (*connect.Response[corev1.BeginGitImportResponse], error) {
+	return connectResponse(a.svc.BeginGitImport(ctx, req.Msg))
+}
+
+func (a connectRepositoryServiceAdapter) ImportGitCommitBatch(ctx context.Context, req *connect.Request[corev1.ImportGitCommitBatchRequest]) (*connect.Response[corev1.ImportGitCommitBatchResponse], error) {
+	return connectResponse(a.svc.ImportGitCommitBatch(ctx, req.Msg))
+}
+
+func (a connectRepositoryServiceAdapter) CompleteGitImport(ctx context.Context, req *connect.Request[corev1.CompleteGitImportRequest]) (*connect.Response[corev1.CompleteGitImportResponse], error) {
+	return connectResponse(a.svc.CompleteGitImport(ctx, req.Msg))
+}
+
 type connectSecretServiceAdapter struct {
 	svc *service.SecretService
 }

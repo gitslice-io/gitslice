@@ -72,6 +72,15 @@ const (
 	// RepositoryServiceImportGitRepositoryStreamProcedure is the fully-qualified name of the
 	// RepositoryService's ImportGitRepositoryStream RPC.
 	RepositoryServiceImportGitRepositoryStreamProcedure = "/gitslice.core.v1.RepositoryService/ImportGitRepositoryStream"
+	// RepositoryServiceBeginGitImportProcedure is the fully-qualified name of the RepositoryService's
+	// BeginGitImport RPC.
+	RepositoryServiceBeginGitImportProcedure = "/gitslice.core.v1.RepositoryService/BeginGitImport"
+	// RepositoryServiceImportGitCommitBatchProcedure is the fully-qualified name of the
+	// RepositoryService's ImportGitCommitBatch RPC.
+	RepositoryServiceImportGitCommitBatchProcedure = "/gitslice.core.v1.RepositoryService/ImportGitCommitBatch"
+	// RepositoryServiceCompleteGitImportProcedure is the fully-qualified name of the
+	// RepositoryService's CompleteGitImport RPC.
+	RepositoryServiceCompleteGitImportProcedure = "/gitslice.core.v1.RepositoryService/CompleteGitImport"
 )
 
 // RepositoryServiceClient is a client for the gitslice.core.v1.RepositoryService service.
@@ -103,6 +112,15 @@ type RepositoryServiceClient interface {
 	GetRef(context.Context, *connect.Request[v1.GetRefRequest]) (*connect.Response[v1.Ref], error)
 	ImportGitRepository(context.Context, *connect.Request[v1.ImportGitRepositoryRequest]) (*connect.Response[v1.ImportGitRepositoryResponse], error)
 	ImportGitRepositoryStream(context.Context, *connect.Request[v1.ImportGitRepositoryRequest]) (*connect.ServerStreamForClient[v1.ImportGitRepositoryProgress], error)
+	// BeginGitImport starts or resumes a client-driven Git import session,
+	// returning any already-imported commits and the current files under mount_path.
+	BeginGitImport(context.Context, *connect.Request[v1.BeginGitImportRequest]) (*connect.Response[v1.BeginGitImportResponse], error)
+	// ImportGitCommitBatch validates and publishes a contiguous batch of
+	// client-uploaded Git commits in one tree edit chain and transaction.
+	ImportGitCommitBatch(context.Context, *connect.Request[v1.ImportGitCommitBatchRequest]) (*connect.Response[v1.ImportGitCommitBatchResponse], error)
+	// CompleteGitImport finalizes a client-driven Git import session and drains
+	// derived indexes so imported history is queryable immediately.
+	CompleteGitImport(context.Context, *connect.Request[v1.CompleteGitImportRequest]) (*connect.Response[v1.CompleteGitImportResponse], error)
 }
 
 // NewRepositoryServiceClient constructs a client for the gitslice.core.v1.RepositoryService
@@ -194,6 +212,24 @@ func NewRepositoryServiceClient(httpClient connect.HTTPClient, baseURL string, o
 			connect.WithSchema(repositoryServiceMethods.ByName("ImportGitRepositoryStream")),
 			connect.WithClientOptions(opts...),
 		),
+		beginGitImport: connect.NewClient[v1.BeginGitImportRequest, v1.BeginGitImportResponse](
+			httpClient,
+			baseURL+RepositoryServiceBeginGitImportProcedure,
+			connect.WithSchema(repositoryServiceMethods.ByName("BeginGitImport")),
+			connect.WithClientOptions(opts...),
+		),
+		importGitCommitBatch: connect.NewClient[v1.ImportGitCommitBatchRequest, v1.ImportGitCommitBatchResponse](
+			httpClient,
+			baseURL+RepositoryServiceImportGitCommitBatchProcedure,
+			connect.WithSchema(repositoryServiceMethods.ByName("ImportGitCommitBatch")),
+			connect.WithClientOptions(opts...),
+		),
+		completeGitImport: connect.NewClient[v1.CompleteGitImportRequest, v1.CompleteGitImportResponse](
+			httpClient,
+			baseURL+RepositoryServiceCompleteGitImportProcedure,
+			connect.WithSchema(repositoryServiceMethods.ByName("CompleteGitImport")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -212,6 +248,9 @@ type repositoryServiceClient struct {
 	getRef                    *connect.Client[v1.GetRefRequest, v1.Ref]
 	importGitRepository       *connect.Client[v1.ImportGitRepositoryRequest, v1.ImportGitRepositoryResponse]
 	importGitRepositoryStream *connect.Client[v1.ImportGitRepositoryRequest, v1.ImportGitRepositoryProgress]
+	beginGitImport            *connect.Client[v1.BeginGitImportRequest, v1.BeginGitImportResponse]
+	importGitCommitBatch      *connect.Client[v1.ImportGitCommitBatchRequest, v1.ImportGitCommitBatchResponse]
+	completeGitImport         *connect.Client[v1.CompleteGitImportRequest, v1.CompleteGitImportResponse]
 }
 
 // ResolvePath calls gitslice.core.v1.RepositoryService.ResolvePath.
@@ -279,6 +318,21 @@ func (c *repositoryServiceClient) ImportGitRepositoryStream(ctx context.Context,
 	return c.importGitRepositoryStream.CallServerStream(ctx, req)
 }
 
+// BeginGitImport calls gitslice.core.v1.RepositoryService.BeginGitImport.
+func (c *repositoryServiceClient) BeginGitImport(ctx context.Context, req *connect.Request[v1.BeginGitImportRequest]) (*connect.Response[v1.BeginGitImportResponse], error) {
+	return c.beginGitImport.CallUnary(ctx, req)
+}
+
+// ImportGitCommitBatch calls gitslice.core.v1.RepositoryService.ImportGitCommitBatch.
+func (c *repositoryServiceClient) ImportGitCommitBatch(ctx context.Context, req *connect.Request[v1.ImportGitCommitBatchRequest]) (*connect.Response[v1.ImportGitCommitBatchResponse], error) {
+	return c.importGitCommitBatch.CallUnary(ctx, req)
+}
+
+// CompleteGitImport calls gitslice.core.v1.RepositoryService.CompleteGitImport.
+func (c *repositoryServiceClient) CompleteGitImport(ctx context.Context, req *connect.Request[v1.CompleteGitImportRequest]) (*connect.Response[v1.CompleteGitImportResponse], error) {
+	return c.completeGitImport.CallUnary(ctx, req)
+}
+
 // RepositoryServiceHandler is an implementation of the gitslice.core.v1.RepositoryService service.
 type RepositoryServiceHandler interface {
 	ResolvePath(context.Context, *connect.Request[v1.ResolvePathRequest]) (*connect.Response[v1.ResolvePathResponse], error)
@@ -308,6 +362,15 @@ type RepositoryServiceHandler interface {
 	GetRef(context.Context, *connect.Request[v1.GetRefRequest]) (*connect.Response[v1.Ref], error)
 	ImportGitRepository(context.Context, *connect.Request[v1.ImportGitRepositoryRequest]) (*connect.Response[v1.ImportGitRepositoryResponse], error)
 	ImportGitRepositoryStream(context.Context, *connect.Request[v1.ImportGitRepositoryRequest], *connect.ServerStream[v1.ImportGitRepositoryProgress]) error
+	// BeginGitImport starts or resumes a client-driven Git import session,
+	// returning any already-imported commits and the current files under mount_path.
+	BeginGitImport(context.Context, *connect.Request[v1.BeginGitImportRequest]) (*connect.Response[v1.BeginGitImportResponse], error)
+	// ImportGitCommitBatch validates and publishes a contiguous batch of
+	// client-uploaded Git commits in one tree edit chain and transaction.
+	ImportGitCommitBatch(context.Context, *connect.Request[v1.ImportGitCommitBatchRequest]) (*connect.Response[v1.ImportGitCommitBatchResponse], error)
+	// CompleteGitImport finalizes a client-driven Git import session and drains
+	// derived indexes so imported history is queryable immediately.
+	CompleteGitImport(context.Context, *connect.Request[v1.CompleteGitImportRequest]) (*connect.Response[v1.CompleteGitImportResponse], error)
 }
 
 // NewRepositoryServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -395,6 +458,24 @@ func NewRepositoryServiceHandler(svc RepositoryServiceHandler, opts ...connect.H
 		connect.WithSchema(repositoryServiceMethods.ByName("ImportGitRepositoryStream")),
 		connect.WithHandlerOptions(opts...),
 	)
+	repositoryServiceBeginGitImportHandler := connect.NewUnaryHandler(
+		RepositoryServiceBeginGitImportProcedure,
+		svc.BeginGitImport,
+		connect.WithSchema(repositoryServiceMethods.ByName("BeginGitImport")),
+		connect.WithHandlerOptions(opts...),
+	)
+	repositoryServiceImportGitCommitBatchHandler := connect.NewUnaryHandler(
+		RepositoryServiceImportGitCommitBatchProcedure,
+		svc.ImportGitCommitBatch,
+		connect.WithSchema(repositoryServiceMethods.ByName("ImportGitCommitBatch")),
+		connect.WithHandlerOptions(opts...),
+	)
+	repositoryServiceCompleteGitImportHandler := connect.NewUnaryHandler(
+		RepositoryServiceCompleteGitImportProcedure,
+		svc.CompleteGitImport,
+		connect.WithSchema(repositoryServiceMethods.ByName("CompleteGitImport")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.RepositoryService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case RepositoryServiceResolvePathProcedure:
@@ -423,6 +504,12 @@ func NewRepositoryServiceHandler(svc RepositoryServiceHandler, opts ...connect.H
 			repositoryServiceImportGitRepositoryHandler.ServeHTTP(w, r)
 		case RepositoryServiceImportGitRepositoryStreamProcedure:
 			repositoryServiceImportGitRepositoryStreamHandler.ServeHTTP(w, r)
+		case RepositoryServiceBeginGitImportProcedure:
+			repositoryServiceBeginGitImportHandler.ServeHTTP(w, r)
+		case RepositoryServiceImportGitCommitBatchProcedure:
+			repositoryServiceImportGitCommitBatchHandler.ServeHTTP(w, r)
+		case RepositoryServiceCompleteGitImportProcedure:
+			repositoryServiceCompleteGitImportHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -482,4 +569,16 @@ func (UnimplementedRepositoryServiceHandler) ImportGitRepository(context.Context
 
 func (UnimplementedRepositoryServiceHandler) ImportGitRepositoryStream(context.Context, *connect.Request[v1.ImportGitRepositoryRequest], *connect.ServerStream[v1.ImportGitRepositoryProgress]) error {
 	return connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.RepositoryService.ImportGitRepositoryStream is not implemented"))
+}
+
+func (UnimplementedRepositoryServiceHandler) BeginGitImport(context.Context, *connect.Request[v1.BeginGitImportRequest]) (*connect.Response[v1.BeginGitImportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.RepositoryService.BeginGitImport is not implemented"))
+}
+
+func (UnimplementedRepositoryServiceHandler) ImportGitCommitBatch(context.Context, *connect.Request[v1.ImportGitCommitBatchRequest]) (*connect.Response[v1.ImportGitCommitBatchResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.RepositoryService.ImportGitCommitBatch is not implemented"))
+}
+
+func (UnimplementedRepositoryServiceHandler) CompleteGitImport(context.Context, *connect.Request[v1.CompleteGitImportRequest]) (*connect.Response[v1.CompleteGitImportResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.RepositoryService.CompleteGitImport is not implemented"))
 }

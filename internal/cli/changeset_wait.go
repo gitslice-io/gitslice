@@ -151,6 +151,9 @@ func (r Runner) retrySubmitWhileChecksPending(
 			fmt.Fprintf(progressOut, "waiting for required check %q to pass...\n", check)
 		}
 		if err := progress.poll(ctx, conn, cfg, checkChangeset, check); err != nil {
+			if progressOut != nil && progress.lastFailed != nil {
+				r.printCheckRunLogTail(ctx, conn, cfg, progress.lastFailed)
+			}
 			return err
 		}
 		daemons.look(ctx, conn, cfg, checkChangeset, check, check != waitingFor)
@@ -168,9 +171,10 @@ type watchedChangesetChecks struct {
 }
 
 type checkProgressWatch struct {
-	out  io.Writer
-	meta map[string]*watchedChangesetChecks
-	seen map[string]map[string]string // changesetID -> checkName -> last status
+	out        io.Writer
+	meta       map[string]*watchedChangesetChecks
+	seen       map[string]map[string]string // changesetID -> checkName -> last status
+	lastFailed *corev1.CheckRun
 }
 
 func newCheckProgressWatch(out io.Writer) *checkProgressWatch {
@@ -258,6 +262,7 @@ func (w *checkProgressWatch) observe(changesetID, pendingCheck string, required 
 		}
 	}
 	if firstFailure != nil {
+		w.lastFailed = firstFailure
 		name := strings.TrimSpace(firstFailure.GetCheckName())
 		st := strings.ToLower(strings.TrimSpace(firstFailure.GetStatus()))
 		shortCS := firstNonEmpty(model.ShortChangesetID(changesetID), changesetID)

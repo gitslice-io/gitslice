@@ -83,6 +83,7 @@ type ChangesetStore interface {
 	SubmitChangeset(ctx context.Context, in SubmitInput) (*corev1.SubmitChangesetResponse, error)
 	RecordSubmitBlockedReason(ctx context.Context, changesetID, expectedCurrentPatchsetID, reason string) error
 	PublishPending(ctx context.Context, limit int) (int, error)
+	PublishGitImportBatch(ctx context.Context, in GitImportBatchInput) ([]GitImportPublishedCommit, error)
 	PendingPublishDepth(ctx context.Context) (int, error)
 	Abandon(ctx context.Context, changesetID string) error
 	UpdateInfo(ctx context.Context, changesetID string, title, description *string) (*corev1.Changeset, error)
