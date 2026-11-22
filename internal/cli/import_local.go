@@ -242,8 +242,10 @@ func (r Runner) runLocalGitImport(
 			Commits:        commitInputs,
 		}
 		if err := retryLocalImportCall(ctx, retries, logf, fmt.Sprintf("publish commits %d-%d", pending[0].position, pending[len(pending)-1].position), func() error {
+			batchCtx, cancel := context.WithTimeout(callCtx, 5*time.Minute)
+			defer cancel()
 			var callErr error
-			batchRes, callErr = repoClient.ImportGitCommitBatch(callCtx, req, grpc.UseCompressor(gzip.Name))
+			batchRes, callErr = repoClient.ImportGitCommitBatch(batchCtx, req, grpc.UseCompressor(gzip.Name))
 			return callErr
 		}); err != nil {
 			return err
@@ -297,7 +299,7 @@ func (r Runner) runLocalGitImport(
 			if err != nil {
 				return fmt.Errorf("read git commit %s tree: %w", shortID(gitCommitID), err)
 			}
-			commitEditEstimate = len(item.snapshot)
+			commitEditEstimate = len(item.snapshot) + len(previousMounted)
 		} else {
 			item.deleted, item.upsertGitPaths, item.snapshot, commitBlobIDs, err = localGitDeltaMetadata(ctx, repoDir, previousGitCommitID, gitCommitID, mountPath)
 			if err != nil {

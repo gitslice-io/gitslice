@@ -122,7 +122,7 @@ func (s *ChangesetStore) publishGitImportBatchOnce(
 		return nil, err
 	}
 	finalRootTreeID := roots[len(roots)-1]
-	pathHeadMutations, err := s.pathHeadMutationsForImportBatchRoot(ctx, finalRootTreeID, allEdits)
+	pathHeadMutations, err := s.pathHeadMutationsForImportBatchRoot(ctx, originalRootTreeID, finalRootTreeID, allEdits)
 	if err != nil {
 		return nil, err
 	}
@@ -258,8 +258,10 @@ func (s *ChangesetStore) publishGitImportBatchOnce(
 
 // pathHeadMutationsForImportBatchRoot refreshes path_heads for every path
 // (including both files and their parent directories) touched across a batch
-// of imported commits against the batch's final root tree.
-func (s *ChangesetStore) pathHeadMutationsForImportBatchRoot(ctx context.Context, rootTreeID string, edits []*corev1.FileEdit) ([]publishPathHeadMutation, error) {
+// of imported commits against the batch's final root tree. Deleted files and
+// emptied parent directories are batched into bulk upsertPathHeadsTx chunks
+// instead of issuing one recursive LIKE scan per deleted path.
+func (s *ChangesetStore) pathHeadMutationsForImportBatchRoot(ctx context.Context, originalRootTreeID, finalRootTreeID string, edits []*corev1.FileEdit) ([]publishPathHeadMutation, error) {
 	seen := map[string]bool{}
 	for _, edit := range edits {
 		if edit == nil {
@@ -295,11 +297,25 @@ func (s *ChangesetStore) pathHeadMutationsForImportBatchRoot(ctx context.Context
 		pending = pending[:0]
 	}
 	for _, target := range targets {
-		entry, err := s.repository.getEntryFromTree(ctx, rootTreeID, target.Path)
+		entry, err := s.repository.getEntryFromTree(ctx, finalRootTreeID, target.Path)
 		if errors.Is(err, ErrNotFound) {
-			flushPending()
-			mutations = append(mutations, publishPathHeadMutation{
-				DeletePath: target.Path,
+			if target.Recursive {
+				origEntry, origErr := s.repository.getEntryFromTree(ctx, originalRootTreeID, target.Path)
+				if origErr == nil && origEntry != nil && origEntry.Kind == "directory" {
+					flushPending()
+					mutations = append(mutations, publishPathHeadMutation{
+						DeletePath: target.Path,
+					})
+					continue
+				}
+				if origErr != nil && !errors.Is(origErr, ErrNotFound) {
+					return nil, origErr
+				}
+			}
+			pending = append(pending, PathHead{
+				Path:             target.Path,
+				Exists:           false,
+				EntryFingerprint: MissingEntryFingerprint(),
 			})
 			continue
 		}
@@ -307,7 +323,7 @@ func (s *ChangesetStore) pathHeadMutationsForImportBatchRoot(ctx context.Context
 			return nil, err
 		}
 		if target.Recursive && entry.Kind == "directory" {
-			if err := s.appendPathHeadSubtree(ctx, rootTreeID, *entry, &pending); err != nil {
+			if err := s.appendPathHeadSubtree(ctx, finalRootTreeID, *entry, &pending); err != nil {
 				return nil, err
 			}
 			continue

@@ -230,21 +230,12 @@ func insertCommitChangedPathsTx(ctx context.Context, tx *sql.Tx, targetRef, comm
 	if len(changedPaths) == 0 {
 		return nil
 	}
-	var b strings.Builder
-	b.WriteString(`
+	_, err := tx.ExecContext(ctx, `
 		insert into commit_changed_paths(target_ref, commit_id, path, committed_at)
-		values `)
-	args := make([]any, 0, len(changedPaths)*4)
-	for i, p := range changedPaths {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		base := len(args) + 1
-		b.WriteString(fmt.Sprintf("($%d, $%d, $%d, $%d)", base, base+1, base+2, base+3))
-		args = append(args, targetRef, commitID, p, committedAt)
-	}
-	b.WriteString(" on conflict do nothing")
-	_, err := tx.ExecContext(ctx, b.String(), args...)
+		select $1, $2, p, $4
+		from unnest($3::text[]) as p
+		on conflict do nothing
+	`, targetRef, commitID, changedPaths, committedAt)
 	return err
 }
 
