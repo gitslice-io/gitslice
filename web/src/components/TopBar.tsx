@@ -105,7 +105,7 @@ export function TopBar() {
     (section === "conversations" && isConversationsActive);
 
   return (
-    <header className="border-b border-slate-200 bg-white/95 px-2.5 backdrop-blur transition-colors duration-200 dark:border-zinc-800 dark:bg-zinc-950/90 sm:px-4 md:px-6">
+    <header className="relative z-[35] border-b border-slate-200 bg-white/95 px-2.5 backdrop-blur transition-colors duration-200 dark:border-zinc-800 dark:bg-zinc-950/90 sm:px-4 md:px-6">
       <div className="mx-auto flex min-h-14 w-full max-w-[100rem] flex-nowrap items-center justify-between gap-2 py-1.5 sm:min-h-16 sm:gap-3 sm:py-0">
         <div className="flex min-w-0 shrink-0 items-center gap-3 sm:gap-5">
           <Link

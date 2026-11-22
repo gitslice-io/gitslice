@@ -59,4 +59,10 @@ describe("TopBar", () => {
     expect(screen.getByText("Doc")).toHaveClass("sr-only", "sm:not-sr-only");
     expect(screen.getByText("Blog")).toHaveClass("sr-only", "sm:not-sr-only");
   });
+
+  it("layers above sticky page headers (z-30) and below drawer backdrops (z-40)", () => {
+    auth.current = { isLoaded: true, isSignedIn: true };
+    render(<TopBar />);
+    expect(screen.getByRole("banner")).toHaveClass("relative", "z-[35]");
+  });
 });
