@@ -35,18 +35,42 @@ func (s *ChangesetService) DiffChangeset(ctx context.Context, req *corev1.DiffCh
 	if toSelector == "" {
 		toSelector = req.ToPatchset
 	}
+	return s.diffLoadedChangeset(ctx, cs, req.FromPatchset, toSelector, req.Paths, "", maxDiffOutputBytes)
+}
+
+func (s *ChangesetService) diffLoadedChangeset(
+	ctx context.Context,
+	cs *corev1.Changeset,
+	fromSelector, toSelector string,
+	requestedPaths []string,
+	accountRoot string,
+	maxOutputBytes int,
+) (*corev1.DiffChangesetResponse, error) {
+	if maxOutputBytes <= 0 {
+		maxOutputBytes = maxDiffOutputBytes
+	}
 	toPatchset, err := selectChangesetPatchset(cs, toSelector)
 	if err != nil {
 		return nil, err
 	}
 	var fromPatchset *corev1.Patchset
-	if req.FromPatchset != "" {
-		fromPatchset, err = selectChangesetPatchset(cs, req.FromPatchset)
+	if fromSelector != "" {
+		fromPatchset, err = selectChangesetPatchset(cs, fromSelector)
 		if err != nil {
 			return nil, err
 		}
 	}
 	paths := changedPathsForDiff(fromPatchset, toPatchset)
+	if accountRoot != "" {
+		prefix := strings.TrimRight(accountRoot, "/") + "/"
+		scoped := make([]string, 0, len(paths))
+		for _, p := range paths {
+			if p == accountRoot || strings.HasPrefix(p, prefix) {
+				scoped = append(scoped, p)
+			}
+		}
+		paths = scoped
+	}
 	fromID := ""
 	if fromPatchset != nil {
 		fromID = fromPatchset.Id
@@ -59,7 +83,7 @@ func (s *ChangesetService) DiffChangeset(ctx context.Context, req *corev1.DiffCh
 	}
 
 	diffPaths := paths
-	fullDiff := len(req.Paths) == 0
+	fullDiff := len(requestedPaths) == 0 && accountRoot == "" && maxOutputBytes == maxDiffOutputBytes
 	cacheKey := ""
 	if fullDiff {
 		cacheKey = diffCacheKey(cs.Id, fromID, toPatchset.Id)
@@ -67,9 +91,10 @@ func (s *ChangesetService) DiffChangeset(ctx context.Context, req *corev1.DiffCh
 			response.Diff = diff
 			return response, nil
 		}
-	} else {
-		requested := make(map[string]struct{}, len(req.Paths))
-		for _, p := range req.Paths {
+	}
+	if len(requestedPaths) > 0 {
+		requested := make(map[string]struct{}, len(requestedPaths))
+		for _, p := range requestedPaths {
 			requested[p] = struct{}{}
 		}
 		diffPaths = make([]string, 0, len(paths))
@@ -103,7 +128,7 @@ func (s *ChangesetService) DiffChangeset(ctx context.Context, req *corev1.DiffCh
 		if chunk == "" {
 			continue
 		}
-		if out.Len()+len(chunk) > maxDiffOutputBytes {
+		if out.Len()+len(chunk) > maxOutputBytes {
 			truncated = true
 			break
 		}

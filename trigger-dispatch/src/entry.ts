@@ -82,16 +82,21 @@ for (const [name, stream] of [["log", "stdout"], ["info", "stdout"], ["debug", "
 
 function api(gs, run) {
   const check = (c) => ({ ...c, update: (fields) => gs.updateCheck(c.id, fields).then(check) });
+  const fileAt = (options) => options?.ref ?? options?.at ?? "event";
   return {
     checks: {
       create: (fields) => gs.createCheck(fields).then(check),
       update: (id, fields) => gs.updateCheck(id, fields).then(check),
     },
     files: {
-      read: (path, options) => gs.readFile(path, options?.at ?? "event"),
-      list: (path, options) => gs.listDirectory(path, options?.at ?? "event"),
+      read: (path, options) => gs.readFile(path, fileAt(options)),
+      readText: (path, options) => gs.readFile(path, fileAt(options)),
+      list: (path, options) => gs.listDirectory(path, fileAt(options)),
     },
-    changeset: { get: () => gs.getChangeset() },
+    changeset: {
+      get: () => gs.getChangeset(),
+      diff: (options) => gs.diffChangeset(options ?? {}),
+    },
     state: { get: () => gs.getState(), set: (value) => gs.setState(value) },
     secret(name) {
       const placeholder = run.secrets[name];

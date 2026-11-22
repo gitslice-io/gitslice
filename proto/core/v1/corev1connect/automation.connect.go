@@ -101,6 +101,9 @@ const (
 	// AutomationRunServiceGetChangesetProcedure is the fully-qualified name of the
 	// AutomationRunService's GetChangeset RPC.
 	AutomationRunServiceGetChangesetProcedure = "/gitslice.core.v1.AutomationRunService/GetChangeset"
+	// AutomationRunServiceDiffChangesetProcedure is the fully-qualified name of the
+	// AutomationRunService's DiffChangeset RPC.
+	AutomationRunServiceDiffChangesetProcedure = "/gitslice.core.v1.AutomationRunService/DiffChangeset"
 )
 
 // AutomationServiceClient is a client for the gitslice.core.v1.AutomationService service.
@@ -429,6 +432,7 @@ type AutomationRunServiceClient interface {
 	ReadFile(context.Context, *connect.Request[v1.AutomationReadFileRequest]) (*connect.Response[v1.AutomationReadFileResponse], error)
 	ListDirectory(context.Context, *connect.Request[v1.AutomationListDirectoryRequest]) (*connect.Response[v1.AutomationListDirectoryResponse], error)
 	GetChangeset(context.Context, *connect.Request[v1.AutomationRunTokenRequest]) (*connect.Response[v1.Changeset], error)
+	DiffChangeset(context.Context, *connect.Request[v1.AutomationDiffChangesetRequest]) (*connect.Response[v1.DiffChangesetResponse], error)
 }
 
 // NewAutomationRunServiceClient constructs a client for the gitslice.core.v1.AutomationRunService
@@ -520,6 +524,12 @@ func NewAutomationRunServiceClient(httpClient connect.HTTPClient, baseURL string
 			connect.WithSchema(automationRunServiceMethods.ByName("GetChangeset")),
 			connect.WithClientOptions(opts...),
 		),
+		diffChangeset: connect.NewClient[v1.AutomationDiffChangesetRequest, v1.DiffChangesetResponse](
+			httpClient,
+			baseURL+AutomationRunServiceDiffChangesetProcedure,
+			connect.WithSchema(automationRunServiceMethods.ByName("DiffChangeset")),
+			connect.WithClientOptions(opts...),
+		),
 	}
 }
 
@@ -538,6 +548,7 @@ type automationRunServiceClient struct {
 	readFile         *connect.Client[v1.AutomationReadFileRequest, v1.AutomationReadFileResponse]
 	listDirectory    *connect.Client[v1.AutomationListDirectoryRequest, v1.AutomationListDirectoryResponse]
 	getChangeset     *connect.Client[v1.AutomationRunTokenRequest, v1.Changeset]
+	diffChangeset    *connect.Client[v1.AutomationDiffChangesetRequest, v1.DiffChangesetResponse]
 }
 
 // StartRun calls gitslice.core.v1.AutomationRunService.StartRun.
@@ -605,6 +616,11 @@ func (c *automationRunServiceClient) GetChangeset(ctx context.Context, req *conn
 	return c.getChangeset.CallUnary(ctx, req)
 }
 
+// DiffChangeset calls gitslice.core.v1.AutomationRunService.DiffChangeset.
+func (c *automationRunServiceClient) DiffChangeset(ctx context.Context, req *connect.Request[v1.AutomationDiffChangesetRequest]) (*connect.Response[v1.DiffChangesetResponse], error) {
+	return c.diffChangeset.CallUnary(ctx, req)
+}
+
 // AutomationRunServiceHandler is an implementation of the gitslice.core.v1.AutomationRunService
 // service.
 type AutomationRunServiceHandler interface {
@@ -632,6 +648,7 @@ type AutomationRunServiceHandler interface {
 	ReadFile(context.Context, *connect.Request[v1.AutomationReadFileRequest]) (*connect.Response[v1.AutomationReadFileResponse], error)
 	ListDirectory(context.Context, *connect.Request[v1.AutomationListDirectoryRequest]) (*connect.Response[v1.AutomationListDirectoryResponse], error)
 	GetChangeset(context.Context, *connect.Request[v1.AutomationRunTokenRequest]) (*connect.Response[v1.Changeset], error)
+	DiffChangeset(context.Context, *connect.Request[v1.AutomationDiffChangesetRequest]) (*connect.Response[v1.DiffChangesetResponse], error)
 }
 
 // NewAutomationRunServiceHandler builds an HTTP handler from the service implementation. It returns
@@ -719,6 +736,12 @@ func NewAutomationRunServiceHandler(svc AutomationRunServiceHandler, opts ...con
 		connect.WithSchema(automationRunServiceMethods.ByName("GetChangeset")),
 		connect.WithHandlerOptions(opts...),
 	)
+	automationRunServiceDiffChangesetHandler := connect.NewUnaryHandler(
+		AutomationRunServiceDiffChangesetProcedure,
+		svc.DiffChangeset,
+		connect.WithSchema(automationRunServiceMethods.ByName("DiffChangeset")),
+		connect.WithHandlerOptions(opts...),
+	)
 	return "/gitslice.core.v1.AutomationRunService/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case AutomationRunServiceStartRunProcedure:
@@ -747,6 +770,8 @@ func NewAutomationRunServiceHandler(svc AutomationRunServiceHandler, opts ...con
 			automationRunServiceListDirectoryHandler.ServeHTTP(w, r)
 		case AutomationRunServiceGetChangesetProcedure:
 			automationRunServiceGetChangesetHandler.ServeHTTP(w, r)
+		case AutomationRunServiceDiffChangesetProcedure:
+			automationRunServiceDiffChangesetHandler.ServeHTTP(w, r)
 		default:
 			http.NotFound(w, r)
 		}
@@ -806,4 +831,8 @@ func (UnimplementedAutomationRunServiceHandler) ListDirectory(context.Context, *
 
 func (UnimplementedAutomationRunServiceHandler) GetChangeset(context.Context, *connect.Request[v1.AutomationRunTokenRequest]) (*connect.Response[v1.Changeset], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AutomationRunService.GetChangeset is not implemented"))
+}
+
+func (UnimplementedAutomationRunServiceHandler) DiffChangeset(context.Context, *connect.Request[v1.AutomationDiffChangesetRequest]) (*connect.Response[v1.DiffChangesetResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AutomationRunService.DiffChangeset is not implemented"))
 }

@@ -83,6 +83,7 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 		dispatcher:  checkDispatcher,
 		blobService: blobService,
 	}
+	changesetSvc := &ChangesetService{changesetCore: csCore}
 	return &Handlers{
 		Auth: &AuthService{Auth: stores.Auth, Slices: stores.Slices, Analytics: analyticsClient, ObjectStore: objectStore},
 		Repository: &RepositoryService{
@@ -111,7 +112,7 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 			ObjectStore: objectStore,
 			validator:   validator,
 		},
-		Changeset: &ChangesetService{changesetCore: csCore},
+		Changeset: changesetSvc,
 		Stack:     &ChangesetStackService{changesetCore: csCore},
 		Agent: &AgentService{
 			Auth:        stores.Auth,
@@ -144,8 +145,9 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 			Automations: stores.Automations, Tree: TreeFiles{Repository: stores.Repository, Objects: objectStore},
 		},
 		AutomationRun: &AutomationRunService{
-			Changesets: stores.Changesets, Slices: stores.Slices, Repository: stores.Repository, Checks: stores.Checks,
+			Changesets: stores.Changesets, Blobs: stores.Blobs, Slices: stores.Slices, Repository: stores.Repository, Checks: stores.Checks,
 			Automations: stores.Automations, Tree: TreeFiles{Repository: stores.Repository, Objects: objectStore},
+			ChangesetService: changesetSvc,
 		},
 	}
 }

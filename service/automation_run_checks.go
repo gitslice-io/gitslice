@@ -163,28 +163,71 @@ func (s *AutomationRunService) finishIfDone(ctx context.Context, run *storage.Au
 	s.Engine.FinishIfDone(ctx, run.ID)
 }
 
-// eventTree is the tree a run's event is about: the patchset's result (or
-// base, at "base"), else the commit, else the definition's commit.
+// eventTree is the tree a run's event is about: the patchset's result (at
+// "", "event", or "patchset"), its base tree (at "base"), or the current head
+// of the run's target ref (at "main", default refs/global/main).
 func (s *AutomationRunService) eventTree(ctx context.Context, run *storage.AutomationRun, at string) (string, error) {
-	if run.PatchsetID != "" {
+	mode := strings.ToLower(strings.TrimSpace(at))
+	switch mode {
+	case "", "event", "patchset", "base", "main":
+	default:
+		return "", status.Errorf(codes.InvalidArgument, "at %q (use event, patchset, base or main)", at)
+	}
+	if mode == "main" {
+		ref := strings.TrimSpace(run.TargetRef)
+		if ref == "" {
+			ref = automations.DefaultRef
+		}
+		head, err := s.Repository.GetRef(ctx, ref)
+		if err != nil {
+			return "", grpcError(err)
+		}
+		tree, err := s.Repository.RootTreeForCommit(ctx, head.GetCommitId())
+		if err != nil {
+			return "", grpcError(err)
+		}
+		return tree, nil
+	}
+	patchsetID := strings.TrimSpace(run.PatchsetID)
+	if run.ChangesetID != "" && (patchsetID != "" || mode == "patchset" || mode == "base") {
 		cs, err := s.Changesets.Get(ctx, run.ChangesetID)
 		if err != nil {
-			return "", err
+			return "", grpcError(err)
+		}
+		if patchsetID == "" {
+			patchsetID = strings.TrimSpace(cs.GetCurrentPatchsetId())
 		}
 		for _, ps := range cs.GetPatchsets() {
-			if ps.GetId() == run.PatchsetID {
-				if at == "base" {
-					return ps.GetBaseTreeId(), nil
+			if ps.GetId() == patchsetID {
+				if mode == "base" {
+					if ps.GetBaseTreeId() != "" {
+						return ps.GetBaseTreeId(), nil
+					}
+					if ps.GetBaseCommitId() != "" {
+						tree, err := s.Repository.RootTreeForCommit(ctx, ps.GetBaseCommitId())
+						if err != nil {
+							return "", grpcError(err)
+						}
+						return tree, nil
+					}
+					break
 				}
-				return ps.GetResultTreeId(), nil
+				if ps.GetResultTreeId() != "" {
+					return ps.GetResultTreeId(), nil
+				}
+				break
 			}
 		}
 	}
 	commit := run.CommitID
-	if commit == "" || at == "base" {
+	if commit == "" || mode == "base" {
 		commit = run.DefinitionCommitID
 	}
-	return s.Repository.RootTreeForCommit(ctx, commit)
+	tree, err := s.Repository.RootTreeForCommit(ctx, commit)
+	if err != nil {
+		return "", grpcError(err)
+	}
+	return tree, nil
 }
 
 func (s *AutomationRunService) triggerPath(run *storage.AutomationRun, raw string) (string, error) {
@@ -216,7 +259,7 @@ func (s *AutomationRunService) ReadFile(ctx context.Context, req *corev1.Automat
 	}
 	tree, err := s.eventTree(ctx, call.run, req.GetAt())
 	if err != nil {
-		return nil, grpcError(err)
+		return nil, err
 	}
 	data, err := s.Tree.ReadFile(ctx, tree, p)
 	if errors.Is(err, automations.ErrNotFound) {
@@ -239,7 +282,7 @@ func (s *AutomationRunService) ListDirectory(ctx context.Context, req *corev1.Au
 	}
 	tree, err := s.eventTree(ctx, call.run, req.GetAt())
 	if err != nil {
-		return nil, grpcError(err)
+		return nil, err
 	}
 	entries, err := s.Repository.ListDirectoryAtTree(ctx, tree, p)
 	if errors.Is(err, storage.ErrNotFound) {
@@ -275,8 +318,62 @@ func (s *AutomationRunService) GetChangeset(ctx context.Context, req *corev1.Aut
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	if csAccount := strings.TrimSpace(cs.GetAuthoringSlice().GetAccount()); csAccount != "" && !strings.EqualFold(csAccount, call.run.Account) {
+		return nil, status.Errorf(codes.PermissionDenied, "changeset %s is outside account %s", cs.GetId(), call.run.Account)
+	}
 	storage.PopulateChangesetHandles(cs)
+	if s.ChangesetService != nil {
+		if err := s.ChangesetService.resolveAuthors(ctx, cs); err != nil {
+			return nil, grpcError(err)
+		}
+	}
 	return cs, nil
+}
+
+func (s *AutomationRunService) DiffChangeset(ctx context.Context, req *corev1.AutomationDiffChangesetRequest) (*corev1.DiffChangesetResponse, error) {
+	call, err := s.call(ctx, req.GetRunToken())
+	if err != nil {
+		return nil, err
+	}
+	if call.run.ChangesetID == "" {
+		return nil, status.Errorf(codes.FailedPrecondition, "a %s event is not about a changeset", call.run.EventKind)
+	}
+	cs, err := s.Changesets.Get(ctx, call.run.ChangesetID)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	if csAccount := strings.TrimSpace(cs.GetAuthoringSlice().GetAccount()); csAccount != "" && !strings.EqualFold(csAccount, call.run.Account) {
+		return nil, status.Errorf(codes.PermissionDenied, "changeset %s is outside account %s", cs.GetId(), call.run.Account)
+	}
+	var requestedPaths []string
+	if len(req.GetPaths()) > 0 {
+		requestedPaths = make([]string, 0, len(req.GetPaths()))
+		for _, raw := range req.GetPaths() {
+			p, pErr := s.triggerPath(call.run, raw)
+			if pErr != nil {
+				return nil, pErr
+			}
+			requestedPaths = append(requestedPaths, p)
+		}
+	}
+	toSelector := strings.TrimSpace(call.run.PatchsetID)
+	if toSelector == "" {
+		toSelector = strings.TrimSpace(cs.GetCurrentPatchsetId())
+	}
+	diffSvc := s.ChangesetService
+	if diffSvc == nil {
+		diffSvc = &ChangesetService{
+			changesetCore: &changesetCore{
+				Changesets:  s.Changesets,
+				Blobs:       s.Blobs,
+				Repository:  s.Repository,
+				Slices:      s.Slices,
+				ObjectStore: s.Tree.Objects,
+			},
+		}
+	}
+	accountRoot := "/" + strings.Trim(call.run.Account, "/")
+	return diffSvc.diffLoadedChangeset(ctx, cs, req.GetFromPatchset(), toSelector, requestedPaths, accountRoot, maxTriggerDiffBytes)
 }
 
 func truncate(s string, n int) string {

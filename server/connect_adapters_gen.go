@@ -285,6 +285,10 @@ func (a connectAutomationRunServiceAdapter) GetChangeset(ctx context.Context, re
 	return connectResponse(a.svc.GetChangeset(ctx, req.Msg))
 }
 
+func (a connectAutomationRunServiceAdapter) DiffChangeset(ctx context.Context, req *connect.Request[corev1.AutomationDiffChangesetRequest]) (*connect.Response[corev1.DiffChangesetResponse], error) {
+	return connectResponse(a.svc.DiffChangeset(ctx, req.Msg))
+}
+
 type connectAutomationServiceAdapter struct {
 	svc *service.AutomationService
 }

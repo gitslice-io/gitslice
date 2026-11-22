@@ -3236,7 +3236,9 @@ type AutomationReadFileRequest struct {
 	RunToken string                 `protobuf:"bytes,1,opt,name=run_token,json=runToken,proto3" json:"run_token,omitempty"`
 	// Canonical, or relative to the automation's folder.
 	Path string `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
-	// "event" (default: the patchset's tree or the landed commit) or "base".
+	// "event" / "patchset" (default: the patchset's result tree or the landed
+	// commit), "base" (the patchset's base tree or definition commit), or "main"
+	// (the current head of the run's target ref, default refs/global/main).
 	At            string `protobuf:"bytes,3,opt,name=at,proto3" json:"at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -3346,10 +3348,11 @@ func (x *AutomationReadFileResponse) GetContent() []byte {
 }
 
 type AutomationListDirectoryRequest struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	RunToken      string                 `protobuf:"bytes,1,opt,name=run_token,json=runToken,proto3" json:"run_token,omitempty"`
-	Path          string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
-	At            string                 `protobuf:"bytes,3,opt,name=at,proto3" json:"at,omitempty"`
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	RunToken string                 `protobuf:"bytes,1,opt,name=run_token,json=runToken,proto3" json:"run_token,omitempty"`
+	Path     string                 `protobuf:"bytes,2,opt,name=path,proto3" json:"path,omitempty"`
+	// "event" / "patchset" (default), "base", or "main".
+	At            string `protobuf:"bytes,3,opt,name=at,proto3" json:"at,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -3516,6 +3519,71 @@ func (x *AutomationListDirectoryResponse) GetEntries() []*AutomationDirectoryEnt
 		return x.Entries
 	}
 	return nil
+}
+
+type AutomationDiffChangesetRequest struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	RunToken string                 `protobuf:"bytes,1,opt,name=run_token,json=runToken,proto3" json:"run_token,omitempty"`
+	// Optional canonical or automation-folder-relative paths to include in the
+	// diff. Empty returns the diff of all changed paths for the run's patchset
+	// within the automation's account.
+	Paths []string `protobuf:"bytes,2,rep,name=paths,proto3" json:"paths,omitempty"`
+	// Optional base patchset id or number to diff from; empty diffs against the
+	// run patchset's base commit/tree.
+	FromPatchset  string `protobuf:"bytes,3,opt,name=from_patchset,json=fromPatchset,proto3" json:"from_patchset,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AutomationDiffChangesetRequest) Reset() {
+	*x = AutomationDiffChangesetRequest{}
+	mi := &file_proto_core_v1_automation_proto_msgTypes[44]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AutomationDiffChangesetRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AutomationDiffChangesetRequest) ProtoMessage() {}
+
+func (x *AutomationDiffChangesetRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_core_v1_automation_proto_msgTypes[44]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AutomationDiffChangesetRequest.ProtoReflect.Descriptor instead.
+func (*AutomationDiffChangesetRequest) Descriptor() ([]byte, []int) {
+	return file_proto_core_v1_automation_proto_rawDescGZIP(), []int{44}
+}
+
+func (x *AutomationDiffChangesetRequest) GetRunToken() string {
+	if x != nil {
+		return x.RunToken
+	}
+	return ""
+}
+
+func (x *AutomationDiffChangesetRequest) GetPaths() []string {
+	if x != nil {
+		return x.Paths
+	}
+	return nil
+}
+
+func (x *AutomationDiffChangesetRequest) GetFromPatchset() string {
+	if x != nil {
+		return x.FromPatchset
+	}
+	return ""
 }
 
 var File_proto_core_v1_automation_proto protoreflect.FileDescriptor
@@ -3860,7 +3928,11 @@ const file_proto_core_v1_automation_proto_rawDesc = "" +
 	"\x04kind\x18\x03 \x01(\tR\x04kind\"}\n" +
 	"\x1fAutomationListDirectoryResponse\x12\x14\n" +
 	"\x05found\x18\x01 \x01(\bR\x05found\x12D\n" +
-	"\aentries\x18\x02 \x03(\v2*.gitslice.core.v1.AutomationDirectoryEntryR\aentries2\xd6\a\n" +
+	"\aentries\x18\x02 \x03(\v2*.gitslice.core.v1.AutomationDirectoryEntryR\aentries\"x\n" +
+	"\x1eAutomationDiffChangesetRequest\x12\x1b\n" +
+	"\trun_token\x18\x01 \x01(\tR\brunToken\x12\x14\n" +
+	"\x05paths\x18\x02 \x03(\tR\x05paths\x12#\n" +
+	"\rfrom_patchset\x18\x03 \x01(\tR\ffromPatchset2\xd6\a\n" +
 	"\x11AutomationService\x12c\n" +
 	"\x0fGetFolderPolicy\x12(.gitslice.core.v1.GetFolderPolicyRequest\x1a&.gitslice.core.v1.FolderPolicyResponse\x12f\n" +
 	"\x0fListAutomations\x12(.gitslice.core.v1.ListAutomationsRequest\x1a).gitslice.core.v1.ListAutomationsResponse\x12o\n" +
@@ -3870,7 +3942,7 @@ const file_proto_core_v1_automation_proto_rawDesc = "" +
 	"\rRunAutomation\x12&.gitslice.core.v1.RunAutomationRequest\x1a\x1f.gitslice.core.v1.AutomationRun\x12b\n" +
 	"\x12RerunAutomationRun\x12+.gitslice.core.v1.RerunAutomationRunRequest\x1a\x1f.gitslice.core.v1.AutomationRun\x12d\n" +
 	"\x13CancelAutomationRun\x12,.gitslice.core.v1.CancelAutomationRunRequest\x1a\x1f.gitslice.core.v1.AutomationRun\x12\x84\x01\n" +
-	"\x19InspectAutomationTemplate\x122.gitslice.core.v1.InspectAutomationTemplateRequest\x1a3.gitslice.core.v1.InspectAutomationTemplateResponse2\x82\n" +
+	"\x19InspectAutomationTemplate\x122.gitslice.core.v1.InspectAutomationTemplateRequest\x1a3.gitslice.core.v1.InspectAutomationTemplateResponse2\xee\n" +
 	"\n" +
 	"\x14AutomationRunService\x12e\n" +
 	"\bStartRun\x12+.gitslice.core.v1.StartAutomationRunRequest\x1a,.gitslice.core.v1.StartAutomationRunResponse\x12j\n" +
@@ -3885,7 +3957,8 @@ const file_proto_core_v1_automation_proto_rawDesc = "" +
 	"\vUpdateCheck\x12..gitslice.core.v1.UpdateAutomationCheckRequest\x1a\x1a.gitslice.core.v1.CheckRun\x12e\n" +
 	"\bReadFile\x12+.gitslice.core.v1.AutomationReadFileRequest\x1a,.gitslice.core.v1.AutomationReadFileResponse\x12t\n" +
 	"\rListDirectory\x120.gitslice.core.v1.AutomationListDirectoryRequest\x1a1.gitslice.core.v1.AutomationListDirectoryResponse\x12X\n" +
-	"\fGetChangeset\x12+.gitslice.core.v1.AutomationRunTokenRequest\x1a\x1b.gitslice.core.v1.ChangesetB+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
+	"\fGetChangeset\x12+.gitslice.core.v1.AutomationRunTokenRequest\x1a\x1b.gitslice.core.v1.Changeset\x12j\n" +
+	"\rDiffChangeset\x120.gitslice.core.v1.AutomationDiffChangesetRequest\x1a'.gitslice.core.v1.DiffChangesetResponseB+Z)gitslice.io/gitslice/proto/core/v1;corev1b\x06proto3"
 
 var (
 	file_proto_core_v1_automation_proto_rawDescOnce sync.Once
@@ -3899,7 +3972,7 @@ func file_proto_core_v1_automation_proto_rawDescGZIP() []byte {
 	return file_proto_core_v1_automation_proto_rawDescData
 }
 
-var file_proto_core_v1_automation_proto_msgTypes = make([]protoimpl.MessageInfo, 54)
+var file_proto_core_v1_automation_proto_msgTypes = make([]protoimpl.MessageInfo, 55)
 var file_proto_core_v1_automation_proto_goTypes = []any{
 	(*AutomationInputSpec)(nil),               // 0: gitslice.core.v1.AutomationInputSpec
 	(*AutomationManualPolicy)(nil),            // 1: gitslice.core.v1.AutomationManualPolicy
@@ -3945,34 +4018,36 @@ var file_proto_core_v1_automation_proto_goTypes = []any{
 	(*AutomationListDirectoryRequest)(nil),    // 41: gitslice.core.v1.AutomationListDirectoryRequest
 	(*AutomationDirectoryEntry)(nil),          // 42: gitslice.core.v1.AutomationDirectoryEntry
 	(*AutomationListDirectoryResponse)(nil),   // 43: gitslice.core.v1.AutomationListDirectoryResponse
-	nil,                                       // 44: gitslice.core.v1.AutomationBashAction.EnvEntry
-	nil,                                       // 45: gitslice.core.v1.AutomationDefinition.SecretBindingsEntry
-	nil,                                       // 46: gitslice.core.v1.AutomationUsesAction.WithEntry
-	nil,                                       // 47: gitslice.core.v1.AutomationRun.InputsEntry
-	nil,                                       // 48: gitslice.core.v1.AutomationRun.OutputsEntry
-	nil,                                       // 49: gitslice.core.v1.RunAutomationRequest.InputsEntry
-	nil,                                       // 50: gitslice.core.v1.StartAutomationRunResponse.ModulesEntry
-	nil,                                       // 51: gitslice.core.v1.StartAutomationRunResponse.SecretsEntry
-	nil,                                       // 52: gitslice.core.v1.StartAutomationRunResponse.BashEnvEntry
-	nil,                                       // 53: gitslice.core.v1.StartAutomationRunResponse.InputsEntry
-	(*CheckAnnotation)(nil),                   // 54: gitslice.core.v1.CheckAnnotation
-	(*Empty)(nil),                             // 55: gitslice.core.v1.Empty
-	(*CheckRun)(nil),                          // 56: gitslice.core.v1.CheckRun
-	(*Changeset)(nil),                         // 57: gitslice.core.v1.Changeset
+	(*AutomationDiffChangesetRequest)(nil),    // 44: gitslice.core.v1.AutomationDiffChangesetRequest
+	nil,                                       // 45: gitslice.core.v1.AutomationBashAction.EnvEntry
+	nil,                                       // 46: gitslice.core.v1.AutomationDefinition.SecretBindingsEntry
+	nil,                                       // 47: gitslice.core.v1.AutomationUsesAction.WithEntry
+	nil,                                       // 48: gitslice.core.v1.AutomationRun.InputsEntry
+	nil,                                       // 49: gitslice.core.v1.AutomationRun.OutputsEntry
+	nil,                                       // 50: gitslice.core.v1.RunAutomationRequest.InputsEntry
+	nil,                                       // 51: gitslice.core.v1.StartAutomationRunResponse.ModulesEntry
+	nil,                                       // 52: gitslice.core.v1.StartAutomationRunResponse.SecretsEntry
+	nil,                                       // 53: gitslice.core.v1.StartAutomationRunResponse.BashEnvEntry
+	nil,                                       // 54: gitslice.core.v1.StartAutomationRunResponse.InputsEntry
+	(*CheckAnnotation)(nil),                   // 55: gitslice.core.v1.CheckAnnotation
+	(*Empty)(nil),                             // 56: gitslice.core.v1.Empty
+	(*CheckRun)(nil),                          // 57: gitslice.core.v1.CheckRun
+	(*Changeset)(nil),                         // 58: gitslice.core.v1.Changeset
+	(*DiffChangesetResponse)(nil),             // 59: gitslice.core.v1.DiffChangesetResponse
 }
 var file_proto_core_v1_automation_proto_depIdxs = []int32{
-	44, // 0: gitslice.core.v1.AutomationBashAction.env:type_name -> gitslice.core.v1.AutomationBashAction.EnvEntry
+	45, // 0: gitslice.core.v1.AutomationBashAction.env:type_name -> gitslice.core.v1.AutomationBashAction.EnvEntry
 	0,  // 1: gitslice.core.v1.AutomationDefinition.inputs:type_name -> gitslice.core.v1.AutomationInputSpec
 	1,  // 2: gitslice.core.v1.AutomationDefinition.manual:type_name -> gitslice.core.v1.AutomationManualPolicy
 	2,  // 3: gitslice.core.v1.AutomationDefinition.bash:type_name -> gitslice.core.v1.AutomationBashAction
 	4,  // 4: gitslice.core.v1.AutomationDefinition.uses:type_name -> gitslice.core.v1.AutomationUsesAction
 	5,  // 5: gitslice.core.v1.AutomationDefinition.steps:type_name -> gitslice.core.v1.AutomationStepDefinition
-	45, // 6: gitslice.core.v1.AutomationDefinition.secret_bindings:type_name -> gitslice.core.v1.AutomationDefinition.SecretBindingsEntry
-	46, // 7: gitslice.core.v1.AutomationUsesAction.with:type_name -> gitslice.core.v1.AutomationUsesAction.WithEntry
+	46, // 6: gitslice.core.v1.AutomationDefinition.secret_bindings:type_name -> gitslice.core.v1.AutomationDefinition.SecretBindingsEntry
+	47, // 7: gitslice.core.v1.AutomationUsesAction.with:type_name -> gitslice.core.v1.AutomationUsesAction.WithEntry
 	4,  // 8: gitslice.core.v1.AutomationStepDefinition.uses:type_name -> gitslice.core.v1.AutomationUsesAction
 	2,  // 9: gitslice.core.v1.AutomationStepDefinition.bash:type_name -> gitslice.core.v1.AutomationBashAction
-	47, // 10: gitslice.core.v1.AutomationRun.inputs:type_name -> gitslice.core.v1.AutomationRun.InputsEntry
-	48, // 11: gitslice.core.v1.AutomationRun.outputs:type_name -> gitslice.core.v1.AutomationRun.OutputsEntry
+	48, // 10: gitslice.core.v1.AutomationRun.inputs:type_name -> gitslice.core.v1.AutomationRun.InputsEntry
+	49, // 11: gitslice.core.v1.AutomationRun.outputs:type_name -> gitslice.core.v1.AutomationRun.OutputsEntry
 	10, // 12: gitslice.core.v1.FolderPolicyResponse.owner_rules:type_name -> gitslice.core.v1.FolderOwnerRule
 	11, // 13: gitslice.core.v1.FolderPolicyResponse.checks:type_name -> gitslice.core.v1.FolderCheckDefinition
 	3,  // 14: gitslice.core.v1.FolderPolicyResponse.automations:type_name -> gitslice.core.v1.AutomationDefinition
@@ -3982,16 +4057,16 @@ var file_proto_core_v1_automation_proto_depIdxs = []int32{
 	6,  // 18: gitslice.core.v1.ListAutomationsResponse.problems:type_name -> gitslice.core.v1.AutomationFileProblem
 	7,  // 19: gitslice.core.v1.ListAutomationRunsResponse.runs:type_name -> gitslice.core.v1.AutomationRun
 	20, // 20: gitslice.core.v1.ListAutomationRunLogsResponse.logs:type_name -> gitslice.core.v1.AutomationRunLog
-	49, // 21: gitslice.core.v1.RunAutomationRequest.inputs:type_name -> gitslice.core.v1.RunAutomationRequest.InputsEntry
+	50, // 21: gitslice.core.v1.RunAutomationRequest.inputs:type_name -> gitslice.core.v1.RunAutomationRequest.InputsEntry
 	7,  // 22: gitslice.core.v1.StartAutomationRunResponse.run:type_name -> gitslice.core.v1.AutomationRun
-	50, // 23: gitslice.core.v1.StartAutomationRunResponse.modules:type_name -> gitslice.core.v1.StartAutomationRunResponse.ModulesEntry
-	51, // 24: gitslice.core.v1.StartAutomationRunResponse.secrets:type_name -> gitslice.core.v1.StartAutomationRunResponse.SecretsEntry
-	52, // 25: gitslice.core.v1.StartAutomationRunResponse.bash_env:type_name -> gitslice.core.v1.StartAutomationRunResponse.BashEnvEntry
-	53, // 26: gitslice.core.v1.StartAutomationRunResponse.inputs:type_name -> gitslice.core.v1.StartAutomationRunResponse.InputsEntry
+	51, // 23: gitslice.core.v1.StartAutomationRunResponse.modules:type_name -> gitslice.core.v1.StartAutomationRunResponse.ModulesEntry
+	52, // 24: gitslice.core.v1.StartAutomationRunResponse.secrets:type_name -> gitslice.core.v1.StartAutomationRunResponse.SecretsEntry
+	53, // 25: gitslice.core.v1.StartAutomationRunResponse.bash_env:type_name -> gitslice.core.v1.StartAutomationRunResponse.BashEnvEntry
+	54, // 26: gitslice.core.v1.StartAutomationRunResponse.inputs:type_name -> gitslice.core.v1.StartAutomationRunResponse.InputsEntry
 	29, // 27: gitslice.core.v1.AppendAutomationRunLogRequest.lines:type_name -> gitslice.core.v1.AutomationRunLogLine
 	3,  // 28: gitslice.core.v1.InspectAutomationTemplateResponse.template:type_name -> gitslice.core.v1.AutomationDefinition
-	54, // 29: gitslice.core.v1.CreateAutomationCheckRequest.annotations:type_name -> gitslice.core.v1.CheckAnnotation
-	54, // 30: gitslice.core.v1.UpdateAutomationCheckRequest.annotations:type_name -> gitslice.core.v1.CheckAnnotation
+	55, // 29: gitslice.core.v1.CreateAutomationCheckRequest.annotations:type_name -> gitslice.core.v1.CheckAnnotation
+	55, // 30: gitslice.core.v1.UpdateAutomationCheckRequest.annotations:type_name -> gitslice.core.v1.CheckAnnotation
 	42, // 31: gitslice.core.v1.AutomationListDirectoryResponse.entries:type_name -> gitslice.core.v1.AutomationDirectoryEntry
 	9,  // 32: gitslice.core.v1.AutomationService.GetFolderPolicy:input_type -> gitslice.core.v1.GetFolderPolicyRequest
 	8,  // 33: gitslice.core.v1.AutomationService.ListAutomations:input_type -> gitslice.core.v1.ListAutomationsRequest
@@ -4015,30 +4090,32 @@ var file_proto_core_v1_automation_proto_depIdxs = []int32{
 	39, // 51: gitslice.core.v1.AutomationRunService.ReadFile:input_type -> gitslice.core.v1.AutomationReadFileRequest
 	41, // 52: gitslice.core.v1.AutomationRunService.ListDirectory:input_type -> gitslice.core.v1.AutomationListDirectoryRequest
 	27, // 53: gitslice.core.v1.AutomationRunService.GetChangeset:input_type -> gitslice.core.v1.AutomationRunTokenRequest
-	14, // 54: gitslice.core.v1.AutomationService.GetFolderPolicy:output_type -> gitslice.core.v1.FolderPolicyResponse
-	15, // 55: gitslice.core.v1.AutomationService.ListAutomations:output_type -> gitslice.core.v1.ListAutomationsResponse
-	17, // 56: gitslice.core.v1.AutomationService.ListAutomationRuns:output_type -> gitslice.core.v1.ListAutomationRunsResponse
-	7,  // 57: gitslice.core.v1.AutomationService.GetAutomationRun:output_type -> gitslice.core.v1.AutomationRun
-	21, // 58: gitslice.core.v1.AutomationService.ListAutomationRunLogs:output_type -> gitslice.core.v1.ListAutomationRunLogsResponse
-	7,  // 59: gitslice.core.v1.AutomationService.RunAutomation:output_type -> gitslice.core.v1.AutomationRun
-	7,  // 60: gitslice.core.v1.AutomationService.RerunAutomationRun:output_type -> gitslice.core.v1.AutomationRun
-	7,  // 61: gitslice.core.v1.AutomationService.CancelAutomationRun:output_type -> gitslice.core.v1.AutomationRun
-	35, // 62: gitslice.core.v1.AutomationService.InspectAutomationTemplate:output_type -> gitslice.core.v1.InspectAutomationTemplateResponse
-	26, // 63: gitslice.core.v1.AutomationRunService.StartRun:output_type -> gitslice.core.v1.StartAutomationRunResponse
-	26, // 64: gitslice.core.v1.AutomationRunService.StartCallback:output_type -> gitslice.core.v1.StartAutomationRunResponse
-	7,  // 65: gitslice.core.v1.AutomationRunService.FinishRun:output_type -> gitslice.core.v1.AutomationRun
-	55, // 66: gitslice.core.v1.AutomationRunService.AppendRunLog:output_type -> gitslice.core.v1.Empty
-	31, // 67: gitslice.core.v1.AutomationRunService.GetRunState:output_type -> gitslice.core.v1.AutomationRunState
-	55, // 68: gitslice.core.v1.AutomationRunService.SetRunState:output_type -> gitslice.core.v1.Empty
-	55, // 69: gitslice.core.v1.AutomationRunService.SetRunDetailsUrl:output_type -> gitslice.core.v1.Empty
-	55, // 70: gitslice.core.v1.AutomationRunService.SetRunOutput:output_type -> gitslice.core.v1.Empty
-	56, // 71: gitslice.core.v1.AutomationRunService.CreateCheck:output_type -> gitslice.core.v1.CheckRun
-	56, // 72: gitslice.core.v1.AutomationRunService.UpdateCheck:output_type -> gitslice.core.v1.CheckRun
-	40, // 73: gitslice.core.v1.AutomationRunService.ReadFile:output_type -> gitslice.core.v1.AutomationReadFileResponse
-	43, // 74: gitslice.core.v1.AutomationRunService.ListDirectory:output_type -> gitslice.core.v1.AutomationListDirectoryResponse
-	57, // 75: gitslice.core.v1.AutomationRunService.GetChangeset:output_type -> gitslice.core.v1.Changeset
-	54, // [54:76] is the sub-list for method output_type
-	32, // [32:54] is the sub-list for method input_type
+	44, // 54: gitslice.core.v1.AutomationRunService.DiffChangeset:input_type -> gitslice.core.v1.AutomationDiffChangesetRequest
+	14, // 55: gitslice.core.v1.AutomationService.GetFolderPolicy:output_type -> gitslice.core.v1.FolderPolicyResponse
+	15, // 56: gitslice.core.v1.AutomationService.ListAutomations:output_type -> gitslice.core.v1.ListAutomationsResponse
+	17, // 57: gitslice.core.v1.AutomationService.ListAutomationRuns:output_type -> gitslice.core.v1.ListAutomationRunsResponse
+	7,  // 58: gitslice.core.v1.AutomationService.GetAutomationRun:output_type -> gitslice.core.v1.AutomationRun
+	21, // 59: gitslice.core.v1.AutomationService.ListAutomationRunLogs:output_type -> gitslice.core.v1.ListAutomationRunLogsResponse
+	7,  // 60: gitslice.core.v1.AutomationService.RunAutomation:output_type -> gitslice.core.v1.AutomationRun
+	7,  // 61: gitslice.core.v1.AutomationService.RerunAutomationRun:output_type -> gitslice.core.v1.AutomationRun
+	7,  // 62: gitslice.core.v1.AutomationService.CancelAutomationRun:output_type -> gitslice.core.v1.AutomationRun
+	35, // 63: gitslice.core.v1.AutomationService.InspectAutomationTemplate:output_type -> gitslice.core.v1.InspectAutomationTemplateResponse
+	26, // 64: gitslice.core.v1.AutomationRunService.StartRun:output_type -> gitslice.core.v1.StartAutomationRunResponse
+	26, // 65: gitslice.core.v1.AutomationRunService.StartCallback:output_type -> gitslice.core.v1.StartAutomationRunResponse
+	7,  // 66: gitslice.core.v1.AutomationRunService.FinishRun:output_type -> gitslice.core.v1.AutomationRun
+	56, // 67: gitslice.core.v1.AutomationRunService.AppendRunLog:output_type -> gitslice.core.v1.Empty
+	31, // 68: gitslice.core.v1.AutomationRunService.GetRunState:output_type -> gitslice.core.v1.AutomationRunState
+	56, // 69: gitslice.core.v1.AutomationRunService.SetRunState:output_type -> gitslice.core.v1.Empty
+	56, // 70: gitslice.core.v1.AutomationRunService.SetRunDetailsUrl:output_type -> gitslice.core.v1.Empty
+	56, // 71: gitslice.core.v1.AutomationRunService.SetRunOutput:output_type -> gitslice.core.v1.Empty
+	57, // 72: gitslice.core.v1.AutomationRunService.CreateCheck:output_type -> gitslice.core.v1.CheckRun
+	57, // 73: gitslice.core.v1.AutomationRunService.UpdateCheck:output_type -> gitslice.core.v1.CheckRun
+	40, // 74: gitslice.core.v1.AutomationRunService.ReadFile:output_type -> gitslice.core.v1.AutomationReadFileResponse
+	43, // 75: gitslice.core.v1.AutomationRunService.ListDirectory:output_type -> gitslice.core.v1.AutomationListDirectoryResponse
+	58, // 76: gitslice.core.v1.AutomationRunService.GetChangeset:output_type -> gitslice.core.v1.Changeset
+	59, // 77: gitslice.core.v1.AutomationRunService.DiffChangeset:output_type -> gitslice.core.v1.DiffChangesetResponse
+	55, // [55:78] is the sub-list for method output_type
+	32, // [32:55] is the sub-list for method input_type
 	32, // [32:32] is the sub-list for extension type_name
 	32, // [32:32] is the sub-list for extension extendee
 	0,  // [0:32] is the sub-list for field type_name
@@ -4059,7 +4136,7 @@ func file_proto_core_v1_automation_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_core_v1_automation_proto_rawDesc), len(file_proto_core_v1_automation_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   54,
+			NumMessages:   55,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

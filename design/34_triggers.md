@@ -386,9 +386,10 @@ export default {
 | `onEvent(event, gs)` | Called once per run. |
 | `onCallback(request, gs)` | Called for each POST to the run's callback URL, until the run ends. |
 | `event` | `event`, `sender`, `trigger`, `changes[]` (`path`, `kind`, `old_path`), and `changeset`, `commit` or `tag` depending on the event. |
-| `gs.checks.create` / `.update` | `status`, `summary`, `detailsUrl`, `annotations[]` (`path`, `line`, `message`). |
-| `gs.files.read(path)` / `.list(dir)` | Read the event's tree, or the base tree with `{at: "base"}`. |
-| `gs.changeset.get()` | The changeset, its current patchset and approvals. |
+| `gs.checks.create` / `.update` | `status`, `summary`, `detailsUrl`, `annotations[]` (`path`, `line` or `startLine`/`endLine`, `level`, `message`). |
+| `gs.files.read(path)` / `.readText(path)` / `.list(dir)` | Read the patchset/event tree (default or `{ref: "patchset"}`), the base tree (`{ref: "base"}`), or the landed target ref head (`{ref: "main"}`); `{at}` is an alias for `{ref}`. |
+| `gs.changeset.get()` | The changeset, its patchsets, and approvals (with resolved usernames and attribution). |
+| `gs.changeset.diff(opts?)` | Unified diff for the run's patchset (`{paths?, fromPatchset?}`, account-scoped, capped at 4 MiB). |
 | `gs.secret(name)` / `gs.revealSecret(name)` | A sealed placeholder, or the raw value with `reveal:`. |
 | `gs.callbackUrl(data)`, `gs.state.get()` / `.set()` | Callbacks and up to 64 KiB of per-run JSON. |
 | `fetch` | Only to hosts in `network:`. |

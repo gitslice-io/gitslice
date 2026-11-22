@@ -102,13 +102,20 @@ const apiRows: Array<[string, string]> = [
   ],
   [
     "gs.checks.create / .update",
-    "Report check runs with status, summary, detailsUrl, and file annotations (path, line, message).",
+    "Report check runs with status, summary, detailsUrl, and file annotations (path, line or startLine/endLine, level, message).",
   ],
   [
-    "gs.files.read(path) / .list(dir)",
-    'Read files at the changeset revision, or at the base with { at: "base" }.',
+    "gs.files.read(path) / .readText(path) / .list(dir)",
+    'Read files at the changeset patchset (default or { ref: "patchset" }), at its base ({ ref: "base" }), or at the current landed target ref ({ ref: "main" }); { at } is accepted as an alias for { ref }.',
   ],
-  ["gs.changeset.get()", "Fetch the changeset and its patchsets."],
+  [
+    "gs.changeset.get()",
+    "Fetch the changeset, its patchsets, and approvals with resolved usernames and attribution.",
+  ],
+  [
+    "gs.changeset.diff(opts?)",
+    "Fetch the unified diff for the run's patchset (optional { paths, fromPatchset }, account-scoped, capped at 4 MiB).",
+  ],
   [
     "gs.secret(name)",
     "Returns an opaque placeholder that Gate swaps for the real secret value on outbound requests to allowed network hosts. Put it in a URL's path or query, a header, or the body; it cannot be the whole URL, since a secret may never decide where a request goes.",

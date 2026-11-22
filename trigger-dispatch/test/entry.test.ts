@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 
+import { normalizeAnnotations } from "../src/api.ts";
 import { entrySource, WHOLE_URL_SECRET_MESSAGE } from "../src/entry.ts";
 
 // loadEntry writes the generated entry module next to a script, with the
@@ -35,6 +36,18 @@ function fakeGs() {
       waitForCallback: record("waitForCallback"),
       setDetailsUrl: async (url: string) => record("setDetailsUrl")(url),
       setOutput: async (key: string, value: string) => record("setOutput")(key, value),
+      readFile: async (path: string, at: string) => {
+        record("readFile")(path, at);
+        return `content:${at}:${path}`;
+      },
+      listDirectory: async (path: string, at: string) => {
+        record("listDirectory")(path, at);
+        return [{ name: "a.md", path: `${path}/a.md`, kind: "file" }];
+      },
+      diffChangeset: async (opts: unknown) => {
+        record("diffChangeset")(opts);
+        return { changesetId: "cs_1", fromPatchsetId: "", toPatchsetId: "ps_1", changedPaths: ["/a/b.go"], diff: "+hi\n" };
+      },
     },
   };
 }
@@ -72,4 +85,41 @@ test("a secret placeholder as the whole fetch URL fails with a plain explanation
     assert.doesNotMatch(err.message, /gs-secret:v1:abc/);
     return true;
   });
+});
+
+test("gs.files.readText({ ref }) and gs.changeset.diff() forward ref/options to the dispatcher", async () => {
+  const entry = await loadEntry(`export default {
+    async onEvent(event, gs) {
+      const text = await gs.files.readText("design/42.md", { ref: "main" });
+      await gs.files.list("design", { ref: "patchset" });
+      const d = await gs.changeset.diff({ paths: ["service/a.go"], fromPatchset: "1" });
+      await gs.setOutput("read", text);
+      await gs.setOutput("diff", d.diff.trim());
+    },
+  };`);
+  const { gs, calls } = fakeGs();
+  await entry.run("event", "{}", gs, { runId: "trun_2", secrets: {}, callbackUrl: "" });
+  assert.deepEqual(
+    calls.filter((c) => c.method !== "log"),
+    [
+      { method: "readFile", args: ["design/42.md", "main"] },
+      { method: "listDirectory", args: ["design", "patchset"] },
+      { method: "diffChangeset", args: [{ paths: ["service/a.go"], fromPatchset: "1" }] },
+      { method: "setOutput", args: ["read", "content:main:design/42.md"] },
+      { method: "setOutput", args: ["diff", "+hi"] },
+    ],
+  );
+});
+
+test("normalizeAnnotations maps line shorthand to startLine and endLine", () => {
+  assert.deepEqual(
+    normalizeAnnotations([
+      { path: "a.go", line: 42, level: "failure", message: "boom" },
+      { path: "b.go", startLine: 10, endLine: 15, message: "range" },
+    ]),
+    [
+      { path: "a.go", startLine: 42, endLine: 42, level: "failure", message: "boom" },
+      { path: "b.go", startLine: 10, endLine: 15, level: undefined, message: "range" },
+    ],
+  );
 });

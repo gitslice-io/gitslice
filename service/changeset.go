@@ -337,15 +337,18 @@ func (s *ChangesetService) ReportCheckResult(ctx context.Context, req *corev1.Re
 	}
 	checkName := strings.TrimSpace(req.GetCheckName())
 	patchset := currentPatchset(cs)
-	if s.isRequiredCheck(ctx, cs, slice, patchset, checkName) {
-		if normalized, ok := storage.NormalizeCheckStatus(req.GetStatus()); ok && normalized == storage.CheckStatusPass {
+	if normalized, ok := storage.NormalizeCheckStatus(req.GetStatus()); ok && normalized == storage.CheckStatusPass {
+		if s.isRequiredCheckOwnedByCIOrAutomation(ctx, cs, slice, patchset, checkName) {
+			return nil, status.Errorf(codes.PermissionDenied, "check %q is gated by CI or automations and cannot be marked passing manually", checkName)
+		}
+		if s.isRequiredCheck(ctx, cs, slice, patchset, checkName) {
 			isController, _ := isControllerOfSubject(ctx, s.Auth, subjectID, cs.GetAuthor())
 			isAuthor := subjectID == strings.TrimSpace(cs.GetAuthor()) ||
 				isController ||
 				hasCollaboratorSubject(cs, subjectID) ||
 				(patchset != nil && subjectID == strings.TrimSpace(patchset.GetAuthor()))
-			if (isAuthor && s.hasCIDaemonForSlice(ctx, slice)) || s.isRequiredCheckOwnedByCIOrAutomation(ctx, cs, slice, patchset, checkName) {
-				return nil, status.Errorf(codes.PermissionDenied, "required check %q is gated by CI or triggers and cannot be marked passing manually", checkName)
+			if isAuthor && s.hasCIDaemonForSlice(ctx, slice) {
+				return nil, status.Errorf(codes.PermissionDenied, "required check %q is gated by CI or automations and cannot be marked passing manually", checkName)
 			}
 		}
 	}

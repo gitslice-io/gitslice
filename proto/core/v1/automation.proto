@@ -63,6 +63,7 @@ service AutomationRunService {
   rpc ReadFile(AutomationReadFileRequest) returns (AutomationReadFileResponse);
   rpc ListDirectory(AutomationListDirectoryRequest) returns (AutomationListDirectoryResponse);
   rpc GetChangeset(AutomationRunTokenRequest) returns (Changeset);
+  rpc DiffChangeset(AutomationDiffChangesetRequest) returns (DiffChangesetResponse);
 }
 
 // AutomationInputSpec declares one typed input for a manual automation.
@@ -480,7 +481,9 @@ message AutomationReadFileRequest {
   string run_token = 1;
   // Canonical, or relative to the automation's folder.
   string path = 2;
-  // "event" (default: the patchset's tree or the landed commit) or "base".
+  // "event" / "patchset" (default: the patchset's result tree or the landed
+  // commit), "base" (the patchset's base tree or definition commit), or "main"
+  // (the current head of the run's target ref, default refs/global/main).
   string at = 3;
 }
 
@@ -492,6 +495,7 @@ message AutomationReadFileResponse {
 message AutomationListDirectoryRequest {
   string run_token = 1;
   string path = 2;
+  // "event" / "patchset" (default), "base", or "main".
   string at = 3;
 }
 
@@ -505,4 +509,15 @@ message AutomationDirectoryEntry {
 message AutomationListDirectoryResponse {
   bool found = 1;
   repeated AutomationDirectoryEntry entries = 2;
+}
+
+message AutomationDiffChangesetRequest {
+  string run_token = 1;
+  // Optional canonical or automation-folder-relative paths to include in the
+  // diff. Empty returns the diff of all changed paths for the run's patchset
+  // within the automation's account.
+  repeated string paths = 2;
+  // Optional base patchset id or number to diff from; empty diffs against the
+  // run patchset's base commit/tree.
+  string from_patchset = 3;
 }

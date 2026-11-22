@@ -30,19 +30,22 @@ const (
 	maxTriggerLogLine     = 4 << 10
 	maxTriggerLogLines    = 200
 	maxTriggerSummary     = 64 << 10
+	maxTriggerDiffBytes   = 4 << 20
 )
 
 // AutomationRunService is what a running trigger calls: the dispatcher, with
 // its key, to start a run or a callback, and the run's script, with the run
 // token, for everything else.
 type AutomationRunService struct {
-	Changesets  storage.ChangesetStore
-	Slices      storage.SliceStore
-	Repository  storage.RepositoryStore
-	Checks      storage.CheckStore
-	Automations storage.AutomationStore
-	Tree        TreeFiles
-	Engine      *automations.Engine
+	Changesets       storage.ChangesetStore
+	Blobs            storage.BlobStore
+	Slices           storage.SliceStore
+	Repository       storage.RepositoryStore
+	Checks           storage.CheckStore
+	Automations      storage.AutomationStore
+	Tree             TreeFiles
+	Engine           *automations.Engine
+	ChangesetService *ChangesetService
 }
 
 func (s *AutomationRunService) ready() error {

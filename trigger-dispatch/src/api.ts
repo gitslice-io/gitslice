@@ -116,10 +116,40 @@ export interface StartResponse {
 
 export interface Annotation {
   path: string;
+  line?: number;
   startLine?: number;
   endLine?: number;
   level?: string;
   message: string;
+}
+
+export interface DiffChangesetOptions {
+  paths?: string[];
+  fromPatchset?: string;
+}
+
+export interface DiffChangesetResult {
+  changesetId: string;
+  fromPatchsetId?: string;
+  toPatchsetId: string;
+  changedPaths: string[];
+  diff: string;
+}
+
+export function normalizeAnnotations(annotations?: Annotation[]): Annotation[] | undefined {
+  if (!annotations) return undefined;
+  return annotations.map((a) => {
+    const startLine = a.startLine ?? a.line;
+    const endLine = a.endLine ?? a.line;
+    const out: Annotation = {
+      path: a.path,
+      level: a.level,
+      message: a.message,
+    };
+    if (startLine !== undefined) out.startLine = startLine;
+    if (endLine !== undefined) out.endLine = endLine;
+    return out;
+  });
 }
 
 export interface CheckRun {

@@ -11,9 +11,12 @@ import {
   Api,
   ApiError,
   loaderIsolateKey,
+  normalizeAnnotations,
   triggerScope,
   type Annotation,
   type CheckRun,
+  type DiffChangesetOptions,
+  type DiffChangesetResult,
   type StartResponse,
 } from "./api.ts";
 import { PlaceholderError, seal, sealKey, verifyDispatch } from "./crypto.ts";
@@ -89,11 +92,13 @@ class Gs extends RpcTarget {
   }
 
   async createCheck(fields: { name: string; status?: string; summary?: string; detailsUrl?: string; annotations?: Annotation[] }): Promise<CheckRun> {
-    return this.call("CreateCheck", fields);
+    const annotations = normalizeAnnotations(fields.annotations);
+    return this.call("CreateCheck", annotations ? { ...fields, annotations } : fields);
   }
 
   async updateCheck(id: string, fields: { status?: string; summary?: string; detailsUrl?: string; annotations?: Annotation[] }): Promise<CheckRun> {
-    return this.call("UpdateCheck", { checkRunId: id, ...fields });
+    const annotations = normalizeAnnotations(fields.annotations);
+    return this.call("UpdateCheck", { checkRunId: id, ...(annotations ? { ...fields, annotations } : fields) });
   }
 
   async readFile(path: string, at: string): Promise<string | null> {
@@ -110,6 +115,24 @@ class Gs extends RpcTarget {
 
   async getChangeset(): Promise<unknown> {
     return this.call("GetChangeset", {});
+  }
+
+  async diffChangeset(options: DiffChangesetOptions = {}): Promise<DiffChangesetResult> {
+    const body: Record<string, unknown> = {};
+    if (Array.isArray(options.paths) && options.paths.length > 0) {
+      body.paths = options.paths;
+    }
+    if (options.fromPatchset) {
+      body.fromPatchset = options.fromPatchset;
+    }
+    const res = await this.call<Partial<DiffChangesetResult>>("DiffChangeset", body);
+    return {
+      changesetId: res.changesetId ?? "",
+      fromPatchsetId: res.fromPatchsetId ?? "",
+      toPatchsetId: res.toPatchsetId ?? "",
+      changedPaths: res.changedPaths ?? [],
+      diff: res.diff ?? "",
+    };
   }
 
   async getState(): Promise<unknown> {

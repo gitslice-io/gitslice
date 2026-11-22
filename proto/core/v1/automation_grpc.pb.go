@@ -438,6 +438,7 @@ const (
 	AutomationRunService_ReadFile_FullMethodName         = "/gitslice.core.v1.AutomationRunService/ReadFile"
 	AutomationRunService_ListDirectory_FullMethodName    = "/gitslice.core.v1.AutomationRunService/ListDirectory"
 	AutomationRunService_GetChangeset_FullMethodName     = "/gitslice.core.v1.AutomationRunService/GetChangeset"
+	AutomationRunService_DiffChangeset_FullMethodName    = "/gitslice.core.v1.AutomationRunService/DiffChangeset"
 )
 
 // AutomationRunServiceClient is the client API for AutomationRunService service.
@@ -468,6 +469,7 @@ type AutomationRunServiceClient interface {
 	ReadFile(ctx context.Context, in *AutomationReadFileRequest, opts ...grpc.CallOption) (*AutomationReadFileResponse, error)
 	ListDirectory(ctx context.Context, in *AutomationListDirectoryRequest, opts ...grpc.CallOption) (*AutomationListDirectoryResponse, error)
 	GetChangeset(ctx context.Context, in *AutomationRunTokenRequest, opts ...grpc.CallOption) (*Changeset, error)
+	DiffChangeset(ctx context.Context, in *AutomationDiffChangesetRequest, opts ...grpc.CallOption) (*DiffChangesetResponse, error)
 }
 
 type automationRunServiceClient struct {
@@ -595,6 +597,15 @@ func (c *automationRunServiceClient) GetChangeset(ctx context.Context, in *Autom
 	return out, nil
 }
 
+func (c *automationRunServiceClient) DiffChangeset(ctx context.Context, in *AutomationDiffChangesetRequest, opts ...grpc.CallOption) (*DiffChangesetResponse, error) {
+	out := new(DiffChangesetResponse)
+	err := c.cc.Invoke(ctx, AutomationRunService_DiffChangeset_FullMethodName, in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AutomationRunServiceServer is the server API for AutomationRunService service.
 // All implementations should embed UnimplementedAutomationRunServiceServer
 // for forward compatibility
@@ -623,6 +634,7 @@ type AutomationRunServiceServer interface {
 	ReadFile(context.Context, *AutomationReadFileRequest) (*AutomationReadFileResponse, error)
 	ListDirectory(context.Context, *AutomationListDirectoryRequest) (*AutomationListDirectoryResponse, error)
 	GetChangeset(context.Context, *AutomationRunTokenRequest) (*Changeset, error)
+	DiffChangeset(context.Context, *AutomationDiffChangesetRequest) (*DiffChangesetResponse, error)
 }
 
 // UnimplementedAutomationRunServiceServer should be embedded to have forward compatible implementations.
@@ -667,6 +679,9 @@ func (UnimplementedAutomationRunServiceServer) ListDirectory(context.Context, *A
 }
 func (UnimplementedAutomationRunServiceServer) GetChangeset(context.Context, *AutomationRunTokenRequest) (*Changeset, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetChangeset not implemented")
+}
+func (UnimplementedAutomationRunServiceServer) DiffChangeset(context.Context, *AutomationDiffChangesetRequest) (*DiffChangesetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DiffChangeset not implemented")
 }
 
 // UnsafeAutomationRunServiceServer may be embedded to opt out of forward compatibility for this service.
@@ -914,6 +929,24 @@ func _AutomationRunService_GetChangeset_Handler(srv interface{}, ctx context.Con
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AutomationRunService_DiffChangeset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AutomationDiffChangesetRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AutomationRunServiceServer).DiffChangeset(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AutomationRunService_DiffChangeset_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AutomationRunServiceServer).DiffChangeset(ctx, req.(*AutomationDiffChangesetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AutomationRunService_ServiceDesc is the grpc.ServiceDesc for AutomationRunService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -972,6 +1005,10 @@ var AutomationRunService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "GetChangeset",
 			Handler:    _AutomationRunService_GetChangeset_Handler,
+		},
+		{
+			MethodName: "DiffChangeset",
+			Handler:    _AutomationRunService_DiffChangeset_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
