@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 
 import type { Slice } from "../../api/types";
 import { useApi } from "../../api/useApi";
+import { sliceRefKey } from "../../queries/slices";
 import { SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
 
 // The server's limit (service.maxSliceDescriptionRunes).
@@ -31,7 +32,7 @@ export function SliceDescriptionPanel({ slice }: { slice: Slice }) {
     onSuccess: async (updated) => {
       setMessage(updated.description ? "Description saved." : "Description cleared.");
       await queryClient.invalidateQueries({
-        queryKey: ["sliceRef", slice.ref?.account, slice.ref?.slice]
+        queryKey: sliceRefKey(slice.ref?.account ?? "", slice.ref?.slice ?? "")
       });
     }
   });

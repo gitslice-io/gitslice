@@ -2,13 +2,13 @@ import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useRef } from "react";
 
-import type { ListCommitsResponse, SliceRef } from "../../api/types";
+import type { SliceRef } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import { shortChangesetId, shortHash } from "../../lib/objectId";
 import { SliceNotice } from "../../components/slices/SlicePageParts";
-import { GLOBAL_REF_NAME } from "../../lib/globalRef";
 import { AuthorLabel } from "../../components/AccountAvatar";
 import { Timestamp } from "../../components/Timestamp";
+import { sliceCommitsInfiniteQuery } from "../../queries/repository";
 
 const HISTORY_PAGE_SIZE = 50;
 
@@ -34,25 +34,8 @@ export function HistoryDrawer({
   sliceRef
 }: HistoryDrawerProps) {
   const commitsQuery = useInfiniteQuery({
-    enabled: Boolean(open && commitId && sliceRef?.account && sliceRef?.slice),
-    getNextPageParam: (last: ListCommitsResponse) => last.nextPageToken || undefined,
-    initialPageParam: "",
-    queryKey: [
-      "sliceCommits",
-      sliceId,
-      commitId,
-      selectedPath,
-      sliceRef?.account,
-      sliceRef?.slice
-    ],
-    queryFn: ({ pageParam }) =>
-      api.listCommits({
-        refName: GLOBAL_REF_NAME,
-        slice: sliceRef,
-        path: selectedPath || undefined,
-        limit: HISTORY_PAGE_SIZE,
-        ...(pageParam ? { pageToken: pageParam } : {})
-      })
+    ...sliceCommitsInfiniteQuery(api, sliceId, commitId, selectedPath, sliceRef, HISTORY_PAGE_SIZE),
+    enabled: Boolean(open && commitId && sliceRef?.account && sliceRef?.slice)
   });
 
   const commits = (commitsQuery.data?.pages ?? []).flatMap((page) => page.commits ?? []);

@@ -18,6 +18,7 @@ import {
 import { useAppAuth } from "../auth/AppAuthProvider";
 import { canAdmin, kindLabel } from "../lib/accounts";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
+import { slicesKeyPrefix } from "../queries/slices";
 import { useSelection } from "../state/selection";
 
 export function SliceCreatePage() {
@@ -81,7 +82,7 @@ export function SliceCreatePage() {
         return;
       }
 
-      await queryClient.invalidateQueries({ queryKey: ["slices"] });
+      await queryClient.invalidateQueries({ queryKey: slicesKeyPrefix });
       void navigate({
         params: routeParams,
         to: "/slices/$account/$slice"

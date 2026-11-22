@@ -3,6 +3,7 @@ import { useState } from "react";
 
 import type { Slice } from "../../api/types";
 import { useApi } from "../../api/useApi";
+import { sliceRefKey } from "../../queries/slices";
 import { SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
 
 /**
@@ -24,7 +25,7 @@ export function SliceMergeOnSubmitPanel({ slice }: { slice: Slice }) {
     onSuccess: async (updated) => {
       setMessage(updated.mergeOnSubmit ? "Merge on submit is on." : "Merge on submit is off.");
       await queryClient.invalidateQueries({
-        queryKey: ["sliceRef", slice.ref?.account, slice.ref?.slice]
+        queryKey: sliceRefKey(slice.ref?.account ?? "", slice.ref?.slice ?? "")
       });
     }
   });

@@ -13,6 +13,7 @@ import {
 } from "../../components/source/sourceUtils";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
 import {
+  globalRefKey,
   globalRefQuery,
   sliceDirectoryQuery,
   sliceFileQuery,
@@ -317,7 +318,7 @@ export function useSlicePathExplorer({
 
   const openLandedPath = useCallback(
     async (landed: LandedPathOperation) => {
-      await queryClient.invalidateQueries({ queryKey: ["globalRef"] });
+      await queryClient.invalidateQueries({ queryKey: globalRefKey });
       const params = toSliceRouteParams(landed.slice);
       if (!params) {
         return;

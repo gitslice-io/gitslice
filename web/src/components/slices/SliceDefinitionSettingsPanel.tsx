@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { Slice, SliceDefinition } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { shortHash } from "../../lib/objectId";
-import { sliceRefKey } from "../../queries/slices";
+import { sliceRefKey, slicesKeyPrefix } from "../../queries/slices";
 import {
   SliceDefinitionForm,
   toVisibilityOption,
@@ -86,7 +86,7 @@ export function SliceDefinitionSettingsPanel({
       await queryClient.invalidateQueries({
         queryKey: sliceRefKey(routeAccount, routeSlice)
       });
-      await queryClient.invalidateQueries({ queryKey: ["slices"] });
+      await queryClient.invalidateQueries({ queryKey: slicesKeyPrefix });
     }
   });
 

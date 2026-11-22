@@ -8,6 +8,7 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Select } from "../ui/Select";
 import { SliceLoadingBlock, SliceNotice, getErrorMessage } from "./SlicePageParts";
+import { accountInvitationsKey, accountMembersKey } from "../../queries/accounts";
 import { authStatusKey } from "../../queries/auth";
 
 const ROLES = ["owner", "admin", "writer", "member", "contributor", "reader"] as const;
@@ -34,19 +35,19 @@ export function AccountPeople({ account, membership }: { account: string; member
   const [error, setError] = useState("");
 
   const membersQuery = useQuery({
-    queryKey: ["accountMembers", account],
+    queryKey: accountMembersKey(account),
     queryFn: () => api.listAccountMembers({ account })
   });
   const invitationsQuery = useQuery({
     enabled: manage,
-    queryKey: ["accountInvitations", account],
+    queryKey: accountInvitationsKey(account),
     queryFn: async () => (await api.listAccountInvitations({ account })).invitations ?? []
   });
 
   const refresh = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["accountMembers", account] }),
-      queryClient.invalidateQueries({ queryKey: ["accountInvitations", account] }),
+      queryClient.invalidateQueries({ queryKey: accountMembersKey(account) }),
+      queryClient.invalidateQueries({ queryKey: accountInvitationsKey(account) }),
       // Your own role may have changed.
       queryClient.invalidateQueries({ queryKey: authStatusKey })
     ]);

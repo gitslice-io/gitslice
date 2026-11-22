@@ -6,9 +6,9 @@ import { useAppAuth } from "../../auth/AppAuthProvider";
 import { AccountLink } from "../AccountAvatar";
 import { useSelection } from "../../state/selection";
 import { getErrorMessage } from "./SlicePageParts";
-import { authStatusKey } from "../../queries/auth";
+import { authStatusKey, myInvitationsKey } from "../../queries/auth";
 
-export const MY_INVITATIONS_KEY = ["myInvitations"] as const;
+export { myInvitationsKey as MY_INVITATIONS_KEY };
 
 // useMyInvitations is the signed-in user's pending invitations to
 // organizations. Failures count as none, so it never blocks a page.
@@ -17,7 +17,7 @@ export function useMyInvitations() {
   const { isLoaded, isSignedIn } = useAppAuth();
   return useQuery({
     enabled: Boolean(isLoaded && isSignedIn),
-    queryKey: MY_INVITATIONS_KEY,
+    queryKey: myInvitationsKey,
     queryFn: async () => (await api.listMyInvitations({})).invitations ?? [],
     retry: false
   });
@@ -35,7 +35,7 @@ export function PendingInvitations() {
     mutationFn: (input: { account: string; accept: boolean }) => api.respondToInvitation(input),
     onSuccess: async (_result, input) => {
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: MY_INVITATIONS_KEY }),
+        queryClient.invalidateQueries({ queryKey: myInvitationsKey }),
         queryClient.invalidateQueries({ queryKey: authStatusKey })
       ]);
       if (input.accept) {

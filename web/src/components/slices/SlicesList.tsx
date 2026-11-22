@@ -6,6 +6,7 @@ import { useApi } from "../../api/useApi";
 import { shortHash } from "../../lib/objectId";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
 import { canAdmin, kindLabel, membershipFor } from "../../lib/accounts";
+import { slicesListKey } from "../../queries/slices";
 import { useSelection } from "../../state/selection";
 import {
   SliceLoadingBlock,
@@ -35,7 +36,7 @@ export function SlicesList() {
   // away in the top bar, each with its own list.
   const slicesQuery = useQuery({
     enabled: Boolean(effectiveAccount),
-    queryKey: ["slices", effectiveAccount],
+    queryKey: slicesListKey(effectiveAccount),
     queryFn: () => listAllSlices(api, effectiveAccount)
   });
   const slices = slicesQuery.data ?? [];

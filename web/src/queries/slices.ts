@@ -14,7 +14,10 @@ function refParts(ref: SliceRef | undefined) {
   return [ref?.account ?? "", ref?.slice ?? ""] as const;
 }
 
-export const sliceRefKey = (account: string, slice: string) => ["sliceRef", account, slice] as const;
+export const slicesKeyPrefix = ["slices"] as const;
+export const slicesListKey = (account: string) => [...slicesKeyPrefix, account] as const;
+export const sliceRefKeyPrefix = ["sliceRef"] as const;
+export const sliceRefKey = (account: string, slice: string) => [...sliceRefKeyPrefix, account, slice] as const;
 export const globalRefKey = ["globalRef", GLOBAL_REF_NAME] as const;
 export const sliceGitMirrorKey = (ref: SliceRef) => ["sliceGitMirror", ...refParts(ref)] as const;
 

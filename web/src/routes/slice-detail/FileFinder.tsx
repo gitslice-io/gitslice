@@ -6,6 +6,7 @@ import type { ApiClient } from "../../api/useApi";
 import { FileTypeIcon } from "../../components/source/FileTypeIcon";
 import { cn } from "../../lib/cn";
 import { rankPaths } from "../../lib/fuzzy";
+import { sliceFilesKey } from "../../queries/repository";
 import { displayPath, listSliceFiles, sharedRoot } from "./sliceFiles";
 
 const RESULT_LIMIT = 50;
@@ -31,7 +32,7 @@ export function FileFinder({ api, commitId, includedPaths, onClose, onSelectPath
 
   const files = useQuery({
     queryFn: () => listSliceFiles(api, slice, commitId, includedPaths),
-    queryKey: ["sliceFiles", slice.account, slice.slice, commitId, includedPaths.join("|")],
+    queryKey: sliceFilesKey(slice, commitId, includedPaths.join("|")),
     retry: 1,
     retryDelay: 400,
     // A commit's files never change.

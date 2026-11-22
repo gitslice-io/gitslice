@@ -7,7 +7,7 @@ import { useApi } from "../../api/useApi";
 import { daemonName } from "../../lib/daemons";
 import { accountCIDaemonsQuery } from "../../queries/accounts";
 import { sliceDaemonsQuery } from "../../queries/agents";
-import { sliceRefKey } from "../../queries/slices";
+import { sliceRefKey, slicesKeyPrefix } from "../../queries/slices";
 import { SlicePanel, getErrorMessage } from "./SlicePageParts";
 
 // A change to the slice's pool of CI daemons: daemonId alone replaces it,
@@ -73,7 +73,7 @@ export function SliceCIDaemonPanel({
       await queryClient.invalidateQueries({
         queryKey: sliceRefKey(routeAccount, routeSlice)
       });
-      await queryClient.invalidateQueries({ queryKey: ["slices"] });
+      await queryClient.invalidateQueries({ queryKey: slicesKeyPrefix });
     }
   });
 

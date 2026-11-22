@@ -9,6 +9,7 @@ import {
   recentConversationsKey,
   sliceConversationsKey
 } from "../../queries/agents";
+import { slicesListKey } from "../../queries/slices";
 import { canHostConversations, daemonName } from "../../lib/daemons";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
 import { useSelection } from "../../state/selection";
@@ -56,7 +57,7 @@ export function NewConversationDialog({
 
   const slicesQuery = useQuery({
     enabled: open && account.length > 0,
-    queryKey: ["slices", account],
+    queryKey: slicesListKey(account),
     queryFn: async () => {
       const slices: Slice[] = [];
       let cursor = "";

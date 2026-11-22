@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import type { Secret, SecretScope } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { cn } from "../../lib/cn";
+import { secretScopeSlicesKey } from "../../queries/secrets";
 import { getErrorMessage } from "../slices/SlicePageParts";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
@@ -95,7 +96,7 @@ export function SecretForm({
 
   // Shortcuts: the whole account, and the folders of each of its slices.
   const slicesQuery = useQuery({
-    queryKey: ["secretScopeSlices", account],
+    queryKey: secretScopeSlicesKey(account),
     queryFn: async () =>
       ((await api.listSlices({ account, pageSize: 200 })).slices ?? [])
         .map((slice) => ({ label: slice.ref?.slice ?? "", paths: slice.definition?.includedPaths ?? [] }))

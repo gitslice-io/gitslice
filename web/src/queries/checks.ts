@@ -6,6 +6,7 @@ import type { ApiClient } from "../api/useApi";
 // Check runs and trigger runs of a changeset, plus trigger run logs. Written by
 // the SSR loader and polled by their panels; reruns invalidate by the prefixes.
 
+export const checkRunsAllKeyPrefix = ["checkRuns"] as const;
 export const checkRunsKeyPrefix = (changesetId: string) => ["checkRuns", changesetId] as const;
 export const triggerRunsKey = (changesetId: string) => ["triggerRuns", changesetId] as const;
 export const triggerRunLogsKey = (runId: string) => ["triggerRunLogs", runId] as const;

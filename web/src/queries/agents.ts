@@ -13,6 +13,11 @@ export const sliceConversationsKeyPrefix = ["sliceConversations"] as const;
 export const recentConversationsKey = ["recentConversations"] as const;
 export const allConversationsKey = ["allConversations"] as const;
 export const conversationKey = (conversationId: string) => ["conversation", conversationId] as const;
+export const conversationEventsKey = (
+  conversationId: string,
+  afterSeq: number | string,
+  beforeSeq: number | string
+) => ["conversationEvents", conversationId, afterSeq, beforeSeq] as const;
 
 export function sliceConversationsKey(slice: SliceRef) {
   return [...sliceConversationsKeyPrefix, `${slice.account ?? ""}:${slice.slice ?? ""}`] as const;

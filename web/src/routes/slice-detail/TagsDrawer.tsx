@@ -1,4 +1,4 @@
-import { queryOptions, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
@@ -7,6 +7,9 @@ import type { ApiClient } from "../../api/useApi";
 import { AuthorLabel } from "../../components/AccountAvatar";
 import { SliceNotice } from "../../components/slices/SlicePageParts";
 import { Timestamp } from "../../components/Timestamp";
+import { sliceTagsQuery } from "../../queries/tags";
+
+export { sliceTagsQuery };
 
 // Release tags of Gitslice itself; their files are served under /releases.
 const RELEASE_TAG = /^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
@@ -26,18 +29,6 @@ export function releaseHrefForTag(
     return undefined;
   }
   return `/releases/tag/${name}`;
-}
-
-// The slice's tags, shared by the drawer and the pinned-commit banner.
-export function sliceTagsQuery(
-  api: ApiClient,
-  sliceId: string,
-  sliceRef: SliceRef | undefined,
-) {
-  return queryOptions({
-    queryKey: ["sliceTags", sliceId, sliceRef?.account, sliceRef?.slice],
-    queryFn: () => api.listTags({ slice: sliceRef }),
-  });
 }
 
 function shortCommitHash(commitId: string | undefined): string {

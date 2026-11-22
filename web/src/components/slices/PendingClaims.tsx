@@ -12,6 +12,7 @@ import {
   pendingClaimsKey,
   pendingClaimsQuery
 } from "../../queries/auth";
+import { slicesKeyPrefix } from "../../queries/slices";
 import { Button } from "../ui/Button";
 import { getErrorMessage } from "./SlicePageParts";
 
@@ -47,7 +48,7 @@ export function PendingClaims({ showEmpty = false }: { showEmpty?: boolean }) {
         queryClient.invalidateQueries({ queryKey: pendingClaimsKey }),
         queryClient.invalidateQueries({ queryKey: authStatusKey }),
         queryClient.invalidateQueries({ queryKey: ownedAgentsKey }),
-        queryClient.invalidateQueries({ queryKey: ["slices"] })
+        queryClient.invalidateQueries({ queryKey: slicesKeyPrefix })
       ]);
     }
   });

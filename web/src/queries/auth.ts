@@ -13,6 +13,7 @@ export const sharedSlicesKey = ["sharedSlices"] as const;
 export const pendingClaimsKey = ["pendingClaims"] as const;
 export const ownedAgentsKey = ["ownedAgents"] as const;
 export const agentInvitesKey = ["agentInvites"] as const;
+export const myInvitationsKey = ["myInvitations"] as const;
 export const usernameAvailableKey = (username: string) => ["usernameAvailable", username] as const;
 
 export function authStatusQuery(api: Pick<ApiClient, "getAuthStatus">) {

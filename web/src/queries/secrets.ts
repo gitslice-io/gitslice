@@ -8,6 +8,7 @@ import type { ApiClient } from "../api/useApi";
 // view consistently.
 
 export const secretsKey = (account: string) => ["secrets", account] as const;
+export const secretScopeSlicesKey = (account: string) => ["secretScopeSlices", account] as const;
 export const sliceSecretsKeyPrefix = ["sliceSecrets"] as const;
 export const sliceSecretsKey = (slice: SliceRef) =>
   [...sliceSecretsKeyPrefix, slice.account ?? "", slice.slice ?? ""] as const;

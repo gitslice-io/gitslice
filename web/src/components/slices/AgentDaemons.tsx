@@ -6,6 +6,8 @@ import type { AgentDaemon, SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { useAppAuth } from "../../auth/AppAuthProvider";
 import { agentDaemonsKey, agentDaemonsQuery } from "../../queries/agents";
+import { checkRunsAllKeyPrefix } from "../../queries/checks";
+import { sliceRefKeyPrefix } from "../../queries/slices";
 import { daemonName } from "../../lib/daemons";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
 import { formatRelativeTime } from "../../lib/time";
@@ -90,7 +92,7 @@ function DaemonCard({ daemon }: { daemon: AgentDaemon }) {
   const refreshDaemons = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: agentDaemonsKey }),
-      queryClient.invalidateQueries({ queryKey: ["sliceRef"] })
+      queryClient.invalidateQueries({ queryKey: sliceRefKeyPrefix })
     ]);
   };
   const expose = useMutation({
@@ -113,8 +115,8 @@ function DaemonCard({ daemon }: { daemon: AgentDaemon }) {
       // The name shows in the pickers, slice settings and check runs too.
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: agentDaemonsKey }),
-        queryClient.invalidateQueries({ queryKey: ["sliceRef"] }),
-        queryClient.invalidateQueries({ queryKey: ["checkRuns"] })
+        queryClient.invalidateQueries({ queryKey: sliceRefKeyPrefix }),
+        queryClient.invalidateQueries({ queryKey: checkRunsAllKeyPrefix })
       ]);
     }
   });

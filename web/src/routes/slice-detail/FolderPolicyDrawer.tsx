@@ -17,6 +17,7 @@ import { Timestamp } from "../../components/Timestamp";
 import { Button } from "../../components/ui/Button";
 import { cn } from "../../lib/cn";
 import { shortChangesetId } from "../../lib/objectId";
+import { folderPolicyKey, folderPolicyQuery, triggerRunsOfKey, triggerRunsOfQuery } from "../../queries/automations";
 import { secretsKey } from "../../queries/secrets";
 import { AutomationRunLog, isFinalTriggerStatus } from "../../components/automations/AutomationRunLog";
 import { needsRunModal, RunAutomationModal } from "./RunAutomationModal";
@@ -37,9 +38,7 @@ export interface FolderPolicyDrawerProps {
   sliceRouteParams?: { account: string; slice: string } | null;
 }
 
-export function folderPolicyQueryKey(folder: string) {
-  return ["folderPolicy", folder] as const;
-}
+export { folderPolicyKey as folderPolicyQueryKey };
 
 // Unified Folder Inspector Drawer showing everything bound to a folder at the
 // head of main: triggers, checks (with required gates), secrets (with
@@ -96,9 +95,8 @@ export function FolderPolicyDrawer({
   }, [open]);
 
   const policyQuery = useQuery({
-    enabled: open && Boolean(folder),
-    queryKey: folderPolicyQueryKey(folder),
-    queryFn: () => api.getFolderPolicy({ path: folder })
+    ...folderPolicyQuery(api, folder),
+    enabled: open && Boolean(folder)
   });
 
   const policy = policyQuery.data;
@@ -124,7 +122,7 @@ export function FolderPolicyDrawer({
     onSuccess: async () => {
       setAddingSecret(false);
       await Promise.all([
-        queryClient.invalidateQueries({ queryKey: folderPolicyQueryKey(folder) }),
+        queryClient.invalidateQueries({ queryKey: folderPolicyKey(folder) }),
         queryClient.invalidateQueries({ queryKey: secretsKey(account) })
       ]);
     }
@@ -653,11 +651,10 @@ function TriggerCard({
   const queryClient = useQueryClient();
   const [openRun, setOpenRun] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
-  const runsKey = ["triggerRunsOf", account, trigger.id];
+  const runsKey = triggerRunsOfKey(account, trigger.id);
   const runsQuery = useQuery({
+    ...triggerRunsOfQuery(api, account, trigger.id),
     enabled: Boolean(account && trigger.id),
-    queryKey: runsKey,
-    queryFn: async () => (await api.listAutomationRuns({ account, automationId: trigger.id, limit: 5 })).runs ?? [],
     refetchInterval: (query) => (query.state.data?.some((run) => !isFinalTriggerStatus(run.status)) ? 3500 : false)
   });
   const run = useMutation({

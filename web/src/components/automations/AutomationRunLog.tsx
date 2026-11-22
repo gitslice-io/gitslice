@@ -5,6 +5,7 @@ import type { AutomationRun } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { cn } from "../../lib/cn";
 import { getErrorMessage } from "../../lib/errors";
+import { automationRunStepsQuery } from "../../queries/automations";
 import { triggerRunLogsQuery } from "../../queries/checks";
 
 const POLL_MS = 3500;
@@ -33,10 +34,7 @@ export function AutomationRunLog({ run }: { run: AutomationRun }) {
     refetchInterval: isFinalTriggerStatus(run.status) ? false : POLL_MS,
   });
   const stepsQuery = useQuery({
-    queryKey: ["automationRunSteps", runId],
-    queryFn: async () =>
-      (await api.listAutomationRuns({ parentRunId: runId, limit: 200 })).runs ??
-      [],
+    ...automationRunStepsQuery(api, runId),
     enabled: Boolean(runId && isPipeline),
     refetchInterval: isFinalTriggerStatus(run.status) ? false : POLL_MS,
   });

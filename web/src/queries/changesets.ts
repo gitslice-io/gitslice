@@ -13,6 +13,12 @@ export interface DependentChangeset {
 }
 
 export const changesetKey = (changesetId: string) => ["changeset", changesetId] as const;
+export const changesetFileDiffKey = (
+  changesetId: string,
+  fromPatchset: string,
+  toPatchset: string,
+  path: string
+) => ["changesetFileDiff", changesetId, fromPatchset, toPatchset, path] as const;
 
 export function changesetQuery(api: Pick<ApiClient, "getChangeset">, changesetId: string) {
   return queryOptions({

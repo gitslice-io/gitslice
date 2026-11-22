@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import type { TreeEntry } from "../../api/types";
 import { useApi } from "../../api/useApi";
+import { pathSuggestKey } from "../../queries/repository";
 import { globalRefQuery } from "../../queries/slices";
 import { SlicePanel } from "./SlicePageParts";
 
@@ -62,7 +63,7 @@ export function SliceDefinitionForm({
 
   const pathSuggestionsQuery = useQuery({
     enabled: Boolean(commitId),
-    queryKey: ["pathSuggest", commitId, dirPath],
+    queryKey: pathSuggestKey(commitId, dirPath),
     queryFn: async () => {
       try {
         return await api.listDirectory({

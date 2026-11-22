@@ -10,6 +10,7 @@ import { SourceCodeViewer } from "../../components/source/SourceCodeViewer";
 import { binaryKindFromPath, decodeBase64File } from "../../components/source/sourceUtils";
 import { SliceNotice } from "../../components/slices/SlicePageParts";
 import { cn } from "../../lib/cn";
+import { changesetFileVersionKey } from "../../queries/repository";
 
 export type FileVersionSide = "original" | "changed";
 
@@ -76,7 +77,7 @@ export function FileVersionDrawer({
     : "";
   const fileQuery = useQuery({
     enabled: Boolean(open && treeId && path),
-    queryKey: ["changesetFileVersion", treeId, path, slice?.account, slice?.slice],
+    queryKey: changesetFileVersionKey(treeId ?? "", path, slice),
     queryFn: () => api.readFile({ path, rootTreeId: treeId, slice }),
     staleTime: Infinity
   });

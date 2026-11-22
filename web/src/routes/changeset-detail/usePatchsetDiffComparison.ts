@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from "react";
 import type { Changeset, Patchset } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import type { DiffViewerFileState } from "../../components/diff/DiffViewer";
-import { changesetDiffQuery } from "../../queries/changesets";
+import { changesetDiffQuery, changesetFileDiffKey } from "../../queries/changesets";
 import {
   changedPathsForDiff,
   diffFileForResponse,
@@ -124,13 +124,12 @@ export function usePatchsetDiffComparison({
                 demandedFilePaths?.has(path) ||
                 focusFilePath === path)
           ),
-          queryKey: [
-            "changesetFileDiff",
+          queryKey: changesetFileDiffKey(
             canonicalChangesetId,
             fromPatchset,
             selectedToPatchset,
             path
-          ],
+          ),
           queryFn: async () => {
             const response = await api.diffChangeset({
               changesetId: canonicalChangesetId,

@@ -14,6 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import { cn } from "../../lib/cn";
 import { renderMarkdownToHtml } from "../../lib/markdown";
 import { useInternalLinkClickHandler } from "../../lib/internalLinkNavigation";
+import { conversationEventsKey } from "../../queries/agents";
 import { patchsetConversationRange } from "./patchsetUtils";
 
 export type ConversationViewItem =
@@ -188,12 +189,11 @@ export function PatchsetConversationContent({
 
   const eventsQuery = useQuery({
     enabled: Boolean(enabled && range),
-    queryKey: [
-      "conversationEvents",
+    queryKey: conversationEventsKey(
       range?.conversationId ?? "",
       range?.afterSeq ?? 0,
       range?.beforeSeq ?? 0
-    ],
+    ),
     queryFn: () =>
       api.getConversationEvents({
         conversationId: range!.conversationId,

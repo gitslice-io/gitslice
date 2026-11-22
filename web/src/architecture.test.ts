@@ -125,4 +125,18 @@ describe("web architecture boundaries", () => {
     }
     expect(violations).toEqual([]);
   });
+
+  it("keeps React Query key arrays centralized in src/queries", () => {
+    const violations: string[] = [];
+    for (const [key, text] of Object.entries(sources)) {
+      const rel = key.replace(/^\/src\//, "");
+      if (rel.startsWith("queries/")) {
+        continue;
+      }
+      if (/queryKey\s*:\s*\[/.test(text)) {
+        violations.push(rel);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
 });

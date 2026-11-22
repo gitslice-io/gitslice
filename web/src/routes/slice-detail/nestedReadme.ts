@@ -3,8 +3,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SliceRef, TreeEntry } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { normalizeRepositoryPath } from "../../components/source/sourceUtils";
+import { nestedReadmeQueryKey } from "../../queries/repository";
 import { sliceDirectoryQuery } from "../../queries/slices";
 import { findReadmeEntry } from "./readme";
+
+export { nestedReadmeQueryKey };
 
 // How many single-folder levels a folder page looks down for a README.
 export const NESTED_README_MAX_DEPTH = 8;
@@ -35,12 +38,6 @@ export async function findNestedReadme(
     }
     current = await list(normalizeRepositoryPath(only.path ?? ""));
   }
-}
-
-// nestedReadmeQueryKey caches findNestedReadme's answer for a folder whose
-// only entry is the folder at onlyPath; the page's server render fills it.
-export function nestedReadmeQueryKey(sliceRef: SliceRef | undefined, commitId: string, onlyPath: string) {
-  return ["sliceNestedReadme", sliceRef?.account ?? "", sliceRef?.slice ?? "", commitId, onlyPath] as const;
 }
 
 // useFolderReadme finds a folder's README as findNestedReadme does. The

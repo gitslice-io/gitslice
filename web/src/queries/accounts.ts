@@ -10,6 +10,13 @@ export const accountProfileKey = (account: string) => ["accountProfile", account
 
 export const accountCIDaemonsKey = (account: string) => ["accountCIDaemons", account] as const;
 
+export const accountMembersKey = (account: string) => ["accountMembers", account] as const;
+
+export const accountInvitationsKey = (account: string) => ["accountInvitations", account] as const;
+
+export const accountSlicesKey = (account: string, role: string, sort: SliceSort) =>
+  ["accountSlices", account, role, sort] as const;
+
 export function accountCIDaemonsQuery(api: Pick<ApiClient, "getAccountCIDaemons">, account: string) {
   return queryOptions({
     queryKey: accountCIDaemonsKey(account),
@@ -39,7 +46,7 @@ export function accountSlicesQuery(
   sort: SliceSort = "name"
 ) {
   return infiniteQueryOptions({
-    queryKey: ["accountSlices", account, role, sort] as const,
+    queryKey: accountSlicesKey(account, role, sort),
     initialPageParam: "",
     queryFn: ({ pageParam }): Promise<ListSlicesResponse> =>
       api.listSlices({ account, cursor: pageParam, pageSize: ACCOUNT_SLICES_PAGE_SIZE, sort }),
