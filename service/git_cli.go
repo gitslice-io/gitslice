@@ -18,8 +18,10 @@ import (
 )
 
 var (
-	maxGitImportBlobBytes   int64 = 100 << 20 // GitHub refuses files over 100 MiB, so any GitHub repository fits
-	maxGitImportCommitBytes int64 = 256 << 20
+	maxGitImportBlobBytes      int64 = 100 << 20 // GitHub refuses files over 100 MiB, so any GitHub repository fits
+	maxGitImportCommitBytes    int64 = 4 << 30   // safety ceiling per commit; blobs are streamed in bounded batches
+	maxGitImportBlobBatchBytes int64 = 32 << 20  // max uncompressed blob payload buffered in one upload batch
+	maxGitImportBlobBatchCount       = 512       // max unique blobs buffered in one upload batch
 )
 
 func parseGitDiffNameStatus(raw []byte) ([]string, []string, error) {
@@ -81,6 +83,35 @@ func parseGitDiffNameStatus(raw []byte) ([]string, []string, error) {
 	return deleted, upserts, nil
 }
 
+func gitFilesMetadataAtPaths(ctx context.Context, repoDir, commitID, mountPath string, gitPaths []string) (importSnapshot, []string, error) {
+	snapshot := importSnapshot{}
+	if len(gitPaths) == 0 {
+		return snapshot, nil, nil
+	}
+	const chunkSize = 512
+	var blobIDs []string
+	seenBlobIDs := map[string]struct{}{}
+	for start := 0; start < len(gitPaths); start += chunkSize {
+		end := start + chunkSize
+		if end > len(gitPaths) {
+			end = len(gitPaths)
+		}
+		args := []string{"ls-tree", "-r", "-z", "--full-tree", commitID, "--"}
+		for _, p := range gitPaths[start:end] {
+			args = append(args, ":(literal)"+p)
+		}
+		raw, err := gitOutputBytesImport(ctx, repoDir, args...)
+		if err != nil {
+			return nil, nil, err
+		}
+		blobIDs, err = parseGitTreeRecords(raw, mountPath, snapshot, seenBlobIDs, blobIDs)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return snapshot, blobIDs, nil
+}
+
 func gitFilesAtPaths(ctx context.Context, repoDir, commitID, mountPath string, gitPaths []string, known knownBlobs) (importSnapshot, error) {
 	snapshot := importSnapshot{}
 	if len(gitPaths) == 0 {
@@ -127,20 +158,43 @@ func gitBlobContents(ctx context.Context, repoDir string, blobIDs []string) (map
 	if len(blobIDs) == 0 {
 		return contents, nil
 	}
+	if err := streamGitBlobContents(ctx, repoDir, blobIDs, nil, func(blobID string, data []byte) error {
+		contents[blobID] = data
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	return contents, nil
+}
+
+// streamGitBlobContents streams each requested git blob via `git cat-file --batch`
+// without holding the entire commit in memory. If beforeRead is non-nil, it is
+// called with each blob's byte size before allocating its payload buffer so the
+// caller can flush an earlier batch first.
+func streamGitBlobContents(
+	ctx context.Context,
+	repoDir string,
+	blobIDs []string,
+	beforeRead func(size int64) error,
+	onBlob func(blobID string, data []byte) error,
+) error {
+	if len(blobIDs) == 0 {
+		return nil
+	}
 	cmd := exec.CommandContext(ctx, "git", "cat-file", "--batch")
 	cmd.Dir = repoDir
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return err
 	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return err
 	}
 	writeErrCh := make(chan error, 1)
 	go func() {
@@ -159,84 +213,80 @@ func gitBlobContents(ctx context.Context, repoDir string, blobIDs []string) (map
 		}
 		writeErrCh <- stdin.Close()
 	}()
+	abort := func() {
+		_ = cmd.Process.Kill()
+		<-writeErrCh
+		_ = cmd.Wait()
+	}
 	reader := bufio.NewReader(stdout)
 	var totalBytes int64
 	for range blobIDs {
 		header, err := reader.ReadString('\n')
 		if err != nil {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
-			return nil, err
+			abort()
+			return err
 		}
 		fields := strings.Fields(header)
 		if len(fields) != 3 {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
-			return nil, fmt.Errorf("malformed git cat-file header %q", strings.TrimSpace(header))
+			abort()
+			return fmt.Errorf("malformed git cat-file header %q", strings.TrimSpace(header))
 		}
 		if fields[1] != "blob" {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
-			return nil, fmt.Errorf("git object %s is %s, want blob", fields[0], fields[1])
+			abort()
+			return fmt.Errorf("git object %s is %s, want blob", fields[0], fields[1])
 		}
 		size, err := strconv.ParseInt(fields[2], 10, 64)
 		if err != nil || size < 0 {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
-			return nil, fmt.Errorf("invalid git blob size %q", fields[2])
+			abort()
+			return fmt.Errorf("invalid git blob size %q", fields[2])
 		}
 		if size > maxGitImportBlobBytes {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
-			return nil, status.Errorf(codes.ResourceExhausted, "git blob %s is %d bytes, exceeds %d byte import limit", fields[0], size, maxGitImportBlobBytes)
+			abort()
+			return status.Errorf(codes.ResourceExhausted, "git blob %s is %d bytes, exceeds %d byte import limit", fields[0], size, maxGitImportBlobBytes)
 		}
 		if totalBytes+size > maxGitImportCommitBytes {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
-			return nil, status.Errorf(codes.ResourceExhausted, "imported commit blob bytes exceed %d byte limit", maxGitImportCommitBytes)
+			abort()
+			return status.Errorf(codes.ResourceExhausted, "imported commit blob bytes exceed %d byte limit", maxGitImportCommitBytes)
+		}
+		if beforeRead != nil {
+			if err := beforeRead(size); err != nil {
+				abort()
+				return err
+			}
 		}
 		totalBytes += size
 		data := make([]byte, size)
 		if _, err := io.ReadFull(reader, data); err != nil {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
-			return nil, err
+			abort()
+			return err
 		}
 		trailing, err := reader.ReadByte()
 		if err != nil {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
-			return nil, err
+			abort()
+			return err
 		}
 		if trailing != '\n' {
-			_ = cmd.Process.Kill()
-			_ = <-writeErrCh
-			_ = cmd.Wait()
-			return nil, fmt.Errorf("malformed git cat-file payload for %s", fields[0])
+			abort()
+			return fmt.Errorf("malformed git cat-file payload for %s", fields[0])
 		}
-		contents[fields[0]] = data
+		if err := onBlob(fields[0], data); err != nil {
+			abort()
+			return err
+		}
 	}
 	if err := <-writeErrCh; err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
-		return nil, err
+		return err
 	}
 	if err := cmd.Wait(); err != nil {
 		msg := strings.TrimSpace(stderr.String())
 		if msg == "" {
 			msg = err.Error()
 		}
-		return nil, fmt.Errorf("git cat-file --batch: %s", msg)
+		return fmt.Errorf("git cat-file --batch: %s", msg)
 	}
-	return contents, nil
+	return nil
 }
 
 type gitCommitMeta struct {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -194,27 +195,28 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 			}); err != nil {
 				return err
 			}
-			var edits []*corev1.FileEdit
+			var deleted, upsertGitPaths []string
 			var snapshot importSnapshot
+			var blobIDs []string
 			if previousGitCommitID == "" {
-				snapshot, err = gitSnapshot(ctx, repoDir, gitCommitID, mountPath, known)
+				snapshot, blobIDs, err = gitSnapshotMetadata(ctx, repoDir, gitCommitID, mountPath)
 				if err != nil {
 					return importReadError(err, "read git commit "+gitCommitID)
 				}
-				edits = diffImportSnapshots(previous, snapshot)
 			} else {
-				edits, snapshot, err = gitDeltaEdits(ctx, repoDir, previousGitCommitID, gitCommitID, mountPath, known)
+				deleted, upsertGitPaths, snapshot, blobIDs, err = gitDeltaMetadata(ctx, repoDir, previousGitCommitID, gitCommitID, mountPath)
 				if err != nil {
 					return importReadError(err, "read git commit "+gitCommitID)
 				}
 			}
+			changedPaths := int32(len(deleted) + len(snapshot))
 			if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
 				Phase:            "uploading_blobs",
 				Message:          message,
 				Current:          int64(i + 1),
 				Total:            int64(len(gitCommits)),
 				GitCommitId:      gitCommitID,
-				ChangedPathCount: int32(len(edits)),
+				ChangedPathCount: changedPaths,
 			}); err != nil {
 				return err
 			}
@@ -225,11 +227,24 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 					Current:          int64(i + 1),
 					Total:            int64(len(gitCommits)),
 					GitCommitId:      gitCommitID,
-					ChangedPathCount: int32(len(edits)),
+					ChangedPathCount: changedPaths,
 				})
 			}
-			if err := s.uploadImportBlobs(ctx, slice.Id, edits, snapshot, uploadProgress); err != nil {
-				return grpcError(err)
+			if err := s.streamAndUploadImportBlobs(ctx, repoDir, slice.Id, snapshot, blobIDs, known, uploadProgress); err != nil {
+				var uploadErr *importUploadError
+				if errors.As(err, &uploadErr) {
+					return grpcError(uploadErr.err)
+				}
+				return importReadError(err, "read git commit "+gitCommitID)
+			}
+			var edits []*corev1.FileEdit
+			if previousGitCommitID == "" {
+				edits = diffImportSnapshots(previous, snapshot)
+			} else {
+				edits, err = deltaEditsFromSnapshot(mountPath, deleted, upsertGitPaths, snapshot)
+				if err != nil {
+					return importReadError(err, "read git commit "+gitCommitID)
+				}
 			}
 			ref, err := s.Repository.GetRef(ctx, targetRef)
 			if err != nil {

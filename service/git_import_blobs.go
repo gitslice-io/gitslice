@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
+	"gitslice.io/gitslice/internal/objectid"
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -17,77 +19,65 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Import commits can touch hundreds of files. Uploading their blobs to the
-// object store one at a time made a single ~200-file commit spend minutes in
-// serial round-trips to remote object storage (R2), long enough to trip stream
-// deadlines. Upload concurrently with a bounded worker pool, and give each
-// PutObject its own timeout + a few retries so one stalled connection fails
-// fast and recovers instead of hanging the whole import.
+// Import commits can touch thousands of files totaling hundreds of megabytes.
+// Uploading blobs to the object store one at a time made large commits spend
+// minutes in serial round-trips to remote object storage (R2), while buffering
+// every blob in a commit in memory before uploading blew past Cloud Run's
+// memory budget. Stream blobs from git in bounded-byte batches, upload each
+// batch concurrently with a bounded worker pool, upsert blob metadata in bulk,
+// and drop each batch's payload bytes before reading the next batch.
 const (
 	importBlobUploadConcurrency = 16
 	importBlobUploadTimeout     = 30 * time.Second
 	importBlobUploadAttempts    = 3
 )
 
-// uploadImportBlobs stores the new content of a commit's edits. A file the
-// import already uploaded for an earlier commit (snapshot marks it Reused) is
-// skipped, and so is content the server already holds: a commit that moves
-// files uploads nothing, and an attempt that was cut off keeps what it
-// stored. onProgress, if set, is told how many of the new files are stored.
-func (s *RepositoryService) uploadImportBlobs(ctx context.Context, sliceID string, edits []*corev1.FileEdit, snapshot importSnapshot, onProgress func(done, total int)) error {
-	type importBlob struct {
+// importUploadError distinguishes storage/object-store failures during streaming
+// import from git read failures so transient upload errors remain retryable.
+type importUploadError struct {
+	err error
+}
+
+func (e *importUploadError) Error() string { return e.err.Error() }
+func (e *importUploadError) Unwrap() error { return e.err }
+
+// streamAndUploadImportBlobs reads the commit's unseen git blobs in bounded
+// memory batches, uploads any content the server does not already hold, records
+// blob metadata and slice associations, and fills BlobID/ContentHash/Size on
+// every entry of snapshot without keeping file bytes in memory.
+func (s *RepositoryService) streamAndUploadImportBlobs(
+	ctx context.Context,
+	repoDir, sliceID string,
+	snapshot importSnapshot,
+	blobIDs []string,
+	known knownBlobs,
+	onProgress func(done, total int),
+) error {
+	type pendingBlob struct {
+		gitBlobID   string
 		key         string
 		blobID      string
 		contentHash string
 		size        int64
 		data        []byte
 	}
-	// Deduplicate by content hash: many paths in a commit can share identical
-	// content, and the object key is content-addressed.
-	seen := make(map[string]struct{})
-	var blobs []importBlob
-	for _, edit := range edits {
-		if edit.Op == "delete" {
-			continue
+	toRead := make([]string, 0, len(blobIDs))
+	for _, id := range blobIDs {
+		if _, ok := known[id]; !ok {
+			toRead = append(toRead, id)
 		}
-		file, ok := snapshot[edit.Path]
-		if !ok {
-			return fmt.Errorf("missing import file for %s", edit.Path)
-		}
-		if file.Reused {
-			continue
-		}
-		if _, dup := seen[file.ContentHash]; dup {
-			continue
-		}
-		seen[file.ContentHash] = struct{}{}
-		blobs = append(blobs, importBlob{
-			key:         filesystem.BlobKey(file.ContentHash),
-			blobID:      file.BlobID,
-			contentHash: file.ContentHash,
-			size:        file.Size,
-			data:        file.Data,
-		})
-	}
-	if len(blobs) == 0 {
-		return nil
 	}
 
-	// Content the server holds already needs no upload.
-	hashes := make([]string, 0, len(blobs))
-	for _, blob := range blobs {
-		hashes = append(hashes, blob.contentHash)
+	resolved := make(map[string]importFile, len(toRead))
+	batchCap := maxGitImportBlobBatchCount
+	if batchCap <= 0 {
+		batchCap = 1
 	}
-	stored, err := s.storedContentHashes(ctx, hashes)
-	if err != nil {
-		return err
+	if len(toRead) < batchCap {
+		batchCap = len(toRead)
 	}
-	var missing []importBlob
-	for _, blob := range blobs {
-		if _, ok := stored[blob.contentHash]; !ok {
-			missing = append(missing, blob)
-		}
-	}
+	batch := make([]pendingBlob, 0, batchCap)
+	var batchBytes int64
 
 	var done atomic.Int64
 	var lastReport atomic.Int64
@@ -100,35 +90,140 @@ func (s *RepositoryService) uploadImportBlobs(ctx context.Context, sliceID strin
 		if !force && (now-last < int64(2*time.Second) || !lastReport.CompareAndSwap(last, now)) {
 			return
 		}
-		onProgress(int(done.Load()), len(missing))
+		onProgress(int(done.Load()), len(toRead))
 	}
-	group, groupCtx := errgroup.WithContext(ctx)
-	group.SetLimit(importBlobUploadConcurrency)
-	for _, blob := range missing {
-		blob := blob
-		group.Go(func() error {
-			if err := s.putImportBlob(groupCtx, blob.key, blob.data); err != nil {
-				return err
-			}
-			if err := s.Blobs.Upsert(groupCtx, blob.blobID, blob.contentHash, blob.size, blob.key); err != nil {
-				return err
-			}
-			done.Add(1)
-			report(false)
+
+	flushBatch := func() error {
+		if len(batch) == 0 {
 			return nil
-		})
+		}
+		seen := make(map[string]struct{}, len(batch))
+		unique := make([]pendingBlob, 0, len(batch))
+		hashes := make([]string, 0, len(batch))
+		for _, blob := range batch {
+			if _, dup := seen[blob.contentHash]; dup {
+				continue
+			}
+			seen[blob.contentHash] = struct{}{}
+			unique = append(unique, blob)
+			hashes = append(hashes, blob.contentHash)
+		}
+		stored, err := s.storedContentHashes(ctx, hashes)
+		if err != nil {
+			return &importUploadError{err: err}
+		}
+		var missing []pendingBlob
+		var alreadyStored int64
+		for _, blob := range unique {
+			if _, ok := stored[blob.contentHash]; ok {
+				alreadyStored++
+			} else {
+				missing = append(missing, blob)
+			}
+		}
+		if alreadyStored > 0 {
+			done.Add(alreadyStored)
+		}
+
+		var uploadedMu sync.Mutex
+		uploaded := make([]storage.BlobUpsert, 0, len(missing))
+		group, groupCtx := errgroup.WithContext(ctx)
+		group.SetLimit(importBlobUploadConcurrency)
+		for _, blob := range missing {
+			blob := blob
+			group.Go(func() error {
+				if err := s.putImportBlob(groupCtx, blob.key, blob.data); err != nil {
+					return err
+				}
+				uploadedMu.Lock()
+				uploaded = append(uploaded, storage.BlobUpsert{
+					ID:              blob.blobID,
+					ContentHash:     blob.contentHash,
+					Size:            blob.size,
+					StorageLocation: blob.key,
+				})
+				uploadedMu.Unlock()
+				done.Add(1)
+				report(false)
+				return nil
+			})
+		}
+		groupErr := group.Wait()
+		if len(uploaded) > 0 && (groupErr == nil || ctx.Err() == nil) {
+			if err := s.Blobs.UpsertMany(ctx, uploaded); err != nil && groupErr == nil {
+				return &importUploadError{err: err}
+			}
+		}
+		if groupErr != nil {
+			return &importUploadError{err: groupErr}
+		}
+		if err := s.Blobs.AssociateSlices(ctx, sliceID, hashes); err != nil {
+			return &importUploadError{err: err}
+		}
+		for _, blob := range batch {
+			meta := importFile{
+				BlobID:      blob.blobID,
+				ContentHash: blob.contentHash,
+				Size:        blob.size,
+			}
+			resolved[blob.gitBlobID] = meta
+			if known != nil {
+				known[blob.gitBlobID] = meta
+			}
+		}
+		clear(batch)
+		batch = batch[:0]
+		batchBytes = 0
+		report(false)
+		return nil
 	}
-	if err := group.Wait(); err != nil {
+
+	beforeRead := func(size int64) error {
+		batchByteLimit := maxGitImportBlobBatchBytes
+		batchCountLimit := maxGitImportBlobBatchCount
+		if len(batch) > 0 && ((batchByteLimit > 0 && batchBytes+size > batchByteLimit) || (batchCountLimit > 0 && len(batch) >= batchCountLimit)) {
+			return flushBatch()
+		}
+		return nil
+	}
+	onBlob := func(gitBlobID string, data []byte) error {
+		contentHash := objectid.RawContentHash(data)
+		blobID := objectid.BlobID(data)
+		batch = append(batch, pendingBlob{
+			gitBlobID:   gitBlobID,
+			key:         filesystem.BlobKey(contentHash),
+			blobID:      blobID,
+			contentHash: contentHash,
+			size:        int64(len(data)),
+			data:        data,
+		})
+		batchBytes += int64(len(data))
+		return nil
+	}
+
+	if err := streamGitBlobContents(ctx, repoDir, toRead, beforeRead, onBlob); err != nil {
 		return err
 	}
-	if len(missing) > 0 {
+	if err := flushBatch(); err != nil {
+		return err
+	}
+	if len(toRead) > 0 {
 		report(true)
 	}
-	contentHashes := make([]string, 0, len(blobs))
-	for _, blob := range blobs {
-		contentHashes = append(contentHashes, blob.contentHash)
+	for p, file := range snapshot {
+		if meta, ok := resolved[file.GitBlobID]; ok {
+			file.BlobID, file.ContentHash, file.Size = meta.BlobID, meta.ContentHash, meta.Size
+			snapshot[p] = file
+			continue
+		}
+		if k, ok := known[file.GitBlobID]; ok {
+			file.BlobID, file.ContentHash, file.Size, file.Reused = k.BlobID, k.ContentHash, k.Size, true
+			snapshot[p] = file
+			continue
+		}
+		return fmt.Errorf("missing git blob %s for %s", file.GitBlobID, file.GitPath)
 	}
-	return s.Blobs.AssociateSlices(ctx, sliceID, contentHashes)
+	return nil
 }
 
 // storedContentHashes returns which of the content hashes the server holds

@@ -9896,3 +9896,14 @@ Clerk) and update the relevant design and CLI documentation.
   - Updated `web/public/llms.txt`, `web/src/routes/doc/AgentsDoc.tsx`, and `web/src/routes/doc/cliReferenceData.ts`.
   - Verified with `go test ./...`, `go build ./cmd/...`, `npx tsc -b`, `npm test -- --run`, and `npm run build` in `web/`.
 
+## 2026-11-22 — Stream Git Import Blobs in Bounded Batches & Raise Per-Commit Limit
+
+- **Goal:** Allow `gs import` to ingest large repositories whose initial or single-commit blob payload exceeds the previous 256 MiB per-commit ceiling (such as `okou-ai/okou` at ~746 MiB across 13,528 files) without OOM-killing the 1 GiB Cloud Run server.
+- **Decisions & implementation:**
+  - Previously `gitSnapshot` / `gitDeltaEdits` buffered every blob in a commit in memory (`map[string][]byte` + `importFile.Data`) before `uploadImportBlobs` ran, forcing `maxGitImportCommitBytes` to stay at 256 MiB.
+  - Added `streamGitBlobContents` (`service/git_cli.go`) to stream `git cat-file --batch` with a `beforeRead(size)` hook called before each payload allocation, extracted metadata-only tree scanning (`gitSnapshotMetadata`, `gitDeltaMetadata`, `gitFilesMetadataAtPaths`, `parseGitTreeRecords`, `deltaEditsFromSnapshot` in `service/git_cli.go` & `service/git_snapshots.go`), and replaced buffered `uploadImportBlobs` with `streamAndUploadImportBlobs` (`service/git_import_blobs.go`, wired in `service/git_import.go`).
+  - Each batch flushes to object storage concurrently (16 workers), bulk-upserts metadata via `Blobs.UpsertMany`, associates slices, records hashes in `knownBlobs`, and clears payload buffers once `maxGitImportBlobBatchBytes` (32 MiB) or `maxGitImportBlobBatchCount` (512 blobs) would be exceeded.
+  - Raised `maxGitImportCommitBytes` from 256 MiB to 4 GiB while preserving the 100 MiB per-blob ceiling (`maxGitImportBlobBytes`) and preserving `codes.ResourceExhausted` in `importReadError` (`service/git_import_resilience.go`).
+  - Added unit tests `TestImportStreamsBlobsInBoundedBatches` and `TestImportCommitLimitPreservesResourceExhausted` (`service/git_import_resilience_test.go`).
+- **Verification:** `gofmt`, `go vet ./...`, `go test ./...`, and `go build ./cmd/...`.
+

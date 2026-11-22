@@ -305,3 +305,80 @@ func TestGitDeltaEditsReuseBlobsAlreadyRead(t *testing.T) {
 		}
 	}
 }
+
+// Large commits stream blobs in bounded batches instead of buffering the whole
+// commit in memory, including when an individual blob exceeds the batch byte
+// budget.
+func TestImportStreamsBlobsInBoundedBatches(t *testing.T) {
+	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "1")
+	prevBatchBytes, prevBatchCount := maxGitImportBlobBatchBytes, maxGitImportBlobBatchCount
+	t.Cleanup(func() {
+		maxGitImportBlobBatchBytes = prevBatchBytes
+		maxGitImportBlobBatchCount = prevBatchCount
+	})
+	maxGitImportBlobBatchBytes = 16
+	maxGitImportBlobBatchCount = 3
+
+	repo := t.TempDir()
+	runGitTest(t, repo, "init", "-q")
+	runGitTest(t, repo, "config", "user.name", "Streamer")
+	runGitTest(t, repo, "config", "user.email", "streamer@example.invalid")
+	wantFiles := map[string]string{
+		"small-1.txt": "alpha\n",
+		"small-2.txt": "beta\n",
+		"small-3.txt": "gamma\n",
+		"small-4.txt": "delta\n",
+		"big.txt":     strings.Repeat("large-blob-line\n", 4), // 64 bytes > 16-byte batch limit
+	}
+	for name, content := range wantFiles {
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runGitTest(t, repo, "add", "-A")
+	runGitTest(t, repo, "commit", "-q", "-m", "initial")
+
+	_, handlers := newMemoryHandlers()
+	store := &countingStore{ObjectStore: handlers.Repository.ObjectStore}
+	handlers.Repository.ObjectStore = store
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+
+	res, err := handlers.Repository.importGitRepository(ctx, importRequest(repo, true), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Commits) != 1 {
+		t.Fatalf("imported %d commits, want 1", len(res.Commits))
+	}
+	if got := store.puts.Load(); got != int32(len(wantFiles)) {
+		t.Fatalf("stored %d objects, want %d", got, len(wantFiles))
+	}
+	for name, want := range wantFiles {
+		file, err := handlers.Repository.ReadFile(ctx, &corev1.ReadFileRequest{
+			CommitId: res.FinalCommitId,
+			Path:     "/acme/imported/" + name,
+		})
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if string(file.Data) != want {
+			t.Fatalf("content of %s = %q, want %q", name, string(file.Data), want)
+		}
+	}
+}
+
+func TestImportCommitLimitPreservesResourceExhausted(t *testing.T) {
+	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "1")
+	prevCommitMax := maxGitImportCommitBytes
+	t.Cleanup(func() {
+		maxGitImportCommitBytes = prevCommitMax
+	})
+	maxGitImportCommitBytes = 32
+
+	_, handlers := newMemoryHandlers()
+	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
+	_, err := handlers.Repository.importGitRepository(ctx, importRequest(movedFilesRepo(t, 12), true), nil)
+	if status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("import over commit limit = %v, want ResourceExhausted", err)
+	}
+}

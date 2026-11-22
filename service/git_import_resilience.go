@@ -147,6 +147,9 @@ func importReadError(err error, message string) error {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return status.Errorf(codes.Unavailable, "%s: %v", message, err)
 	}
+	if st, ok := status.FromError(err); ok && st.Code() == codes.ResourceExhausted {
+		return status.Errorf(codes.ResourceExhausted, "%s: %s", message, st.Message())
+	}
 	return status.Errorf(codes.InvalidArgument, "%s: %v", message, err)
 }
 
