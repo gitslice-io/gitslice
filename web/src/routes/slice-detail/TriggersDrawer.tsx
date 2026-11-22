@@ -54,8 +54,8 @@ export function TriggersDrawer({
         aria-hidden={!open}
         aria-label="Triggers"
         className={cn(
-          "fixed inset-y-0 right-0 z-50 flex w-full max-w-lg transform flex-col bg-white dark:bg-zinc-900 shadow-xl transition-transform duration-200",
-          open ? "translate-x-0" : "translate-x-full",
+          "fixed inset-y-0 right-0 z-50 flex w-full max-w-lg transform flex-col bg-white dark:bg-zinc-900 shadow-xl transition-[transform,visibility] duration-200",
+          open ? "visible translate-x-0" : "invisible pointer-events-none translate-x-full",
         )}
       >
         <div className="border-b border-slate-200 dark:border-zinc-800 px-4 py-4">

@@ -1,7 +1,8 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { AppAuthContext } from "../auth/AppAuthProvider";
 import { accountHomeIsProfile, kindLabel, type Membership } from "../lib/accounts";
 import { cn } from "../lib/cn";
 import { useSelection } from "../state/selection";
@@ -12,6 +13,7 @@ import { AccountAvatar } from "./AccountAvatar";
 // picks which of the viewer's accounts (personal, organizations, claimed
 // agents) Home and "New slice" work in.
 export function AccountSwitcher() {
+  const authKind = useContext(AppAuthContext)?.authKind ?? null;
   const { activeAccount, activeMembership, memberships, setActiveAccount } = useSelection();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -84,8 +86,9 @@ export function AccountSwitcher() {
   const showFilter = memberships.length > FILTER_FROM;
   const needle = filter.trim().toLowerCase();
   const shown = needle ? memberships.filter((m) => m.account.toLowerCase().includes(needle)) : memberships;
+  const selfGroupLabel = authKind === "agent" ? "Agent" : "Personal";
   const groups: [string, Membership[]][] = [
-    ["Personal", shown.filter((m) => m.kind === "personal")],
+    [selfGroupLabel, shown.filter((m) => m.kind === "personal")],
     ["Organizations", shown.filter((m) => m.kind === "organization")],
     ["Agents", shown.filter((m) => m.kind === "agent")],
     ["Other", shown.filter((m) => !["personal", "organization", "agent"].includes(m.kind))]
@@ -114,6 +117,11 @@ export function AccountSwitcher() {
     setOpen(false);
   }
 
+  const activeKindLabel =
+    authKind === "agent" && activeMembership?.kind === "personal"
+      ? "Agent"
+      : kindLabel(activeMembership?.kind ?? "");
+
   return (
     <div className="relative" ref={root}>
       <button
@@ -129,7 +137,7 @@ export function AccountSwitcher() {
         <span className="hidden min-w-0 sm:block">
           <span className="block truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">{activeAccount}</span>
           <span className="block text-[11px] leading-3 text-slate-500 dark:text-zinc-500">
-            {kindLabel(activeMembership?.kind ?? "")}
+            {activeKindLabel}
           </span>
         </span>
         {invitations.length > 0 ? (

@@ -34,7 +34,7 @@ import { useSelection } from "../state/selection";
 // slices; members see every slice.
 export function AccountPage() {
   const api = useApi();
-  const { isLoaded } = useAppAuth();
+  const { authKind, isLoaded } = useAppAuth();
   const { memberships, activeAccount, setActiveAccount } = useSelection();
   const params = useParams({ from: "/publicApp/accounts/$account" });
   const account = params.account ?? "";
@@ -81,6 +81,7 @@ export function AccountPage() {
   const viewSlices = homeSlice ? slices.filter((slice) => slice !== homeSlice) : slices;
   const homeRouteParams = homeSlice ? toSliceRouteParams(homeSlice.ref) : undefined;
   const kind = membership?.kind || profile?.kind || pages[0]?.accountKind || "";
+  const displayKind = authKind === "agent" && membership?.kind === "personal" ? "agent" : kind;
   const notFound = isNotFoundError(slicesQuery.error) || isNotFoundError(profileQuery.error);
   // An organization's owners and admins edit its profile; a person edits their own.
   const canEditProfile =
@@ -97,7 +98,7 @@ export function AccountPage() {
       ) : (
         <>
           <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-3">
-            <AccountAvatar account={account} kind={kind} size="xl" version={profile ? (profile.avatarVersion ?? "") : undefined} />
+            <AccountAvatar account={account} kind={displayKind} size="xl" version={profile ? (profile.avatarVersion ?? "") : undefined} />
             {/* At least this wide, so the buttons wrap below it on a phone
                 instead of squeezing the name into a sliver. */}
             <div className="min-w-[12rem] flex-1">
@@ -106,7 +107,7 @@ export function AccountPage() {
               </h1>
               <p className="text-sm text-slate-600 dark:text-zinc-400">
                 {profile?.displayName ? `@${account} · ` : ""}
-                {kind ? kindLabel(kind) : "Account"}
+                {displayKind ? kindLabel(displayKind) : "Account"}
                 {membership?.role ? ` · you are ${article(membership.role)} ${membership.role}` : ""}
               </p>
             </div>

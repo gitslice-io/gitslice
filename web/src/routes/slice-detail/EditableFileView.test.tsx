@@ -127,5 +127,20 @@ describe("EditableFileView", () => {
       fireEvent.click(screen.getByRole("button", { name: "File actions" }));
       expect(screen.queryByRole("menuitemcheckbox", { name: "Blame" })).not.toBeInTheDocument();
     });
+
+    it("strips sha256 prefix from commit id, uses an h1 path heading once, and shows line numbers", () => {
+      render(
+        text({
+          commitId: "sha256:c9828db2496800112233",
+          fileContent: "package app\n\nfunc main() {}\n"
+        })
+      );
+      expect(screen.getByRole("heading", { level: 1, name: "/acme/app/main.go" })).toBeInTheDocument();
+      expect(screen.getAllByText("/acme/app/main.go")).toHaveLength(1);
+      expect(screen.getByText("c9828db24968")).toBeInTheDocument();
+      expect(screen.queryByText("sha256:c")).not.toBeInTheDocument();
+      expect(screen.getByLabelText("Line numbers")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "3" })).toBeInTheDocument();
+    });
   });
 });

@@ -42,7 +42,7 @@ afterEach(() => {
 });
 
 describe("AgentAccountMenu", () => {
-  it("keeps the trigger compact on phones while preserving the accessible label and menu details", () => {
+  it("keeps the trigger compact without duplicating the account slug and renders the menu in a portal", () => {
     render(
       <AppAuthContext.Provider value={makeAgentAuth()}>
         <AgentAccountMenu />
@@ -51,10 +51,13 @@ describe("AgentAccountMenu", () => {
 
     const trigger = screen.getByRole("button", { name: "Agent session: antigravity-nic" });
     expect(trigger).toHaveClass("size-8", "sm:w-auto");
-    expect(screen.getByText("antigravity-nic")).toHaveClass("sr-only", "sm:not-sr-only");
+    expect(trigger).toHaveAttribute("title", "Signed in as agent @antigravity-nic");
+    expect(screen.queryByText("@antigravity-nic")).not.toBeInTheDocument();
 
     fireEvent.click(trigger);
-    expect(screen.getByRole("menu")).toBeInTheDocument();
+    const menu = screen.getByRole("menu");
+    expect(menu).toBeInTheDocument();
+    expect(menu.parentElement).toBe(document.body);
     expect(screen.getByText("@antigravity-nic")).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: "Sign out & revoke session" })).toBeInTheDocument();
   });

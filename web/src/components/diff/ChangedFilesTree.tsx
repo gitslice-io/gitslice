@@ -9,6 +9,8 @@ interface ChangedFilesTreeProps {
   files: DiffFile[];
   onSelect(id: string): void;
   scrollClassName?: string;
+  // Files whose diff has not loaded yet; omit +0 -0 until stats are known.
+  unloadedIds?: ReadonlySet<string>;
   // Files the reviewer has marked viewed; they are dimmed and ticked.
   viewedIds?: ReadonlySet<string>;
 }
@@ -41,6 +43,7 @@ export function ChangedFilesTree({
   files,
   onSelect,
   scrollClassName,
+  unloadedIds,
   viewedIds
 }: ChangedFilesTreeProps) {
   const tree = useMemo(() => buildTree(files), [files]);
@@ -88,6 +91,7 @@ export function ChangedFilesTree({
             node={node}
             onSelect={onSelect}
             onToggleDirectory={toggleDirectory}
+            unloadedIds={unloadedIds}
             viewedIds={viewedIds}
           />
         ))}
@@ -103,6 +107,7 @@ function TreeNodeRow({
   node,
   onSelect,
   onToggleDirectory,
+  unloadedIds,
   viewedIds
 }: {
   activeId?: string;
@@ -111,6 +116,7 @@ function TreeNodeRow({
   node: TreeNode;
   onSelect(id: string): void;
   onToggleDirectory(path: string): void;
+  unloadedIds?: ReadonlySet<string>;
   viewedIds?: ReadonlySet<string>;
 }) {
   if (node.type === "file") {
@@ -121,6 +127,7 @@ function TreeNodeRow({
         file={node.file}
         name={node.name}
         onSelect={onSelect}
+        unloaded={unloadedIds?.has(node.file.id) ?? false}
         viewed={viewedIds?.has(node.file.id) ?? false}
       />
     );
@@ -159,6 +166,7 @@ function TreeNodeRow({
               node={child}
               onSelect={onSelect}
               onToggleDirectory={onToggleDirectory}
+              unloadedIds={unloadedIds}
               viewedIds={viewedIds}
             />
           ))
@@ -173,6 +181,7 @@ function FileRow({
   file,
   name,
   onSelect,
+  unloaded,
   viewed
 }: {
   active: boolean;
@@ -180,6 +189,7 @@ function FileRow({
   file: DiffFile;
   name: string;
   onSelect(id: string): void;
+  unloaded: boolean;
   viewed: boolean;
 }) {
   return (
@@ -218,12 +228,24 @@ function FileRow({
             ✓
           </span>
         ) : null}
-        <span className={active ? "text-emerald-200" : "text-emerald-700 dark:text-emerald-300"}>
-          +{file.additions}
-        </span>
-        <span className={active ? "text-rose-200" : "text-rose-700 dark:text-rose-300"}>
-          -{file.deletions}
-        </span>
+        {unloaded ? (
+          <span
+            aria-label="Diff not loaded yet"
+            className={active ? "text-slate-300" : "text-slate-400 dark:text-zinc-500"}
+            title="Diff loads on scroll or click"
+          >
+            …
+          </span>
+        ) : (
+          <>
+            <span className={active ? "text-emerald-200" : "text-emerald-700 dark:text-emerald-300"}>
+              +{file.additions}
+            </span>
+            <span className={active ? "text-rose-200" : "text-rose-700 dark:text-rose-300"}>
+              -{file.deletions}
+            </span>
+          </>
+        )}
       </span>
     </button>
   );

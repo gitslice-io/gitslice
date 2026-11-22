@@ -139,6 +139,11 @@ export function AppAuthProvider({
   );
 
   const signOutAgent = useCallback(async (): Promise<void> => {
+    await queryClient.cancelQueries();
+    agentTokenRef.current = null;
+    pendingTokenFetchRef.current = null;
+    setAgentSession(null);
+    queryClient.clear();
     try {
       await fetch("/auth/agent/logout", {
         method: "POST",
@@ -148,12 +153,8 @@ export function AppAuthProvider({
         }
       });
     } catch {
-      // Clear local state even if the network request fails.
+      // Local state is already cleared even if the network request fails.
     }
-    agentTokenRef.current = null;
-    pendingTokenFetchRef.current = null;
-    setAgentSession(null);
-    queryClient.clear();
   }, [queryClient]);
 
   const clerkSignedIn = Boolean(clerk.isLoaded && clerk.isSignedIn);

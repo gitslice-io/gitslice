@@ -87,4 +87,20 @@ describe("HeaderCard title and description", () => {
     expect(await screen.findByText(/only while it is open/)).toBeInTheDocument();
     expect(screen.getByLabelText("Description")).toBeInTheDocument();
   });
+
+  it("hides review actions including Merge on terminal changesets and strips sha256 prefix from base commit", () => {
+    renderCard({
+      canSubmit: true,
+      canUseReviewActions: true,
+      changeset: {
+        baseCommitId: "sha256:c9828db24968abcdef1234",
+        id: "cs_1",
+        status: "submitted",
+        title: "Landed change"
+      },
+      terminal: true
+    });
+    expect(screen.queryByRole("button", { name: "Merge" })).not.toBeInTheDocument();
+    expect(screen.getByText("base c9828db24968")).toBeInTheDocument();
+  });
 });

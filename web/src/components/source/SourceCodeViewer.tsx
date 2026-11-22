@@ -7,6 +7,7 @@ import { useMobileDetailsClass } from "../MobileDetails";
 import { languageFromPath, previewKindFromPath, type PreviewKind } from "./sourceUtils";
 import { highlightToHtml } from "./highlight";
 import { BlameView } from "./BlameView";
+import { codeLineCount } from "./blame";
 import { DiagramViewer } from "./DiagramViewer";
 import { JsonLinesViewer } from "./JsonLinesViewer";
 import { JsonViewer } from "./JsonViewer";
@@ -32,6 +33,8 @@ interface SourceCodeViewerProps {
   blame?: BlameControl;
   code: string;
   fill?: boolean;
+  // Omit the path string in the viewer bar when an outer header already shows it.
+  hidePath?: boolean;
   path: string;
   // Where the file is in the repository, so a markdown file's relative links
   // open inside the app and its relative images load from the repository.
@@ -51,17 +54,32 @@ interface HighlightState {
 
 type ViewMode = "preview" | "raw";
 
+function readSelectedLineFromHash(maxLines: number): number | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const match = /^#L(\d+)$/.exec(window.location.hash);
+  if (!match) {
+    return null;
+  }
+  const parsed = Number(match[1]);
+  return parsed >= 1 && parsed <= maxLines ? parsed : null;
+}
+
 export function SourceCodeViewer({
   blame: blameControl,
   code,
   fill = false,
+  hidePath = false,
   path,
   repo
 }: SourceCodeViewerProps) {
   const language = useMemo(() => languageFromPath(path), [path]);
   const previewKind = useMemo(() => previewKindFromPath(path), [path]);
   const lineCount = useMemo(() => (code ? code.split(/\r\n|\r|\n/).length : 0), [code]);
+  const numberedLineCount = useMemo(() => codeLineCount(code), [code]);
   const [viewMode, setViewMode] = useState<ViewMode>("preview");
+  const [selectedLine, setSelectedLine] = useState<number | null>(null);
   // Blame shows each line with who last changed it. It reads the file through
   // a slice, so only a file viewed in one has it; viewing it needs the raw
   // lines, not a preview.
@@ -78,6 +96,21 @@ export function SourceCodeViewer({
   // On a phone with the page's details folded, only the Preview/Raw switch
   // stays; with nothing to switch, the bar goes too.
   const foldedOnPhone = useMobileDetailsClass();
+
+  useEffect(() => {
+    setSelectedLine(readSelectedLineFromHash(numberedLineCount));
+  }, [path, numberedLineCount]);
+
+  function selectLine(lineNumber: number) {
+    const next = selectedLine === lineNumber ? null : lineNumber;
+    setSelectedLine(next);
+    if (typeof window !== "undefined") {
+      const nextUrl = next
+        ? `${window.location.pathname}${window.location.search}#L${next}`
+        : `${window.location.pathname}${window.location.search}`;
+      window.history.replaceState(null, "", nextUrl);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -127,16 +160,61 @@ export function SourceCodeViewer({
     </pre>
   );
 
+  const numberedCodeBody: ReactNode =
+    numberedLineCount > 0 ? (
+      <div className="flex min-w-max">
+        <div
+          aria-label="Line numbers"
+          className="sticky left-0 z-10 shrink-0 select-none border-r border-slate-200 bg-slate-50/95 py-4 text-right font-mono text-xs leading-6 text-slate-400 dark:border-zinc-800 dark:bg-zinc-950/95 dark:text-zinc-500"
+        >
+          {Array.from({ length: numberedLineCount }, (_, index) => {
+            const lineNumber = index + 1;
+            const active = selectedLine === lineNumber;
+            return (
+              <button
+                aria-current={active ? "location" : undefined}
+                className={cn(
+                  "block h-6 w-full min-w-[3rem] px-3 text-right tabular-nums transition hover:text-zinc-950 dark:hover:text-zinc-100",
+                  active && "bg-amber-100/80 font-semibold text-amber-900 dark:bg-amber-900/35 dark:text-amber-200"
+                )}
+                id={`L${lineNumber}`}
+                key={lineNumber}
+                onClick={() => selectLine(lineNumber)}
+                type="button"
+              >
+                {lineNumber}
+              </button>
+            );
+          })}
+        </div>
+        <div className="relative min-w-0 flex-1">
+          {codeBody}
+          {selectedLine !== null ? (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-x-0 border-l-2 border-amber-500 bg-amber-300/20 dark:border-amber-400 dark:bg-amber-400/15"
+              style={{ height: 24, top: 16 + (selectedLine - 1) * 24 }}
+            />
+          ) : null}
+        </div>
+      </div>
+    ) : (
+      codeBody
+    );
+
   return (
     <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900">
       <div
         className={cn(
           "flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 px-4 py-3 text-xs text-slate-500 dark:text-zinc-400",
+          hidePath && "justify-end py-2",
           foldedOnPhone && (previewKind ? "max-lg:justify-end max-lg:py-2" : foldedOnPhone)
         )}
       >
         {/* A page that owns the blame state shows the path above already. */}
-        <div className={cn("min-w-0 truncate font-mono text-slate-600 dark:text-zinc-400", foldedOnPhone, blameControl && "max-sm:hidden")}>{path}</div>
+        {!hidePath ? (
+          <div className={cn("min-w-0 truncate font-mono text-slate-600 dark:text-zinc-400", foldedOnPhone, blameControl && "max-sm:hidden")}>{path}</div>
+        ) : null}
         <div className="flex flex-wrap items-center justify-end gap-3">
           {previewKind && !blaming ? (
             <ViewModeToggle onChange={setViewMode} value={viewMode} />
@@ -166,7 +244,7 @@ export function SourceCodeViewer({
           {previewKind && viewMode === "preview" ? (
             <Preview code={code} kind={previewKind} path={path} repo={repo} />
           ) : (
-            codeBody
+            numberedCodeBody
           )}
         </div>
       )}

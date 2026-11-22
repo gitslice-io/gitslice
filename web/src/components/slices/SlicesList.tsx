@@ -93,7 +93,7 @@ export function SlicesList() {
               {slices.map((slice) => {
                 const sliceId = slice.id ?? "";
                 const routeParams = toSliceRouteParams(slice.ref);
-                const name = sliceDisplayName(slice);
+                const name = formatHomeSliceName(slice);
 
                 return (
                   <li key={sliceId || name}>
@@ -133,9 +133,9 @@ export function SlicesList() {
                     <tr>
                       <th className="px-4 py-3">Slice</th>
                       <th className="px-4 py-3">Visibility</th>
-                      <th className="px-4 py-3">Version</th>
-                      <th className="px-4 py-3">Definition hash</th>
                       <th className="px-4 py-3">Included paths</th>
+                      <th className="hidden px-4 py-3 xl:table-cell">Version</th>
+                      <th className="hidden px-4 py-3 xl:table-cell">Definition hash</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-zinc-800">
@@ -143,11 +143,12 @@ export function SlicesList() {
                       const paths = slice.definition?.includedPaths ?? [];
                       const sliceId = slice.id ?? "";
                       const routeParams = toSliceRouteParams(slice.ref);
+                      const name = formatHomeSliceName(slice);
 
                       return (
                         <tr
                           className="align-top transition hover:bg-slate-50 dark:hover:bg-zinc-950"
-                          key={sliceId || sliceDisplayName(slice)}
+                          key={sliceId || name}
                         >
                           <td className="px-4 py-3 font-medium text-zinc-950 dark:text-zinc-50">
                             {routeParams ? (
@@ -156,10 +157,10 @@ export function SlicesList() {
                                 params={routeParams}
                                 to="/slices/$account/$slice"
                               >
-                                {sliceDisplayName(slice)}
+                                {name}
                               </Link>
                             ) : (
-                              sliceDisplayName(slice)
+                              name
                             )}
                           </td>
                           <td className="px-4 py-3">
@@ -167,10 +168,18 @@ export function SlicesList() {
                               visibility={slice.definition?.visibility}
                             />
                           </td>
-                          <td className="px-4 py-3 font-mono text-xs text-slate-700 dark:text-zinc-300">
+                          <td className="px-4 py-3 text-slate-700 dark:text-zinc-300">
+                            <span className="font-medium text-zinc-950 dark:text-zinc-50">
+                              {paths.length}
+                            </span>{" "}
+                            <span className="font-mono text-xs text-slate-600 dark:text-zinc-400">
+                              {formatPathPreview(paths)}
+                            </span>
+                          </td>
+                          <td className="hidden px-4 py-3 font-mono text-xs text-slate-700 dark:text-zinc-300 xl:table-cell">
                             {slice.definition?.version ?? "unknown"}
                           </td>
-                          <td className="whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-700 dark:text-zinc-300">
+                          <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-700 dark:text-zinc-300 xl:table-cell">
                             {slice.definitionHash ? (
                               <span title={slice.definitionHash}>
                                 {shortHash(slice.definitionHash)}
@@ -178,12 +187,6 @@ export function SlicesList() {
                             ) : (
                               "none"
                             )}
-                          </td>
-                          <td className="px-4 py-3 text-slate-700 dark:text-zinc-300">
-                            <span className="font-medium text-zinc-950 dark:text-zinc-50">
-                              {paths.length}
-                            </span>{" "}
-                            <span>{formatPathPreview(paths)}</span>
                           </td>
                         </tr>
                       );
@@ -215,4 +218,13 @@ async function listAllSlices(api: ReturnType<typeof useApi>, account: string) {
   } while (cursor);
 
   return slices;
+}
+
+function formatHomeSliceName(slice: Slice) {
+  const account = slice.ref?.account;
+  const slug = slice.ref?.slice;
+  if (account && slug) {
+    return `${account}/${slug}`;
+  }
+  return sliceDisplayName(slice);
 }

@@ -321,13 +321,25 @@ export function SliceDetailPage() {
               aria-expanded={false}
               aria-label="Show files"
               className={cn(
-                "hidden h-full min-h-0 flex-col items-center gap-2 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-1.5 py-3 text-xs font-semibold text-slate-600 dark:text-zinc-400 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]",
+                "hidden h-full min-h-0 flex-col items-center gap-2.5 rounded-lg border border-slate-200 dark:border-zinc-800 bg-slate-50/80 dark:bg-zinc-900/90 px-1.5 py-3.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 shadow-sm transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-white dark:hover:bg-zinc-900 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98]",
                 showTree ? "" : "lg:flex"
               )}
               onClick={() => setTreeChoice(true)}
-              title="Show files"
+              title="Show file tree"
               type="button"
             >
+              <svg
+                aria-hidden="true"
+                className="h-4 w-4 shrink-0 text-slate-500 dark:text-zinc-400"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.75"
+                viewBox="0 0 24 24"
+              >
+                <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+              </svg>
               <span aria-hidden="true" className="text-sm leading-none">
                 »
               </span>

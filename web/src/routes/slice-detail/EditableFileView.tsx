@@ -21,6 +21,7 @@ import { binaryKindFromPath } from "../../components/source/sourceUtils";
 import { SlicePanel } from "../../components/slices/SlicePageParts";
 import { useMobileDetailsClass } from "../../components/MobileDetails";
 import { cn } from "../../lib/cn";
+import { shortHash } from "../../lib/objectId";
 import { copyMoveMenuItems, useCopyMove } from "./CopyMove";
 import { canModifyPath, joinRepositoryPath } from "./DirectoryHeader";
 
@@ -68,6 +69,7 @@ export function EditableFileView({
   const [isRenaming, setIsRenaming] = useState(false);
   const [draft, setDraft] = useState(displayedContent);
   const [renameError, setRenameError] = useState("");
+  const [copiedPath, setCopiedPath] = useState(false);
   const copyMove = useCopyMove();
   const canModifySelectedPath = canModifyPath(includedPaths, selectedPath);
   const foldedOnPhone = useMobileDetailsClass();
@@ -80,6 +82,7 @@ export function EditableFileView({
     setIsRenaming(false);
     setRenameError("");
     setDraft(displayedContent);
+    setCopiedPath(false);
   }, [displayedContent, selectedPath]);
 
   function saveEdit() {
@@ -175,13 +178,34 @@ export function EditableFileView({
         <div className="border-b border-slate-200 dark:border-zinc-800 px-4 py-4 sm:px-5">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <h2 className="break-all text-base font-semibold text-zinc-950 dark:text-zinc-50">
-                {selectedPath || "Slice root"}
-              </h2>
+              <div className="flex items-center gap-2">
+                <h1 className="min-w-0 break-all text-base font-semibold text-zinc-950 dark:text-zinc-50">
+                  {selectedPath || "Slice root"}
+                </h1>
+                {selectedPath ? (
+                  <button
+                    aria-label="Copy file path"
+                    className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-500 transition hover:bg-slate-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(selectedPath);
+                        setCopiedPath(true);
+                        window.setTimeout(() => setCopiedPath(false), 1800);
+                      } catch {
+                        // Clipboard unavailable; path text remains selectable.
+                      }
+                    }}
+                    title="Copy file path"
+                    type="button"
+                  >
+                    {copiedPath ? "Copied" : "Copy"}
+                  </button>
+                ) : null}
+              </div>
               <p className="mt-1 hidden text-xs text-slate-500 dark:text-zinc-400 sm:block">
                 Commit{" "}
                 <span className="font-mono text-slate-700 dark:text-zinc-300" title={commitId}>
-                  {commitId.slice(0, 8)}
+                  {shortHash(commitId)}
                 </span>
               </p>
             </div>
@@ -267,6 +291,7 @@ export function EditableFileView({
             blame={blame}
             code={displayedContent}
             fill
+            hidePath
             path={selectedPath}
             repo={onSelectPath ? { commitId, includedPaths, onOpenPath: onSelectPath, slice: sliceRef } : undefined}
           />

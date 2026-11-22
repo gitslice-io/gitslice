@@ -19,6 +19,7 @@ import { copyMoveMenuItems, useCopyMove } from "./CopyMove";
 interface DirectoryHeaderProps {
   commitId: string;
   createDirectory?: string;
+  headingAs?: "h1" | "h2";
   includedPaths: string[];
   onOpenHistory?: () => void;
   onOpenPolicy?: () => void;
@@ -39,6 +40,7 @@ type DirectoryActionMode = "" | "rename" | "new-file" | "new-folder";
 export function DirectoryHeader({
   commitId,
   createDirectory,
+  headingAs = "h2",
   includedPaths,
   onOpenHistory,
   onOpenPolicy,
@@ -143,17 +145,18 @@ export function DirectoryHeader({
       History
     </button>
   ) : null;
+  const Heading = headingAs;
 
   return (
     <div className={cn("border-b border-slate-200 dark:border-zinc-800 px-4 py-3 sm:px-5 sm:py-4", selectedPath && mode === "" && foldedOnPhone)}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h2
+          <Heading
             className="break-all text-base font-semibold text-zinc-950 dark:text-zinc-50"
             title={compact ? `Commit ${commitId}` : undefined}
           >
             {selectedPath || "Slice root"}
-          </h2>
+          </Heading>
           {compact ? null : (
             <p className="mt-1 hidden text-xs text-slate-500 dark:text-zinc-400 sm:block">
               Commit{" "}

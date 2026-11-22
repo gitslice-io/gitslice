@@ -15,11 +15,13 @@ import {
   SlicePanel,
   getErrorMessage
 } from "../components/slices/SlicePageParts";
+import { useAppAuth } from "../auth/AppAuthProvider";
 import { canAdmin, kindLabel } from "../lib/accounts";
 import { toSliceRouteParams } from "../lib/sliceRoutes";
 import { useSelection } from "../state/selection";
 
 export function SliceCreatePage() {
+  const { authKind } = useAppAuth();
   const api = useApi();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -157,7 +159,7 @@ export function SliceCreatePage() {
                 {selection.isLoading ? <option value="">Loading...</option> : null}
                 {eligible.map((m) => (
                   <option key={m.account} value={m.account}>
-                    {m.account} ({kindLabel(m.kind).toLowerCase()})
+                    {m.account} ({authKind === "agent" && m.kind === "personal" ? "agent" : kindLabel(m.kind).toLowerCase()})
                   </option>
                 ))}
               </select>

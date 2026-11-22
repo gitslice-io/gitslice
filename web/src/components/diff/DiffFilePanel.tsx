@@ -58,7 +58,8 @@ export function DiffFilePanel({
 }) {
   const [showLargeDiff, setShowLargeDiff] = useState(false);
   const status = fileState?.status ?? "loaded";
-  const isLargeDiff = file.lines.length > largeDiffLineLimit;
+  const changedLineCount = file.additions + file.deletions;
+  const isLargeDiff = changedLineCount > largeDiffLineLimit;
   const { dir, name } = splitDisplayPath(file.path, pathPrefix);
   const displayOldPath = file.oldPath ? stripPathPrefix(file.oldPath, pathPrefix) : undefined;
   const fullTitle = file.oldPath ? `${file.oldPath} -> ${file.path}` : file.path;
@@ -190,7 +191,7 @@ export function DiffFilePanel({
           />
         ) : isLargeDiff && !showLargeDiff ? (
           <LargeDiffGuard
-            lineCount={file.lines.length}
+            lineCount={changedLineCount}
             onShow={() => setShowLargeDiff(true)}
           />
         ) : isBodyMounted || showLargeDiff ? (
@@ -252,7 +253,7 @@ function LargeDiffGuard({
 }) {
   return (
     <div className="flex min-h-20 flex-wrap items-center justify-between gap-3 bg-slate-50 dark:bg-zinc-950 px-4 py-4 text-sm text-slate-600 dark:text-zinc-400">
-      <span>Large diff ({lineCount} lines)</span>
+      <span>Large diff ({lineCount} changed lines)</span>
       <button
         className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs font-semibold text-zinc-950 dark:text-zinc-50 transition hover:bg-slate-100 dark:hover:bg-zinc-800 active:scale-[0.98]"
         onClick={onShow}

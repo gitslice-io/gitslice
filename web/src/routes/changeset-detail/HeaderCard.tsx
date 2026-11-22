@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router";
 import type { Changeset } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { useMobileDetails } from "../../components/MobileDetails";
-import { shortChangesetId } from "../../lib/objectId";
+import { shortChangesetId, shortHash } from "../../lib/objectId";
 import { displaySubmitBlockedReason } from "../stackPageUtils";
 import { isMergeableStatus, isPublishing } from "./status";
 import { StatusBadge } from "./StatusBadge";
@@ -67,7 +67,7 @@ export function HeaderCard({
   const allowSubmit = canSubmit ?? canUseReviewActions;
   const allowAbandon = canAbandon ?? canUseReviewActions;
   const showActions =
-    allowSubmit || (!terminal && allowAbandon) || Boolean(!terminal && canApprove && onApprove);
+    !terminal && (allowSubmit || allowAbandon || Boolean(canApprove && onApprove));
   // On phones the page folds its details; outside such a page the card keeps
   // its own toggle for the description.
   const pageDetails = useMobileDetails();
@@ -110,12 +110,14 @@ export function HeaderCard({
                 title={changeset.title || ""}
               />
             ) : null}
-            <div className={cn("grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 md:gap-3", editing && "hidden")}>
+            <div className={cn("grid grid-cols-[minmax(0,1fr)_auto] items-start gap-2 md:gap-3 lg:items-center", editing && "hidden")}>
               <h1
                 className={cn(
-                  "truncate text-base font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 sm:text-lg md:text-xl",
-                  // Unfolded on a phone, the whole title shows.
-                  showDetails && "max-lg:whitespace-normal max-lg:break-words"
+                  "text-base font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 sm:text-lg md:text-xl lg:truncate",
+                  // On phones, show up to 2 lines when collapsed and the full title when expanded.
+                  showDetails
+                    ? "max-lg:whitespace-normal max-lg:break-words"
+                    : "max-lg:line-clamp-2 max-lg:break-words"
                 )}
                 title={changeset.title || "Untitled changeset"}
               >
@@ -225,7 +227,7 @@ export function HeaderCard({
                   className="mt-3 font-mono text-xs text-slate-500 dark:text-zinc-400 md:mt-4"
                   title={changeset.baseCommitId}
                 >
-                  base {changeset.baseCommitId.slice(0, 12)}
+                  base {shortHash(changeset.baseCommitId)}
                 </p>
               ) : null}
             </div>

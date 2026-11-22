@@ -161,18 +161,17 @@ describe("DiffViewer", () => {
     );
   });
 
-  it("guards diffs over 5,000 lines until Show diff is clicked", () => {
-    const contextLines = Array.from(
+  it("guards diffs with over 5,000 changed lines until Show diff is clicked", () => {
+    const addedLines = Array.from(
       { length: 5001 },
-      (_, index) => ` context ${index + 1}`
+      (_, index) => `+added ${index + 1}`
     );
     const diff = [
       "diff --git a/large.txt b/large.txt",
       "--- a/large.txt",
       "+++ b/large.txt",
-      "@@ -1,5001 +1,5002 @@",
-      ...contextLines,
-      "+tail-marker",
+      "@@ -0,0 +1,5001 @@",
+      ...addedLines,
       ""
     ].join("\n");
 
@@ -185,11 +184,39 @@ describe("DiffViewer", () => {
       />
     );
 
-    expect(screen.getByText("Large diff (5006 lines)")).toBeInTheDocument();
-    expect(screen.queryByText("+tail-marker")).not.toBeInTheDocument();
+    expect(screen.getByText("Large diff (5001 changed lines)")).toBeInTheDocument();
+    expect(screen.queryByText("+added 1")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Show diff" }));
 
+    expect(screen.getByText("+added 1")).toBeInTheDocument();
+  });
+
+  it("renders a small edit inside a 5,000+ line file without Large diff guard", () => {
+    const contextLines = Array.from(
+      { length: 5001 },
+      (_, index) => ` context ${index + 1}`
+    );
+    const diff = [
+      "diff --git a/log.md b/log.md",
+      "--- a/log.md",
+      "+++ b/log.md",
+      "@@ -1,5001 +1,5002 @@",
+      ...contextLines,
+      "+tail-marker",
+      ""
+    ].join("\n");
+
+    render(
+      <DiffViewer
+        diffResponse={{ changedPaths: ["log.md"], diff }}
+        error={null}
+        isError={false}
+        isLoading={false}
+      />
+    );
+
+    expect(screen.queryByText(/Large diff/)).not.toBeInTheDocument();
     expect(screen.getByText("+tail-marker")).toBeInTheDocument();
   });
 
@@ -212,6 +239,7 @@ describe("DiffViewer", () => {
     expect(
       screen.getByText("Diff loads as this file nears the viewport.")
     ).toBeInTheDocument();
+    expect(screen.getByLabelText("Diff not loaded yet")).toBeInTheDocument();
 
     const file = parseDiff(
       [

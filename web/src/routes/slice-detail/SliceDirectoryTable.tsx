@@ -1,13 +1,16 @@
 import { useState } from "react";
 
+import type { SliceRef } from "../../api/types";
 import { ActionMenu } from "../../components/source/ActionMenu";
 import {
   InlineRenameForm,
+  NewFileForm,
   joinRepositoryPath,
   parentRepositoryPath,
   type PendingEdit
 } from "../../components/source/SliceEditing";
 import {
+  canCreateInPath,
   entryDisplayName,
   entryKindLabel,
   formatSize,
@@ -22,31 +25,94 @@ const TOP_LEVEL_SLICE_FOLDER_TITLE =
   "Top-level slice folders are managed in the slice definition (Settings).";
 
 interface SliceDirectoryTableProps {
+  createDirectory?: string;
   entries: import("../../api/types").TreeEntry[];
   includedPaths: string[];
   onSelectPath(path: string): void;
   onStageEdit?: (edit: PendingEdit) => void;
+  sliceRef?: SliceRef;
   // compact is a names-only list for a narrow column: no heading row, kind,
   // size, hash or path line.
   compact?: boolean;
 }
 
 export function SliceDirectoryTable({
+  createDirectory,
   entries,
   includedPaths,
   onSelectPath,
   onStageEdit,
+  sliceRef,
   compact = false
 }: SliceDirectoryTableProps) {
   const [renamingPath, setRenamingPath] = useState("");
+  const [creatingFile, setCreatingFile] = useState(false);
+  const [copiedInit, setCopiedInit] = useState(false);
   const copyMove = useCopyMove();
   const sortedEntries = sortEntries(entries);
   const showActions = Boolean(onStageEdit);
+  const targetCreateDir = createDirectory || includedPaths[0] || "";
+  const canCreateHere = Boolean(
+    onStageEdit && targetCreateDir && canCreateInPath(includedPaths, targetCreateDir)
+  );
 
   if (!sortedEntries.length) {
+    const initCmd =
+      sliceRef?.account && sliceRef?.slice
+        ? `gs init ${sliceRef.account}:${sliceRef.slice} .`
+        : "";
     return (
-      <div className="p-8 text-sm text-slate-600 dark:text-zinc-400">
-        This slice-projected directory is empty.
+      <div className="p-6 sm:p-8">
+        <p className="text-sm font-medium text-zinc-950 dark:text-zinc-50">
+          This slice-projected directory is empty.
+        </p>
+        <p className="mt-1 text-sm text-slate-600 dark:text-zinc-400">
+          Add your first file directly here or check out this slice with the CLI.
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          {canCreateHere && !creatingFile ? (
+            <button
+              className="rounded-md bg-zinc-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+              onClick={() => setCreatingFile(true)}
+              type="button"
+            >
+              New file
+            </button>
+          ) : null}
+          {initCmd ? (
+            <div className="inline-flex max-w-full items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 font-mono text-xs text-slate-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
+              <code className="truncate">{initCmd}</code>
+              <button
+                aria-label="Copy checkout command"
+                className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-sans font-medium text-slate-600 transition hover:bg-slate-200/70 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(initCmd);
+                    setCopiedInit(true);
+                    window.setTimeout(() => setCopiedInit(false), 1800);
+                  } catch {
+                    // Clipboard unavailable; command text remains selectable.
+                  }
+                }}
+                type="button"
+              >
+                {copiedInit ? "Copied" : "Copy"}
+              </button>
+            </div>
+          ) : null}
+        </div>
+        {creatingFile && canCreateHere ? (
+          <div className="mt-4">
+            <NewFileForm
+              directoryPath={targetCreateDir}
+              onCancel={() => setCreatingFile(false)}
+              onCreate={(edit) => {
+                onStageEdit?.(edit);
+                setCreatingFile(false);
+              }}
+            />
+          </div>
+        ) : null}
       </div>
     );
   }

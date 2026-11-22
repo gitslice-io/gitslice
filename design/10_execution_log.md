@@ -9829,3 +9829,49 @@ Clerk) and update the relevant design and CLI documentation.
   `design/12_account_auth.md`, `design/04_cli_design.md`,
   `web/src/routes/doc/AgentsDoc.tsx`, `web/src/routes/doc/cliReferenceData.ts`,
   and `web/public/llms.txt`.
+
+## 2026-11-22 — Web UI/UX, Accessibility, and Agent-Session Polish
+
+- **Agent auth & hydration fixes:**
+  - Moved `#key=` hash inspection in `web/src/routes/AgentLoginPage.tsx` into
+    `useEffect` and guarded `window.location.search` in
+    `web/src/routes/CliLoginPage.tsx` to eliminate SSR/hydration mismatches
+    (React errors `#418`/`#419`/`#422`/`#425`).
+  - Updated `AppAuthProvider.signOutAgent` (`web/src/auth/AppAuthProvider.tsx`)
+    to cancel active React Query queries before clearing cache/logging out,
+    avoiding transient 401 races during sign-out.
+  - Made `AgentSignInForm` input full-width (`w-full`) with primary CTA styling
+    (`AgentSignInForm.tsx`, `CliLoginPage.tsx`).
+  - Portaled `AgentAccountMenu` onto `document.body` (`fixed z-[70]`) to avoid
+    header `backdrop-blur` stacking bleed-through and compacted its trigger so
+    the agent slug is not duplicated beside `AccountSwitcher`.
+  - Labeled an agent's own account as **Agent** instead of **Personal** across
+    `AccountSwitcher`, `AccountPage`, and `SliceCreatePage`.
+- **Slice & file viewer improvements:**
+  - Fixed `EditableFileView` commit hash formatting to use `shortHash(commitId)`
+    (eliminating `Commit sha256:c`), promoted file/directory headers to semantic
+    `<h1>` when primary, added copy-path action, and removed the duplicate path
+    bar in `SourceCodeViewer` (`hidePath`).
+  - Added sticky non-selectable clickable line numbers (`#L<n>` highlight) to
+    `SourceCodeViewer` (when not in `BlameView`).
+  - Added quick-start empty-directory onboarding (copyable `gs init` + inline
+    **New file** CTA) in `SliceDirectoryTable` and improved visual affordance
+    of the collapsed desktop `Show files` rail (`SliceDetailPage.tsx`).
+  - Added `aria-hidden`, `invisible`, and `pointer-events-none` to closed
+    slide-over drawers (`HistoryDrawer`, `TagsDrawer`, `TriggersDrawer`).
+- **Changesets, diff viewer, Home, and Docs polish:**
+  - Hid review actions (including disabled `Merge`) on terminal changesets in
+    `HeaderCard`, formatted `baseCommitId` with `shortHash`, and enabled 2-line
+    mobile title wrapping.
+  - Gated `DiffFilePanel`'s `LargeDiffGuard` on changed lines
+    (`additions + deletions`) instead of total context lines, replaced
+    misleading `+0 -0` with an unloaded indicator (`…`) in `ChangedFilesTree`,
+    and annotated partial line totals while lazy diffs load (`DiffViewer`).
+  - Added a `Checks` column, softened row-level `Merge` styling, and omitted
+    disabled `Merge` on non-mergeable rows in `ChangesetsTable`.
+  - Standardized Home `SlicesList` labels to `account/slice` matching
+    `SharedSlices` and hid `Version` / `Definition hash` columns below `xl`.
+  - Added pure-CSS horizontal scroll shadows on `.doc-copyable pre` and
+    `.prose pre` in `web/src/index.css`.
+- **Verification:** `npx tsc -b`, full Vitest suite (`npm test -- --run`), and
+  production build (`npm run build`) in `web/`.

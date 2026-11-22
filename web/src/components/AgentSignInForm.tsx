@@ -56,7 +56,7 @@ export function AgentSignInForm({ initialError = null, onSignedIn }: AgentSignIn
         <Input
           autoComplete="off"
           autoFocus
-          className="mt-1.5 font-mono text-sm"
+          className="mt-1.5 w-full font-mono text-sm"
           disabled={submitting}
           id="agent-api-key"
           name="apiKey"
@@ -74,7 +74,7 @@ export function AgentSignInForm({ initialError = null, onSignedIn }: AgentSignIn
         </p>
       ) : null}
 
-      <Button className="w-full" disabled={submitting} type="submit">
+      <Button className="w-full" disabled={submitting} size="md" type="submit" variant="primary">
         {submitting ? "Signing in..." : "Sign in as agent"}
       </Button>
 

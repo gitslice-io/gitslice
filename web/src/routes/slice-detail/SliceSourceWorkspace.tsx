@@ -153,6 +153,7 @@ export function SliceSourceWorkspace({
         <DirectoryHeader
           commitId={commitId}
           createDirectory={createDirectory}
+          headingAs="h1"
           includedPaths={includedPaths}
           onOpenHistory={onOpenHistory}
           onOpenPolicy={onOpenPolicy}
@@ -160,10 +161,12 @@ export function SliceSourceWorkspace({
           selectedPath={selectedPath}
         />
         <SliceDirectoryTable
+          createDirectory={createDirectory}
           entries={directoryEntries}
           includedPaths={includedPaths}
           onSelectPath={onSelectPath}
           onStageEdit={onStageEdit}
+          sliceRef={sliceRef}
         />
       </SlicePanel>
     );
@@ -203,6 +206,7 @@ export function SliceSourceWorkspace({
     <SlicePanel>
       <DirectoryHeader
         commitId={commitId}
+        headingAs="h1"
         includedPaths={includedPaths}
         onOpenHistory={onOpenHistory}
         onOpenPolicy={onOpenPolicy}

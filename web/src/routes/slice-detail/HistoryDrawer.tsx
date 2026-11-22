@@ -118,15 +118,16 @@ export function HistoryDrawer({
         />
       ) : null}
       <aside
+        aria-hidden={!open}
         aria-labelledby={headingId}
         aria-modal={open ? true : undefined}
         className={[
-          "fixed inset-y-0 right-0 z-50 flex w-full max-w-md transform flex-col bg-white outline-none shadow-xl transition-transform duration-200 dark:bg-zinc-900",
-          open ? "translate-x-0" : "translate-x-full"
+          "fixed inset-y-0 right-0 z-50 flex w-full max-w-md transform flex-col bg-white outline-none shadow-xl transition-[transform,visibility] duration-200 dark:bg-zinc-900",
+          open ? "visible translate-x-0" : "invisible pointer-events-none translate-x-full"
         ].join(" ")}
         ref={drawerRef}
         role={open ? "dialog" : undefined}
-        tabIndex={-1}
+        tabIndex={open ? -1 : undefined}
       >
         <div className="border-b border-slate-200 px-4 py-3 dark:border-zinc-800">
           <div className="flex items-start justify-between gap-3">

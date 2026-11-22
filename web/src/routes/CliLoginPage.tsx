@@ -16,7 +16,10 @@ export function CliLoginPage() {
   const completedCodeRef = useRef<string | null>(null);
   const startedCodeRef = useRef<string | null>(null);
   const callbackStartedRef = useRef(false);
-  const params = useMemo(() => new URLSearchParams(window.location.search), []);
+  const params = useMemo(
+    () => new URLSearchParams(typeof window === "undefined" ? "" : window.location.search),
+    []
+  );
   const code = params.get("code") ?? "";
   const callbackUrl = params.get("callback_url");
   const state = params.get("state") ?? "";
@@ -118,7 +121,9 @@ export function CliLoginPage() {
                 window.location.replace("/login");
               });
             }}
+            size="md"
             type="button"
+            variant="primary"
           >
             Sign out of agent session
           </Button>

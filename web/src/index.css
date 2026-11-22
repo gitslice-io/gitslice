@@ -141,6 +141,30 @@ select {
   }
 }
 
+/* Horizontal scroll affordance for clipped code blocks in Docs and Markdown READMEs. */
+.doc-copyable pre,
+.prose pre {
+  background-image:
+    linear-gradient(to right, #f8fafc, #f8fafc),
+    linear-gradient(to right, #f8fafc, #f8fafc),
+    linear-gradient(to right, rgb(15 23 42 / 0.14), rgb(15 23 42 / 0)),
+    linear-gradient(to left, rgb(15 23 42 / 0.14), rgb(15 23 42 / 0));
+  background-position: left center, right center, left center, right center;
+  background-repeat: no-repeat;
+  background-size: 20px 100%, 20px 100%, 14px 100%, 14px 100%;
+  background-attachment: local, local, scroll, scroll;
+  scrollbar-width: thin;
+}
+
+:root.dark .doc-copyable pre,
+:root.dark .prose pre {
+  background-image:
+    linear-gradient(to right, #09090b, #09090b),
+    linear-gradient(to right, #09090b, #09090b),
+    linear-gradient(to right, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0)),
+    linear-gradient(to left, rgb(255 255 255 / 0.14), rgb(255 255 255 / 0));
+}
+
 /* Landing page typography & interactive showcase primitives */
 .landing-sheen {
   background: radial-gradient(

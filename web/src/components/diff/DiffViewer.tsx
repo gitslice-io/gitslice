@@ -109,6 +109,16 @@ export function DiffViewer({
   const changedPathCount =
     fileStates?.length ?? diffResponse?.changedPaths?.length ?? 0;
   const changedCount = changedPathCount > 0 ? changedPathCount : files.length;
+  const unloadedIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const state of fileStates ?? []) {
+      if (state.status !== "loaded") {
+        ids.add(diffFileId(state.path));
+      }
+    }
+    return ids;
+  }, [fileStates]);
+  const loadedFileCount = files.length - unloadedIds.size;
   const totalAdditions = files.reduce((total, file) => total + file.additions, 0);
   const totalDeletions = files.reduce((total, file) => total + file.deletions, 0);
   const hasTextualDiff =
@@ -140,10 +150,22 @@ export function DiffViewer({
                 <span className="text-xs text-slate-500 dark:text-zinc-400">
                   {isLoading ? "Loading…" : `${changedCount} changed`}
                 </span>
-                {!isLoading && files.length > 0 ? (
-                  <span className="flex gap-1.5 font-mono text-xs tabular-nums">
+                {!isLoading && loadedFileCount > 0 ? (
+                  <span
+                    className="flex items-baseline gap-1.5 font-mono text-xs tabular-nums"
+                    title={
+                      unloadedIds.size > 0
+                        ? `Line totals reflect ${loadedFileCount} of ${files.length} loaded files; remaining diffs load as you scroll.`
+                        : undefined
+                    }
+                  >
                     <span className="text-emerald-700 dark:text-emerald-300">+{totalAdditions}</span>
                     <span className="text-rose-700 dark:text-rose-300">-{totalDeletions}</span>
+                    {unloadedIds.size > 0 ? (
+                      <span className="font-sans text-[11px] text-slate-400 dark:text-zinc-500">
+                        ({loadedFileCount}/{files.length} loaded)
+                      </span>
+                    ) : null}
                   </span>
                 ) : null}
                 {!isLoading && files.length > 1 ? (
@@ -192,6 +214,7 @@ export function DiffViewer({
                 activeId={activeId}
                 files={files}
                 onSelect={selectFile}
+                unloadedIds={unloadedIds}
                 viewedIds={viewedIds}
               />
             </aside>
