@@ -19,7 +19,15 @@ func LineStats(old, new []byte) (added, removed int, binary bool) {
 		bEnd--
 	}
 	a, b = a[prefix:aEnd], b[prefix:bEnd]
-	if len(a) == 0 || len(b) == 0 || len(a)*len(b) > maxLCSCells {
+	if len(a) == 0 || len(b) == 0 {
+		return len(b), len(a), false
+	}
+	if len(a)*len(b) > maxLCSCells {
+		if d, ok := myersEditDistance(a, b, myersMaxD(maxLCSCells)); ok {
+			added = (d + len(b) - len(a)) / 2
+			removed = (d + len(a) - len(b)) / 2
+			return added, removed, false
+		}
 		return len(b), len(a), false
 	}
 	common := commonLineCount(a, b)

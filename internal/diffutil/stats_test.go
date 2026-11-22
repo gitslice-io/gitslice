@@ -35,3 +35,30 @@ func TestLineStatsTooLargeCountsTheMiddle(t *testing.T) {
 		t.Fatalf("LineStats = +%d -%d, want +3 -3", added, removed)
 	}
 }
+
+func TestLineStatsLargeFileWithSmallScatteredEdits(t *testing.T) {
+	// Simulates a generated file (~2,500 lines) with edits near top and bottom
+	// so len(oldCore)*len(newCore) >> maxLCSCells (1,000,000), while the real
+	// edit distance is small.
+	const total = 2500
+	var oldBuf, newBuf []byte
+	for i := 0; i < total; i++ {
+		line := "line_" + string(rune('a'+(i%26))) + "\n"
+		if i == 5 {
+			oldBuf = append(oldBuf, "old_import\n"...)
+			newBuf = append(newBuf, "new_import\n"...)
+			continue
+		}
+		if i == total-10 {
+			oldBuf = append(oldBuf, "old_tail\n"...)
+			newBuf = append(newBuf, "new_tail_1\nnew_tail_2\nnew_tail_3\n"...)
+			continue
+		}
+		oldBuf = append(oldBuf, line...)
+		newBuf = append(newBuf, line...)
+	}
+	added, removed, binary := LineStats(oldBuf, newBuf)
+	if binary || added != 4 || removed != 2 {
+		t.Fatalf("LineStats(2500 lines, scattered edits) = +%d -%d binary=%v, want +4 -2 binary=false", added, removed, binary)
+	}
+}

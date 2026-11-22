@@ -181,6 +181,10 @@ func (r Runner) runCommitShow(ctx context.Context, opts commandOptions, commitID
 		return nil
 	}
 	if showOpts.Stat {
+		if diffText, err := r.commitDiffText(ctx, cfg, conn, "", commit.Id); err == nil {
+			printUnifiedDiffStatColor(r.Stdout, commit.ChangedPaths, diffText, color)
+			return nil
+		}
 		printPathStatColor(r.Stdout, commit.ChangedPaths, color)
 		return nil
 	}

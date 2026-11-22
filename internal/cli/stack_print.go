@@ -64,10 +64,14 @@ func stackOutputFromProto(stack *corev1.ChangesetStack) stackOutput {
 }
 
 func printStack(w io.Writer, stack *corev1.ChangesetStack) {
+	printStackWithActive(w, stack, "")
+}
+
+func printStackWithActive(w io.Writer, stack *corev1.ChangesetStack, activeChangesetID string) {
 	fmt.Fprintf(w, "dependencies: %s\n", stack.Id)
 	fmt.Fprintf(w, "status: %s\n", stack.Status)
-	if stack.ActiveEntryId != "" {
-		fmt.Fprintf(w, "active: %s\n", firstNonEmpty(model.ShortChangesetID(stack.ActiveEntryId), stack.ActiveEntryId))
+	if active := firstNonEmpty(activeChangesetID, stack.ActiveEntryId); active != "" {
+		fmt.Fprintf(w, "active: %s\n", firstNonEmpty(model.ShortChangesetID(active), active))
 	}
 	printStackEntries(w, stack)
 }

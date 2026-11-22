@@ -125,6 +125,13 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 	})
 }
 
+func (r Runner) runShowChangeset(ctx context.Context, opts commandOptions, requestedID string, showOpts commitShowOptions) error {
+	if showOpts.NameOnly || showOpts.Stat || showOpts.Patch {
+		return r.runChangesetDiff(ctx, opts, requestedID, "", "", "", showOpts.NameOnly, showOpts.Stat)
+	}
+	return r.runChangesetShow(ctx, opts, requestedID)
+}
+
 func (r Runner) runChangesetShow(ctx context.Context, opts commandOptions, requestedID string) error {
 	return r.withChangesetSession(ctx, requestedID, func(s *Session, target ChangesetTarget) error {
 		cs, err := s.GetChangeset(target.ChangesetID)
@@ -284,7 +291,7 @@ func (r Runner) runChangesetDiff(ctx context.Context, opts commandOptions, reque
 			return nil
 		}
 		if stat {
-			printPathStatColor(r.Stdout, res.ChangedPaths, r.colorEnabled(opts))
+			printUnifiedDiffStatColor(r.Stdout, res.ChangedPaths, res.Diff, r.colorEnabled(opts))
 			return nil
 		}
 		_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(res.Diff, opts.diffContext()), r.colorEnabled(opts)))

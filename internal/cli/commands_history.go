@@ -49,7 +49,7 @@ func (r Runner) historyCommands(opts *commandOptions) []*cobra.Command {
 			})
 		},
 	}
-	logCmd.Flags().IntVar(&logLimit, "limit", logLimit, "maximum commits to list")
+	logCmd.Flags().IntVarP(&logLimit, "limit", "n", logLimit, "maximum commits to list")
 	logCmd.Flags().StringVar(&logPath, "path", logPath, "absolute path, or workspace-relative path inside a workspace")
 	logCmd.Flags().StringVar(&logSlice, "slice", logSlice, "slice to filter commits, defaults to workspace slice or personal home slice")
 	logCmd.Flags().StringVar(&logPageToken, "page-token", logPageToken, "opaque pagination token from a previous log")
@@ -74,17 +74,19 @@ func (r Runner) historyCommands(opts *commandOptions) []*cobra.Command {
 			"gs show shows the changeset with that id or handle instead (as gs cs show).",
 		Args: exactArgs(1, "gs show <commit-id-or-prefix|changeset>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if looksLikeChangesetID(args[0]) {
-				return r.runChangesetShow(cmd.Context(), *opts, args[0])
-			}
-			err := r.runCommitShow(cmd.Context(), diffContextOptions(cmd, *opts, showContext), args[0], commitShowOptions{
+			showOpts := commitShowOptions{
 				Full:     showFull,
 				NameOnly: showNameOnly,
 				Stat:     showStat,
 				Patch:    showPatch,
-			})
+			}
+			cmdOpts := diffContextOptions(cmd, *opts, showContext)
+			if looksLikeChangesetID(args[0]) {
+				return r.runShowChangeset(cmd.Context(), cmdOpts, args[0], showOpts)
+			}
+			err := r.runCommitShow(cmd.Context(), cmdOpts, args[0], showOpts)
 			if err != nil && commitNotFound(err) {
-				if csErr := r.runChangesetShow(cmd.Context(), *opts, args[0]); csErr == nil {
+				if csErr := r.runShowChangeset(cmd.Context(), cmdOpts, args[0], showOpts); csErr == nil {
 					return nil
 				}
 			}
@@ -103,9 +105,9 @@ func (r Runner) historyCommands(opts *commandOptions) []*cobra.Command {
 	diffFrom := ""
 	diffTo := ""
 	diffCmd := &cobra.Command{
-		Use:   "diff [commit-id-or-prefix] [commit-id-or-prefix]",
+		Use:   "diff [commit-or-changeset] [commit-id-or-prefix]",
 		Short: "Show workspace, changeset, or commit diffs",
-		Args:  maxArgs(2, "gs diff [commit-id-or-prefix] [commit-id-or-prefix] [--from patchset --to patchset]"),
+		Args:  maxArgs(2, "gs diff [commit-or-changeset] [commit-id-or-prefix] [--from patchset --to patchset]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runDiff(cmd.Context(), diffContextOptions(cmd, *opts, diffContext), args, diffFrom, diffTo, diffNameOnly, diffStat)
 		},

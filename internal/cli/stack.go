@@ -37,14 +37,21 @@ func (r Runner) runStackShow(ctx context.Context, opts commandOptions, requested
 	if err != nil {
 		return err
 	}
+	workspaceActiveID := ""
+	if state.ActiveStackID == stack.Id && state.CurrentChangesetID != "" && stackEntryByChangesetSelector(stack, state.CurrentChangesetID) != nil {
+		workspaceActiveID = state.CurrentChangesetID
+	}
 	out := stackOutputFromProto(stack)
+	if workspaceActiveID != "" {
+		out.ActiveChangesetID = workspaceActiveID
+	}
 	if opts.jsonOutput() {
 		return r.writeJSONOutput(opts, out)
 	}
 	if opts.Quiet {
 		return nil
 	}
-	printStack(r.Stdout, stack)
+	printStackWithActive(r.Stdout, stack, workspaceActiveID)
 	return nil
 }
 

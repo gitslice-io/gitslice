@@ -229,9 +229,9 @@ gs status --json
 To create and land in one step, use `gs create --message "describe the change" --all --submit --json`: it waits for required checks that have not reported (up to `--watch-timeout`, default 15m), submits, and waits for the changeset to land. If something else blocks it (a failing check, missing approvals), the changeset stays created, the command exits 1 with `submit_blocked`, and `submit.results[].blocked_reason` says why. When a required check failed, gs also prints the last 30 lines of its log on stderr. To look further:
 
 ```bash
-gs check list [changeset]               # latest run of each check on the current patchset, with run ids
-gs check logs e2e                        # a check's whole log, by name (or run id); --tail 50, --follow while it runs
-gs check rerun e2e                       # run it again (needs write access)
+gs check list [changeset]                # latest run of each check on the current patchset, with run ids
+gs check logs [changeset] e2e            # a check's whole log, by name (or run id); --tail 50, --follow while it runs
+gs check rerun [changeset] e2e           # run it again (needs write access)
 ```
 
 A changeset has a one-line title (a commit subject, up to 200 characters) and a Markdown description; the commit's message is the title, a blank line, then the description. Put the summary in `--message` and the detail in `--description "..."` or `--description-file <path>`. A `--message` of several lines is split at the first line, so `--message "$(git log -1 --format=%B)"` also works. Change either while the changeset is a draft with `gs cs edit [changeset] [--title ...] [--description ...|--description-file ...]`; once it has landed its text is its commit's and cannot change. `gs cs show` and the MCP changeset tools print both.
@@ -406,14 +406,14 @@ git-clone it. For a team that owns many slices together, use an organization
 Use native commit inspection commands, not removed `gs commit ...` compatibility forms:
 
 ```bash
-gs log --slice acme/payment --limit 20 --json
+gs log --slice acme/payment -n 20 --json
 gs log -- /acme/payment/app.go
 gs blame app.go --json                          # who last changed each line, and in which changeset
 gs blame app.go --lines 40,60
-gs show <commit-id-or-prefix> --name-only --json   # a changeset id or handle shows the changeset instead
+gs show <commit-or-changeset> --stat            # also supports --name-only, -p/--patch, --json
 gs diff
 gs diff --name-only
-gs diff <commit-id-or-prefix>
+gs diff <commit-or-changeset> --stat
 gs diff <old-commit> <new-commit> --stat
 ```
 

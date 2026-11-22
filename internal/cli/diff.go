@@ -24,13 +24,27 @@ type workspaceDiffOutput struct {
 }
 
 func (r Runner) runDiff(ctx context.Context, opts commandOptions, commitArgs []string, from, to string, nameOnly, stat bool) error {
-	if len(commitArgs) > 0 {
-		if strings.TrimSpace(from) != "" || strings.TrimSpace(to) != "" {
-			return userError("invalid_args", "commit ids cannot be combined with --from or --to", "Use gs diff <commit> [commit] or gs diff --from <patchset> --to <patchset>.")
+	hasPatchsetRange := strings.TrimSpace(from) != "" || strings.TrimSpace(to) != ""
+	if len(commitArgs) == 2 {
+		if hasPatchsetRange {
+			return userError("invalid_args", "commit ids cannot be combined with --from or --to", "Use gs diff <commit> <commit> or gs diff [changeset] --from <patchset> --to <patchset>.")
 		}
 		return r.runCommitDiff(ctx, opts, commitArgs, nameOnly, stat)
 	}
-	if strings.TrimSpace(from) != "" || strings.TrimSpace(to) != "" {
+	if len(commitArgs) == 1 {
+		arg := commitArgs[0]
+		if looksLikeChangesetID(arg) || hasPatchsetRange {
+			return r.runChangesetDiff(ctx, opts, arg, "", from, to, nameOnly, stat)
+		}
+		err := r.runCommitDiff(ctx, opts, commitArgs, nameOnly, stat)
+		if err != nil && commitNotFound(err) {
+			if csErr := r.runChangesetDiff(ctx, opts, arg, "", from, to, nameOnly, stat); csErr == nil {
+				return nil
+			}
+		}
+		return err
+	}
+	if hasPatchsetRange {
 		return r.runChangesetDiff(ctx, opts, "", "", from, to, nameOnly, stat)
 	}
 	return r.runWorkspaceDiff(ctx, opts, nameOnly, stat)
@@ -73,7 +87,7 @@ func (r Runner) runCommitDiff(ctx context.Context, opts commandOptions, commitAr
 		return nil
 	}
 	if stat {
-		printPathStatColor(r.Stdout, changed, color)
+		printUnifiedDiffStatColor(r.Stdout, changed, diffText, color)
 		return nil
 	}
 	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, opts.diffContext()), color))

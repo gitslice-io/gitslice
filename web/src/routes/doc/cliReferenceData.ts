@@ -171,7 +171,7 @@ export const commandGroups: CommandGroup[] = [
       ],
       ["gs ci", "Run applicable .gitslice/checks.yaml checks locally against pending workspace edits."],
       [
-        "gs check list | logs <check> | rerun <check>",
+        "gs check list | logs [cs] <check> | rerun [cs] <check>",
         "Inspect a changeset's check runs, stream logs (--tail, --follow), or rerun a check."
       ],
       [

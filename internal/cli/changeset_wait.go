@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"regexp"
+	"strings"
 	"time"
 
 	"gitslice.io/gitslice/internal/model"
@@ -116,7 +118,8 @@ func pendingRequiredCheckName(reason string) string {
 }
 
 // retrySubmitWhileChecksPending runs attempt and, while it reports a required
-// check with no result yet, waits up to timeout and tries again.
+// check with no result yet, waits up to timeout and tries again. It streams
+// check state transitions and fails fast if any required check fails.
 func (r Runner) retrySubmitWhileChecksPending(
 	ctx context.Context,
 	opts commandOptions,
@@ -129,9 +132,12 @@ func (r Runner) retrySubmitWhileChecksPending(
 	deadline := time.Now().Add(timeout)
 	waitingFor := ""
 	var daemons *checkDaemonWatch
+	var progressOut io.Writer
 	if !opts.Quiet && !opts.jsonOutput() {
-		daemons = newCheckDaemonWatch(r.stderr())
+		progressOut = r.stderr()
+		daemons = newCheckDaemonWatch(progressOut)
 	}
+	progress := newCheckProgressWatch(progressOut)
 	for {
 		check, checkChangeset, err := attempt(time.Until(deadline))
 		if err != nil {
@@ -141,14 +147,139 @@ func (r Runner) retrySubmitWhileChecksPending(
 		if check == "" || remaining <= 0 {
 			return nil
 		}
-		if check != waitingFor && !opts.Quiet && !opts.jsonOutput() {
-			fmt.Fprintf(r.stderr(), "waiting for required check %q to pass...\n", check)
+		if check != waitingFor && progressOut != nil {
+			fmt.Fprintf(progressOut, "waiting for required check %q to pass...\n", check)
+		}
+		if err := progress.poll(ctx, conn, cfg, checkChangeset, check); err != nil {
+			return err
 		}
 		daemons.look(ctx, conn, cfg, checkChangeset, check, check != waitingFor)
 		waitingFor = check
 		if err := waitCfg.sleep(ctx, min(waitCfg.checkRetryDelay, remaining)); err != nil {
 			return err
 		}
+	}
+}
+
+type watchedChangesetChecks struct {
+	patchsetID string
+	required   map[string]bool
+	loaded     bool
+}
+
+type checkProgressWatch struct {
+	out  io.Writer
+	meta map[string]*watchedChangesetChecks
+	seen map[string]map[string]string // changesetID -> checkName -> last status
+}
+
+func newCheckProgressWatch(out io.Writer) *checkProgressWatch {
+	return &checkProgressWatch{
+		out:  out,
+		meta: map[string]*watchedChangesetChecks{},
+		seen: map[string]map[string]string{},
+	}
+}
+
+func (w *checkProgressWatch) poll(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, changesetID, pendingCheck string) error {
+	if w == nil || conn == nil || strings.TrimSpace(changesetID) == "" {
+		return nil
+	}
+	callCtx := authContext(ctx, cfg)
+	meta := w.meta[changesetID]
+	if meta == nil {
+		meta = &watchedChangesetChecks{required: map[string]bool{}}
+		w.meta[changesetID] = meta
+	}
+	if !meta.loaded {
+		meta.loaded = true
+		if cs, err := corev1.NewChangesetServiceClient(conn).GetChangeset(callCtx, &corev1.GetChangesetRequest{ChangesetId: changesetID}); err == nil && cs != nil {
+			meta.patchsetID = cs.GetCurrentPatchsetId()
+			if req := currentPatchsetSubmitRequirements(cs); req != nil {
+				for _, name := range req.GetRequiredChecks() {
+					if trimmed := strings.TrimSpace(name); trimmed != "" {
+						meta.required[trimmed] = true
+					}
+				}
+			}
+		}
+	}
+	res, err := corev1.NewCheckServiceClient(conn).ListCheckRuns(callCtx, &corev1.ListCheckRunsRequest{
+		ChangesetId: changesetID,
+		PatchsetId:  meta.patchsetID,
+	})
+	if err != nil {
+		return nil
+	}
+	return w.observe(changesetID, pendingCheck, meta.required, LatestPatchsetCheckRuns(res.GetRuns(), meta.patchsetID))
+}
+
+func (w *checkProgressWatch) observe(changesetID, pendingCheck string, required map[string]bool, runs []*corev1.CheckRun) error {
+	if len(runs) == 0 {
+		return nil
+	}
+	seen := w.seen[changesetID]
+	if seen == nil {
+		seen = map[string]string{}
+		w.seen[changesetID] = seen
+	}
+	var firstFailure *corev1.CheckRun
+	for _, run := range runs {
+		if run == nil {
+			continue
+		}
+		name := strings.TrimSpace(run.GetCheckName())
+		st := strings.ToLower(strings.TrimSpace(run.GetStatus()))
+		if name == "" || st == "" {
+			continue
+		}
+		prev := seen[name]
+		if st != prev {
+			seen[name] = st
+			if w.out != nil && !(prev == "" && st == "queued") {
+				detail := ""
+				if isFailedCheckStatus(st) {
+					parts := []string{}
+					if id := strings.TrimSpace(run.GetId()); id != "" {
+						parts = append(parts, id)
+					}
+					if summary := strings.TrimSpace(run.GetSummary()); summary != "" {
+						parts = append(parts, summary)
+					}
+					if len(parts) > 0 {
+						detail = " (" + strings.Join(parts, "; ") + ")"
+					}
+				}
+				fmt.Fprintf(w.out, "check %s: %s%s\n", name, st, detail)
+			}
+		}
+		if firstFailure == nil && isFailedCheckStatus(st) && (required[name] || name == pendingCheck) {
+			firstFailure = run
+		}
+	}
+	if firstFailure != nil {
+		name := strings.TrimSpace(firstFailure.GetCheckName())
+		st := strings.ToLower(strings.TrimSpace(firstFailure.GetStatus()))
+		shortCS := firstNonEmpty(model.ShortChangesetID(changesetID), changesetID)
+		hint := fmt.Sprintf("Run gs check rerun %s %s to retry.", shortCS, name)
+		if runID := strings.TrimSpace(firstFailure.GetId()); runID != "" {
+			hint = fmt.Sprintf("Run gs check logs %s to inspect, or gs check rerun %s %s to retry.", runID, shortCS, name)
+		}
+		msg := fmt.Sprintf("required check %q %s", name, st)
+		if summary := strings.TrimSpace(firstFailure.GetSummary()); summary != "" {
+			msg += " (" + summary + ")"
+		}
+		return userError("required_check_failed", msg, hint)
+	}
+	return nil
+}
+
+func isFailedCheckStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "failed", "errored", "canceled":
+		return true
+	default:
+		return false
 	}
 }
 

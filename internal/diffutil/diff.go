@@ -64,7 +64,17 @@ func UnifiedFileDiff(oldFile, newFile File) string {
 		oldCore := oldLines[prefix:oldEnd]
 		newCore := newLines[prefix:newEnd]
 
+		var coreDiff []string
+		tooLarge := false
 		if len(oldCore) > 0 && len(newCore) > maxLCSCells/len(oldCore) {
+			var ok bool
+			coreDiff, ok = myersDiff(oldCore, newCore, myersMaxD(maxLCSCells))
+			tooLarge = !ok
+		} else {
+			coreDiff = lcsDiff(oldCore, newCore)
+		}
+
+		if tooLarge {
 			fmt.Fprintf(&b, "Diff too large to render: a/%s and b/%s differ (%d -> %d lines)\n", label, label, len(oldLines), len(newLines))
 		} else {
 			if oldFile.Exists {
@@ -81,7 +91,7 @@ func UnifiedFileDiff(oldFile, newFile File) string {
 			for _, line := range oldLines[:prefix] {
 				writeDiffLine(&b, " "+line)
 			}
-			for _, line := range lcsDiff(oldCore, newCore) {
+			for _, line := range coreDiff {
 				writeDiffLine(&b, line)
 			}
 			for _, line := range oldLines[oldEnd:] {

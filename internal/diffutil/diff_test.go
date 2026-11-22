@@ -107,6 +107,38 @@ func TestUnifiedFileDiffTrimsBeforeCellCap(t *testing.T) {
 	}
 }
 
+func TestUnifiedFileDiffLargeFileWithSmallScatteredEdits(t *testing.T) {
+	const total = 2200
+	var oldData, newData strings.Builder
+	for i := 0; i < total; i++ {
+		if i == 4 {
+			oldData.WriteString("import A\n")
+			newData.WriteString("import A, B\n")
+			continue
+		}
+		if i == total-5 {
+			oldData.WriteString("export const oldTail = 1;\n")
+			newData.WriteString("export const newTail = 2;\nexport const extra = 3;\n")
+			continue
+		}
+		fmt.Fprintf(&oldData, "unchanged-%04d\n", i)
+		fmt.Fprintf(&newData, "unchanged-%04d\n", i)
+	}
+	got := UnifiedFileDiff(
+		File{Path: "/gen/automation_pb.ts", Exists: true, Data: []byte(oldData.String())},
+		File{Path: "/gen/automation_pb.ts", Exists: true, Data: []byte(newData.String())},
+	)
+	if strings.Contains(got, "Diff too large to render") {
+		t.Fatalf("expected Myers fallback to render large file with small edits, got:\n%s", got)
+	}
+	if !strings.Contains(got, "-import A\n+import A, B\n") {
+		t.Fatalf("missing top edit hunk")
+	}
+	if !strings.Contains(got, "-export const oldTail = 1;\n+export const newTail = 2;\n+export const extra = 3;\n") {
+		t.Fatalf("missing bottom edit hunk")
+	}
+}
+
 func unifiedFileDiffReference(oldFile, newFile File) string {
 	if oldFile.Exists && newFile.Exists && bytes.Equal(oldFile.Data, newFile.Data) {
 		return ""

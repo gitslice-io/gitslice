@@ -33,21 +33,30 @@ func (r Runner) checkCommand(opts *commandOptions) *cobra.Command {
 		Short: "List the latest run of each check on a changeset's current patchset",
 		Args:  maxArgs(1, "gs check list [changeset]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			cs := strings.TrimSpace(listChangeset)
 			if len(args) > 0 {
-				listChangeset = args[0]
+				if cs != "" {
+					return userError("invalid_args", "changeset was provided twice", "Pass either gs check list <changeset> or gs check list --changeset <changeset>.")
+				}
+				cs = args[0]
 			}
-			return r.runCheckList(cmd.Context(), *opts, listChangeset)
+			return r.runCheckList(cmd.Context(), *opts, cs)
 		},
 	}
+	listCmd.Flags().StringVar(&listChangeset, "changeset", "", "changeset whose checks to list (default: the workspace's)")
 	logsChangeset := ""
 	logsFollow := false
 	logsTail := 0
 	logsCmd := &cobra.Command{
-		Use:   "logs <check|run-id>",
+		Use:   "logs [changeset] <check|run-id>",
 		Short: "Print a check run's log (--follow streams it until the run ends)",
-		Args:  exactArgs(1, "gs check logs <check|run-id> [--changeset c] [--follow] [--tail n]"),
+		Args:  rangeArgs(1, 2, "gs check logs [changeset] <check|run-id> [--changeset c] [--follow] [--tail n]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runCheckLogs(cmd.Context(), *opts, logsChangeset, args[0], logsFollow, logsTail)
+			cs, target, err := resolveCheckCommandArgs(logsChangeset, args, "gs check logs [changeset] <check|run-id>")
+			if err != nil {
+				return err
+			}
+			return r.runCheckLogs(cmd.Context(), *opts, cs, target, logsFollow, logsTail)
 		},
 	}
 	logsCmd.Flags().StringVar(&logsChangeset, "changeset", "", "changeset whose check to read (default: the workspace's)")
@@ -55,11 +64,15 @@ func (r Runner) checkCommand(opts *commandOptions) *cobra.Command {
 	logsCmd.Flags().IntVar(&logsTail, "tail", 0, "print only the last n lines")
 	rerunChangeset := ""
 	rerunCmd := &cobra.Command{
-		Use:   "rerun <check|run-id>",
+		Use:   "rerun [changeset] <check|run-id>",
 		Short: "Run a check again on the changeset's current patchset",
-		Args:  exactArgs(1, "gs check rerun <check|run-id> [--changeset c]"),
+		Args:  rangeArgs(1, 2, "gs check rerun [changeset] <check|run-id> [--changeset c]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runCheckRerun(cmd.Context(), *opts, rerunChangeset, args[0])
+			cs, target, err := resolveCheckCommandArgs(rerunChangeset, args, "gs check rerun [changeset] <check|run-id>")
+			if err != nil {
+				return err
+			}
+			return r.runCheckRerun(cmd.Context(), *opts, cs, target)
 		},
 	}
 	rerunCmd.Flags().StringVar(&rerunChangeset, "changeset", "", "changeset whose check to rerun (default: the workspace's)")
@@ -80,6 +93,21 @@ func (r Runner) checkCommand(opts *commandOptions) *cobra.Command {
 	withSchemaOutput[allowPatchsetSecretsOutput](allowCmd)
 	checkCmd.AddCommand(listCmd, logsCmd, rerunCmd, allowCmd)
 	return checkCmd
+}
+
+func resolveCheckCommandArgs(flagChangeset string, args []string, usage string) (changeset, target string, err error) {
+	flagChangeset = strings.TrimSpace(flagChangeset)
+	switch len(args) {
+	case 1:
+		return flagChangeset, args[0], nil
+	case 2:
+		if flagChangeset != "" {
+			return "", "", userError("invalid_args", "changeset was provided both positionally and with --changeset", "Usage: "+usage)
+		}
+		return strings.TrimSpace(args[0]), args[1], nil
+	default:
+		return "", "", userError("invalid_args", fmt.Sprintf("expected 1 to 2 argument(s), got %d", len(args)), "Usage: "+usage)
+	}
 }
 
 type allowPatchsetSecretsOutput struct {

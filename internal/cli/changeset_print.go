@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strings"
 
@@ -63,7 +64,7 @@ func printChangesetDetails(w io.Writer, cs *corev1.Changeset, explain bool) {
 	if cs.CommitId != "" {
 		fmt.Fprintf(w, "commit: %s\n", cs.CommitId)
 	}
-	if len(cs.AffectedPaths) > 0 {
+	if len(cs.AffectedPaths) > 0 && !sameAsOnlyPatchsetPaths(cs) {
 		fmt.Fprintln(w, "affected_paths:")
 		printIndentedPaths(w, cs.AffectedPaths, "  ")
 	}
@@ -71,6 +72,13 @@ func printChangesetDetails(w io.Writer, cs *corev1.Changeset, explain bool) {
 	if explain {
 		printChangesetExplain(w, cs)
 	}
+}
+
+func sameAsOnlyPatchsetPaths(cs *corev1.Changeset) bool {
+	if cs == nil || len(cs.Patchsets) != 1 {
+		return false
+	}
+	return slices.Equal(cs.AffectedPaths, patchsetChangedPaths(cs.Patchsets[0]))
 }
 
 func printChangesetOneLine(w io.Writer, cs *corev1.Changeset) {
