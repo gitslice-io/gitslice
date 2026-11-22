@@ -46,8 +46,9 @@ func translateWorkspaceError(err error) error {
 	return err
 }
 
-func isSymlinkMode(mode uint32) bool     { return workspace.IsSymlinkMode(mode) }
-func hasReservedGsSegment(p string) bool { return workspace.HasReservedGsSegment(p) }
+func isSymlinkMode(mode uint32) bool                    { return workspace.IsSymlinkMode(mode) }
+func cleanShellGlobalPath(value string) (string, error) { return workspace.CleanGlobalPath(value) }
+func hasReservedGsSegment(p string) bool                { return workspace.HasReservedGsSegment(p) }
 func ensureNotReservedGsPath(p string) error {
 	return translateWorkspaceError(workspace.EnsureNotReservedGsPath(p))
 }

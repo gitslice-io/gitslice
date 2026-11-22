@@ -1,4 +1,4 @@
-package cli
+package remoteshell
 
 import (
 	"context"
@@ -8,7 +8,8 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-func (s *serverShell) completeLine(ctx context.Context, line string) []string {
+// CompleteLine returns tab-completion candidates for the given input line.
+func (s *Shell) CompleteLine(ctx context.Context, line string) []string {
 	tokens := shellLineTokens(line)
 	if len(tokens) == 0 {
 		return completeShellCommand(line, "")
@@ -42,7 +43,7 @@ func (s *serverShell) completeLine(ctx context.Context, line string) []string {
 
 func completeShellCommand(prefix, token string) []string {
 	var out []string
-	for _, command := range serverShellCommands {
+	for _, command := range shellCommands {
 		if !strings.HasPrefix(command, token) {
 			continue
 		}
@@ -76,7 +77,7 @@ func shellCommandAcceptsPath(command string) bool {
 	return ok
 }
 
-func (s *serverShell) completePath(ctx context.Context, token string, dirsOnly bool) []string {
+func (s *Shell) completePath(ctx context.Context, token string, dirsOnly bool) []string {
 	dirToken, namePrefix, replacementPrefix := shellCompletionPathParts(token)
 	globalDir, err := s.resolve(dirToken)
 	if err != nil {

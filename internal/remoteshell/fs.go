@@ -1,4 +1,4 @@
-package cli
+package remoteshell
 
 import (
 	"context"
@@ -9,12 +9,13 @@ import (
 
 	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/internal/paths"
+	"gitslice.io/gitslice/internal/workspace"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )
 
-func (s *serverShell) cd(ctx context.Context, target string) error {
+func (s *Shell) cd(ctx context.Context, target string) error {
 	globalPath, err := s.resolve(target)
 	if err != nil {
 		return err
@@ -34,7 +35,7 @@ func (s *serverShell) cd(ctx context.Context, target string) error {
 	return nil
 }
 
-func (s *serverShell) ls(ctx context.Context, target string) error {
+func (s *Shell) ls(ctx context.Context, target string) error {
 	globalPath, err := s.resolve(target)
 	if err != nil {
 		return err
@@ -61,7 +62,7 @@ func (s *serverShell) ls(ctx context.Context, target string) error {
 	return nil
 }
 
-func (s *serverShell) directoryEntries(ctx context.Context, globalPath string) ([]*corev1.TreeEntry, error) {
+func (s *Shell) directoryEntries(ctx context.Context, globalPath string) ([]*corev1.TreeEntry, error) {
 	var entries []*corev1.TreeEntry
 	listEntries, err := listDirectoryAll(ctx, s.repo, &corev1.ListDirectoryRequest{CommitId: s.commitID, Path: globalPath, PageSize: 1000})
 	if err != nil {
@@ -82,7 +83,31 @@ func (s *serverShell) directoryEntries(ctx context.Context, globalPath string) (
 	return entries, nil
 }
 
-func (s *serverShell) cat(ctx context.Context, target string) error {
+func listDirectoryAll(ctx context.Context, repo corev1.RepositoryServiceClient, req *corev1.ListDirectoryRequest) ([]*corev1.TreeEntry, error) {
+	pageReq := &corev1.ListDirectoryRequest{
+		CommitId: req.GetCommitId(),
+		Path:     req.GetPath(),
+		PageSize: req.GetPageSize(),
+		Cursor:   req.GetCursor(),
+	}
+	var all []*corev1.TreeEntry
+	for {
+		page, err := repo.ListDirectory(ctx, pageReq)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page.GetEntries()...)
+		if strings.TrimSpace(page.GetNextCursor()) == "" {
+			return all, nil
+		}
+		if page.GetNextCursor() == pageReq.Cursor {
+			return nil, fmt.Errorf("directory pagination did not advance for %s", pageReq.Path)
+		}
+		pageReq.Cursor = page.GetNextCursor()
+	}
+}
+
+func (s *Shell) cat(ctx context.Context, target string) error {
 	globalPath, err := s.resolve(target)
 	if err != nil {
 		return err
@@ -107,7 +132,7 @@ func (s *serverShell) cat(ctx context.Context, target string) error {
 	return nil
 }
 
-func (s *serverShell) write(ctx context.Context, target string, data []byte) error {
+func (s *Shell) write(ctx context.Context, target string, data []byte) error {
 	p, err := s.resolve(target)
 	if err != nil {
 		return err
@@ -115,36 +140,31 @@ func (s *serverShell) write(ctx context.Context, target string, data []byte) err
 	if s.mutator == nil {
 		return fmt.Errorf("mutations are unavailable in this shell scope")
 	}
-	cleaned, err := normalizeMutationPath(s.mutator.slice, p)
+	landed, err := s.mutator.WriteFile(ctx, p, data)
 	if err != nil {
 		return err
 	}
-	edit, err := s.runner.uploadFileEdit(authContext(ctx, s.mutator.cfg), s.mutator.conn, s.mutator.slice.Ref, cleaned, data)
-	if err != nil {
-		return err
-	}
-	return s.mutate(ctx, "write", []*corev1.FileEdit{edit})
+	return s.finishMutation(ctx, "write", landed)
 }
 
-func (s *serverShell) mutate(ctx context.Context, operation string, edits []*corev1.FileEdit) error {
+func (s *Shell) mutate(ctx context.Context, operation string, edits []*corev1.FileEdit) error {
 	if s.mutator == nil {
 		return fmt.Errorf("mutations are unavailable in this shell scope")
 	}
-	var captured strings.Builder
-	originalStdout := s.mutator.runner.Stdout
-	s.mutator.runner.Stdout = &captured
-	err := s.mutator.apply(ctx, commandOptions{Quiet: true}, operation, edits, false)
-	s.mutator.runner.Stdout = originalStdout
+	landed, err := s.mutator.Apply(ctx, operation, edits)
 	if err != nil {
 		return err
 	}
+	return s.finishMutation(ctx, operation, landed)
+}
+
+func (s *Shell) finishMutation(ctx context.Context, operation string, landed MutationResult) error {
 	ref, err := s.repo.GetRef(ctx, &corev1.GetRefRequest{RefName: model.DefaultTargetRef})
 	if err != nil {
 		return err
 	}
 	s.commitID = ref.CommitId
 	// Name the changeset, not the commit: its link is the one to share.
-	landed := s.mutator.last
 	fmt.Fprintf(s.stdout, "%s %s through changeset %s", s.colorize(ansiGreen, "ok"), operationPastTense(operation), landed.Changeset)
 	if landed.ChangesetURL != "" {
 		fmt.Fprintf(s.stdout, " %s", landed.ChangesetURL)
@@ -153,7 +173,7 @@ func (s *serverShell) mutate(ctx context.Context, operation string, edits []*cor
 	return nil
 }
 
-func (s *serverShell) stat(ctx context.Context, target string) error {
+func (s *Shell) stat(ctx context.Context, target string) error {
 	globalPath, err := s.resolve(target)
 	if err != nil {
 		return err
@@ -192,14 +212,14 @@ func (s *serverShell) stat(ctx context.Context, target string) error {
 	return nil
 }
 
-func (s *serverShell) lookupError(err error, globalPath string) error {
+func (s *Shell) lookupError(err error, globalPath string) error {
 	if grpcstatus.Code(err) == codes.NotFound {
 		return fmt.Errorf("path not found: %s", s.shellPath(globalPath))
 	}
 	return err
 }
 
-func (s *serverShell) resolveEntry(ctx context.Context, globalPath string) (*corev1.TreeEntry, error) {
+func (s *Shell) resolveEntry(ctx context.Context, globalPath string) (*corev1.TreeEntry, error) {
 	resolved, err := s.repo.ResolvePath(ctx, &corev1.ResolvePathRequest{CommitId: s.commitID, Path: globalPath})
 	if err != nil {
 		if grpcstatus.Code(err) == codes.NotFound {
@@ -218,7 +238,7 @@ func (s *serverShell) resolveEntry(ctx context.Context, globalPath string) (*cor
 	return resolved.Entry, nil
 }
 
-func (s *serverShell) withSyntheticDirectoryEntries(globalPath string, entries []*corev1.TreeEntry) []*corev1.TreeEntry {
+func (s *Shell) withSyntheticDirectoryEntries(globalPath string, entries []*corev1.TreeEntry) []*corev1.TreeEntry {
 	if len(s.syntheticDirs) == 0 {
 		return entries
 	}
@@ -241,7 +261,7 @@ func (s *serverShell) withSyntheticDirectoryEntries(globalPath string, entries [
 	return entries
 }
 
-func (s *serverShell) projectDirectoryEntries(globalPath string, entries []*corev1.TreeEntry) []*corev1.TreeEntry {
+func (s *Shell) projectDirectoryEntries(globalPath string, entries []*corev1.TreeEntry) []*corev1.TreeEntry {
 	if len(s.projection) == 0 {
 		return entries
 	}
@@ -297,7 +317,7 @@ func projectionChildPath(parent, includedRoot string) string {
 	return strings.TrimRight(parent, "/") + "/" + child
 }
 
-func (s *serverShell) projectionDirectoryEntry(globalPath string) *corev1.TreeEntry {
+func (s *Shell) projectionDirectoryEntry(globalPath string) *corev1.TreeEntry {
 	if len(s.projection) == 0 {
 		return nil
 	}
@@ -312,7 +332,7 @@ func (s *serverShell) projectionDirectoryEntry(globalPath string) *corev1.TreeEn
 	return nil
 }
 
-func (s *serverShell) pathInProjection(globalPath string) bool {
+func (s *Shell) pathInProjection(globalPath string) bool {
 	if len(s.projection) == 0 {
 		return true
 	}
@@ -327,7 +347,7 @@ func (s *serverShell) pathInProjection(globalPath string) bool {
 	return false
 }
 
-func (s *serverShell) resolve(value string) (string, error) {
+func (s *Shell) resolve(value string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" || value == "." {
 		return s.cwd, nil
@@ -358,19 +378,56 @@ func (s *serverShell) resolve(value string) (string, error) {
 			candidate = strings.TrimRight(s.cwd, "/") + "/" + value
 		}
 	}
-	cleaned, err := cleanShellGlobalPath(candidate)
+	cleaned, err := workspace.CleanGlobalPath(candidate)
 	if err != nil {
 		return "", err
 	}
 	if !paths.Contains(s.root, cleaned) {
-		return "", userError("outside_slice", "path is outside the workspace slice: "+cleaned, "Use paths under "+s.shellPath(s.root)+".")
+		return "", s.makeOutsideSliceError("path is outside the workspace slice: "+cleaned, "Use paths under "+s.shellPath(s.root)+".")
 	}
 	if !s.pathInProjection(cleaned) {
 		scopeKind := "workspace slice"
 		if s.root == "/" {
 			scopeKind = "attached slice"
 		}
-		return "", userError("outside_slice", "path is outside the "+scopeKind+": "+cleaned, "Use paths included by "+s.scope+".")
+		return "", s.makeOutsideSliceError("path is outside the "+scopeKind+": "+cleaned, "Use paths included by "+s.scope+".")
 	}
 	return cleaned, nil
+}
+
+func (s *Shell) makeOutsideSliceError(message, hint string) error {
+	if s.outsideSliceError != nil {
+		return s.outsideSliceError(message, hint)
+	}
+	return fmt.Errorf("%s", message)
+}
+
+func entryKindName(kind corev1.EntryKind) string {
+	switch kind {
+	case corev1.EntryKind_ENTRY_KIND_FILE:
+		return "file"
+	case corev1.EntryKind_ENTRY_KIND_DIRECTORY:
+		return "directory"
+	case corev1.EntryKind_ENTRY_KIND_SYMLINK:
+		return "symlink"
+	default:
+		return "unspecified"
+	}
+}
+
+func operationPastTense(operation string) string {
+	switch operation {
+	case "mkdir":
+		return "created"
+	case "write":
+		return "wrote"
+	case "upload":
+		return "uploaded"
+	case "mv":
+		return "moved"
+	case "rm":
+		return "removed"
+	default:
+		return "updated"
+	}
 }

@@ -1,6 +1,7 @@
-package cli
+package remoteshell
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
@@ -11,19 +12,19 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-func TestServerShellCompletionCompletesCommands(t *testing.T) {
-	sh := &serverShell{}
-	got := sh.completeLine(context.Background(), "c")
+func TestShellCompletionCompletesCommands(t *testing.T) {
+	sh := New(Config{})
+	got := sh.CompleteLine(context.Background(), "c")
 	for _, want := range []string{"cat ", "cd "} {
-		if !stringSliceContains(got, want) {
+		if !containsString(got, want) {
 			t.Fatalf("command completions missing %q: %#v", want, got)
 		}
 	}
 }
 
-func TestServerShellCompletionCompletesRelativePaths(t *testing.T) {
-	sh := &serverShell{
-		repo: newFakeShellRepoClient(map[string][]*corev1.TreeEntry{
+func TestShellCompletionCompletesRelativePaths(t *testing.T) {
+	sh := New(Config{
+		Repo: newFakeShellRepoClient(map[string][]*corev1.TreeEntry{
 			"/file-user": {
 				{Path: "/file-user/docs", Name: "docs", Kind: corev1.EntryKind_ENTRY_KIND_DIRECTORY},
 				{Path: "/file-user/notes.txt", Name: "notes.txt", Kind: corev1.EntryKind_ENTRY_KIND_FILE},
@@ -32,38 +33,71 @@ func TestServerShellCompletionCompletesRelativePaths(t *testing.T) {
 				{Path: "/file-user/docs/readme.md", Name: "readme.md", Kind: corev1.EntryKind_ENTRY_KIND_FILE},
 			},
 		}),
-		root:     "/file-user",
-		cwd:      "/file-user",
-		commitID: "commit_test",
-		scope:    "file-user/home",
-		scoped:   true,
-	}
-	if got := sh.completeLine(context.Background(), "cd d"); !stringSliceContains(got, "cd docs/") {
+		Root:     "/file-user",
+		Cwd:      "/file-user",
+		CommitID: "commit_test",
+		Scope:    "file-user/home",
+		Scoped:   true,
+	})
+	if got := sh.CompleteLine(context.Background(), "cd d"); !containsString(got, "cd docs/") {
 		t.Fatalf("cd path completions = %#v, want cd docs/", got)
 	}
-	if got := sh.completeLine(context.Background(), "cat n"); !stringSliceContains(got, "cat notes.txt") {
+	if got := sh.CompleteLine(context.Background(), "cat n"); !containsString(got, "cat notes.txt") {
 		t.Fatalf("cat path completions = %#v, want cat notes.txt", got)
 	}
-	if got := sh.completeLine(context.Background(), "write docs/readme.md h"); len(got) != 0 {
+	if got := sh.CompleteLine(context.Background(), "write docs/readme.md h"); len(got) != 0 {
 		t.Fatalf("write text argument should not complete paths: %#v", got)
 	}
 }
 
-func TestServerShellCompletionUsesProjectionAncestors(t *testing.T) {
-	sh := &serverShell{
-		repo:       newFakeShellRepoClient(nil),
-		root:       "/",
-		cwd:        "/",
-		commitID:   "commit_test",
-		scope:      "nic4/new-slice",
-		scoped:     true,
-		projection: []string{"/nic4/tests"},
-	}
-	if got := sh.completeLine(context.Background(), "cd n"); !stringSliceContains(got, "cd nic4/") {
+func TestShellCompletionUsesProjectionAncestors(t *testing.T) {
+	sh := New(Config{
+		Repo:       newFakeShellRepoClient(nil),
+		Root:       "/",
+		Cwd:        "/",
+		CommitID:   "commit_test",
+		Scope:      "nic4/new-slice",
+		Scoped:     true,
+		Projection: []string{"/nic4/tests"},
+	})
+	if got := sh.CompleteLine(context.Background(), "cd n"); !containsString(got, "cd nic4/") {
 		t.Fatalf("root projection completions = %#v, want cd nic4/", got)
 	}
-	if got := sh.completeLine(context.Background(), "cd nic4/t"); !stringSliceContains(got, "cd nic4/tests/") {
+	if got := sh.CompleteLine(context.Background(), "cd nic4/t"); !containsString(got, "cd nic4/tests/") {
 		t.Fatalf("nested projection completions = %#v, want cd nic4/tests/", got)
+	}
+}
+
+func TestShellExecBasicNavigation(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	sh := New(Config{
+		Stdout: &stdout,
+		Stderr: &stderr,
+		Repo: newFakeShellRepoClient(map[string][]*corev1.TreeEntry{
+			"/acme": {
+				{Path: "/acme/docs", Name: "docs", Kind: corev1.EntryKind_ENTRY_KIND_DIRECTORY},
+			},
+		}),
+		Root:     "/acme",
+		Cwd:      "/acme",
+		CommitID: "sha256:abcdef1234567890",
+		Scope:    "acme:core",
+		Scoped:   true,
+	})
+	if done, err := sh.Exec(context.Background(), "pwd"); err != nil || done {
+		t.Fatalf("pwd = (%v, %v)", done, err)
+	}
+	if done, err := sh.Exec(context.Background(), "cd docs"); err != nil || done {
+		t.Fatalf("cd docs = (%v, %v)", done, err)
+	}
+	if done, err := sh.Exec(context.Background(), "pwd"); err != nil || done {
+		t.Fatalf("pwd after cd = (%v, %v)", done, err)
+	}
+	if done, err := sh.Exec(context.Background(), "exit"); err != nil || !done {
+		t.Fatalf("exit = (%v, %v), want (true, nil)", done, err)
+	}
+	if got := stdout.String(); got != "/\n/docs\n" {
+		t.Fatalf("stdout = %q, want %q", got, "/\n/docs\n")
 	}
 }
 
@@ -115,4 +149,13 @@ func pathBaseForTest(p string) string {
 		return p[slash+1:]
 	}
 	return p
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
