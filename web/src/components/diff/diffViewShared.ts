@@ -7,7 +7,7 @@ export const CONTEXT_LINES = 3;
 export const EXPAND_CHUNK = 20;
 export const EMPTY_REVEAL: RevealState = { top: 0, bottom: 0 };
 
-type ExpandAction = "up" | "down" | "all";
+export type ExpandAction = "up" | "down" | "all";
 export type ExpandFn = (key: string, action: ExpandAction, hiddenTotal: number) => void;
 
 export function gapKey(fileId: string, viewMode: ViewMode, gapIndex: number) {

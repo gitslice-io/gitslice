@@ -357,46 +357,58 @@ export function useSlicePathExplorer({
     selectedPath || (projectedRoots.length === 1 ? projectedRoots[0] : "");
 
   return {
-    sliceQuery,
-    latestQuery,
-    pathQuery,
-    directoryQuery,
-    fileQuery,
-    slice,
-    sliceRef,
-    routeSliceRef,
-    sliceId,
-    sliceRouteParams,
-    sliceRouteKey,
-    sliceLabel,
-    commitId,
-    includedPaths,
-    createDirectory,
-    entry,
-    isDirectory,
-    isFile,
-    currentEntries: directoryQuery.data ?? [],
-    fileContent: decodeBase64File(fileQuery.data?.data),
-    fileData: fileQuery.data?.data ?? "",
-    folderReadme,
-    readmeLoading,
-    showTree,
-    setTreeChoice,
-    phoneTreeBar,
-    treePanelVisibility,
-    workspaceVisibility,
-    detailsOpen,
-    setDetailsOpen,
-    finderOpen,
-    setFinderOpen,
-    selectPath,
-    setBlame,
-    openHistory,
-    closeHistory,
-    openTags,
-    closeTags,
-    openPolicy,
-    closePolicy,
-    openLandedPath
+    queries: {
+      sliceQuery,
+      latestQuery,
+      pathQuery,
+      directoryQuery,
+      fileQuery
+    },
+    sliceInfo: {
+      slice,
+      sliceRef,
+      routeSliceRef,
+      sliceId,
+      sliceRouteParams,
+      sliceRouteKey,
+      sliceLabel,
+      commitId,
+      includedPaths,
+      createDirectory
+    },
+    selection: {
+      entry,
+      isDirectory,
+      isFile,
+      currentEntries: directoryQuery.data ?? [],
+      fileContent: decodeBase64File(fileQuery.data?.data),
+      fileData: fileQuery.data?.data ?? "",
+      folderReadme,
+      readmeLoading
+    },
+    layout: {
+      showTree,
+      setTreeChoice,
+      phoneTreeBar,
+      treePanelVisibility,
+      workspaceVisibility,
+      detailsOpen,
+      setDetailsOpen
+    },
+    drawers: {
+      finderOpen,
+      setFinderOpen,
+      openHistory,
+      closeHistory,
+      openTags,
+      closeTags,
+      openPolicy,
+      closePolicy
+    },
+    actions: {
+      selectPath,
+      setBlame,
+      openLandedPath
+    }
   };
 }

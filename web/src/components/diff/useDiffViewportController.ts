@@ -1,9 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { RevealState } from "./collapse";
-import { EMPTY_REVEAL, EXPAND_CHUNK, type ExpandFn } from "./diffViewShared";
+import { EMPTY_REVEAL, type ExpandFn } from "./diffViewShared";
+import {
+  adjacentFileForShortcut,
+  findFocusTargetFile,
+  isFilePanelCollapsed,
+  nextGapReveal,
+  pickTopIntersectingId,
+  resolveCurrentActiveFileId,
+  retainValidIds
+} from "./diffViewportMath";
 import type { DiffFile } from "./parseDiff";
-import { fileFingerprint, isGeneratedFile, isViewed } from "./reviewState";
+import { fileFingerprint, isViewed } from "./reviewState";
 import { useViewedFiles } from "./useViewedFiles";
 
 export const LAZY_DIFF_BODY_ROOT_MARGIN = "1200px 0px 1200px 0px";
@@ -48,8 +57,7 @@ export function useDiffViewportController({
   const focusAppliedRef = useRef<string | null>(null);
   const [focusTargetId, setFocusTargetId] = useState<string | null>(null);
 
-  const activeFileIndex = files.findIndex((file) => file.id === activeId);
-  const currentActiveId = files[activeFileIndex >= 0 ? activeFileIndex : 0]?.id;
+  const currentActiveId = resolveCurrentActiveFileId(files, activeId);
   const firstFileId = files[0]?.id;
 
   // Reset collapse state whenever a new diff loads.
@@ -59,24 +67,10 @@ export function useDiffViewportController({
   }, [diffText, fileListKey]);
 
   const expandGap = useCallback<ExpandFn>((key, action, hiddenTotal) => {
-    setRevealed((current) => {
-      const reveal = current[key] ?? EMPTY_REVEAL;
-      let next: RevealState;
-      if (action === "all") {
-        next = { top: hiddenTotal, bottom: 0 };
-      } else if (action === "up") {
-        next = {
-          top: Math.min(hiddenTotal - reveal.bottom, reveal.top + EXPAND_CHUNK),
-          bottom: reveal.bottom
-        };
-      } else {
-        next = {
-          top: reveal.top,
-          bottom: Math.min(hiddenTotal - reveal.top, reveal.bottom + EXPAND_CHUNK)
-        };
-      }
-      return { ...current, [key]: next };
-    });
+    setRevealed((current) => ({
+      ...current,
+      [key]: nextGapReveal(current[key] ?? EMPTY_REVEAL, action, hiddenTotal)
+    }));
   }, []);
 
   useEffect(() => {
@@ -108,15 +102,7 @@ export function useDiffViewportController({
   }, []);
 
   useEffect(() => {
-    setMountedDiffBodies((current) => {
-      const next = new Set<string>();
-      current.forEach((id) => {
-        if (fileIds.has(id)) {
-          next.add(id);
-        }
-      });
-      return next.size === current.size ? current : next;
-    });
+    setMountedDiffBodies((current) => retainValidIds(current, fileIds));
   }, [fileIds]);
 
   // Active-file scroll-spy observer.
@@ -127,20 +113,18 @@ export function useDiffViewportController({
 
     const observer = new IntersectionObserver(
       (entries) => {
-        const visibleEntries = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort(
-            (left, right) =>
-              left.boundingClientRect.top - right.boundingClientRect.top
-          );
-
         if (pinnedActiveIdRef.current) {
           return;
         }
-
-        const topEntry = visibleEntries[0];
-        if (topEntry?.target.id) {
-          setActiveId(topEntry.target.id);
+        const topId = pickTopIntersectingId(
+          entries.map((entry) => ({
+            id: entry.target.id,
+            isIntersecting: entry.isIntersecting,
+            top: entry.boundingClientRect.top
+          }))
+        );
+        if (topId) {
+          setActiveId(topId);
         }
       },
       {
@@ -269,11 +253,10 @@ export function useDiffViewportController({
 
   // Honor `?file=` deep link once per requested path.
   useEffect(() => {
-    if (!focusFilePath || !files.length) {
+    if (!focusFilePath) {
       return;
     }
-    const wanted = focusFilePath.replace(/^\/+/, "");
-    const target = files.find((file) => file.path.replace(/^\/+/, "") === wanted);
+    const target = findFocusTargetFile(files, focusFilePath);
     if (!target || focusAppliedRef.current === focusFilePath) {
       return;
     }
@@ -288,8 +271,7 @@ export function useDiffViewportController({
   );
 
   const isCollapsed = useCallback(
-    (file: DiffFile) =>
-      collapseOverride[file.id] ?? (viewedIds.has(file.id) || isGeneratedFile(file)),
+    (file: DiffFile) => isFilePanelCollapsed(file, collapseOverride, viewedIds),
     [collapseOverride, viewedIds]
   );
 
@@ -333,14 +315,14 @@ export function useDiffViewportController({
       if (event.key !== "j" && event.key !== "k" && event.key !== "v") {
         return;
       }
-      const index = Math.max(0, files.findIndex((file) => file.id === currentActiveId));
       if (event.key === "v") {
-        if (files[index]) {
-          toggleViewed(files[index]);
+        const currentFile = files.find((file) => file.id === currentActiveId) ?? files[0];
+        if (currentFile) {
+          toggleViewed(currentFile);
         }
         return;
       }
-      const next = files[index + (event.key === "j" ? 1 : -1)];
+      const next = adjacentFileForShortcut(files, currentActiveId, event.key);
       if (next) {
         selectFile(next.id);
       }
