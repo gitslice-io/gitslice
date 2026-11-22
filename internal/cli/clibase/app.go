@@ -20,6 +20,7 @@ type Session interface {
 	ResolveAccount(raw string) (string, error)
 	ActiveAccount() (string, error)
 	PersonalAccountSlug() (string, error)
+	ResolveSliceRef(value string, fallbackToWorkspace bool) (*corev1.SliceRef, error)
 	ResolveOptionalSliceRef(value string) (*corev1.SliceRef, error)
 	GetChangeset(id string) (*corev1.Changeset, error)
 
@@ -45,6 +46,8 @@ type App interface {
 	Stderr() io.Writer
 	Cwd() string
 	HomeDir() string
+	UserConfigPath() string
+	Version() string
 	Getenv(key string) string
 	ColorEnabled(opts Options) bool
 

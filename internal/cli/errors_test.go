@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"gitslice.io/gitslice/internal/cli/cmd/account"
+	"gitslice.io/gitslice/internal/cli/cmd/secret"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -141,13 +143,13 @@ func TestTriggerErrorPreservesUnavailableAndMapsUnimplemented(t *testing.T) {
 func TestDomainErrorHintOverridesAndMCPSharing(t *testing.T) {
 	r := Runner{Home: t.TempDir(), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}
 
-	accInvite := r.enhanceCommandError(accountError(status.Error(codes.FailedPrecondition, "must invite them to the organization")))
+	accInvite := r.enhanceCommandError(account.WrapError(status.Error(codes.FailedPrecondition, "must invite them to the organization")))
 	var cmdErr commandError
 	if !errors.As(accInvite, &cmdErr) || cmdErr.Code != "failed_precondition" || !strings.Contains(cmdErr.Hint, "gs account invite") {
 		t.Fatalf("account FailedPrecondition = %+v", cmdErr)
 	}
 
-	accLimit := r.enhanceCommandError(accountError(status.Error(codes.ResourceExhausted, "too many invitations")))
+	accLimit := r.enhanceCommandError(account.WrapError(status.Error(codes.ResourceExhausted, "too many invitations")))
 	if !errors.As(accLimit, &cmdErr) || cmdErr.Code != "limit_reached" {
 		t.Fatalf("account ResourceExhausted = %+v", cmdErr)
 	}
@@ -157,7 +159,7 @@ func TestDomainErrorHintOverridesAndMCPSharing(t *testing.T) {
 		t.Fatalf("group AlreadyExists = %+v", cmdErr)
 	}
 
-	secUnimpl := r.enhanceCommandError(secretError(status.Error(codes.Unimplemented, "unimplemented")))
+	secUnimpl := r.enhanceCommandError(secret.WrapError(status.Error(codes.Unimplemented, "unimplemented")))
 	if !errors.As(secUnimpl, &cmdErr) || cmdErr.Code != "unsupported" || !strings.Contains(cmdErr.Hint, "gs slice secret") {
 		t.Fatalf("secret Unimplemented = %+v", cmdErr)
 	}

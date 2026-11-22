@@ -1,17 +1,19 @@
-package cli
+package account
 
 import (
 	"context"
 	"fmt"
 	"strings"
 
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"gitslice.io/gitslice/internal/model"
+	"gitslice.io/gitslice/internal/workspace"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-func (r Runner) runAccountCIRunners(ctx context.Context, opts commandOptions, account string) error {
-	var out accountCIRunnersOutput
-	if err := r.withSession(ctx, func(s *Session) error {
+func runCIRunners(app clibase.App, ctx context.Context, opts clibase.Options, account string) error {
+	var out ciRunnersOutput
+	if err := app.WithSession(ctx, func(s clibase.Session) error {
 		var err error
 		if account, err = s.ResolveAccount(account); err != nil {
 			return err
@@ -20,7 +22,7 @@ func (r Runner) runAccountCIRunners(ctx context.Context, opts commandOptions, ac
 		if err != nil {
 			return accountError(err)
 		}
-		out = accountCIRunnersOutput{
+		out = ciRunnersOutput{
 			Account:     resp.GetAccount(),
 			DaemonIDs:   append([]string(nil), resp.GetDaemonIds()...),
 			DaemonNames: append([]string(nil), resp.GetDaemonNames()...),
@@ -29,14 +31,14 @@ func (r Runner) runAccountCIRunners(ctx context.Context, opts commandOptions, ac
 	}); err != nil {
 		return err
 	}
-	return writeSchemaOutput(r, opts, out, func() error {
-		return r.printAccountCIRunners(out)
+	return clibase.WriteSchemaOutput(app.Stdout(), opts, out, func() error {
+		return printCIRunners(app.Stdout(), out)
 	})
 }
 
-func (r Runner) runAccountSetCIDaemon(ctx context.Context, opts commandOptions, account, daemonID string, add, remove bool) error {
-	var out accountCIRunnersOutput
-	if err := r.withSession(ctx, func(s *Session) error {
+func runSetCIDaemon(app clibase.App, ctx context.Context, opts clibase.Options, account, daemonID string, add, remove bool) error {
+	var out ciRunnersOutput
+	if err := app.WithSession(ctx, func(s clibase.Session) error {
 		resp, err := s.Slice().SetAccountCIDaemon(s.Ctx(), &corev1.SetAccountCIDaemonRequest{
 			Account:  strings.TrimSpace(account),
 			DaemonId: strings.TrimSpace(daemonID),
@@ -46,7 +48,7 @@ func (r Runner) runAccountSetCIDaemon(ctx context.Context, opts commandOptions, 
 		if err != nil {
 			return accountError(err)
 		}
-		out = accountCIRunnersOutput{
+		out = ciRunnersOutput{
 			Account:     resp.GetAccount(),
 			DaemonIDs:   append([]string(nil), resp.GetDaemonIds()...),
 			DaemonNames: append([]string(nil), resp.GetDaemonNames()...),
@@ -55,18 +57,18 @@ func (r Runner) runAccountSetCIDaemon(ctx context.Context, opts commandOptions, 
 	}); err != nil {
 		return err
 	}
-	return writeSchemaOutput(r, opts, out, func() error {
-		return r.printAccountCIRunners(out)
+	return clibase.WriteSchemaOutput(app.Stdout(), opts, out, func() error {
+		return printCIRunners(app.Stdout(), out)
 	})
 }
 
-func (r Runner) runAccountInvite(ctx context.Context, opts commandOptions, org, username, role string) error {
+func runInvite(app clibase.App, ctx context.Context, opts clibase.Options, org, username, role string) error {
 	normalizedRole := strings.ToLower(strings.TrimSpace(role))
 	if model.AccountRoleRank(normalizedRole) >= len(model.AccountRoles) {
-		return userError("invalid_role", fmt.Sprintf("role must be one of %s", strings.Join(model.AccountRoles, ", ")), "Pass --role owner, admin, writer, member, contributor or reader.")
+		return clibase.UserError("invalid_role", fmt.Sprintf("role must be one of %s", strings.Join(model.AccountRoles, ", ")), "Pass --role owner, admin, writer, member, contributor or reader.")
 	}
 	var out invitationOutput
-	if err := r.withSession(ctx, func(s *Session) error {
+	if err := app.WithSession(ctx, func(s clibase.Session) error {
 		resp, err := s.Auth().InviteAccountMember(s.Ctx(), &corev1.InviteAccountMemberRequest{
 			Account:  strings.TrimSpace(org),
 			Username: strings.TrimPrefix(strings.TrimSpace(username), "@"),
@@ -81,17 +83,17 @@ func (r Runner) runAccountInvite(ctx context.Context, opts commandOptions, org, 
 		return err
 	}
 	if opts.JSONOutput() {
-		return r.writeJSONOutput(opts, out)
+		return app.WriteJSONOutput(opts, out)
 	}
 	if !opts.Quiet {
-		fmt.Fprintf(r.Stdout, "invited %s to %s as %s; they join when they run gs account accept %s or accept in the web app\n", out.Username, out.Account, out.Role, out.Account)
+		fmt.Fprintf(app.Stdout(), "invited %s to %s as %s; they join when they run gs account accept %s or accept in the web app\n", out.Username, out.Account, out.Role, out.Account)
 	}
 	return nil
 }
 
-func (r Runner) runAccountInvitations(ctx context.Context, opts commandOptions, org string) error {
+func runInvitations(app clibase.App, ctx context.Context, opts clibase.Options, org string) error {
 	var invitations []*corev1.AccountInvitation
-	if err := r.withSession(ctx, func(s *Session) error {
+	if err := app.WithSession(ctx, func(s clibase.Session) error {
 		if strings.TrimSpace(org) == "" {
 			resp, err := s.Auth().ListMyInvitations(s.Ctx(), &corev1.ListMyInvitationsRequest{})
 			if err != nil {
@@ -114,28 +116,28 @@ func (r Runner) runAccountInvitations(ctx context.Context, opts commandOptions, 
 		out = append(out, invitationFromProto(invitation))
 	}
 	if opts.JSONOutput() {
-		return r.writeJSONOutput(opts, map[string]any{"invitations": out})
+		return app.WriteJSONOutput(opts, map[string]any{"invitations": out})
 	}
 	if opts.Quiet {
 		return nil
 	}
 	if len(out) == 0 {
-		fmt.Fprintln(r.Stdout, "no pending invitations")
+		fmt.Fprintln(app.Stdout(), "no pending invitations")
 		return nil
 	}
 	for _, invitation := range out {
 		if strings.TrimSpace(org) == "" {
-			fmt.Fprintf(r.Stdout, "%s\t%s\tinvited by %s\n", invitation.Account, invitation.Role, invitation.InvitedBy)
+			fmt.Fprintf(app.Stdout(), "%s\t%s\tinvited by %s\n", invitation.Account, invitation.Role, invitation.InvitedBy)
 		} else {
-			fmt.Fprintf(r.Stdout, "%s\t%s\tinvited by %s\n", invitation.Username, invitation.Role, invitation.InvitedBy)
+			fmt.Fprintf(app.Stdout(), "%s\t%s\tinvited by %s\n", invitation.Username, invitation.Role, invitation.InvitedBy)
 		}
 	}
 	return nil
 }
 
-func (r Runner) runAccountRespond(ctx context.Context, opts commandOptions, org string, accept bool) error {
+func runRespond(app clibase.App, ctx context.Context, opts clibase.Options, org string, accept bool) error {
 	var resp *corev1.RespondToInvitationResponse
-	if err := r.withSession(ctx, func(s *Session) error {
+	if err := app.WithSession(ctx, func(s clibase.Session) error {
 		var err error
 		resp, err = s.Auth().RespondToInvitation(s.Ctx(), &corev1.RespondToInvitationRequest{Account: strings.TrimSpace(org), Accept: accept})
 		return accountError(err)
@@ -147,20 +149,20 @@ func (r Runner) runAccountRespond(ctx context.Context, opts commandOptions, org 
 		if m := resp.GetMembership(); m != nil {
 			out["role"] = m.GetRole()
 		}
-		return r.writeJSONOutput(opts, out)
+		return app.WriteJSONOutput(opts, out)
 	}
 	if !opts.Quiet {
 		if accept {
-			fmt.Fprintf(r.Stdout, "joined %s as %s\n", strings.TrimSpace(org), resp.GetMembership().GetRole())
+			fmt.Fprintf(app.Stdout(), "joined %s as %s\n", strings.TrimSpace(org), resp.GetMembership().GetRole())
 		} else {
-			fmt.Fprintf(r.Stdout, "declined the invitation to %s\n", strings.TrimSpace(org))
+			fmt.Fprintf(app.Stdout(), "declined the invitation to %s\n", strings.TrimSpace(org))
 		}
 	}
 	return nil
 }
 
-func (r Runner) runAccountCancelInvite(ctx context.Context, opts commandOptions, org, username string) error {
-	if err := r.withSession(ctx, func(s *Session) error {
+func runCancelInvite(app clibase.App, ctx context.Context, opts clibase.Options, org, username string) error {
+	if err := app.WithSession(ctx, func(s clibase.Session) error {
 		_, err := s.Auth().CancelAccountInvitation(s.Ctx(), &corev1.CancelAccountInvitationRequest{
 			Account:  strings.TrimSpace(org),
 			Username: strings.TrimPrefix(strings.TrimSpace(username), "@"),
@@ -170,29 +172,29 @@ func (r Runner) runAccountCancelInvite(ctx context.Context, opts commandOptions,
 		return err
 	}
 	if opts.JSONOutput() {
-		return r.writeJSONOutput(opts, map[string]any{"account": strings.TrimSpace(org), "username": strings.TrimSpace(username), "cancelled": true})
+		return app.WriteJSONOutput(opts, map[string]any{"account": strings.TrimSpace(org), "username": strings.TrimSpace(username), "cancelled": true})
 	}
 	if !opts.Quiet {
-		fmt.Fprintf(r.Stdout, "cancelled the invitation of %s to %s\n", strings.TrimSpace(username), strings.TrimSpace(org))
+		fmt.Fprintf(app.Stdout(), "cancelled the invitation of %s to %s\n", strings.TrimSpace(username), strings.TrimSpace(org))
 	}
 	return nil
 }
 
-func (r Runner) runAccountUse(ctx context.Context, opts commandOptions, account string, clear bool) error {
+func runUse(app clibase.App, ctx context.Context, opts clibase.Options, account string, clear bool) error {
 	account = strings.TrimSpace(account)
 	if clear == (account != "") {
-		return userError("invalid_arguments", "pass an account or --clear", "Run gs account use <account>, or gs account use --clear.")
+		return clibase.UserError("invalid_arguments", "pass an account or --clear", "Run gs account use <account>, or gs account use --clear.")
 	}
-	var cfg UserConfig
-	if err := r.withSession(ctx, func(s *Session) error {
+	var cfg workspace.UserConfig
+	if err := app.WithSession(ctx, func(s clibase.Session) error {
 		cfg = s.Config()
 		if !clear {
 			status, err := s.Auth().GetAuthStatus(s.Ctx(), &corev1.GetAuthStatusRequest{})
 			if err != nil {
 				return err
 			}
-			if !containsFold(status.Accounts, account) {
-				return userError("not_found", fmt.Sprintf("you do not belong to %s", account), "Run gs auth status to see your accounts.")
+			if !clibase.ContainsFold(status.Accounts, account) {
+				return clibase.UserError("not_found", fmt.Sprintf("you do not belong to %s", account), "Run gs auth status to see your accounts.")
 			}
 		}
 		return nil
@@ -200,26 +202,26 @@ func (r Runner) runAccountUse(ctx context.Context, opts commandOptions, account 
 		return err
 	}
 	cfg.ActiveAccount = account
-	if err := r.writeUserConfig(cfg); err != nil {
+	if err := app.WriteUserConfig(cfg); err != nil {
 		return err
 	}
 	if opts.JSONOutput() {
-		return r.writeJSONOutput(opts, map[string]any{"active_account": account})
+		return app.WriteJSONOutput(opts, map[string]any{"active_account": account})
 	}
 	if !opts.Quiet {
 		if clear {
-			fmt.Fprintln(r.Stdout, "commands default to your personal account again")
+			fmt.Fprintln(app.Stdout(), "commands default to your personal account again")
 		} else {
-			fmt.Fprintf(r.Stdout, "commands now default to %s\n", account)
+			fmt.Fprintf(app.Stdout(), "commands now default to %s\n", account)
 		}
 	}
 	return nil
 }
 
-func (r Runner) runAccountCurrent(ctx context.Context, opts commandOptions) error {
+func runCurrent(app clibase.App, ctx context.Context, opts clibase.Options) error {
 	var active string
 	source := "active"
-	if err := r.withSession(ctx, func(s *Session) error {
+	if err := app.WithSession(ctx, func(s clibase.Session) error {
 		var err error
 		active, err = s.ActiveAccount()
 		if err != nil {
@@ -236,21 +238,21 @@ func (r Runner) runAccountCurrent(ctx context.Context, opts commandOptions) erro
 		return err
 	}
 	if opts.JSONOutput() {
-		return r.writeJSONOutput(opts, map[string]any{"account": active, "source": source})
+		return app.WriteJSONOutput(opts, map[string]any{"account": active, "source": source})
 	}
 	if !opts.Quiet {
 		if source == "personal" {
-			fmt.Fprintf(r.Stdout, "%s (your personal account, the default)\n", active)
+			fmt.Fprintf(app.Stdout(), "%s (your personal account, the default)\n", active)
 		} else {
-			fmt.Fprintln(r.Stdout, active)
+			fmt.Fprintln(app.Stdout(), active)
 		}
 	}
 	return nil
 }
 
-func (r Runner) runAccountProfile(ctx context.Context, opts commandOptions, account string) error {
+func runProfile(app clibase.App, ctx context.Context, opts clibase.Options, account string) error {
 	var out profileOutput
-	if err := r.withSession(ctx, func(s *Session) error {
+	if err := app.WithSession(ctx, func(s clibase.Session) error {
 		resp, err := s.Auth().GetAccountProfile(s.Ctx(), &corev1.GetAccountProfileRequest{Account: strings.TrimSpace(account)})
 		if err != nil {
 			return accountError(err)
@@ -260,15 +262,15 @@ func (r Runner) runAccountProfile(ctx context.Context, opts commandOptions, acco
 	}); err != nil {
 		return err
 	}
-	return r.writeProfile(opts, out)
+	return writeProfile(app, opts, out)
 }
 
-func (r Runner) runAccountSetProfile(ctx context.Context, opts commandOptions, account string, name, description, website *string) error {
+func runSetProfile(app clibase.App, ctx context.Context, opts clibase.Options, account string, name, description, website *string) error {
 	if name == nil && description == nil && website == nil {
-		return userError("nothing_to_change", "nothing to change", "Pass --name, --description or --website.")
+		return clibase.UserError("nothing_to_change", "nothing to change", "Pass --name, --description or --website.")
 	}
 	var out profileOutput
-	if err := r.withSession(ctx, func(s *Session) error {
+	if err := app.WithSession(ctx, func(s clibase.Session) error {
 		current, err := s.Auth().GetAccountProfile(s.Ctx(), &corev1.GetAccountProfileRequest{Account: strings.TrimSpace(account)})
 		if err != nil {
 			return accountError(err)
@@ -297,12 +299,12 @@ func (r Runner) runAccountSetProfile(ctx context.Context, opts commandOptions, a
 	}); err != nil {
 		return err
 	}
-	return r.writeProfile(opts, out)
+	return writeProfile(app, opts, out)
 }
 
-func (r Runner) runAccountCreateOrg(ctx context.Context, opts commandOptions, slug string, owners []string) error {
-	var out accountMembersOutput
-	if err := r.withSession(ctx, func(s *Session) error {
+func runCreateOrg(app clibase.App, ctx context.Context, opts clibase.Options, slug string, owners []string) error {
+	var out membersOutput
+	if err := app.WithSession(ctx, func(s clibase.Session) error {
 		resp, err := s.Auth().CreateOrganization(s.Ctx(), &corev1.CreateOrganizationRequest{
 			Slug:           strings.TrimSpace(slug),
 			OwnerUsernames: owners,
@@ -310,17 +312,17 @@ func (r Runner) runAccountCreateOrg(ctx context.Context, opts commandOptions, sl
 		if err != nil {
 			return accountError(err)
 		}
-		out = accountMembersOutput{Account: resp.Account, Kind: "organization", Members: accountMembersFromProto(resp.Members)}
+		out = membersOutput{Account: resp.Account, Kind: "organization", Members: membersFromProto(resp.Members)}
 		return nil
 	}); err != nil {
 		return err
 	}
 	if opts.JSONOutput() {
-		return r.writeJSONOutput(opts, out)
+		return app.WriteJSONOutput(opts, out)
 	}
 	if !opts.Quiet {
-		fmt.Fprintf(r.Stdout, "created organization %s\n", out.Account)
-		r.printAccountMembers(out.Members)
+		fmt.Fprintf(app.Stdout(), "created organization %s\n", out.Account)
+		printMembers(app.Stdout(), out.Members)
 	}
 	return nil
 }

@@ -1,4 +1,4 @@
-package cli
+package secret
 
 import (
 	"context"
@@ -9,18 +9,16 @@ import (
 	"sort"
 	"strings"
 
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"gitslice.io/gitslice/internal/model"
+	"gitslice.io/gitslice/internal/workspace"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-// secretPlaceholderPrefix marks a template value that gs secret env fills
-// from a Gitslice secret: NAME=gitslice-secret:SECRET_NAME.
 const secretPlaceholderPrefix = "gitslice-secret:"
 
 var envAssignment = regexp.MustCompile(`^(\s*(?:export\s+)?)([A-Za-z_][A-Za-z0-9_]*)=(.*)$`)
 
-// envTemplateLine is one line of an env template: kept as it is, or a
-// variable whose value comes from the secret named secret.
 type envTemplateLine struct {
 	text   string
 	prefix string
@@ -28,8 +26,6 @@ type envTemplateLine struct {
 	secret string
 }
 
-// parseEnvTemplate reads an env file whose values may be placeholders, and
-// returns its lines and the secret names they ask for, sorted.
 func parseEnvTemplate(content string) ([]envTemplateLine, []string, error) {
 	var lines []envTemplateLine
 	wanted := map[string]bool{}
@@ -43,7 +39,7 @@ func parseEnvTemplate(content string) ([]envTemplateLine, []string, error) {
 			if strings.HasPrefix(value, secretPlaceholderPrefix) {
 				name := strings.TrimPrefix(value, secretPlaceholderPrefix)
 				if !model.ValidSliceSecretName(name) {
-					return nil, nil, userError("invalid_template", fmt.Sprintf("line %d: %q is not a secret name", i+1, name), "Write placeholders as NAME="+secretPlaceholderPrefix+"SECRET_NAME, with SECRET_NAME like CI_TOKEN.")
+					return nil, nil, clibase.UserError("invalid_template", fmt.Sprintf("line %d: %q is not a secret name", i+1, name), "Write placeholders as NAME="+secretPlaceholderPrefix+"SECRET_NAME, with SECRET_NAME like CI_TOKEN.")
 				}
 				line.prefix, line.key, line.secret = m[1], m[2], name
 				wanted[name] = true
@@ -59,8 +55,6 @@ func parseEnvTemplate(content string) ([]envTemplateLine, []string, error) {
 	return lines, names, nil
 }
 
-// renderEnvTemplate fills the placeholders with values, quoted for a shell
-// that sources the file.
 func renderEnvTemplate(lines []envTemplateLine, values map[string]string) string {
 	out := make([]string, 0, len(lines))
 	for _, line := range lines {
@@ -82,25 +76,25 @@ func shellQuoteEnvValue(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
 }
 
-func (r Runner) runSecretEnv(ctx context.Context, opts commandOptions, templatePath, folder, slice, output string, force bool) error {
+func runEnv(app clibase.App, ctx context.Context, opts clibase.Options, templatePath, folder, slice, output string, force bool) error {
 	content, err := os.ReadFile(templatePath)
 	if err != nil {
-		return userError("template_unreadable", err.Error(), "")
+		return clibase.UserError("template_unreadable", err.Error(), "")
 	}
 	lines, names, err := parseEnvTemplate(string(content))
 	if err != nil {
 		return err
 	}
 	if len(names) == 0 {
-		return userError("invalid_template", templatePath+" has no "+secretPlaceholderPrefix+" placeholders", "Write a secret's place as NAME="+secretPlaceholderPrefix+"SECRET_NAME.")
+		return clibase.UserError("invalid_template", templatePath+" has no "+secretPlaceholderPrefix+" placeholders", "Write a secret's place as NAME="+secretPlaceholderPrefix+"SECRET_NAME.")
 	}
 	toStdout := output == "" || output == "-"
-	if toStdout && isTerminal(r.stdout()) {
-		return userError("refusing_terminal", "refusing to print secret values to a terminal", "Write them to a file with -o .env.prod, or redirect stdout.")
+	if toStdout && clibase.IsTerminal(app.Stdout()) {
+		return clibase.UserError("refusing_terminal", "refusing to print secret values to a terminal", "Write them to a file with -o .env.prod, or redirect stdout.")
 	}
 	if !toStdout && !force {
 		if _, err := os.Stat(output); err == nil {
-			return userError("output_exists", output+" already exists", "Pass --force to replace it.")
+			return clibase.UserError("output_exists", output+" already exists", "Pass --force to replace it.")
 		}
 	}
 	if slice == "" {
@@ -111,7 +105,7 @@ func (r Runner) runSecretEnv(ctx context.Context, opts commandOptions, templateP
 	var values map[string]string
 	var missing []string
 	where, hint := folder, "Create it with gs secret create NAME --path "+folder+" < value, or fix the template."
-	if err := r.withSession(ctx, func(s *Session) error {
+	if err := app.WithSession(ctx, func(s clibase.Session) error {
 		if slice != "" {
 			ref, err := s.ResolveSliceRef(slice, true)
 			if err != nil {
@@ -135,25 +129,22 @@ func (r Runner) runSecretEnv(ctx context.Context, opts commandOptions, templateP
 		return err
 	}
 	if len(missing) > 0 {
-		return userError("secret_missing", fmt.Sprintf("no secret at %s is named %s", where, strings.Join(missing, ", ")), hint)
+		return clibase.UserError("secret_missing", fmt.Sprintf("no secret at %s is named %s", where, strings.Join(missing, ", ")), hint)
 	}
 	rendered := renderEnvTemplate(lines, values)
 	if toStdout {
-		_, err := fmt.Fprint(r.Stdout, rendered)
+		_, err := fmt.Fprint(app.Stdout(), rendered)
 		return err
 	}
 	if err := writePrivateFile(output, []byte(rendered)); err != nil {
 		return err
 	}
 	if !opts.Quiet {
-		fmt.Fprintf(r.stderr(), "wrote %s (mode 600) with %d secret(s) at %s\n", output, len(names), where)
+		fmt.Fprintf(app.Stderr(), "wrote %s (mode 600) with %d secret(s) at %s\n", output, len(names), where)
 	}
 	return nil
 }
 
-// secretEnvFolder is the folder whose secrets fill a template: --path, or
-// the template's own folder in the workspace, which mirrors the account's
-// paths (gitslice/gitslice/env.prod.template is in /gitslice/gitslice).
 func secretEnvFolder(templatePath, folder string) (string, error) {
 	if strings.TrimSpace(folder) != "" {
 		return secretPathFlag(folder)
@@ -163,19 +154,17 @@ func secretEnvFolder(templatePath, folder string) (string, error) {
 		return "", err
 	}
 	dir := filepath.Dir(abs)
-	root, err := workspaceRootFrom(dir)
+	root, err := workspace.FindRoot(dir)
 	if err != nil {
-		return "", userError("path_required", "cannot tell which folder "+templatePath+" belongs to: it is not in a gitslice workspace", "Pass --path /<account>/<folder>, or --slice.")
+		return "", clibase.UserError("path_required", "cannot tell which folder "+templatePath+" belongs to: it is not in a gitslice workspace", "Pass --path /<account>/<folder>, or --slice.")
 	}
 	rel, err := filepath.Rel(root, dir)
 	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
-		return "", userError("path_required", "cannot tell which folder "+templatePath+" belongs to", "Pass --path /<account>/<folder>, or --slice.")
+		return "", clibase.UserError("path_required", "cannot tell which folder "+templatePath+" belongs to", "Pass --path /<account>/<folder>, or --slice.")
 	}
 	return secretPathFlag("/" + filepath.ToSlash(rel))
 }
 
-// writePrivateFile writes data readable by its owner only, replacing path
-// in one step.
 func writePrivateFile(path string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*")
 	if err != nil {

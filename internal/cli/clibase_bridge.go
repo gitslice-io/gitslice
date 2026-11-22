@@ -144,6 +144,8 @@ func (a runnerApp) Stdout() io.Writer                      { return a.r.stdout()
 func (a runnerApp) Stderr() io.Writer                      { return a.r.stderr() }
 func (a runnerApp) Cwd() string                            { return a.r.cwd() }
 func (a runnerApp) HomeDir() string                        { return a.r.homeDir() }
+func (a runnerApp) UserConfigPath() string                 { return a.r.userConfigPath() }
+func (a runnerApp) Version() string                        { return cliVersionInfo().Version }
 func (a runnerApp) Getenv(key string) string               { return a.r.Getenv(key) }
 func (a runnerApp) ColorEnabled(opts clibase.Options) bool { return a.r.colorEnabled(opts) }
 func (a runnerApp) ReadUserConfig() (workspace.UserConfig, error) {

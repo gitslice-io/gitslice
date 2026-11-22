@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"gitslice.io/gitslice/internal/cli/cmd/secret"
 	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -41,7 +42,7 @@ func (r Runner) runSliceSecretSet(ctx context.Context, opts commandOptions, slic
 		value = *valueArg
 	} else {
 		var err error
-		if value, err = r.readSecretValue(name); err != nil {
+		if value, err = secret.ReadValue(r.asApp(), name); err != nil {
 			return err
 		}
 	}
@@ -52,7 +53,7 @@ func (r Runner) runSliceSecretSet(ctx context.Context, opts commandOptions, slic
 			Value: value,
 		})
 		if err != nil {
-			return secretError(err)
+			return secret.WrapError(err)
 		}
 		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{
@@ -79,7 +80,7 @@ func (r Runner) runSliceSecretRemove(ctx context.Context, opts commandOptions, s
 			Name:  name,
 		})
 		if err != nil {
-			return secretError(err)
+			return secret.WrapError(err)
 		}
 		if opts.JSONOutput() {
 			return r.writeJSONOutput(opts, map[string]any{

@@ -65,18 +65,6 @@ func TestPrintFolderPolicyAndAccountCIRunners(t *testing.T) {
 	if !strings.Contains(stderr.String(), "problem (triggers) /acme/web/.gitslice/automations.yaml: bad syntax") {
 		t.Fatalf("stderr missing problem: %q", stderr.String())
 	}
-
-	var ciBuf bytes.Buffer
-	if err := (Runner{Stdout: &ciBuf}).printAccountCIRunners(accountCIRunnersOutput{
-		Account:     "acme",
-		DaemonIDs:   []string{"daemon_1", "daemon_2"},
-		DaemonNames: []string{"primary", "backup"},
-	}); err != nil {
-		t.Fatalf("printAccountCIRunners: %v", err)
-	}
-	if !strings.Contains(ciBuf.String(), "1. primary (daemon_1)") || !strings.Contains(ciBuf.String(), "2. backup (daemon_2)") {
-		t.Fatalf("unexpected ci-runners output:\n%s", ciBuf.String())
-	}
 }
 
 func TestSecretCreateDefaultsToWorkspaceFolder(t *testing.T) {

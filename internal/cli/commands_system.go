@@ -4,44 +4,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// configCommand builds gs config.
-func (r Runner) configCommand(opts *commandOptions) *cobra.Command {
-	configCmd := &cobra.Command{
-		Use:     "config",
-		Aliases: []string{"cfg"},
-		Short:   "Manage local CLI configuration",
-		RunE:    requireSubcommand("config"),
-	}
-	markSchemaGroup(configCmd)
-	configListCmd := &cobra.Command{
-		Use:   "list",
-		Short: "List local CLI configuration",
-		Args:  noArgs("gs config list"),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runConfigList(*opts)
-		},
-	}
-	configGetCmd := &cobra.Command{
-		Use:   "get <key>",
-		Short: "Get one local CLI configuration value",
-		Args:  exactArgs(1, "gs config get <key>"),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runConfigGet(*opts, args[0])
-		},
-	}
-	configSetCmd := &cobra.Command{
-		Use:   "set <key> <value>",
-		Short: "Set one local CLI configuration value",
-		Args:  exactArgs(2, "gs config set <key> <value>"),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runConfigSet(*opts, args[0], args[1])
-		},
-	}
-	configCmd.AddCommand(configListCmd, configGetCmd, configSetCmd)
-
-	return configCmd
-}
-
 // aliasCommand builds gs alias.
 func (r Runner) aliasCommand(opts *commandOptions) *cobra.Command {
 	aliasCmd := &cobra.Command{

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"gitslice.io/gitslice/internal/cli/cmd/configcmd"
 )
 
 func TestConfigCommandsListGetSetAndRedactToken(t *testing.T) {
@@ -27,7 +29,7 @@ func TestConfigCommandsListGetSetAndRedactToken(t *testing.T) {
 	if strings.Contains(stdout.String(), "secret-token") {
 		t.Fatalf("config list leaked token:\n%s", stdout.String())
 	}
-	var listed configOutput
+	var listed configcmd.Output
 	if err := json.Unmarshal(stdout.Bytes(), &listed); err != nil {
 		t.Fatalf("config list output is not JSON: %v\n%s", err, stdout.String())
 	}

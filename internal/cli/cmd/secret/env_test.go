@@ -1,4 +1,4 @@
-package cli
+package secret
 
 import (
 	"reflect"

@@ -8,6 +8,10 @@ import (
 
 	"github.com/spf13/cobra"
 	"gitslice.io/gitslice/internal/agentd"
+	"gitslice.io/gitslice/internal/cli/cmd/account"
+	"gitslice.io/gitslice/internal/cli/cmd/configcmd"
+	"gitslice.io/gitslice/internal/cli/cmd/feedback"
+	"gitslice.io/gitslice/internal/cli/cmd/secret"
 	"google.golang.org/grpc"
 )
 
@@ -128,6 +132,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	// it is declared here so help lists it.
 	root.PersistentFlags().StringP("directory", "C", "", "run as if gs was started in this directory (like git -C); repeatable, each relative to the last")
 	root.SetHelpCommand(r.helpCommand(root))
+	app := r.asApp()
 	root.AddCommand(
 		r.authCommand(opts),
 		r.onboardCommand(opts),
@@ -135,7 +140,7 @@ func (r Runner) rootCommand() *cobra.Command {
 		r.claimsCommand(opts),
 		r.sliceCommand(opts),
 		r.agentCommand(opts),
-		r.accountCommand(opts),
+		account.NewCommand(app, opts),
 		r.groupCommand(opts),
 		r.tagCommand(opts),
 		r.intentCommand(opts),
@@ -144,7 +149,7 @@ func (r Runner) rootCommand() *cobra.Command {
 		r.fsCommand(opts),
 		r.importCommand(opts),
 		r.shellCommand(opts),
-		r.configCommand(opts),
+		configcmd.NewCommand(app, opts),
 		r.aliasCommand(opts),
 		r.rpcCommand(opts),
 		r.browseCommand(opts),
@@ -152,11 +157,11 @@ func (r Runner) rootCommand() *cobra.Command {
 		r.schemaCommand(opts),
 		r.upgradeCommand(opts),
 		r.doctorCommand(opts),
-		r.feedbackCommand(opts),
+		feedback.NewCommand(app, opts),
 		r.mcpCommand(opts),
 		r.blameCommand(opts),
 		r.policyCommand(opts),
-		r.secretCommand(opts),
+		secret.NewCommand(app, opts),
 		r.automationCommand(opts),
 	)
 	for _, commands := range [][]*cobra.Command{
