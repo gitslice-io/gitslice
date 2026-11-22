@@ -1,8 +1,6 @@
 import { useRef, useEffect } from "react";
 import { Link } from "@tanstack/react-router";
 
-import type { ApiClient } from "../../api/useApi";
-import { GLOBAL_REF_NAME } from "../../lib/globalRef";
 import { CopyRow } from "./CopyRow";
 
 interface CheckoutMenuProps {

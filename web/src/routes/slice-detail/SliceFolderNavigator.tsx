@@ -1,5 +1,5 @@
 import { useMemo, useEffect, useState } from "react";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQueries } from "@tanstack/react-query";
 
 import type { ApiClient } from "../../api/useApi";
 import { SlicePanel } from "../../components/slices/SlicePageParts";
@@ -13,13 +13,11 @@ import {
   ancestorDirectoryPaths,
   parentAncestorDirectoryPaths,
   normalizeTreePath,
-  compareRepositoryPaths,
-  type DirectoryLoadResult,
-  type SourceTreeRow
+  compareRepositoryPaths
 } from "./sourceTree";
 import { sliceDirectoryQuery } from "../../queries/slices";
 import { TreeRow } from "./TreeRow";
-import { SourceSkeleton, NavigatorSkeleton } from "./skeletons";
+import { NavigatorSkeleton } from "./skeletons";
 
 interface SliceFolderNavigatorProps {
   api: ApiClient;
@@ -43,7 +41,7 @@ export function SliceFolderNavigator({
   onCollapse,
   onSelectPath,
   selectedPath,
-  sliceId,
+  sliceId: _sliceId,
   sliceRef
 }: SliceFolderNavigatorProps) {
   const initialExpandedPaths = useMemo(
