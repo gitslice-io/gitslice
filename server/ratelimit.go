@@ -23,10 +23,11 @@ import (
 const (
 	rateLimitBucketTTL = 10 * time.Minute
 
-	// agentSignupMethod is the unauthenticated agent self-registration RPC. It
-	// gets its own much tighter per-IP limit on top of the general limiters,
-	// because each call creates an account. Connect serves it on the same path.
-	agentSignupMethod = "/gitslice.core.v1.AuthService/RegisterAgent"
+	// agentSignupMethod and agentJoinInviteMethod are the unauthenticated agent
+	// registration RPCs. Both get a tighter per-IP limit on top of the general
+	// limiters because each call creates an account.
+	agentSignupMethod     = "/gitslice.core.v1.AuthService/RegisterAgent"
+	agentJoinInviteMethod = "/gitslice.core.v1.AuthService/JoinAgentInvite"
 
 	// agentSignupBucketTTL outlives the refill period so an idle IP's spent
 	// bucket is not forgotten before it would have refilled anyway.
@@ -260,7 +261,7 @@ func (l *serverLimiters) agentSignupUnaryInterceptor() grpc.UnaryServerIntercept
 		}
 	}
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if info.FullMethod != agentSignupMethod || l.signup.Allow(grpcPeerIPKeyWithProxies(ctx, l.proxies)) {
+		if (info.FullMethod != agentSignupMethod && info.FullMethod != agentJoinInviteMethod) || l.signup.Allow(grpcPeerIPKeyWithProxies(ctx, l.proxies)) {
 			return handler(ctx, req)
 		}
 		ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "grpc"})

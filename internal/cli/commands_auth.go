@@ -66,6 +66,8 @@ func (r Runner) authCommand(opts *commandOptions) *cobra.Command {
 	registerUsername := ""
 	registerEmail := ""
 	registerDisplayName := ""
+	registerRequestSlice := ""
+	registerRequestRole := ""
 	authRegisterAgentCmd := &cobra.Command{
 		Use:   "register-agent",
 		Short: "Register this agent with its own account and API key (no browser)",
@@ -78,18 +80,22 @@ is lowered and '_' becomes '-'); must not start or end with '-'; must be
 unique across Gitslice; some names are reserved.
 
 --email names the human who may later claim co-ownership. They sign in at
-<web-url>/claims with that (verified) email and accept the agent.
+<web-url>/claims with that (verified) email and accept the agent. Pass
+--request-slice (and optional --request-role) so they can also grant access to
+a target slice in the same click.
 
 Safe to retry: an interrupted registration is remembered and the same command
 resumes it instead of failing because the username is now taken.`,
-		Args: noArgs("gs auth register-agent --username NAME --email OWNER_EMAIL [--display-name NAME] [--server addr]"),
+		Args: noArgs("gs auth register-agent --username NAME --email OWNER_EMAIL [--display-name NAME] [--request-slice account/slice] [--request-role writer] [--server addr]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runAuthRegisterAgent(cmd.Context(), *opts, registerAgentOptions{
-				serverAddr:  registerServer,
-				webURL:      registerWebURL,
-				username:    registerUsername,
-				email:       registerEmail,
-				displayName: registerDisplayName,
+				serverAddr:     registerServer,
+				webURL:         registerWebURL,
+				username:       registerUsername,
+				email:          registerEmail,
+				displayName:    registerDisplayName,
+				requestedSlice: registerRequestSlice,
+				requestedRole:  registerRequestRole,
 			})
 		},
 	}
@@ -98,6 +104,8 @@ resumes it instead of failing because the username is now taken.`,
 	authRegisterAgentCmd.Flags().StringVar(&registerUsername, "username", "", "agent account username: 4-63 chars, lowercase letters, digits, '-'; unique")
 	authRegisterAgentCmd.Flags().StringVar(&registerEmail, "email", "", "email of the human who may later claim co-ownership")
 	authRegisterAgentCmd.Flags().StringVar(&registerDisplayName, "display-name", "", "human-readable agent name (defaults to the username)")
+	authRegisterAgentCmd.Flags().StringVar(&registerRequestSlice, "request-slice", "", "optional slice (account/slice) to ask the owner to grant on claim")
+	authRegisterAgentCmd.Flags().StringVar(&registerRequestRole, "request-role", "", "requested slice role: reader, contributor, writer (default), or admin")
 	genKeyOut := ""
 	genServiceKeyCmd := &cobra.Command{
 		Use:   "gen-service-key",
@@ -129,6 +137,7 @@ resumes it instead of failing because the username is now taken.`,
 	mintServiceTokenCmd.Flags().DurationVar(&mintTTL, "ttl", mintTTL, "token lifetime")
 
 	authCmd.AddCommand(loginCmd, authStatusCmd, authTokenCmd, authLogoutCmd, authRegisterAgentCmd, r.authWebLoginCommand(opts), genServiceKeyCmd, mintServiceTokenCmd)
+	authCmd.AddCommand(r.authInviteCommands(opts)...)
 	authCmd.AddCommand(r.authKeysCommands(opts)...)
 
 	return authCmd
@@ -150,14 +159,16 @@ func (r Runner) claimsCommand(opts *commandOptions) *cobra.Command {
 			return r.runClaimsList(cmd.Context(), *opts)
 		},
 	}
+	grantSlice := true
 	claimsAcceptCmd := &cobra.Command{
 		Use:   "accept <agent-subject-id>",
-		Short: "Become a co-owner of an agent's account",
-		Args:  exactArgs(1, "gs claims accept <agent-subject-id>"),
+		Short: "Become a co-owner of an agent's account (and grant its requested slice access if any)",
+		Args:  exactArgs(1, "gs claims accept <agent-subject-id> [--grant-slice=true|false]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runClaimsAccept(cmd.Context(), *opts, args[0])
+			return r.runClaimsAccept(cmd.Context(), *opts, args[0], grantSlice)
 		},
 	}
+	claimsAcceptCmd.Flags().BoolVar(&grantSlice, "grant-slice", true, "also grant the agent's requested slice role when present")
 	claimsCmd.AddCommand(claimsListCmd, claimsAcceptCmd)
 
 	return claimsCmd

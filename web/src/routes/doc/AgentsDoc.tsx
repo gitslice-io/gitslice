@@ -22,19 +22,60 @@ export function AgentsDoc() {
         description="Coding agents work in Gitslice through the gs CLI or MCP, with their own identity, scoped slice roles, and optional human-in-the-loop submit gates."
       />
 
-      <DocSectionCard id="agent-signup" title="Option 1: Let an agent sign itself up">
+      <DocSectionCard id="agent-skill" title="Install the official Gitslice Agent Skill">
         <p>
-          An agent can create its own account without a browser or a human. It gets a private home
-          slice and a long-lived API key saved locally as its CLI credential. It registers with your
-          email so you can claim co-ownership of everything it creates. Point any coding agent at{" "}
+          Coding agents that support Agent Skills (Claude Code, Codex, Cursor, Gemini, Antigravity)
+          can load Gitslice workflows automatically from{" "}
+          <a className={linkClass} href="/SKILL.md">
+            gitslice.io/SKILL.md
+          </a>{" "}
+          (or{" "}
           <a className={linkClass} href="/llms.txt">
             gitslice.io/llms.txt
-          </a>{" "}
-          for a self-contained walkthrough.
+          </a>
+          ). Install the CLI and skill together in one line:
         </p>
-        <CommandBlock label="agent self-registration commands">{`curl -fsSL https://gitslice.io/install.sh | sh
-gs auth register-agent --username release-bot --email you@example.com
-gs auth status --json`}</CommandBlock>
+        <CommandBlock label="install gs cli and agent skill">{`curl -fsSL https://gitslice.io/install.sh | GS_INSTALL_SKILL=1 sh
+
+# Or install the skill into detected agent directories (~/.agents, ~/.claude, ~/.gemini, ~/.cursor, ~/.codex)
+gs skill install
+gs skill install --project   # install into ./.agents/skills/gitslice/SKILL.md`}</CommandBlock>
+      </DocSectionCard>
+
+      <DocSectionCard id="agent-invites" title="Option 1 (Fastest): Connect an agent with a single-use invite">
+        <p>
+          From any slice&apos;s <span className="font-semibold text-zinc-950 dark:text-zinc-50">Settings</span>{" "}
+          page (<span className="font-semibold text-zinc-950 dark:text-zinc-50">Connect an agent</span>)
+          or from your terminal, mint a short-lived single-use <InlineCode>gsi_...</InlineCode>{" "}
+          join token bound to a slice and role. Give the token (or copyable prompt) to your agent
+          and it registers, links ownership to you, and receives slice access in one command — no
+          email claim round-trip needed:
+        </p>
+        <CommandBlock label="single-use agent invite commands">{`# On the human's machine (or in Slice Settings → Connect an agent):
+gs auth create-agent-invite --slice acme/payments --role contributor
+
+# On the agent's machine (one idempotent command):
+gs onboard --join gsi_... --install-skill --json
+# Or directly:
+gs auth join gsi_...`}</CommandBlock>
+        <p>
+          Manage unused tokens with <InlineCode>gs auth list-agent-invites</InlineCode> and{" "}
+          <InlineCode>gs auth revoke-agent-invite &lt;invite-id&gt;</InlineCode>.
+        </p>
+      </DocSectionCard>
+
+      <DocSectionCard id="agent-signup" title="Option 2: Let an agent self-register with your email">
+        <p>
+          An agent can also create its own account without a browser or an invite token. Use{" "}
+          <InlineCode>gs onboard</InlineCode> (idempotent, auto-generates a unique username if
+          omitted) or <InlineCode>gs auth register-agent</InlineCode>, and optionally request access
+          to a slice upfront:
+        </p>
+        <CommandBlock label="agent self-registration commands">{`curl -fsSL https://gitslice.io/install.sh | GS_INSTALL_SKILL=1 sh
+gs onboard --email you@example.com --slice acme/payments --role writer --install-skill --json
+
+# Or lower-level registration with an explicit username:
+gs auth register-agent --username release-bot --email you@example.com --request-slice acme/payments --request-role writer`}</CommandBlock>
         <p>
           Usernames are 4–63 lowercase letters, digits, and <InlineCode>-</InlineCode> (not
           starting or ending with <InlineCode>-</InlineCode>) and must be unique. If registration
@@ -46,22 +87,23 @@ gs auth status --json`}</CommandBlock>
             gitslice.io/claims
           </Link>{" "}
           while signed in with an account whose verified email matches the address the agent
-          registered with, then click <span className="font-semibold text-zinc-950 dark:text-zinc-50">Accept</span>.
-          You become a co-owner and the agent keeps its access. If your account uses another email,
-          add and verify the agent&apos;s address in your profile first (Manage account) — a claim
-          never appears for a different address, and an empty list shows which emails were checked.
+          registered with, then click{" "}
+          <span className="font-semibold text-zinc-950 dark:text-zinc-50">Accept &amp; grant</span>{" "}
+          (or <span className="font-semibold text-zinc-950 dark:text-zinc-50">Accept</span>). You
+          become a co-owner and grant the requested slice in one click; the agent keeps its access.
           From a terminal:
         </p>
         <CommandBlock label="claim agent commands">{`gs claims list
-gs claims accept <agent-subject-id>`}</CommandBlock>
+gs claims accept <agent-subject-id>              # grants any requested slice by default
+gs claims accept <agent-subject-id> --grant-slice=false`}</CommandBlock>
       </DocSectionCard>
 
-      <DocSectionCard title="Option 2: Provision a scoped agent as an owner">
+      <DocSectionCard title="Option 3: Provision a scoped agent as an owner">
         <p>
-          If you prefer to create an agent upfront and grant it access to a specific slice right
-          away, use <InlineCode>gs agent create</InlineCode>. It prints the initial API key once to
-          stdout (or as <InlineCode>secret</InlineCode> under <InlineCode>--json</InlineCode>),
-          and the agent signs in with <InlineCode>gs auth use-key</InlineCode>:
+          If you prefer to create an agent upfront and hand it a ready-made API key, use{" "}
+          <InlineCode>gs agent create</InlineCode>. It prints the initial API key once to stdout
+          (or as <InlineCode>secret</InlineCode> under <InlineCode>--json</InlineCode>), and the
+          agent signs in with <InlineCode>gs auth use-key</InlineCode>:
         </p>
         <CommandBlock label="delegated agent creation commands">{`# On the owner's machine: create the agent and grant contributor access to one slice
 gs agent create triage-bot --slice acme/payments --role contributor
@@ -132,21 +174,38 @@ gs auth web-login --expires 2h --slice acme/payments --role reader --open`}</Com
             <InlineCode>gs rewind</InlineCode>, or branch an alternative approach with{" "}
             <InlineCode>gs fork</InlineCode> without uploading anything.
           </BulletPoint>
-          <BulletPoint label="Scripting flags:">
-            Most commands accept <InlineCode>--json</InlineCode> for structured output. In
-            scheduled jobs, <InlineCode>gs create --all --if-changed --message &quot;...&quot; --submit</InlineCode>{" "}
+          <BulletPoint label="Machine-readable CLI & remediation:">
+            Most commands accept <InlineCode>--json</InlineCode>,{" "}
+            <InlineCode>gs schema [command...]</InlineCode> inspects flags and output fields on
+            demand, and structured JSON errors include <InlineCode>remediation_command</InlineCode>{" "}
+            and <InlineCode>remediation_url</InlineCode>. In scheduled jobs,{" "}
+            <InlineCode>gs create --all --if-changed --message &quot;...&quot; --submit</InlineCode>{" "}
             exits 0 cleanly when nothing changed and otherwise waits for required checks before
             landing.
           </BulletPoint>
         </ul>
       </DocSectionCard>
 
-      <DocSectionCard title="MCP server (no checkout needed)">
+      <DocSectionCard id="mcp" title="MCP server: hosted HTTP or local stdio">
         <p>
-          For agents that speak the Model Context Protocol, <InlineCode>gs mcp</InlineCode> serves
-          Gitslice directly over stdio as the signed-in user — no local checkout required.
+          Connect any MCP client with zero local installation using the hosted Streamable HTTP
+          endpoint at <InlineCode>https://gitslice.io/mcp</InlineCode>, authenticated with an
+          agent API key (<InlineCode>Authorization: Bearer gsk_...</InlineCode>):
         </p>
-        <CommandBlock label="MCP server command">{`# Configure in your MCP client as the stdio server command:
+        <CommandBlock label="hosted Streamable HTTP MCP config">{`{
+  "mcpServers": {
+    "gitslice": {
+      "url": "https://gitslice.io/mcp?slice=acme/payments",
+      "headers": {
+        "Authorization": "Bearer gsk_..."
+      }
+    }
+  }
+}`}</CommandBlock>
+        <p>
+          Or run the local stdio server via the CLI (<InlineCode>gs mcp</InlineCode>):
+        </p>
+        <CommandBlock label="MCP stdio server command">{`# Configure in your MCP client as the stdio server command:
 gs mcp --slice acme/payments
 
 # Optional: log every server and tool call as JSON lines

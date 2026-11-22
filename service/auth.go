@@ -164,11 +164,35 @@ func (s *AuthService) RegisterAgent(ctx context.Context, req *corev1.RegisterAge
 	if !s.AgentSignupEnabled {
 		return nil, status.Error(codes.FailedPrecondition, "agent sign-up is disabled on this server")
 	}
+	var reqSliceAccount, reqSliceSlug, reqSliceRole string
+	if req.GetRequestedSlice() != nil {
+		ref, err := normalizeServiceSliceRef(req.GetRequestedSlice())
+		if err != nil {
+			return nil, err
+		}
+		reqSliceAccount = ref.GetAccount()
+		reqSliceSlug = ref.GetSlice()
+		roleInput := strings.TrimSpace(req.GetRequestedRole())
+		if roleInput == "" {
+			roleInput = "writer"
+		}
+		role, err := storage.NormalizeDelegatedAgentSliceRole("requested", roleInput)
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		reqSliceRole = role
+	} else if strings.TrimSpace(req.GetRequestedRole()) != "" {
+		return nil, status.Error(codes.InvalidArgument, "requested_role requires requested_slice")
+	}
+
 	agent, err := s.Auth.RegisterAgent(ctx, storage.RegisterAgentInput{
-		Username:          req.GetUsername(),
-		OwnerEmail:        req.GetOwnerEmail(),
-		DisplayName:       req.GetDisplayName(),
-		RegistrationToken: req.GetRegistrationToken(),
+		Username:              req.GetUsername(),
+		OwnerEmail:            req.GetOwnerEmail(),
+		DisplayName:           req.GetDisplayName(),
+		RegistrationToken:     req.GetRegistrationToken(),
+		RequestedSliceAccount: reqSliceAccount,
+		RequestedSliceSlug:    reqSliceSlug,
+		RequestedSliceRole:    reqSliceRole,
 	})
 	if err != nil {
 		return nil, grpcError(err)
@@ -202,13 +226,21 @@ func (s *AuthService) ListPendingClaims(ctx context.Context, req *corev1.ListPen
 	}
 	out := make([]*corev1.PendingClaim, 0, len(claims))
 	for _, claim := range claims {
-		out = append(out, &corev1.PendingClaim{
+		pc := &corev1.PendingClaim{
 			AgentSubjectId:   claim.AgentSubjectID,
 			AgentDisplayName: claim.AgentDisplayName,
 			Account:          claim.Account,
 			OwnerEmail:       claim.OwnerEmail,
 			CreatedAt:        claim.CreatedAt.UTC().Format(time.RFC3339),
-		})
+			RequestedRole:    claim.RequestedSliceRole,
+		}
+		if claim.RequestedSliceAccount != "" && claim.RequestedSliceSlug != "" {
+			pc.RequestedSlice = &corev1.SliceRef{
+				Account: claim.RequestedSliceAccount,
+				Slice:   claim.RequestedSliceSlug,
+			}
+		}
+		out = append(out, pc)
 	}
 	emails, err := s.Auth.VerifiedEmails(ctx, subjectID)
 	if err != nil {
@@ -218,7 +250,8 @@ func (s *AuthService) ListPendingClaims(ctx context.Context, req *corev1.ListPen
 }
 
 // AcceptClaim re-checks the caller's verified emails and makes them an owner of
-// the agent's account. Agents cannot claim: they have no verified emails.
+// the agent's account. When grant_requested_slice is set and the claim named a
+// slice, it also grants that slice role if the caller can manage its members.
 func (s *AuthService) AcceptClaim(ctx context.Context, req *corev1.AcceptClaimRequest) (*corev1.AcceptClaimResponse, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
@@ -234,12 +267,59 @@ func (s *AuthService) AcceptClaim(ctx context.Context, req *corev1.AcceptClaimRe
 	if err := s.refreshVerifiedEmails(ctx, subjectID); err != nil {
 		return nil, err
 	}
+
+	var (
+		grantSlice *corev1.Slice
+		grantRole  string
+	)
+	if req.GetGrantRequestedSlice() {
+		claims, err := s.Auth.ListPendingClaims(ctx, subjectID)
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		for _, claim := range claims {
+			if claim.AgentSubjectID != agentSubjectID {
+				continue
+			}
+			if claim.RequestedSliceAccount != "" && claim.RequestedSliceSlug != "" {
+				if s.Slices == nil {
+					return nil, status.Error(codes.Internal, "slice store is not configured")
+				}
+				ref := &corev1.SliceRef{Account: claim.RequestedSliceAccount, Slice: claim.RequestedSliceSlug}
+				slice, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, ref, authz.ActionManageMembers)
+				if err != nil {
+					return nil, err
+				}
+				role := claim.RequestedSliceRole
+				if role == "" {
+					role = "writer"
+				}
+				grantSlice = slice
+				grantRole = role
+			}
+			break
+		}
+	}
+
 	account, err := s.Auth.AcceptClaim(ctx, subjectID, agentSubjectID)
 	if err != nil {
 		return nil, grpcError(err)
 	}
+	var grantedRef *corev1.SliceRef
+	var grantedRole string
+	if grantSlice != nil {
+		if _, err := s.Slices.SetMember(ctx, grantSlice.GetId(), agentSubjectID, grantRole, subjectID); err != nil {
+			return nil, grpcError(err)
+		}
+		grantedRef = grantSlice.GetRef()
+		grantedRole = grantRole
+	}
 	captureAnalytics(ctx, s.Analytics, analytics.EventAgentClaimed, nil)
-	return &corev1.AcceptClaimResponse{Account: account}, nil
+	return &corev1.AcceptClaimResponse{
+		Account:      account,
+		GrantedSlice: grantedRef,
+		GrantedRole:  grantedRole,
+	}, nil
 }
 
 // ListOwnedAgents lists the agents whose accounts the caller owns.

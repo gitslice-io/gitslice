@@ -82,6 +82,18 @@ service AuthService {
   // human caller, optionally adds it to a slice with a role, and returns its
   // initial API key once.
   rpc CreateDelegatedAgent(CreateDelegatedAgentRequest) returns (CreateDelegatedAgentResponse);
+  // CreateAgentInvite mints a short-lived, single-use join token ("gsi_...")
+  // that lets an agent register itself as a co-owned, controller-bound agent
+  // and optionally receive access to a slice in one step.
+  rpc CreateAgentInvite(CreateAgentInviteRequest) returns (CreateAgentInviteResponse);
+  // ListAgentInvites lists agent join invites created by the signed-in human.
+  rpc ListAgentInvites(ListAgentInvitesRequest) returns (ListAgentInvitesResponse);
+  // RevokeAgentInvite revokes an unused agent join invite.
+  rpc RevokeAgentInvite(RevokeAgentInviteRequest) returns (Empty);
+  // JoinAgentInvite redeems a single-use join token ("gsi_...") to register an
+  // agent, bind it to the inviting human owner, grant any invited slice access,
+  // and return its initial API key. Unauthenticated; IP rate-limited.
+  rpc JoinAgentInvite(JoinAgentInviteRequest) returns (JoinAgentInviteResponse);
   // CreateGroup creates an account-level group (@account/name). Account owners
   // and admins may call it.
   rpc CreateGroup(CreateGroupRequest) returns (AccountGroup);
@@ -187,6 +199,12 @@ message RegisterAgentRequest {
   // same agent with a fresh API key and revokes that agent's never-used keys.
   // Clients should persist it until they receive a response.
   string registration_token = 4;
+  // Optional slice the agent asks to access once its human claims it. Validated
+  // syntactically only so registration never reveals private slice existence.
+  SliceRef requested_slice = 5;
+  // Optional slice role requested ("reader", "contributor", "writer", "admin").
+  // Defaults to "writer" when requested_slice is set.
+  string requested_role = 6;
 }
 
 message RegisterAgentResponse {
@@ -203,6 +221,9 @@ message PendingClaim {
   string owner_email = 4;
   // RFC 3339 registration time.
   string created_at = 5;
+  // Optional slice and role requested by the agent at registration.
+  SliceRef requested_slice = 6;
+  string requested_role = 7;
 }
 
 message ListPendingClaimsRequest {}
@@ -218,11 +239,17 @@ message ListPendingClaimsResponse {
 
 message AcceptClaimRequest {
   string agent_subject_id = 1;
+  // When true and the claim requested access to a slice, also grant that slice
+  // role if the caller has permission to manage members on that slice.
+  bool grant_requested_slice = 2;
 }
 
 message AcceptClaimResponse {
   // The claimed account, now co-owned by the caller.
   string account = 1;
+  // Set when grant_requested_slice succeeded on the claim's requested slice.
+  SliceRef granted_slice = 2;
+  string granted_role = 3;
 }
 
 message OwnedAgent {
@@ -475,6 +502,67 @@ message CreateDelegatedAgentResponse {
   string secret = 4;
   SliceRef slice = 5;
   string role = 6;
+}
+
+// AgentInvite describes a short-lived, single-use join invite minted by a
+// human owner so a coding agent can register and join a slice in one step.
+message AgentInvite {
+  string id = 1;
+  SliceRef slice = 2;
+  string role = 3;
+  string suggested_username = 4;
+  string expires_at = 5;
+  string created_at = 6;
+  string consumed_at = 7;
+  string revoked_at = 8;
+  string consumed_by_account = 9;
+}
+
+message CreateAgentInviteRequest {
+  // Optional slice the joined agent will automatically be granted access to.
+  SliceRef slice = 1;
+  // Slice role when slice is set: "reader", "contributor" (default),
+  // "writer", or "admin".
+  string role = 2;
+  // Optional suggested username for the joining agent.
+  string suggested_username = 3;
+  // Optional invite lifetime in seconds; defaults to 86400 (24h), max 604800 (7d).
+  int64 expires_in_seconds = 4;
+}
+
+message CreateAgentInviteResponse {
+  AgentInvite invite = 1;
+  // Plaintext single-use join token ("gsi_..."). Returned only once.
+  string token = 2;
+}
+
+message ListAgentInvitesRequest {}
+
+message ListAgentInvitesResponse {
+  repeated AgentInvite invites = 1;
+}
+
+message RevokeAgentInviteRequest {
+  string invite_id = 1;
+}
+
+message JoinAgentInviteRequest {
+  // Single-use join token ("gsi_...") created by CreateAgentInvite.
+  string token = 1;
+  // Optional desired username. If omitted, uses the invite's suggested_username
+  // or a generated unique agent slug.
+  string username = 2;
+  // Optional human-readable display name. Defaults to the resolved username.
+  string display_name = 3;
+}
+
+message JoinAgentInviteResponse {
+  string agent_subject_id = 1;
+  string account = 2;
+  // Plaintext initial API key ("gsk_..."). Returned only once.
+  string api_key = 3;
+  SliceRef slice = 4;
+  string role = 5;
 }
 
 message AccountGroupMember {

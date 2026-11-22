@@ -41,20 +41,81 @@ type RegisterAgentInput struct {
 	// RegistrationToken, when set, makes registration idempotent: a retry with
 	// the same token, username and owner email resumes the existing agent.
 	RegistrationToken string
+	// Optional slice + role the agent asks its human owner to grant on claim.
+	RequestedSliceAccount string
+	RequestedSliceSlug    string
+	RequestedSliceRole    string
 }
 
 // MinRegistrationTokenLength is the minimum length of a client-generated
 // registration token; it is a secret, so it must not be guessable.
 const MinRegistrationTokenLength = model.MinRegistrationTokenLength
 
+// AgentInviteTokenPrefix marks a single-use human-minted agent join token.
+const (
+	AgentInviteTokenPrefix = "gsi_"
+	DefaultAgentInviteTTL  = 24 * time.Hour
+	MaxAgentInviteTTL      = 7 * 24 * time.Hour
+	MaxActiveAgentInvites  = 50
+)
+
 // PendingClaim is an unclaimed agent registration that a signed-in human may
 // accept because its owner email is one of their verified emails.
 type PendingClaim struct {
-	AgentSubjectID   string
-	AgentDisplayName string
-	Account          string
-	OwnerEmail       string
-	CreatedAt        time.Time
+	AgentSubjectID        string
+	AgentDisplayName      string
+	Account               string
+	OwnerEmail            string
+	CreatedAt             time.Time
+	RequestedSliceAccount string
+	RequestedSliceSlug    string
+	RequestedSliceRole    string
+}
+
+// AgentInvite is a short-lived, single-use join invite minted by a human owner.
+type AgentInvite struct {
+	ID                string
+	CreatedBy         string
+	SliceID           string
+	SliceAccount      string
+	SliceSlug         string
+	SliceRole         string
+	SuggestedUsername string
+	ExpiresAt         time.Time
+	CreatedAt         time.Time
+	ConsumedAt        time.Time
+	ConsumedByAccount string
+	RevokedAt         time.Time
+}
+
+type CreateAgentInviteInput struct {
+	ActorID           string
+	SliceID           string
+	SliceAccount      string
+	SliceSlug         string
+	SliceRole         string
+	SuggestedUsername string
+	ExpiresAt         time.Time
+}
+
+type CreateAgentInviteResult struct {
+	Invite AgentInvite
+	Token  string
+}
+
+type JoinAgentInviteInput struct {
+	Token       string
+	Username    string
+	DisplayName string
+}
+
+type JoinAgentInviteResult struct {
+	AgentSubjectID string
+	Account        string
+	APIKey         string
+	SliceAccount   string
+	SliceSlug      string
+	SliceRole      string
 }
 
 // OwnedAgent is a self-registered agent whose personal account a human owns.

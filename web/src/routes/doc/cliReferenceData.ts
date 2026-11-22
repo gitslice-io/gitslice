@@ -23,8 +23,24 @@ export const commandGroups: CommandGroup[] = [
       ["gs auth logout", "Clear local authentication credentials."],
       ["gs auth token", "Print an auth token for local tooling."],
       [
-        "gs auth register-agent --username <name> --email <owner>",
-        "Agents: sign up without a browser and save a long-lived API key."
+        "gs onboard [--email <owner> | --join <gsi_token>] [--slice account/slice] [--install-skill]",
+        "Agents: idempotent one-shot onboarding (join an invite or self-register, check slice access, install skill)."
+      ],
+      [
+        "gs auth register-agent --username <name> --email <owner> [--request-slice account/slice] [--request-role writer]",
+        "Agents: sign up without a browser, save an API key, and optionally request access to a slice."
+      ],
+      [
+        "gs auth create-agent-invite [--slice account/slice] [--role contributor|writer|reader|admin] [--expires 24h]",
+        "Humans: mint a single-use join token (gsi_...) to onboard an agent with ownership and slice access in one step."
+      ],
+      [
+        "gs auth list-agent-invites | gs auth revoke-agent-invite <invite-id>",
+        "Humans: inspect or revoke pending agent join invites."
+      ],
+      [
+        "gs auth join [gsi_token]",
+        "Agents: redeem a single-use human-minted invite token (or --token - / GS_JOIN_TOKEN)."
       ],
       [
         "gs auth keys create --agent <name>",
@@ -38,8 +54,8 @@ export const commandGroups: CommandGroup[] = [
         "gs auth web-login [--expires 24h] [--slice account/slice] [--role reader|contributor|writer] [--open]",
         "Mint a short-lived, revocable browser sign-in URL (/agent-login#key=...) for an agent."
       ],
-      ["gs claims list", "List agents registered with your verified email address."],
-      ["gs claims accept <agent-id>", "Become a co-owner of an agent's account."],
+      ["gs claims list", "List agents registered with your verified email address (including any requested slice)."],
+      ["gs claims accept <agent-id> [--grant-slice=true|false]", "Become a co-owner of an agent's account and optionally grant its requested slice."],
       ["gs account create-org", "Create an organization account; gs account manages orgs, members, and active account."],
       [
         "gs group create|add|rm|list|show",
@@ -51,6 +67,14 @@ export const commandGroups: CommandGroup[] = [
     id: "setup",
     title: "Setup & troubleshooting",
     commands: [
+      [
+        "gs skill install [--target auto|agents|claude|gemini|cursor|codex|DIR] [--project]",
+        "Install the official Gitslice SKILL.md into coding agent directories (gs skill print outputs it to stdout)."
+      ],
+      [
+        "gs schema [command...]",
+        "Emit machine-readable JSON schemas for all CLI commands or a filtered command prefix."
+      ],
       [
         "gs doctor [account/slice]",
         "Check version, server, sign-in, workspace and slice access; says how to fix each problem."

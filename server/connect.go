@@ -50,6 +50,8 @@ func newPrincipalConnectHandler(resolve principalResolver, handlers *service.Han
 		}
 		handlers.AutomationRun.ServeArchiveHTTP(w, r)
 	})))
+	// Hosted Streamable HTTP MCP endpoint (design/40_agent_onboarding.md).
+	mount("/mcp", newHostedMCPHandler(handlers, ""))
 	mountConnectServices(mount, handlers, limiters, opts...)
 	return mux
 }
@@ -95,7 +97,7 @@ func connectPrincipalAuthMiddlewareWithLimiters(resolve principalResolver, limit
 			}
 
 			if isPublicMethod(r.URL.Path) {
-				if r.URL.Path == agentSignupMethod && limiters != nil && limiters.signup != nil && !limiters.signup.Allow(ipKey) {
+				if (r.URL.Path == agentSignupMethod || r.URL.Path == agentJoinInviteMethod) && limiters != nil && limiters.signup != nil && !limiters.signup.Allow(ipKey) {
 					ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
 					reject(w, r, start, connect.NewError(connect.CodeResourceExhausted, errors.New("agent sign-up rate limit exceeded")))
 					return

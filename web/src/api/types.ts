@@ -30,6 +30,7 @@ export type AccountInvitation = NormalizedMessage<AuthProto.AccountInvitation>;
 export type AccountProfile = NormalizedMessage<AuthProto.AccountProfile>;
 export type PendingClaim = NormalizedMessage<AuthProto.PendingClaim>;
 export type OwnedAgent = NormalizedMessage<AuthProto.OwnedAgent>;
+export type AgentInvite = NormalizedMessage<AuthProto.AgentInvite>;
 export type GetAuthStatusRequest = NormalizedRequest<AuthProto.GetAuthStatusRequest>;
 export type GetAuthStatusResponse = NormalizedMessage<AuthProto.GetAuthStatusResponse>;
 export type CheckUsernameAvailableRequest = NormalizedRequest<AuthProto.CheckUsernameAvailableRequest>;
@@ -43,6 +44,12 @@ export type ListAccountMembersRequest = NormalizedRequest<AuthProto.ListAccountM
 export type ListAccountMembersResponse = NormalizedMessage<AuthProto.ListAccountMembersResponse>;
 export type ListPendingClaimsResponse = NormalizedMessage<AuthProto.ListPendingClaimsResponse>;
 export type ListOwnedAgentsResponse = NormalizedMessage<AuthProto.ListOwnedAgentsResponse>;
+export type CreateAgentInviteRequest = NormalizedRequest<AuthProto.CreateAgentInviteRequest>;
+export type CreateAgentInviteResponse = NormalizedMessage<AuthProto.CreateAgentInviteResponse>;
+export type ListAgentInvitesResponse = NormalizedMessage<AuthProto.ListAgentInvitesResponse>;
+export type RevokeAgentInviteRequest = NormalizedRequest<AuthProto.RevokeAgentInviteRequest>;
+export type JoinAgentInviteRequest = NormalizedRequest<AuthProto.JoinAgentInviteRequest>;
+export type JoinAgentInviteResponse = NormalizedMessage<AuthProto.JoinAgentInviteResponse>;
 
 // Repository & blobs
 export type Ref = NormalizedMessage<RepositoryProto.Ref>;

@@ -10,11 +10,13 @@ import (
 )
 
 type commandError struct {
-	Code      string
-	Message   string
-	Hint      string
-	Retriable bool
-	Cause     error
+	Code               string
+	Message            string
+	Hint               string
+	RemediationCommand string
+	RemediationURL     string
+	Retriable          bool
+	Cause              error
 }
 
 func (e commandError) Error() string {
@@ -50,10 +52,12 @@ type errorResponse struct {
 }
 
 type errorBody struct {
-	Code      string `json:"code"`
-	Message   string `json:"message"`
-	Hint      string `json:"hint,omitempty"`
-	Retriable bool   `json:"retriable"`
+	Code               string `json:"code"`
+	Message            string `json:"message"`
+	Hint               string `json:"hint,omitempty"`
+	RemediationCommand string `json:"remediation_command,omitempty"`
+	RemediationURL     string `json:"remediation_url,omitempty"`
+	Retriable          bool   `json:"retriable"`
 }
 
 type domainErrorOverride struct {
@@ -243,10 +247,12 @@ func (r Runner) unauthenticatedCommandError(err error) commandError {
 	cfg, _ := r.readPartialUserConfig()
 	if strings.TrimSpace(cfg.Token) == "" {
 		return commandError{
-			Code:    "unauthenticated",
-			Message: "not signed in: this needs a signed-in account (a private slice is open only to members of the account that owns it)",
-			Hint:    "Sign in with gs auth login, or gs auth register-agent for an agent, then try again. If the slice belongs to an agent you own, claim co-ownership at " + claimsURL() + ". gs doctor checks the setup.",
-			Cause:   err,
+			Code:               "unauthenticated",
+			Message:            "not signed in: this needs a signed-in account (a private slice is open only to members of the account that owns it)",
+			Hint:               "Sign in with gs auth login, or gs onboard --email <owner-email> (or gs auth join <token>) for an agent, then try again. If the slice belongs to an agent you own, claim co-ownership at " + claimsURL() + ". gs doctor checks the setup.",
+			RemediationCommand: "gs onboard --email <owner-email> --json",
+			RemediationURL:     claimsURL(),
+			Cause:              err,
 		}
 	}
 	message := grpcstatus.Convert(err).Message()
@@ -254,10 +260,11 @@ func (r Runner) unauthenticatedCommandError(err error) commandError {
 		message = "unauthenticated"
 	}
 	return commandError{
-		Code:    "unauthenticated",
-		Message: "authentication failed: " + firstNonEmpty(cfg.ServerAddr, "the server") + " did not accept the saved token (" + message + ")",
-		Hint:    r.authRecoveryHint(),
-		Cause:   err,
+		Code:               "unauthenticated",
+		Message:            "authentication failed: " + firstNonEmpty(cfg.ServerAddr, "the server") + " did not accept the saved token (" + message + ")",
+		Hint:               r.authRecoveryHint(),
+		RemediationCommand: "gs auth status",
+		Cause:              err,
 	}
 }
 
@@ -286,7 +293,9 @@ func (r Runner) permissionDeniedCommandError(err error) commandError {
 		Hint: "A private slice is open only to members of the account that owns it, and changing a slice needs write access. " +
 			"If the slice belongs to an agent you own, claim co-ownership at " + claimsURL() + " (signed in with the email the agent registered with); " +
 			"otherwise ask an owner of the account to share the slice with you (gs slice share <slice> <username>). gs doctor <account/slice> checks your access.",
-		Cause: err,
+		RemediationCommand: "gs doctor",
+		RemediationURL:     claimsURL(),
+		Cause:              err,
 	}
 }
 
@@ -307,6 +316,28 @@ func classifyError(err error) errorResponse {
 	return errorResponse{Error: classifyErrorBody(err, false)}
 }
 
+func populateDefaultRemediation(body errorBody) errorBody {
+	if body.RemediationCommand == "" {
+		switch body.Code {
+		case "not_logged_in", "unauthenticated":
+			body.RemediationCommand = "gs onboard --email <owner-email> --json"
+		case "not_in_workspace":
+			body.RemediationCommand = "gs init <account/slice>"
+		case "sync_conflicts":
+			body.RemediationCommand = "gs sync"
+		case "permission_denied":
+			body.RemediationCommand = "gs doctor"
+		}
+	}
+	if body.RemediationURL == "" {
+		switch body.Code {
+		case "permission_denied", "unauthenticated":
+			body.RemediationURL = claimsURL()
+		}
+	}
+	return body
+}
+
 func classifyErrorBody(err error, mcpMode bool) errorBody {
 	defaultCode := "command_failed"
 	if mcpMode {
@@ -316,22 +347,26 @@ func classifyErrorBody(err error, mcpMode bool) errorBody {
 		return errorBody{Code: defaultCode}
 	}
 	if cmdErr, ok := asCommandError(err); ok {
-		return errorBody{
-			Code:      cmdErr.Code,
-			Message:   cmdErr.Message,
-			Hint:      cmdErr.Hint,
-			Retriable: cmdErr.Retriable,
-		}
+		return populateDefaultRemediation(errorBody{
+			Code:               cmdErr.Code,
+			Message:            cmdErr.Message,
+			Hint:               cmdErr.Hint,
+			RemediationCommand: cmdErr.RemediationCommand,
+			RemediationURL:     cmdErr.RemediationURL,
+			Retriable:          cmdErr.Retriable,
+		})
 	}
 	var cmdErr commandError
 	baseErr, overrides := extractDomainErrorOverrides(err)
 	if explained := explainUnavailable(baseErr); explained != nil && errors.As(explained, &cmdErr) {
-		return errorBody{
-			Code:      cmdErr.Code,
-			Message:   cmdErr.Message,
-			Hint:      cmdErr.Hint,
-			Retriable: cmdErr.Retriable,
-		}
+		return populateDefaultRemediation(errorBody{
+			Code:               cmdErr.Code,
+			Message:            cmdErr.Message,
+			Hint:               cmdErr.Hint,
+			RemediationCommand: cmdErr.RemediationCommand,
+			RemediationURL:     cmdErr.RemediationURL,
+			Retriable:          cmdErr.Retriable,
+		})
 	}
 	if st, ok := grpcstatus.FromError(baseErr); ok && st.Code() != codes.OK && st.Code() != codes.Unknown {
 		if mapped, matched := grpcStatusCommandError(baseErr, st); matched {
@@ -340,18 +375,20 @@ func classifyErrorBody(err error, mcpMode bool) errorBody {
 			if mcpMode && len(overrides) == 0 {
 				code = strings.ToLower(st.Code().String())
 			}
-			return errorBody{
-				Code:      code,
-				Message:   mapped.Message,
-				Hint:      mapped.Hint,
-				Retriable: mapped.Retriable,
-			}
+			return populateDefaultRemediation(errorBody{
+				Code:               code,
+				Message:            mapped.Message,
+				Hint:               mapped.Hint,
+				RemediationCommand: mapped.RemediationCommand,
+				RemediationURL:     mapped.RemediationURL,
+				Retriable:          mapped.Retriable,
+			})
 		}
 		if mcpMode {
-			return errorBody{
+			return populateDefaultRemediation(errorBody{
 				Code:    strings.ToLower(st.Code().String()),
 				Message: st.Message(),
-			}
+			})
 		}
 	}
 
@@ -364,7 +401,7 @@ func classifyErrorBody(err error, mcpMode bool) errorBody {
 	switch {
 	case strings.Contains(msg, "not logged in"):
 		body.Code = "not_logged_in"
-		body.Hint = "Run gs auth login."
+		body.Hint = "Run gs auth login or gs onboard --email <owner-email>."
 	case strings.Contains(msg, "not in a gitslice workspace"):
 		body.Code = "not_in_workspace"
 		body.Hint = "Run gs init <slice|account:slice>."
@@ -376,7 +413,7 @@ func classifyErrorBody(err error, mcpMode bool) errorBody {
 		body.Code = "server_unavailable"
 		body.Retriable = true
 	}
-	return body
+	return populateDefaultRemediation(body)
 }
 
 // mcpToolError is an error as a tool result: a stable code, the message, and
@@ -386,6 +423,12 @@ func mcpToolError(err error) map[string]any {
 	out := map[string]any{"code": body.Code, "message": body.Message}
 	if body.Hint != "" {
 		out["hint"] = body.Hint
+	}
+	if body.RemediationCommand != "" {
+		out["remediation_command"] = body.RemediationCommand
+	}
+	if body.RemediationURL != "" {
+		out["remediation_url"] = body.RemediationURL
 	}
 	if body.Retriable {
 		out["retriable"] = true

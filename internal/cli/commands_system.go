@@ -178,11 +178,11 @@ func (r Runner) versionCommand(opts *commandOptions) *cobra.Command {
 // schemaCommand builds gs schema, which describes every command for agents.
 func (r Runner) schemaCommand(opts *commandOptions) *cobra.Command {
 	schemaCmd := &cobra.Command{
-		Use:   "schema",
-		Short: "Print the machine-readable CLI schema",
-		Args:  noArgs("gs schema"),
+		Use:   "schema [command...]",
+		Short: "Print the machine-readable CLI schema (optionally filtered to a command prefix)",
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runSchema(*opts)
+			return r.runSchema(*opts, args)
 		},
 	}
 

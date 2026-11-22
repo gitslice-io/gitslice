@@ -53,7 +53,7 @@ func (b *Backend) createChangeset(ctx context.Context, raw json.RawMessage) (any
 	if err != nil {
 		return nil, err
 	}
-	client := corev1.NewChangesetServiceClient(b.deps.Conn)
+	client := b.changesets()
 	cs, err := client.CreateChangeset(b.ctx(ctx), &corev1.CreateChangesetRequest{
 		AuthoringSlice: s.Ref,
 		TargetRef:      model.DefaultTargetRef,
@@ -135,7 +135,7 @@ func (b *Backend) getChangeset(ctx context.Context, raw json.RawMessage) (any, e
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, badArgs(err)
 	}
-	cs, err := corev1.NewChangesetServiceClient(b.deps.Conn).GetChangeset(b.ctx(ctx), &corev1.GetChangesetRequest{ChangesetId: strings.TrimSpace(args.Changeset)})
+	cs, err := b.changesets().GetChangeset(b.ctx(ctx), &corev1.GetChangesetRequest{ChangesetId: strings.TrimSpace(args.Changeset)})
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +160,7 @@ func (b *Backend) getChangeset(ctx context.Context, raw json.RawMessage) (any, e
 		if len(conflicts) > 0 {
 			out["conflicts"] = conflicts
 		}
-		runs, err := corev1.NewCheckServiceClient(b.deps.Conn).ListCheckRuns(b.ctx(ctx), &corev1.ListCheckRunsRequest{ChangesetId: cs.GetId(), PatchsetId: current.GetId()})
+		runs, err := b.checks().ListCheckRuns(b.ctx(ctx), &corev1.ListCheckRunsRequest{ChangesetId: cs.GetId(), PatchsetId: current.GetId()})
 		if err == nil {
 			dedup := b.deps.LatestCheckRuns
 			if dedup == nil {
@@ -222,7 +222,7 @@ func (b *Backend) submitChangeset(ctx context.Context, raw json.RawMessage) (any
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return nil, badArgs(err)
 	}
-	cs, err := corev1.NewChangesetServiceClient(b.deps.Conn).GetChangeset(b.ctx(ctx), &corev1.GetChangesetRequest{ChangesetId: strings.TrimSpace(args.Changeset)})
+	cs, err := b.changesets().GetChangeset(b.ctx(ctx), &corev1.GetChangesetRequest{ChangesetId: strings.TrimSpace(args.Changeset)})
 	if err != nil {
 		return nil, err
 	}
@@ -234,7 +234,7 @@ func (b *Backend) submitChangeset(ctx context.Context, raw json.RawMessage) (any
 }
 
 func (b *Backend) submit(ctx context.Context, changesetID, patchsetID string) map[string]any {
-	res, err := corev1.NewChangesetServiceClient(b.deps.Conn).SubmitChangeset(b.ctx(ctx), &corev1.SubmitChangesetRequest{ChangesetId: changesetID, ExpectedCurrentPatchsetId: patchsetID})
+	res, err := b.changesets().SubmitChangeset(b.ctx(ctx), &corev1.SubmitChangesetRequest{ChangesetId: changesetID, ExpectedCurrentPatchsetId: patchsetID})
 	if err != nil {
 		out := map[string]any{"status": "blocked", "blocked_reason": grpcstatus.Convert(err).Message()}
 		if check := pendingCheckPattern.FindStringSubmatch(grpcstatus.Convert(err).Message()); check != nil {

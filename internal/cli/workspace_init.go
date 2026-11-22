@@ -58,15 +58,22 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 	if err != nil {
 		return err
 	}
+	guides := r.discoverWorkspaceAgentGuides(slice.Definition.IncludedPaths)
 	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{
+		payload := map[string]any{
 			"workspace":           ref.Account + ":" + ref.Slice,
+			"slice_ref":           ref.Account + "/" + ref.Slice,
 			"slice_id":            slice.Id,
 			"base_commit_id":      commitID,
 			"client_object_cache": cache.Root(),
 			"hydrated":            hydrated,
+			"included_paths":      slice.Definition.IncludedPaths,
 			"files_under":         workspaceFilesLocation(slice.Definition.IncludedPaths),
-		})
+		}
+		if len(guides) > 0 {
+			payload["agent_guides"] = guides
+		}
+		return r.writeJSONOutput(opts, payload)
 	}
 	if opts.Quiet {
 		return nil
@@ -75,8 +82,42 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 	if where := workspaceFilesLocation(slice.Definition.IncludedPaths); where != "" {
 		fmt.Fprintf(r.Stdout, "files are under %s\n", where)
 	}
+	for _, guide := range guides {
+		fmt.Fprintf(r.Stdout, "found agent guide: %s\n", guide)
+	}
 	fmt.Fprintf(r.Stdout, "hydrated %d file(s) through cache (%d hit(s), %d miss(es))\n", hydrated.FileCount, hydrated.CacheHits, hydrated.CacheMisses)
 	return nil
+}
+
+func (r Runner) discoverWorkspaceAgentGuides(includedPaths []string) []string {
+	var found []string
+	seen := map[string]bool{}
+	guideNames := []string{"AGENTS.md", "CLAUDE.md", "GEMINI.md"}
+	roots := make([]string, 0, len(includedPaths)+1)
+	for _, p := range includedPaths {
+		rel := strings.TrimPrefix(strings.TrimSpace(p), "/")
+		if rel != "" {
+			roots = append(roots, rel)
+		}
+	}
+	roots = append(roots, "")
+	for _, relRoot := range roots {
+		for _, name := range guideNames {
+			relPath := name
+			if relRoot != "" {
+				relPath = relRoot + "/" + name
+			}
+			if seen[relPath] {
+				continue
+			}
+			full := r.cwd() + "/" + relPath
+			if info, err := os.Stat(full); err == nil && !info.IsDir() {
+				seen[relPath] = true
+				found = append(found, relPath)
+			}
+		}
+	}
+	return found
 }
 
 func (r Runner) requireEmptyWorkspaceInitDir() error {

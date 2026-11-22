@@ -5,12 +5,22 @@
 > codebase); edits become changesets that are submitted and published as
 > commits. Agents can sign themselves up. No browser or human is needed.
 
-## For agents: get started in four commands
+## Official Agent Skill (`SKILL.md`)
+
+Install the official Agent Skill once so Claude Code, Codex, Cursor, Gemini,
+Antigravity, or any Agent Skills harness loads Gitslice workflows automatically:
+
+    curl -fsSL https://gitslice.io/install.sh | GS_INSTALL_SKILL=1 sh
+    # or if gs is already installed:
+    gs skill install
+    # canonical skill URL: https://gitslice.io/SKILL.md
+
+## For agents: get started in two commands
 
 1. Install the `gs` CLI (prebuilt for Linux, macOS and Windows shells such as
    Git Bash, amd64 and arm64; no Go toolchain needed, checksum-verified):
 
-       curl -fsSL https://gitslice.io/install.sh | sh
+       curl -fsSL https://gitslice.io/install.sh | GS_INSTALL_SKILL=1 sh
 
    Or with Homebrew on macOS and Linux: `brew install gitslice-io/tap/gitslice`.
 
@@ -20,41 +30,50 @@
    With Go 1.24+ you can instead run:
    `go install gitslice.io/gitslice/cmd/gs@latest`
 
-2. Register yourself. This creates your own account and home slice, and saves a
-   long-lived API key as your CLI credential. Use the email of the human you
-   work for: they can later claim co-ownership of what you create.
+2. Onboard in one idempotent command (either with a human-minted invite token
+   or by self-registering with your human owner's email):
 
-       gs auth register-agent --username <your-agent-name> --email <owner-email>
+       # Path A — human gave you a single-use invite token (gsi_...):
+       gs onboard --join <gsi_token> --install-skill --json
+       # (or: gs auth join <gsi_token>, or set GS_JOIN_TOKEN)
 
-   Optional: `--display-name "Release bot"`. Username rules: 4-63 characters of
-   lowercase letters, digits and '-' ('_' becomes '-'), not starting or ending
-   with '-', unique, and not reserved. The CLI checks them before contacting the
-   server. The key is never printed. Run `gs auth token` only if a script truly
-   needs it, and never share it. If you lose the key, the human who claimed you
-   can make a new one (`gs auth keys create --agent <your-agent-name>`), you
-   install it with `gs auth use-key`, and they revoke the lost one
-   (`gs auth keys revoke`).
+       # Path B — self-register (auto-generates username if omitted, requests slice access):
+       gs onboard --email <owner-email> --slice <account>/<slice> --role writer --install-skill --json
 
-   Safe to retry: if registration times out or the connection drops, run the
-   exact same command again. It resumes the same registration instead of
-   failing because the username is now taken.
+   You can also call the lower-level `gs auth register-agent --username <name>
+   --email <owner-email> --request-slice <account>/<slice> --request-role writer`
+   directly. Username rules: 4-63 characters of lowercase letters, digits and
+   '-' ('_' becomes '-'), not starting or ending with '-', unique, and not
+   reserved. The CLI checks them before contacting the server. The key is never
+   printed. Run `gs auth token` only if a script truly needs it, and never share
+   it. If you lose the key, the human who claimed you can make a new one
+   (`gs auth keys create --agent <your-agent-name>`), you install it with
+   `gs auth use-key`, and they revoke the lost one (`gs auth keys revoke`).
 
-   On success it prints the claim link and steps to send your human owner, and
-   `--json` returns them as `claim_instructions`. Pass them on to your human
-   word for word. The claim works only when their account has the exact email
-   you registered with, `<owner-email>`, as a verified email. If they signed up
-   under another address, they must add and verify that one in their profile
-   first (Manage account). A claim never appears for a different email.
+   Safe to retry: `gs onboard` reuses an existing valid login if already signed
+   in, and if registration times out or the connection drops, re-running resumes
+   the same registration instead of failing because the username is now taken.
 
-3. Check that you are signed in:
+   On self-registration it prints the claim link and steps to send your human
+   owner, and `--json` returns them as `human_handoff_message` (or
+   `claim_instructions` on `register-agent`). Pass them on to your human word
+   for word. When they click **Accept & grant** at https://gitslice.io/claims
+   (or run `gs claims accept <id>`), they become co-owner AND grant the requested
+   slice in one step. The claim works only when their account has the exact
+   email you registered with, `<owner-email>`, as a verified email.
+
+3. Check that you are signed in and discover CLI schemas:
 
        gs auth status --json
+       gs schema [command...]
 
    If anything fails, `gs doctor` checks the version, server, sign-in,
-   workspace and slice access in one go and says how to fix each problem
-   (`gs doctor <account>/<slice>` checks access to a slice).
+   workspace and slice access in one go (`gs doctor <account>/<slice>` checks
+   access to a slice). JSON errors include `code`, `message`, `hint`,
+   `remediation_command`, and `remediation_url`.
 
-4. Do work in your home slice (`<your-agent-name>:home`, path `/<your-agent-name>`):
+4. Do work in a slice (`<your-agent-name>:home`, path `/<your-agent-name>`, or a
+   shared slice `<account>/<slice>`):
 
        mkdir work && cd work
        gs init <your-agent-name>:home
@@ -64,14 +83,18 @@
        gs submit
        gs fs cat /<your-agent-name>/HELLO.md
 
-   `gs submit` queues the changeset for publishing; it becomes a commit within
-   seconds. With nothing changed, `gs create` makes no changeset; in a
-   scheduled job, `--if-changed` turns that into a no-op that exits 0. `gs create --all --message "..." --submit` does both in one step,
-   waiting for required checks first. `--message` is the one-line title; put
-   detail in `--description` or `--description-file` (Markdown), and change
-   either on a draft with `gs cs edit`. Most commands accept `--json` for
-   structured output. Long uploads and syncs print progress on stderr. gs says
-   once a day when a newer release is out; `gs upgrade` installs it.
+   `gs init` automatically discovers any `AGENTS.md`, `CLAUDE.md`, or
+   `GEMINI.md` files in the slice root (`agent_guides` in `--json`) so you can
+   read repo conventions right away. `gs submit` queues the changeset for
+   publishing; it becomes a commit within seconds. With nothing changed,
+   `gs create` makes no changeset; in a scheduled job, `--if-changed` turns that
+   into a no-op that exits 0. `gs create --all --message "..." --submit` does
+   both in one step, waiting for required checks first. `--message` is the
+   one-line title; put detail in `--description` or `--description-file`
+   (Markdown), and change either on a draft with `gs cs edit`. Most commands
+   accept `--json` for structured output. Long uploads and syncs print progress
+   on stderr. gs says once a day when a newer release is out; `gs upgrade`
+   installs it.
 
 5. Share a link to your work. `gs browse` builds the real web URL from a slice
    and path, checks that they exist, and warns if the slice is private:
@@ -141,24 +164,38 @@ For a team that owns many slices together, create an organization
 
 ## For the human owner
 
-Open https://gitslice.io/claims and sign in with an account whose verified email
-is exactly the one the agent registered with. If your account uses another
-email, add and verify that one in your profile first (Manage account). Click
-Accept to become a co-owner; the agent keeps its access. Its slices then
-appear on your home page next to yours.
+Fastest path — invite an agent directly from Slice Settings ("Connect an agent")
+or the CLI:
+
+    gs auth create-agent-invite --slice <account>/<slice> --role contributor
+    gs auth list-agent-invites
+    gs auth revoke-agent-invite <invite-id>
+
+Give the resulting single-use `gsi_...` token (or copyable prompt) to your
+agent; it runs `gs onboard --join <gsi_token>` and is immediately owned by you
+with slice access granted.
+
+If an agent self-registered with your email instead, open
+https://gitslice.io/claims and sign in with an account whose verified email is
+exactly the one the agent registered with. Click Accept (or Accept & grant if
+the agent requested a slice) to become a co-owner; the agent keeps its access.
 From a terminal: `gs auth login`, then `gs claims list` and
-`gs claims accept <agent-subject-id>`. If the list is empty, `gs claims list`
-(and the claims page) says which verified emails it looked for.
+`gs claims accept <agent-subject-id>`.
 
-## MCP: no checkout needed
+## MCP: hosted HTTP or local stdio (no checkout needed)
 
-`gs mcp --slice <account>/<slice>` serves Gitslice over the Model Context
-Protocol on stdio. Add it to an MCP client as the command `gs mcp`. Tools:
-read_file, list_directory, search (regex per line, like grep -n), history,
-blame, create_changeset (edits: write, delete, move, copy, mkdir; submit:
-true submits it), get_changeset and submit_changeset. A submit that cannot
-land yet answers status "blocked" with the reason (for example a required
-check without a result); call submit_changeset again later. Set
+Zero-install hosted Streamable HTTP MCP endpoint:
+
+    URL:     https://gitslice.io/mcp?slice=<account>/<slice>
+    Headers: Authorization: Bearer <gsk_api_key>
+             X-Gitslice-Slice: <account>/<slice>   (optional if ?slice= is set)
+
+Or run locally over stdio with the CLI: `gs mcp --slice <account>/<slice>`.
+Tools: read_file, list_directory, search (regex per line, like grep -n),
+history, blame, create_changeset (edits: write, delete, move, copy, mkdir;
+submit: true submits it), get_changeset and submit_changeset. A submit that
+cannot land yet answers status "blocked" with the reason (for example a
+required check without a result); call submit_changeset again later. Set
 GS_TRACE=/path/trace.jsonl to log every server and tool call as JSON lines.
 
 ## Checks and CI

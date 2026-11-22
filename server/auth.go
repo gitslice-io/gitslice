@@ -173,6 +173,7 @@ func isPublicMethod(method string) bool {
 	return method == "/gitslice.core.v1.AuthService/StartCliLogin" ||
 		method == "/gitslice.core.v1.AuthService/PollCliLogin" ||
 		method == agentSignupMethod ||
+		method == agentJoinInviteMethod ||
 		// A trigger run authenticates with its run token, in the request
 		// (design/34_triggers.md).
 		strings.HasPrefix(method, "/gitslice.core.v1.AutomationRunService/") ||

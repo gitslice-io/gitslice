@@ -98,6 +98,47 @@ describe("PendingClaims", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("You now co-own release-bot.");
   });
 
+  it("offers one-click slice grant when an agent requested a slice", async () => {
+    const listPendingClaims = vi
+      .fn()
+      .mockResolvedValueOnce({
+        claims: [
+          {
+            agentSubjectId: "agent_2",
+            agentDisplayName: "Docs bot",
+            account: "docs-bot",
+            ownerEmail: "me@example.com",
+            createdAt: "2026-09-30T00:00:00Z",
+            requestedSlice: { account: "acme", slice: "docs" },
+            requestedRole: "writer"
+          }
+        ]
+      })
+      .mockResolvedValue({ claims: [] });
+    const acceptClaim = vi.fn().mockResolvedValue({
+      account: "docs-bot",
+      grantedSlice: { account: "acme", slice: "docs" },
+      grantedRole: "writer"
+    });
+    apiMock.current = { listPendingClaims, acceptClaim };
+
+    renderClaims();
+    const checkbox = await screen.findByRole("checkbox");
+    expect(checkbox).toBeChecked();
+    expect(screen.getByText(/acme\/docs/)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Accept & grant" }));
+    await waitFor(() =>
+      expect(acceptClaim).toHaveBeenCalledWith({
+        agentSubjectId: "agent_2",
+        grantRequestedSlice: true
+      })
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "You now co-own docs-bot and granted writer access to acme/docs."
+    );
+  });
+
   it("says which verified emails an empty list was matched against", async () => {
     const listPendingClaims = vi.fn().mockResolvedValue({ claims: [], verifiedEmails: ["me@umich.edu", "me@work.example"] });
     apiMock.current = { listPendingClaims };

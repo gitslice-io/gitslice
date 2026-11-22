@@ -38,6 +38,10 @@ type ReadTarget struct {
 // BackendDeps configures an MCP tool Backend.
 type BackendDeps struct {
 	Conn            *grpc.ClientConn
+	Slices          SliceClient
+	Repo            RepositoryClient
+	Changesets      ChangesetClient
+	Checks          CheckClient
 	AuthCtx         func(ctx context.Context) context.Context
 	Cache           *clientcache.ObjectCache
 	DefaultSlice    string
@@ -201,7 +205,7 @@ func (b *Backend) slice(ctx context.Context, name string) (Slice, error) {
 	if err != nil {
 		return Slice{}, err
 	}
-	resolved, err := corev1.NewSliceServiceClient(b.deps.Conn).ResolveSlice(b.ctx(ctx), &corev1.ResolveSliceRequest{Ref: ref})
+	resolved, err := b.slices().ResolveSlice(b.ctx(ctx), &corev1.ResolveSliceRequest{Ref: ref})
 	if err != nil {
 		return Slice{}, err
 	}
@@ -225,7 +229,7 @@ func (s Slice) RepoPath(p string) (string, error) {
 }
 
 func (b *Backend) head(ctx context.Context) (string, error) {
-	ref, err := corev1.NewRepositoryServiceClient(b.deps.Conn).GetRef(b.ctx(ctx), &corev1.GetRefRequest{RefName: model.DefaultTargetRef})
+	ref, err := b.repo().GetRef(b.ctx(ctx), &corev1.GetRefRequest{RefName: model.DefaultTargetRef})
 	if err != nil {
 		return "", err
 	}

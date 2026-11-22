@@ -4,6 +4,7 @@ import { Link, useParams } from "@tanstack/react-router";
 import { useApi } from "../api/useApi";
 import { Breadcrumb } from "../components/Breadcrumb";
 import { PageHeader } from "../components/PageHeader";
+import { ConnectAgentPanel } from "../components/slices/ConnectAgentPanel";
 import { SliceCIDaemonPanel } from "../components/slices/SliceCIDaemonPanel";
 import { SliceDefinitionSettingsPanel } from "../components/slices/SliceDefinitionSettingsPanel";
 import { SliceDescriptionPanel } from "../components/slices/SliceDescriptionPanel";
@@ -146,6 +147,12 @@ export function SliceSettingsPage() {
       {canManageMembers && settingsSlice ? (
         <div className="mt-8">
           <SliceMembersPanel slice={settingsSlice} />
+        </div>
+      ) : null}
+
+      {canManageMembers && settingsSlice ? (
+        <div className="mt-8">
+          <ConnectAgentPanel slice={settingsSlice} />
         </div>
       ) : null}
 

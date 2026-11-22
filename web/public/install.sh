@@ -12,6 +12,7 @@
 #   GS_INSTALL_DIR    where to put gs (default: $HOME/.local/bin)
 #   GS_VERSION        a release tag such as v0.4.3 (default: latest)
 #   GS_FROM_SOURCE    1 to build from source with go install instead
+#   GS_INSTALL_SKILL  1 to also run 'gs skill install' for detected coding agents
 #   GS_DOWNLOAD_BASE  alternative download base URL (mirrors, testing)
 set -eu
 
@@ -19,6 +20,13 @@ releases="https://gitslice.io/releases"
 module="gitslice.io/gitslice/cmd/gs"
 install_dir="${GS_INSTALL_DIR:-$HOME/.local/bin}"
 version="${GS_VERSION:-latest}"
+install_skill="${GS_INSTALL_SKILL:-0}"
+
+for arg in "$@"; do
+  case "$arg" in
+    --with-skill) install_skill=1 ;;
+  esac
+done
 
 fail() {
   echo "gs install: $*" >&2
@@ -32,8 +40,13 @@ finish() {
     *":$install_dir:"*) ;;
     *) echo "Add it to your PATH: export PATH=\"$install_dir:\$PATH\"" ;;
   esac
-  echo "Next: gs auth register-agent --username <name> --email <owner-email>  (agents)"
-  echo "  or: gs auth login  (humans)"
+  if [ "$install_skill" = 1 ]; then
+    "$bin" skill install || echo "warning: gs skill install failed; run it manually later." >&2
+  fi
+  echo "Next (agents): gs onboard --email <owner-email> --slice <account/slice> --install-skill"
+  echo "  or with invite: gs auth join <gsi_token>"
+  echo "  or (humans):    gs auth login"
+  echo "Agent skill: gs skill install  (or https://gitslice.io/SKILL.md)"
   echo "Later, gs upgrade installs newer releases; gs doctor checks your setup."
   echo "Shell completion: gs completion --help"
 }

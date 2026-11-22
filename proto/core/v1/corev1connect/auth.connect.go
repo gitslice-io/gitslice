@@ -109,6 +109,18 @@ const (
 	// AuthServiceCreateDelegatedAgentProcedure is the fully-qualified name of the AuthService's
 	// CreateDelegatedAgent RPC.
 	AuthServiceCreateDelegatedAgentProcedure = "/gitslice.core.v1.AuthService/CreateDelegatedAgent"
+	// AuthServiceCreateAgentInviteProcedure is the fully-qualified name of the AuthService's
+	// CreateAgentInvite RPC.
+	AuthServiceCreateAgentInviteProcedure = "/gitslice.core.v1.AuthService/CreateAgentInvite"
+	// AuthServiceListAgentInvitesProcedure is the fully-qualified name of the AuthService's
+	// ListAgentInvites RPC.
+	AuthServiceListAgentInvitesProcedure = "/gitslice.core.v1.AuthService/ListAgentInvites"
+	// AuthServiceRevokeAgentInviteProcedure is the fully-qualified name of the AuthService's
+	// RevokeAgentInvite RPC.
+	AuthServiceRevokeAgentInviteProcedure = "/gitslice.core.v1.AuthService/RevokeAgentInvite"
+	// AuthServiceJoinAgentInviteProcedure is the fully-qualified name of the AuthService's
+	// JoinAgentInvite RPC.
+	AuthServiceJoinAgentInviteProcedure = "/gitslice.core.v1.AuthService/JoinAgentInvite"
 	// AuthServiceCreateGroupProcedure is the fully-qualified name of the AuthService's CreateGroup RPC.
 	AuthServiceCreateGroupProcedure = "/gitslice.core.v1.AuthService/CreateGroup"
 	// AuthServiceGetGroupProcedure is the fully-qualified name of the AuthService's GetGroup RPC.
@@ -202,6 +214,18 @@ type AuthServiceClient interface {
 	// human caller, optionally adds it to a slice with a role, and returns its
 	// initial API key once.
 	CreateDelegatedAgent(context.Context, *connect.Request[v1.CreateDelegatedAgentRequest]) (*connect.Response[v1.CreateDelegatedAgentResponse], error)
+	// CreateAgentInvite mints a short-lived, single-use join token ("gsi_...")
+	// that lets an agent register itself as a co-owned, controller-bound agent
+	// and optionally receive access to a slice in one step.
+	CreateAgentInvite(context.Context, *connect.Request[v1.CreateAgentInviteRequest]) (*connect.Response[v1.CreateAgentInviteResponse], error)
+	// ListAgentInvites lists agent join invites created by the signed-in human.
+	ListAgentInvites(context.Context, *connect.Request[v1.ListAgentInvitesRequest]) (*connect.Response[v1.ListAgentInvitesResponse], error)
+	// RevokeAgentInvite revokes an unused agent join invite.
+	RevokeAgentInvite(context.Context, *connect.Request[v1.RevokeAgentInviteRequest]) (*connect.Response[v1.Empty], error)
+	// JoinAgentInvite redeems a single-use join token ("gsi_...") to register an
+	// agent, bind it to the inviting human owner, grant any invited slice access,
+	// and return its initial API key. Unauthenticated; IP rate-limited.
+	JoinAgentInvite(context.Context, *connect.Request[v1.JoinAgentInviteRequest]) (*connect.Response[v1.JoinAgentInviteResponse], error)
 	// CreateGroup creates an account-level group (@account/name). Account owners
 	// and admins may call it.
 	CreateGroup(context.Context, *connect.Request[v1.CreateGroupRequest]) (*connect.Response[v1.AccountGroup], error)
@@ -386,6 +410,30 @@ func NewAuthServiceClient(httpClient connect.HTTPClient, baseURL string, opts ..
 			connect.WithSchema(authServiceMethods.ByName("CreateDelegatedAgent")),
 			connect.WithClientOptions(opts...),
 		),
+		createAgentInvite: connect.NewClient[v1.CreateAgentInviteRequest, v1.CreateAgentInviteResponse](
+			httpClient,
+			baseURL+AuthServiceCreateAgentInviteProcedure,
+			connect.WithSchema(authServiceMethods.ByName("CreateAgentInvite")),
+			connect.WithClientOptions(opts...),
+		),
+		listAgentInvites: connect.NewClient[v1.ListAgentInvitesRequest, v1.ListAgentInvitesResponse](
+			httpClient,
+			baseURL+AuthServiceListAgentInvitesProcedure,
+			connect.WithSchema(authServiceMethods.ByName("ListAgentInvites")),
+			connect.WithClientOptions(opts...),
+		),
+		revokeAgentInvite: connect.NewClient[v1.RevokeAgentInviteRequest, v1.Empty](
+			httpClient,
+			baseURL+AuthServiceRevokeAgentInviteProcedure,
+			connect.WithSchema(authServiceMethods.ByName("RevokeAgentInvite")),
+			connect.WithClientOptions(opts...),
+		),
+		joinAgentInvite: connect.NewClient[v1.JoinAgentInviteRequest, v1.JoinAgentInviteResponse](
+			httpClient,
+			baseURL+AuthServiceJoinAgentInviteProcedure,
+			connect.WithSchema(authServiceMethods.ByName("JoinAgentInvite")),
+			connect.WithClientOptions(opts...),
+		),
 		createGroup: connect.NewClient[v1.CreateGroupRequest, v1.AccountGroup](
 			httpClient,
 			baseURL+AuthServiceCreateGroupProcedure,
@@ -453,6 +501,10 @@ type authServiceClient struct {
 	updateAccountProfile    *connect.Client[v1.UpdateAccountProfileRequest, v1.AccountProfile]
 	setAccountAvatar        *connect.Client[v1.SetAccountAvatarRequest, v1.AccountProfile]
 	createDelegatedAgent    *connect.Client[v1.CreateDelegatedAgentRequest, v1.CreateDelegatedAgentResponse]
+	createAgentInvite       *connect.Client[v1.CreateAgentInviteRequest, v1.CreateAgentInviteResponse]
+	listAgentInvites        *connect.Client[v1.ListAgentInvitesRequest, v1.ListAgentInvitesResponse]
+	revokeAgentInvite       *connect.Client[v1.RevokeAgentInviteRequest, v1.Empty]
+	joinAgentInvite         *connect.Client[v1.JoinAgentInviteRequest, v1.JoinAgentInviteResponse]
 	createGroup             *connect.Client[v1.CreateGroupRequest, v1.AccountGroup]
 	getGroup                *connect.Client[v1.GetGroupRequest, v1.AccountGroup]
 	listGroups              *connect.Client[v1.ListGroupsRequest, v1.ListGroupsResponse]
@@ -591,6 +643,26 @@ func (c *authServiceClient) CreateDelegatedAgent(ctx context.Context, req *conne
 	return c.createDelegatedAgent.CallUnary(ctx, req)
 }
 
+// CreateAgentInvite calls gitslice.core.v1.AuthService.CreateAgentInvite.
+func (c *authServiceClient) CreateAgentInvite(ctx context.Context, req *connect.Request[v1.CreateAgentInviteRequest]) (*connect.Response[v1.CreateAgentInviteResponse], error) {
+	return c.createAgentInvite.CallUnary(ctx, req)
+}
+
+// ListAgentInvites calls gitslice.core.v1.AuthService.ListAgentInvites.
+func (c *authServiceClient) ListAgentInvites(ctx context.Context, req *connect.Request[v1.ListAgentInvitesRequest]) (*connect.Response[v1.ListAgentInvitesResponse], error) {
+	return c.listAgentInvites.CallUnary(ctx, req)
+}
+
+// RevokeAgentInvite calls gitslice.core.v1.AuthService.RevokeAgentInvite.
+func (c *authServiceClient) RevokeAgentInvite(ctx context.Context, req *connect.Request[v1.RevokeAgentInviteRequest]) (*connect.Response[v1.Empty], error) {
+	return c.revokeAgentInvite.CallUnary(ctx, req)
+}
+
+// JoinAgentInvite calls gitslice.core.v1.AuthService.JoinAgentInvite.
+func (c *authServiceClient) JoinAgentInvite(ctx context.Context, req *connect.Request[v1.JoinAgentInviteRequest]) (*connect.Response[v1.JoinAgentInviteResponse], error) {
+	return c.joinAgentInvite.CallUnary(ctx, req)
+}
+
 // CreateGroup calls gitslice.core.v1.AuthService.CreateGroup.
 func (c *authServiceClient) CreateGroup(ctx context.Context, req *connect.Request[v1.CreateGroupRequest]) (*connect.Response[v1.AccountGroup], error) {
 	return c.createGroup.CallUnary(ctx, req)
@@ -698,6 +770,18 @@ type AuthServiceHandler interface {
 	// human caller, optionally adds it to a slice with a role, and returns its
 	// initial API key once.
 	CreateDelegatedAgent(context.Context, *connect.Request[v1.CreateDelegatedAgentRequest]) (*connect.Response[v1.CreateDelegatedAgentResponse], error)
+	// CreateAgentInvite mints a short-lived, single-use join token ("gsi_...")
+	// that lets an agent register itself as a co-owned, controller-bound agent
+	// and optionally receive access to a slice in one step.
+	CreateAgentInvite(context.Context, *connect.Request[v1.CreateAgentInviteRequest]) (*connect.Response[v1.CreateAgentInviteResponse], error)
+	// ListAgentInvites lists agent join invites created by the signed-in human.
+	ListAgentInvites(context.Context, *connect.Request[v1.ListAgentInvitesRequest]) (*connect.Response[v1.ListAgentInvitesResponse], error)
+	// RevokeAgentInvite revokes an unused agent join invite.
+	RevokeAgentInvite(context.Context, *connect.Request[v1.RevokeAgentInviteRequest]) (*connect.Response[v1.Empty], error)
+	// JoinAgentInvite redeems a single-use join token ("gsi_...") to register an
+	// agent, bind it to the inviting human owner, grant any invited slice access,
+	// and return its initial API key. Unauthenticated; IP rate-limited.
+	JoinAgentInvite(context.Context, *connect.Request[v1.JoinAgentInviteRequest]) (*connect.Response[v1.JoinAgentInviteResponse], error)
 	// CreateGroup creates an account-level group (@account/name). Account owners
 	// and admins may call it.
 	CreateGroup(context.Context, *connect.Request[v1.CreateGroupRequest]) (*connect.Response[v1.AccountGroup], error)
@@ -878,6 +962,30 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 		connect.WithSchema(authServiceMethods.ByName("CreateDelegatedAgent")),
 		connect.WithHandlerOptions(opts...),
 	)
+	authServiceCreateAgentInviteHandler := connect.NewUnaryHandler(
+		AuthServiceCreateAgentInviteProcedure,
+		svc.CreateAgentInvite,
+		connect.WithSchema(authServiceMethods.ByName("CreateAgentInvite")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceListAgentInvitesHandler := connect.NewUnaryHandler(
+		AuthServiceListAgentInvitesProcedure,
+		svc.ListAgentInvites,
+		connect.WithSchema(authServiceMethods.ByName("ListAgentInvites")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceRevokeAgentInviteHandler := connect.NewUnaryHandler(
+		AuthServiceRevokeAgentInviteProcedure,
+		svc.RevokeAgentInvite,
+		connect.WithSchema(authServiceMethods.ByName("RevokeAgentInvite")),
+		connect.WithHandlerOptions(opts...),
+	)
+	authServiceJoinAgentInviteHandler := connect.NewUnaryHandler(
+		AuthServiceJoinAgentInviteProcedure,
+		svc.JoinAgentInvite,
+		connect.WithSchema(authServiceMethods.ByName("JoinAgentInvite")),
+		connect.WithHandlerOptions(opts...),
+	)
 	authServiceCreateGroupHandler := connect.NewUnaryHandler(
 		AuthServiceCreateGroupProcedure,
 		svc.CreateGroup,
@@ -968,6 +1076,14 @@ func NewAuthServiceHandler(svc AuthServiceHandler, opts ...connect.HandlerOption
 			authServiceSetAccountAvatarHandler.ServeHTTP(w, r)
 		case AuthServiceCreateDelegatedAgentProcedure:
 			authServiceCreateDelegatedAgentHandler.ServeHTTP(w, r)
+		case AuthServiceCreateAgentInviteProcedure:
+			authServiceCreateAgentInviteHandler.ServeHTTP(w, r)
+		case AuthServiceListAgentInvitesProcedure:
+			authServiceListAgentInvitesHandler.ServeHTTP(w, r)
+		case AuthServiceRevokeAgentInviteProcedure:
+			authServiceRevokeAgentInviteHandler.ServeHTTP(w, r)
+		case AuthServiceJoinAgentInviteProcedure:
+			authServiceJoinAgentInviteHandler.ServeHTTP(w, r)
 		case AuthServiceCreateGroupProcedure:
 			authServiceCreateGroupHandler.ServeHTTP(w, r)
 		case AuthServiceGetGroupProcedure:
@@ -1091,6 +1207,22 @@ func (UnimplementedAuthServiceHandler) SetAccountAvatar(context.Context, *connec
 
 func (UnimplementedAuthServiceHandler) CreateDelegatedAgent(context.Context, *connect.Request[v1.CreateDelegatedAgentRequest]) (*connect.Response[v1.CreateDelegatedAgentResponse], error) {
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.CreateDelegatedAgent is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) CreateAgentInvite(context.Context, *connect.Request[v1.CreateAgentInviteRequest]) (*connect.Response[v1.CreateAgentInviteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.CreateAgentInvite is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) ListAgentInvites(context.Context, *connect.Request[v1.ListAgentInvitesRequest]) (*connect.Response[v1.ListAgentInvitesResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.ListAgentInvites is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) RevokeAgentInvite(context.Context, *connect.Request[v1.RevokeAgentInviteRequest]) (*connect.Response[v1.Empty], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.RevokeAgentInvite is not implemented"))
+}
+
+func (UnimplementedAuthServiceHandler) JoinAgentInvite(context.Context, *connect.Request[v1.JoinAgentInviteRequest]) (*connect.Response[v1.JoinAgentInviteResponse], error) {
+	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("gitslice.core.v1.AuthService.JoinAgentInvite is not implemented"))
 }
 
 func (UnimplementedAuthServiceHandler) CreateGroup(context.Context, *connect.Request[v1.CreateGroupRequest]) (*connect.Response[v1.AccountGroup], error) {

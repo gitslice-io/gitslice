@@ -6,6 +6,7 @@ import { useApi } from "../../api/useApi";
 import { useAppAuth } from "../../auth/AppAuthProvider";
 import { formatRelativeTime } from "../../lib/time";
 import { ownedAgentsQuery } from "../../queries/auth";
+import { ConnectAgentPanel } from "./ConnectAgentPanel";
 
 // useOwnedAgents returns the self-registered agents whose accounts the
 // signed-in user owns. Errors resolve to an empty list so callers (the home
@@ -47,8 +48,8 @@ export function OwnedAgents() {
             Your agents
           </h2>
           <p className="text-sm leading-6 text-slate-600 dark:text-zinc-400">
-            Agents that signed themselves up with your email and that you
-            co-own.
+            Agents that signed themselves up with your email or joined via an
+            invite token and that you co-own.
           </p>
         </div>
       </div>
@@ -56,14 +57,15 @@ export function OwnedAgents() {
       <div className="mt-3">
         {agents.length === 0 ? (
           <div className="rounded-md border border-dashed border-slate-300 p-4 text-sm leading-6 text-slate-600 dark:border-zinc-700 dark:text-zinc-400">
-            No agents yet. Point an agent at{" "}
+            No agents yet. Generate a single-use join token below, or point an
+            agent at{" "}
             <a
               className="font-medium text-zinc-950 underline underline-offset-2 dark:text-zinc-50"
-              href="/llms.txt"
+              href="/SKILL.md"
             >
-              gitslice.io/llms.txt
+              gitslice.io/SKILL.md
             </a>{" "}
-            to have it sign up with your email, then accept it here.
+            to have it onboard with your email.
           </div>
         ) : (
           <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
@@ -72,6 +74,10 @@ export function OwnedAgents() {
             ))}
           </ul>
         )}
+      </div>
+
+      <div className="mt-4">
+        <ConnectAgentPanel />
       </div>
     </section>
   );

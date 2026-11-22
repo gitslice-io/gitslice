@@ -66,6 +66,9 @@ type backend struct {
 	apiKeyRecords map[string]*memoryAPIKey
 	// agentRegistrations maps an agent subject id to its registration.
 	agentRegistrations map[string]agentRegistration
+	// agentInvites maps invite id -> invite record, and agentInviteByHash maps token hash -> invite id.
+	agentInvites      map[string]*memAgentInvite
+	agentInviteByHash map[string]string
 	// externalIdentities maps a subject id to its identity provider record.
 	externalIdentities map[string]externalIdentity
 	// verifiedEmails maps subject id -> email -> source.
@@ -140,6 +143,15 @@ type agentRegistration struct {
 	// registrationTokenHash identifies a retryable registration; empty if the
 	// client sent no token.
 	registrationTokenHash string
+	requestedSliceAccount string
+	requestedSliceSlug    string
+	requestedSliceRole    string
+}
+
+type memAgentInvite struct {
+	invite     storage.AgentInvite
+	tokenHash  string
+	consumedBy string
 }
 
 type externalIdentity struct {
@@ -181,6 +193,8 @@ func New() *Stores {
 		apiKeys:                 map[string]string{},
 		apiKeyRecords:           map[string]*memoryAPIKey{},
 		agentRegistrations:      map[string]agentRegistration{},
+		agentInvites:            map[string]*memAgentInvite{},
+		agentInviteByHash:       map[string]string{},
 		externalIdentities:      map[string]externalIdentity{},
 		verifiedEmails:          map[string]map[string]string{},
 		blobs:                   map[string]*corev1.BlobRecord{},

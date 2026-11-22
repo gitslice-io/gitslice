@@ -19,11 +19,25 @@ import (
 )
 
 type registerAgentOptions struct {
-	serverAddr  string
-	webURL      string
-	username    string
-	email       string
-	displayName string
+	serverAddr     string
+	webURL         string
+	username       string
+	email          string
+	displayName    string
+	requestedSlice string
+	requestedRole  string
+}
+
+type registerAgentOutput struct {
+	ServerAddr        string `json:"server_addr"`
+	SubjectID         string `json:"subject_id"`
+	Account           string `json:"account"`
+	OwnerEmail        string `json:"owner_email"`
+	ClaimURL          string `json:"claim_url"`
+	ClaimInstructions string `json:"claim_instructions"`
+	RequestedSlice    string `json:"requested_slice,omitempty"`
+	RequestedRole     string `json:"requested_role,omitempty"`
+	Resumed           bool   `json:"resumed"`
 }
 
 // pendingAgentRegistration is persisted before RegisterAgent is called so an
@@ -83,18 +97,55 @@ func (r Runner) clearPendingAgentRegistration() {
 // bearer credential, so later commands run as the agent. The key itself is never
 // printed; use `gs auth token` when a script needs it.
 func (r Runner) runAuthRegisterAgent(ctx context.Context, opts commandOptions, in registerAgentOptions) error {
+	out, err := r.registerAgent(ctx, opts, in)
+	if err != nil {
+		return err
+	}
+	if opts.jsonOutput() {
+		return r.writeJSONOutput(opts, out)
+	}
+	if opts.Quiet {
+		return nil
+	}
+	fmt.Fprintf(r.Stdout, "registered agent %s with account %s; API key saved to %s\n", out.SubjectID, out.Account, r.userConfigPath())
+	if out.RequestedSlice != "" {
+		fmt.Fprintf(r.Stdout, "requested %s access to %s (pending owner approval)\n", out.RequestedRole, out.RequestedSlice)
+	}
+	fmt.Fprintf(r.Stdout, "\nTell your owner (%s) how to claim this agent:\n%s\n", out.OwnerEmail, out.ClaimInstructions)
+	fmt.Fprintf(r.Stdout, "\nStart working in your home slice:\n  gs init %s:home\n", out.Account)
+	return nil
+}
+
+func (r Runner) registerAgent(ctx context.Context, opts commandOptions, in registerAgentOptions) (registerAgentOutput, error) {
 	if strings.TrimSpace(in.username) == "" || strings.TrimSpace(in.email) == "" {
-		return userError("invalid_args", "--username and --email are required", "Run gs auth register-agent --username NAME --email OWNER_EMAIL.")
+		return registerAgentOutput{}, userError("invalid_args", "--username and --email are required", "Run gs auth register-agent --username NAME --email OWNER_EMAIL.")
 	}
 	// Validate locally with the server's own rules so mistakes fail fast.
 	username, err := usernames.Normalize(in.username)
 	if err != nil {
-		return userError("invalid_username", err.Error(), "Usernames are 4-63 characters of lowercase letters, digits and '-', must not start or end with '-', and must be unique. See gs auth register-agent --help.")
+		return registerAgentOutput{}, userError("invalid_username", err.Error(), "Usernames are 4-63 characters of lowercase letters, digits and '-', must not start or end with '-', and must be unique. See gs auth register-agent --help.")
 	}
 	email, err := model.NormalizeOwnerEmail(in.email)
 	if err != nil {
-		return userError("invalid_email", strings.TrimPrefix(err.Error(), "invalid: "), "Pass the email of the human who should be able to claim this agent, e.g. --email you@example.com.")
+		return registerAgentOutput{}, userError("invalid_email", strings.TrimPrefix(err.Error(), "invalid: "), "Pass the email of the human who should be able to claim this agent, e.g. --email you@example.com.")
 	}
+	var requestedRef *corev1.SliceRef
+	requestedRole := strings.TrimSpace(in.requestedRole)
+	requestedSliceLabel := ""
+	if rawSlice := strings.TrimSpace(in.requestedSlice); rawSlice != "" {
+		account, sliceName, ok := parseSimpleSliceRef(rawSlice)
+		if !ok {
+			return registerAgentOutput{}, userError("invalid_slice", "invalid --request-slice "+rawSlice, "Use account/slice, e.g. --request-slice gitslice/gitslice.")
+		}
+		requestedRef = &corev1.SliceRef{Account: account, Slice: sliceName}
+		requestedSliceLabel = account + "/" + sliceName
+		if requestedRole == "" {
+			requestedRole = "writer"
+		}
+	} else if requestedRole != "" {
+		return registerAgentOutput{}, userError("invalid_args", "--request-role requires --request-slice", "Pass --request-slice account/slice alongside --request-role.")
+	}
+
 	serverAddr := strings.TrimSpace(in.serverAddr)
 	if serverAddr == "" {
 		serverAddr = defaultServerAddr()
@@ -104,7 +155,7 @@ func (r Runner) runAuthRegisterAgent(ctx context.Context, opts commandOptions, i
 	if !resuming || pending.ServerAddr != serverAddr || pending.Username != username || pending.OwnerEmail != email {
 		token, err := objectid.RandomID("reg")
 		if err != nil {
-			return err
+			return registerAgentOutput{}, err
 		}
 		pending = pendingAgentRegistration{
 			ServerAddr: serverAddr,
@@ -115,7 +166,7 @@ func (r Runner) runAuthRegisterAgent(ctx context.Context, opts commandOptions, i
 		}
 		resuming = false
 		if err := r.writePendingAgentRegistration(pending); err != nil {
-			return err
+			return registerAgentOutput{}, err
 		}
 	} else if !opts.Quiet {
 		fmt.Fprintf(r.stderr(), "resuming an earlier registration attempt for %s\n", username)
@@ -129,6 +180,8 @@ func (r Runner) runAuthRegisterAgent(ctx context.Context, opts commandOptions, i
 			OwnerEmail:        email,
 			DisplayName:       in.displayName,
 			RegistrationToken: pending.Token,
+			RequestedSlice:    requestedRef,
+			RequestedRole:     requestedRole,
 		})
 		if lastErr == nil || !retryableRegisterError(lastErr) || attempt == registerAgentAttempts {
 			break
@@ -149,23 +202,23 @@ func (r Runner) runAuthRegisterAgent(ctx context.Context, opts commandOptions, i
 		if retryableRegisterError(lastErr) {
 			// Keep the pending token: the account may exist, and re-running the
 			// command resumes it.
-			return userError("registration_incomplete",
+			return registerAgentOutput{}, userError("registration_incomplete",
 				fmt.Sprintf("could not confirm the registration with %s: %v", serverAddr, lastErr),
 				"The account may or may not have been created. Re-run the same command: it resumes this registration safely instead of failing on the username.")
 		}
 		r.clearPendingAgentRegistration()
 		switch grpcstatus.Code(lastErr) {
 		case codes.FailedPrecondition:
-			return userError("agent_signup_failed", grpcstatus.Convert(lastErr).Message(), "The username may be taken (pick another), or the server may not allow agent sign-up (GITSLICE_AGENT_SIGNUP_ENABLED).")
+			return registerAgentOutput{}, userError("agent_signup_failed", grpcstatus.Convert(lastErr).Message(), "The username may be taken (pick another), or the server may not allow agent sign-up (GITSLICE_AGENT_SIGNUP_ENABLED).")
 		case codes.InvalidArgument:
-			return userError("invalid_args", grpcstatus.Convert(lastErr).Message(), "Check the username and email and try again. See gs auth register-agent --help.")
+			return registerAgentOutput{}, userError("invalid_args", grpcstatus.Convert(lastErr).Message(), "Check the username and email and try again. See gs auth register-agent --help.")
 		case codes.ResourceExhausted:
-			return userError("rate_limited", grpcstatus.Convert(lastErr).Message(), "Too many agent registrations from this address; try again later.")
+			return registerAgentOutput{}, userError("rate_limited", grpcstatus.Convert(lastErr).Message(), "Too many agent registrations from this address; try again later.")
 		}
-		return lastErr
+		return registerAgentOutput{}, lastErr
 	}
 	if strings.TrimSpace(resp.ApiKey) == "" || strings.TrimSpace(resp.SubjectId) == "" {
-		return userError("agent_signup_failed", "server registered the agent without returning an API key", "Re-run the same command to resume the registration.")
+		return registerAgentOutput{}, userError("agent_signup_failed", "server registered the agent without returning an API key", "Re-run the same command to resume the registration.")
 	}
 
 	cfg := UserConfig{ServerAddr: serverAddr, Token: resp.ApiKey, SubjectID: resp.SubjectId}
@@ -173,29 +226,37 @@ func (r Runner) runAuthRegisterAgent(ctx context.Context, opts commandOptions, i
 		cfg.Aliases = existing.Aliases
 	}
 	if err := r.writeUserConfig(cfg); err != nil {
-		return err
+		return registerAgentOutput{}, err
 	}
 	r.clearPendingAgentRegistration()
 
 	claimURL, _ := webRouteURL(in.webURL, "claims")
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{
-			"server_addr":        serverAddr,
-			"subject_id":         resp.SubjectId,
-			"account":            resp.Account,
-			"owner_email":        email,
-			"claim_url":          claimURL,
-			"claim_instructions": agentClaimInstructions(email, claimURL, resp.SubjectId),
-			"resumed":            resuming,
-		})
+	return registerAgentOutput{
+		ServerAddr:        serverAddr,
+		SubjectID:         resp.SubjectId,
+		Account:           resp.Account,
+		OwnerEmail:        email,
+		ClaimURL:          claimURL,
+		ClaimInstructions: agentClaimInstructionsWithSlice(email, claimURL, resp.SubjectId, requestedSliceLabel, requestedRole),
+		RequestedSlice:    requestedSliceLabel,
+		RequestedRole:     requestedRole,
+		Resumed:           resuming,
+	}, nil
+}
+
+func parseSimpleSliceRef(raw string) (account, slice string, ok bool) {
+	raw = strings.TrimSpace(raw)
+	if strings.Contains(raw, "/") {
+		account, slice, ok = strings.Cut(raw, "/")
+	} else if strings.Contains(raw, ":") {
+		account, slice, ok = strings.Cut(raw, ":")
 	}
-	if opts.Quiet {
-		return nil
+	account = strings.TrimSpace(account)
+	slice = strings.TrimSpace(slice)
+	if !ok || account == "" || slice == "" || strings.ContainsAny(account+slice, "/:") {
+		return "", "", false
 	}
-	fmt.Fprintf(r.Stdout, "registered agent %s with account %s; API key saved to %s\n", resp.SubjectId, resp.Account, r.userConfigPath())
-	fmt.Fprintf(r.Stdout, "\nTell your owner (%s) how to claim this agent:\n%s\n", email, agentClaimInstructions(email, claimURL, resp.SubjectId))
-	fmt.Fprintf(r.Stdout, "\nStart working in your home slice:\n  gs init %s:home\n", resp.Account)
-	return nil
+	return account, slice, true
 }
 
 // agentClaimInstructions is what the agent passes on to its human owner. The
@@ -203,11 +264,19 @@ func (r Runner) runAuthRegisterAgent(ctx context.Context, opts commandOptions, i
 // verified email of the account the human signs in with. A person who signed
 // up under another address is the usual reason a claim never shows up.
 func agentClaimInstructions(email, claimURL, agentSubjectID string) string {
+	return agentClaimInstructionsWithSlice(email, claimURL, agentSubjectID, "", "")
+}
+
+func agentClaimInstructionsWithSlice(email, claimURL, agentSubjectID, requestedSlice, requestedRole string) string {
+	sliceLine := ""
+	if requestedSlice != "" {
+		sliceLine = fmt.Sprintf("\n     (Accepting will also grant %s access to %s in one click.)", requestedRole, requestedSlice)
+	}
 	return fmt.Sprintf("  1. Sign up or sign in at %s with an account whose verified email is exactly %s.\n"+
 		"     (Already have an account under another email? Add and verify %s in your profile first;\n"+
 		"     agents registered to an email can be claimed only by an account that has it verified.)\n"+
-		"  2. Click Accept next to this agent, or run: gs claims accept %s\n"+
-		"  Not showing up? gs claims list prints the emails it looked for.", claimURL, email, email, agentSubjectID)
+		"  2. Click Accept next to this agent, or run: gs claims accept %s%s\n"+
+		"  Not showing up? gs claims list prints the emails it looked for.", claimURL, email, email, agentSubjectID, sliceLine)
 }
 
 func (r Runner) registerAgentOnce(ctx context.Context, serverAddr string, req *corev1.RegisterAgentRequest) (*corev1.RegisterAgentResponse, error) {

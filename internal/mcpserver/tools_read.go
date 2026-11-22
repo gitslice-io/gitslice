@@ -126,7 +126,7 @@ func entryKindName(kind corev1.EntryKind) string {
 }
 
 func (b *Backend) list(ctx context.Context, s Slice, commit, dir string, recursive bool, limit int) ([]*corev1.TreeEntry, bool, error) {
-	client := corev1.NewRepositoryServiceClient(b.deps.Conn)
+	client := b.repo()
 	var out []*corev1.TreeEntry
 	pending := []string{dir}
 	for len(pending) > 0 {
@@ -293,11 +293,12 @@ func (b *Backend) Contents(ctx context.Context, s Slice, commit string, entries 
 		return nil, err
 	}
 	for _, entry := range missingEntries {
+		if data, ok := unhashed[entry.GetPath()]; ok {
+			out[entry.GetPath()] = data
+			continue
+		}
 		hash := entry.GetContentHash()
-		if hash == "" {
-			if data, ok := unhashed[entry.GetPath()]; ok {
-				out[entry.GetPath()] = data
-			}
+		if hash == "" || b.deps.ReadCached == nil {
 			continue
 		}
 		data, ok, err := b.deps.ReadCached(hash)
@@ -335,7 +336,7 @@ func (b *Backend) history(ctx context.Context, raw json.RawMessage) (any, error)
 	if limit <= 0 {
 		limit = mcpDefaultHistory
 	}
-	resp, err := corev1.NewRepositoryServiceClient(b.deps.Conn).ListCommits(b.ctx(ctx), &corev1.ListCommitsRequest{RefName: model.DefaultTargetRef, Slice: s.Ref, Path: p, Limit: int32(min(limit, mcpMaxHistory))})
+	resp, err := b.repo().ListCommits(b.ctx(ctx), &corev1.ListCommitsRequest{RefName: model.DefaultTargetRef, Slice: s.Ref, Path: p, Limit: int32(min(limit, mcpMaxHistory))})
 	if err != nil {
 		return nil, err
 	}
@@ -362,7 +363,7 @@ func (b *Backend) blame(ctx context.Context, raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := corev1.NewRepositoryServiceClient(b.deps.Conn).BlameFile(b.ctx(ctx), &corev1.BlameFileRequest{Path: p, Slice: s.Ref})
+	resp, err := b.repo().BlameFile(b.ctx(ctx), &corev1.BlameFileRequest{Path: p, Slice: s.Ref})
 	if err != nil {
 		return nil, err
 	}

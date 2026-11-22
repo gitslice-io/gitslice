@@ -205,6 +205,22 @@ func (a connectAuthServiceAdapter) CreateDelegatedAgent(ctx context.Context, req
 	return connectResponse(a.svc.CreateDelegatedAgent(ctx, req.Msg))
 }
 
+func (a connectAuthServiceAdapter) CreateAgentInvite(ctx context.Context, req *connect.Request[corev1.CreateAgentInviteRequest]) (*connect.Response[corev1.CreateAgentInviteResponse], error) {
+	return connectResponse(a.svc.CreateAgentInvite(ctx, req.Msg))
+}
+
+func (a connectAuthServiceAdapter) ListAgentInvites(ctx context.Context, req *connect.Request[corev1.ListAgentInvitesRequest]) (*connect.Response[corev1.ListAgentInvitesResponse], error) {
+	return connectResponse(a.svc.ListAgentInvites(ctx, req.Msg))
+}
+
+func (a connectAuthServiceAdapter) RevokeAgentInvite(ctx context.Context, req *connect.Request[corev1.RevokeAgentInviteRequest]) (*connect.Response[corev1.Empty], error) {
+	return connectResponse(a.svc.RevokeAgentInvite(ctx, req.Msg))
+}
+
+func (a connectAuthServiceAdapter) JoinAgentInvite(ctx context.Context, req *connect.Request[corev1.JoinAgentInviteRequest]) (*connect.Response[corev1.JoinAgentInviteResponse], error) {
+	return connectResponse(a.svc.JoinAgentInvite(ctx, req.Msg))
+}
+
 func (a connectAuthServiceAdapter) CreateGroup(ctx context.Context, req *connect.Request[corev1.CreateGroupRequest]) (*connect.Response[corev1.AccountGroup], error) {
 	return connectResponse(a.svc.CreateGroup(ctx, req.Msg))
 }

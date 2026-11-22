@@ -1,6 +1,6 @@
 import { queryOptions } from "@tanstack/react-query";
 
-import type { OwnedAgent, SharedSlice } from "../api/types";
+import type { AgentInvite, OwnedAgent, SharedSlice } from "../api/types";
 import type { ApiClient } from "../api/useApi";
 
 // Who the viewer is, what is shared with them, and the agents they claim or
@@ -12,6 +12,7 @@ export const authStatusKey = ["authStatus"] as const;
 export const sharedSlicesKey = ["sharedSlices"] as const;
 export const pendingClaimsKey = ["pendingClaims"] as const;
 export const ownedAgentsKey = ["ownedAgents"] as const;
+export const agentInvitesKey = ["agentInvites"] as const;
 export const usernameAvailableKey = (username: string) => ["usernameAvailable", username] as const;
 
 export function authStatusQuery(api: Pick<ApiClient, "getAuthStatus">) {
@@ -57,6 +58,19 @@ export function ownedAgentsQuery(api: Pick<ApiClient, "listOwnedAgents">) {
   return queryOptions({
     queryKey: ownedAgentsKey,
     queryFn: async (): Promise<OwnedAgent[]> => (await api.listOwnedAgents({})).agents ?? [],
+    retry: false
+  });
+}
+
+export function agentInvitesQuery(api: Partial<Pick<ApiClient, "listAgentInvites">>) {
+  return queryOptions({
+    queryKey: agentInvitesKey,
+    queryFn: async (): Promise<AgentInvite[]> => {
+      if (typeof api.listAgentInvites !== "function") {
+        return [];
+      }
+      return (await api.listAgentInvites({})).invites ?? [];
+    },
     retry: false
   });
 }

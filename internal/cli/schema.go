@@ -156,25 +156,83 @@ func structJSONFields(t reflect.Type) []string {
 	return out
 }
 
-func (r Runner) runSchema(opts commandOptions) error {
+func (r Runner) runSchema(opts commandOptions, filter []string) error {
 	root := r.rootCommand()
-	return r.writeJSONOutput(opts, map[string]any{
+	commands := schemaCommandsFromRoot(root)
+	if len(filter) > 0 {
+		commands = filterSchemaCommands(commands, filter)
+		if len(commands) == 0 {
+			return userError(
+				"not_found",
+				"no command matching "+strings.Join(filter, " "),
+				"Run gs schema to inspect all available commands.",
+			)
+		}
+	}
+	payload := map[string]any{
 		"schema_version": "v1",
 		"global_flags":   schemaGlobalFlags(root),
-		"commands":       schemaCommandsFromRoot(root),
+		"commands":       commands,
 		"help_topics":    cliHelpTopicSchema(),
 		"error_output": map[string]any{
 			"stream": "stderr",
 			"shape": map[string]any{
 				"error": map[string]string{
-					"code":      "stable snake_case error code",
-					"message":   "human-readable message",
-					"hint":      "optional next action",
-					"retriable": "boolean",
+					"code":                "stable snake_case error code",
+					"message":             "human-readable message",
+					"hint":                "optional next action",
+					"remediation_command": "optional suggested CLI command to recover",
+					"remediation_url":     "optional web URL to recover",
+					"retriable":           "boolean",
 				},
 			},
 		},
-	})
+	}
+	if len(filter) > 0 {
+		payload["filter"] = strings.Join(filter, " ")
+	}
+	return r.writeJSONOutput(opts, payload)
+}
+
+func filterSchemaCommands(commands []map[string]any, filter []string) []map[string]any {
+	tokens := make([]string, 0, len(filter))
+	for _, f := range filter {
+		for _, part := range strings.Fields(strings.ToLower(strings.TrimSpace(f))) {
+			tokens = append(tokens, part)
+		}
+	}
+	if len(tokens) > 0 && tokens[0] == "gs" {
+		tokens = tokens[1:]
+	}
+	if len(tokens) == 0 {
+		return commands
+	}
+	prefix := "gs " + strings.Join(tokens, " ")
+	matchesPath := func(use string) bool {
+		// Strip argument placeholders after command tokens by taking leading word tokens.
+		lower := strings.ToLower(strings.TrimSpace(use))
+		if lower == prefix || strings.HasPrefix(lower, prefix+" ") {
+			return true
+		}
+		return false
+	}
+	var out []map[string]any
+	for _, entry := range commands {
+		use, _ := entry["use"].(string)
+		if matchesPath(use) {
+			out = append(out, entry)
+			continue
+		}
+		if aliases, ok := entry["aliases"].([]string); ok {
+			for _, a := range aliases {
+				if matchesPath(a) {
+					out = append(out, entry)
+					break
+				}
+			}
+		}
+	}
+	return out
 }
 
 func schemaGlobalFlags(root *cobra.Command) []map[string]any {

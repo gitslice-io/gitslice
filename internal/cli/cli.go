@@ -155,6 +155,8 @@ func (r Runner) rootCommand() *cobra.Command {
 	root.SetHelpCommand(r.helpCommand(root))
 	root.AddCommand(
 		r.authCommand(opts),
+		r.onboardCommand(opts),
+		r.skillCommand(opts),
 		r.claimsCommand(opts),
 		r.sliceCommand(opts),
 		r.agentCommand(opts),

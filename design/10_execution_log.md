@@ -9875,3 +9875,24 @@ Clerk) and update the relevant design and CLI documentation.
     `.prose pre` in `web/src/index.css`.
 - **Verification:** `npx tsc -b`, full Vitest suite (`npm test -- --run`), and
   production build (`npm run build`) in `web/`.
+
+## 2026-11-22 — Agent Onboarding (`design/40_agent_onboarding.md`)
+
+- **Design doc & official Agent Skill:**
+  - Added `design/40_agent_onboarding.md` specifying all 6 agent onboarding improvements.
+  - Created canonical `web/public/SKILL.md` (with `/skill.md` → `/SKILL.md` 301 redirect in `web/src/lib/llmsAlias.ts`), embedded at `internal/cli/skill_embed.md` (drift-checked by `TestEmbeddedSkillMatchesPublicSKILLMD`), and added `gs skill print` / `gs skill install [--target auto|agents|claude|gemini|cursor|codex|DIR] [--project]` plus `GS_INSTALL_SKILL=1` / `--with-skill` in `web/public/install.sh`.
+- **One-click claim + slice grant & human-initiated single-use invites:**
+  - Extended `proto/core/v1/auth.proto` with `requested_slice`/`requested_role` on `RegisterAgentRequest`/`PendingClaim`, `grant_requested_slice`/`granted_slice`/`granted_role` on `AcceptClaim`, and `CreateAgentInvite`/`ListAgentInvites`/`RevokeAgentInvite`/`JoinAgentInvite` RPCs (regenerated Go, gRPC, Connect, and TS stubs).
+  - Added migration `internal/postgres/migrations/0067_agent_onboarding.sql`, Postgres + memory store implementations (`auth_agents.go`, `auth_invites.go`), service handlers (`service/auth.go`, `service/auth_invites.go`), and strict IP signup rate limiting on `JoinAgentInvite` (`server/ratelimit.go`, `server/auth.go`, `server/connect.go`).
+  - Added `gs auth create-agent-invite`, `gs auth list-agent-invites`, `gs auth revoke-agent-invite`, `gs auth join`, `--request-slice`/`--request-role` on `gs auth register-agent`, and `--grant-slice` on `gs claims accept`.
+  - Updated `web/src/components/slices/PendingClaims.tsx` with one-click requested-slice grant checkbox and added `web/src/components/slices/ConnectAgentPanel.tsx` in `SliceSettingsPage.tsx` and `OwnedAgents.tsx`.
+- **Idempotent `gs onboard`, `gs init` guide discovery, `gs schema` filtering, and structured error remediation:**
+  - Added `gs onboard` (`internal/cli/onboard.go`) handling `--join`, already-authenticated reuse, and auto-username self-registration + `--install-skill` + optional workspace init.
+  - Updated `gs init` (`internal/cli/workspace_init.go`) to discover `AGENTS.md`/`CLAUDE.md`/`GEMINI.md` in slice roots (`agent_guides` in `--json`).
+  - Extended `gs schema [command...]` for targeted prefix filtering and added `remediation_command` / `remediation_url` to structured CLI and MCP errors (`internal/cli/errors.go`, `internal/cli/schema.go`).
+- **Hosted Streamable HTTP MCP endpoint (`/mcp`):**
+  - Refactored `internal/mcpserver` to accept minimal unary interfaces (`clients.go`), added stateless `HandleJSONRPC` (`http.go`), mounted `POST /mcp` on the Connect HTTP server (`server/mcp_http.go`, `server/connect.go`, `server/gateway.go`), and added Cloudflare Worker `/mcp` pass-through proxy (`web/src/lib/mcpProxy.ts`, `web/src/server.ts`).
+- **Docs & verification:**
+  - Updated `web/public/llms.txt`, `web/src/routes/doc/AgentsDoc.tsx`, and `web/src/routes/doc/cliReferenceData.ts`.
+  - Verified with `go test ./...`, `go build ./cmd/...`, `npx tsc -b`, `npm test -- --run`, and `npm run build` in `web/`.
+

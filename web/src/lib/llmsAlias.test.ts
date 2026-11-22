@@ -11,8 +11,17 @@ describe("llmsAliasResponse", () => {
     }
   });
 
+  it("redirects skill.md aliases to SKILL.md", () => {
+    for (const path of ["/skill.md", "/skills.md", "/Skill.md"]) {
+      const res = llmsAliasResponse(new Request(`https://gitslice.io${path}`));
+      expect(res?.status).toBe(301);
+      expect(res?.headers.get("location")).toBe("https://gitslice.io/SKILL.md");
+    }
+  });
+
   it("leaves other paths and methods alone", () => {
     expect(llmsAliasResponse(new Request("https://gitslice.io/llms.txt"))).toBeUndefined();
+    expect(llmsAliasResponse(new Request("https://gitslice.io/SKILL.md"))).toBeUndefined();
     expect(llmsAliasResponse(new Request("https://gitslice.io/docs"))).toBeUndefined();
     expect(llmsAliasResponse(new Request("https://gitslice.io/llama.txt", { method: "POST" }))).toBeUndefined();
   });

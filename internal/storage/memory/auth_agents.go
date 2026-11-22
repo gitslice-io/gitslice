@@ -25,11 +25,14 @@ func (s *AuthStore) ListPendingClaims(ctx context.Context, subjectID string) ([]
 			continue
 		}
 		out = append(out, storage.PendingClaim{
-			AgentSubjectID:   agentID,
-			AgentDisplayName: s.b.subjects[agentID].DisplayName,
-			Account:          reg.account,
-			OwnerEmail:       reg.ownerEmail,
-			CreatedAt:        reg.createdAt,
+			AgentSubjectID:        agentID,
+			AgentDisplayName:      s.b.subjects[agentID].DisplayName,
+			Account:               reg.account,
+			OwnerEmail:            reg.ownerEmail,
+			CreatedAt:             reg.createdAt,
+			RequestedSliceAccount: reg.requestedSliceAccount,
+			RequestedSliceSlug:    reg.requestedSliceSlug,
+			RequestedSliceRole:    reg.requestedSliceRole,
 		})
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -116,9 +119,12 @@ func (s *AuthStore) RegisterAgent(ctx context.Context, in storage.RegisterAgentI
 	}
 	s.b.provisionPersonalAccountLocked(subjectID, username, displayName)
 	reg := agentRegistration{
-		account:    username,
-		ownerEmail: ownerEmail,
-		createdAt:  time.Now().UTC(),
+		account:               username,
+		ownerEmail:            ownerEmail,
+		createdAt:             time.Now().UTC(),
+		requestedSliceAccount: strings.TrimSpace(in.RequestedSliceAccount),
+		requestedSliceSlug:    strings.TrimSpace(in.RequestedSliceSlug),
+		requestedSliceRole:    strings.TrimSpace(in.RequestedSliceRole),
 	}
 	if registrationToken != "" {
 		reg.registrationTokenHash = memoryTokenHash(registrationToken)

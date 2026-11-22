@@ -16,6 +16,8 @@ type pendingClaimOutput struct {
 	Account          string `json:"account"`
 	OwnerEmail       string `json:"owner_email"`
 	CreatedAt        string `json:"created_at"`
+	RequestedSlice   string `json:"requested_slice,omitempty"`
+	RequestedRole    string `json:"requested_role,omitempty"`
 }
 
 func (r Runner) runClaimsList(ctx context.Context, opts commandOptions) error {
@@ -29,12 +31,18 @@ func (r Runner) runClaimsList(ctx context.Context, opts commandOptions) error {
 	}
 	out := make([]pendingClaimOutput, 0, len(resp.Claims))
 	for _, claim := range resp.Claims {
+		reqSlice := ""
+		if claim.GetRequestedSlice().GetAccount() != "" && claim.GetRequestedSlice().GetSlice() != "" {
+			reqSlice = claim.GetRequestedSlice().GetAccount() + "/" + claim.GetRequestedSlice().GetSlice()
+		}
 		out = append(out, pendingClaimOutput{
 			AgentSubjectID:   claim.AgentSubjectId,
 			AgentDisplayName: claim.AgentDisplayName,
 			Account:          claim.Account,
 			OwnerEmail:       claim.OwnerEmail,
 			CreatedAt:        claim.CreatedAt,
+			RequestedSlice:   reqSlice,
+			RequestedRole:    claim.GetRequestedRole(),
 		})
 	}
 	if opts.jsonOutput() {
@@ -47,7 +55,11 @@ func (r Runner) runClaimsList(ctx context.Context, opts commandOptions) error {
 		return nil
 	}
 	for _, claim := range out {
-		fmt.Fprintf(r.Stdout, "%s\t%s\t%s\t%s\n", claim.AgentSubjectID, claim.Account, claim.AgentDisplayName, claim.CreatedAt)
+		if claim.RequestedSlice != "" {
+			fmt.Fprintf(r.Stdout, "%s\t%s\t%s\t%s\trequests %s on %s\n", claim.AgentSubjectID, claim.Account, claim.AgentDisplayName, claim.CreatedAt, claim.RequestedRole, claim.RequestedSlice)
+		} else {
+			fmt.Fprintf(r.Stdout, "%s\t%s\t%s\t%s\n", claim.AgentSubjectID, claim.Account, claim.AgentDisplayName, claim.CreatedAt)
+		}
 	}
 	return nil
 }
@@ -65,23 +77,38 @@ func noClaimsMessage(verifiedEmails []string) string {
 		"      If it was registered with another address, add and verify that address in your profile, then run gs claims list again."
 }
 
-func (r Runner) runClaimsAccept(ctx context.Context, opts commandOptions, agentSubjectID string) error {
+func (r Runner) runClaimsAccept(ctx context.Context, opts commandOptions, agentSubjectID string, grantRequestedSlice bool) error {
 	var resp *corev1.AcceptClaimResponse
 	if err := r.withSession(ctx, func(s *Session) error {
 		var err error
-		resp, err = s.Auth().AcceptClaim(s.Ctx(), &corev1.AcceptClaimRequest{AgentSubjectId: strings.TrimSpace(agentSubjectID)})
+		resp, err = s.Auth().AcceptClaim(s.Ctx(), &corev1.AcceptClaimRequest{
+			AgentSubjectId:      strings.TrimSpace(agentSubjectID),
+			GrantRequestedSlice: grantRequestedSlice,
+		})
 		return claimsError(err)
 	}); err != nil {
 		return err
 	}
+	grantedSlice := ""
+	if resp.GetGrantedSlice().GetAccount() != "" && resp.GetGrantedSlice().GetSlice() != "" {
+		grantedSlice = resp.GetGrantedSlice().GetAccount() + "/" + resp.GetGrantedSlice().GetSlice()
+	}
 	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{
+		payload := map[string]any{
 			"agent_subject_id": strings.TrimSpace(agentSubjectID),
 			"account":          resp.Account,
-		})
+		}
+		if grantedSlice != "" {
+			payload["granted_slice"] = grantedSlice
+			payload["granted_role"] = resp.GetGrantedRole()
+		}
+		return r.writeJSONOutput(opts, payload)
 	}
 	if !opts.Quiet {
 		fmt.Fprintf(r.Stdout, "you now co-own account %s\n", resp.Account)
+		if grantedSlice != "" {
+			fmt.Fprintf(r.Stdout, "granted %s access to %s\n", resp.GetGrantedRole(), grantedSlice)
+		}
 	}
 	return nil
 }

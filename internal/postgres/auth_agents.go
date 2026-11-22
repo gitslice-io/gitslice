@@ -65,9 +65,17 @@ func (s *AuthStore) RegisterAgent(ctx context.Context, in storage.RegisterAgentI
 			return nil, err
 		}
 		if _, err := tx.ExecContext(ctx, `
-			insert into agent_registrations(subject_id, account_id, owner_email, registration_token_hash, created_at)
-			values ($1, $2, $3, $4, now())
-		`, subjectID, accountID, ownerEmail, registrationTokenHash); err != nil {
+			insert into agent_registrations(
+				subject_id, account_id, owner_email, registration_token_hash,
+				requested_slice_account, requested_slice_slug, requested_slice_role,
+				created_at
+			)
+			values ($1, $2, $3, $4, $5, $6, $7, now())
+		`, subjectID, accountID, ownerEmail, registrationTokenHash,
+			strings.TrimSpace(in.RequestedSliceAccount),
+			strings.TrimSpace(in.RequestedSliceSlug),
+			strings.TrimSpace(in.RequestedSliceRole),
+		); err != nil {
 			return nil, err
 		}
 		if _, err := tx.ExecContext(ctx, `
@@ -311,7 +319,8 @@ const notOthersAgentAccountSQL = `not exists (
 
 func (s *AuthStore) ListPendingClaims(ctx context.Context, subjectID string) ([]storage.PendingClaim, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		select r.subject_id, agent.display_name, a.slug, r.owner_email, r.created_at
+		select r.subject_id, agent.display_name, a.slug, r.owner_email, r.created_at,
+		       r.requested_slice_account, r.requested_slice_slug, r.requested_slice_role
 		from agent_registrations r
 		join subjects agent on agent.id = r.subject_id
 		join accounts a on a.id = r.account_id
@@ -330,7 +339,10 @@ func (s *AuthStore) ListPendingClaims(ctx context.Context, subjectID string) ([]
 	var out []storage.PendingClaim
 	for rows.Next() {
 		var claim storage.PendingClaim
-		if err := rows.Scan(&claim.AgentSubjectID, &claim.AgentDisplayName, &claim.Account, &claim.OwnerEmail, &claim.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&claim.AgentSubjectID, &claim.AgentDisplayName, &claim.Account, &claim.OwnerEmail, &claim.CreatedAt,
+			&claim.RequestedSliceAccount, &claim.RequestedSliceSlug, &claim.RequestedSliceRole,
+		); err != nil {
 			return nil, err
 		}
 		claim.CreatedAt = claim.CreatedAt.UTC()

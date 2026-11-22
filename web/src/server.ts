@@ -4,6 +4,7 @@ import { handleIngestProxy } from "./analytics/ingestProxy";
 import { handleAgentAuthRequest } from "./lib/agentSession";
 import { gitProxyTarget } from "./lib/gitProxy";
 import { llmsAliasResponse } from "./lib/llmsAlias";
+import { handleMCPProxyRequest } from "./lib/mcpProxy";
 import { apiSliceLookup, goImportResponse, sliceGoImportResponse } from "./lib/goImport";
 import { servePage, type PageCacheStore } from "./lib/pageCache";
 import { releaseResponse, type ReleaseBucket } from "./lib/releases";
@@ -15,6 +16,15 @@ export default createServerEntry({
     const ingestResponse = await handleIngestProxy(request);
     if (ingestResponse) {
       return ingestResponse;
+    }
+
+    // Hosted Streamable HTTP MCP endpoint (`/mcp`).
+    const mcpResponse = await handleMCPProxyRequest(
+      request,
+      import.meta.env.VITE_API_BASE_URL ?? ""
+    );
+    if (mcpResponse) {
+      return mcpResponse;
     }
 
     // Same-origin agent web session endpoints (`/auth/agent/login`, `/token`, `/logout`).

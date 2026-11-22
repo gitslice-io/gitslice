@@ -27,6 +27,10 @@ type AuthStore interface {
 	UsernamesForSubjects(ctx context.Context, subjectIDs []string) (map[string]string, error)
 	RegisterAgent(ctx context.Context, in RegisterAgentInput) (*RegisteredAgent, error)
 	CreateDelegatedAgent(ctx context.Context, in CreateDelegatedAgentInput) (*CreateDelegatedAgentResult, error)
+	CreateAgentInvite(ctx context.Context, in CreateAgentInviteInput) (*CreateAgentInviteResult, error)
+	ListAgentInvites(ctx context.Context, actorID string) ([]AgentInvite, error)
+	RevokeAgentInvite(ctx context.Context, actorID, inviteID string) error
+	JoinAgentInvite(ctx context.Context, in JoinAgentInviteInput) (*JoinAgentInviteResult, error)
 	EnsureAccountMember(ctx context.Context, subjectID, accountSlug string) error
 	ListSubjectAccountSlugs(ctx context.Context, subjectID string) ([]string, error)
 	SubjectIDForUsername(ctx context.Context, username string) (string, error)
