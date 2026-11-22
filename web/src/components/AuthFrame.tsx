@@ -71,10 +71,13 @@ export function AuthFrame({
         )}
       >
         <div className="flex items-center justify-between gap-4">
-          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
+          <a
+            className="flex items-center gap-2 text-xs font-semibold uppercase tracking-normal text-slate-500 transition hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50"
+            href="/"
+          >
             <BrandMark className="size-5" />
             {eyebrow}
-          </p>
+          </a>
           <ThemeToggle />
         </div>
         {/* The sign-in and sign-up cards carry their own h1 ("Sign in to

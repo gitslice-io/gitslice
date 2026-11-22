@@ -189,7 +189,7 @@ export function FolderPolicyDrawer({
     >
       <div className="flex h-full w-full justify-end">
         <div
-          className="flex h-full w-full max-w-xl flex-col bg-white text-zinc-950 outline-none shadow-xl dark:bg-zinc-900 dark:text-zinc-50"
+          className="flex h-full w-full max-w-xl min-w-0 flex-col bg-white text-zinc-950 outline-none shadow-xl dark:bg-zinc-900 dark:text-zinc-50"
           ref={sheetRef}
           tabIndex={-1}
         >
@@ -265,7 +265,7 @@ export function FolderPolicyDrawer({
             })}
           </div>
 
-          <div className="flex-1 overflow-y-auto pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden pb-[max(1rem,env(safe-area-inset-bottom,0px))]">
             {policyQuery.isPending ? (
               <div className="grid gap-2 px-4 py-4">
                 <div className="h-16 animate-pulse rounded-md bg-slate-100 dark:bg-zinc-800" />
@@ -281,19 +281,20 @@ export function FolderPolicyDrawer({
               <>
                 <div
                   aria-labelledby={`${baseId}-tab-automation`}
+                  className="min-w-0"
                   hidden={activeTab !== "automation"}
                   role="tabpanel"
                 >
-                  <div className="grid gap-5 px-4 py-4">
+                  <div className="grid min-w-0 gap-5 px-4 py-4">
                     <ProblemNotices problems={automationProblems} />
 
-                    <section aria-label="Checks">
+                    <section aria-label="Checks" className="min-w-0">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-zinc-400">
                           Checks
                         </h3>
                         <Link
-                          className="text-xs font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+                          className="shrink-0 text-xs font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
                           params={{ section: "checks" } as never}
                           to="/doc/$section"
                         >
@@ -306,7 +307,7 @@ export function FolderPolicyDrawer({
                           <code>required: true</code> to gate submissions touching its paths.
                         </SliceNotice>
                       ) : (
-                        <div className="grid gap-2">
+                        <div className="grid min-w-0 gap-2">
                           {checks.map((check) => (
                             <CheckCard check={check} folder={folder} key={check.id} />
                           ))}
@@ -314,7 +315,7 @@ export function FolderPolicyDrawer({
                       )}
                     </section>
 
-                    <section aria-label="Automations">
+                    <section aria-label="Automations" className="min-w-0">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-zinc-400">
                           Automations
@@ -564,7 +565,7 @@ function InheritanceBadge({ currentFolder, sourceFolder }: { currentFolder: stri
 
 function CheckCard({ check, folder }: { check: FolderCheckDefinition; folder: string }) {
   return (
-    <div className="rounded-md border border-slate-200 px-3 py-2.5 dark:border-zinc-800">
+    <div className="min-w-0 rounded-md border border-slate-200 px-3 py-2.5 dark:border-zinc-800">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex min-w-0 flex-wrap items-center gap-1.5">
           <span className="break-all font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50">{check.id}</span>
@@ -582,12 +583,12 @@ function CheckCard({ check, folder }: { check: FolderCheckDefinition; folder: st
         <InheritanceBadge currentFolder={folder} sourceFolder={check.folder ?? ""} />
       </div>
       {check.run ? (
-        <pre className="mt-1.5 overflow-x-auto whitespace-pre-wrap break-words rounded bg-slate-50 px-2 py-1.5 font-mono text-xs text-slate-600 dark:bg-zinc-950/70 dark:text-zinc-400">
+        <pre className="mt-1.5 max-w-full overflow-x-auto whitespace-pre rounded bg-slate-50 px-2 py-1.5 font-mono text-xs text-slate-600 dark:bg-zinc-950/70 dark:text-zinc-400">
           {check.run}
         </pre>
       ) : null}
       {(check.paths ?? []).length > 0 ? (
-        <p className="mt-1.5 break-words font-mono text-[11px] text-slate-500 dark:text-zinc-400">
+        <p className="mt-1.5 [overflow-wrap:anywhere] font-mono text-[11px] text-slate-500 dark:text-zinc-400">
           paths {(check.paths ?? []).join(" ")}
         </p>
       ) : null}
@@ -697,7 +698,7 @@ function TriggerCard({
   }
 
   return (
-    <section className="rounded-md border border-slate-200 dark:border-zinc-800">
+    <section className="min-w-0 rounded-md border border-slate-200 dark:border-zinc-800">
       <div className="flex items-start justify-between gap-2 px-3 py-2.5">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-1.5">

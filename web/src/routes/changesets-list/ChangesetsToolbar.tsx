@@ -36,14 +36,14 @@ export function ChangesetsToolbar({
     <div className="mb-3 flex flex-wrap items-center gap-2">
       <div
         aria-label="Status"
-        className="inline-flex h-9 w-fit overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-zinc-800 dark:bg-zinc-950"
+        className="grid h-9 w-full grid-cols-4 overflow-hidden rounded-md border border-slate-200 bg-slate-50 p-0.5 dark:border-zinc-800 dark:bg-zinc-950 sm:inline-flex sm:w-fit"
         role="group"
       >
         {statusTabs.map((entry) => (
           <button
             aria-pressed={tab === entry.value}
             className={cn(
-              "rounded px-3 text-sm font-medium transition",
+              "rounded px-2 text-center text-sm font-medium transition sm:px-3",
               tab === entry.value
                 ? "bg-white text-zinc-950 shadow-sm dark:bg-zinc-900 dark:text-zinc-50"
                 : "text-slate-600 hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50"

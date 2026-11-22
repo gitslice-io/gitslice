@@ -5,9 +5,9 @@ import { useState } from "react";
 import type { Changeset } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import { AuthorLabel } from "../../components/AccountAvatar";
-import { cn } from "../../lib/cn";
 import { shortChangesetId } from "../../lib/objectId";
 import { ChangesetMetaLine } from "../changeset-detail/ChangesetMetaLine";
+import { StatusBadge } from "../changeset-detail/StatusBadge";
 import { mergeErrorMessage } from "../changeset-detail/status";
 import { displaySubmitBlockedReason } from "../stackPageUtils";
 
@@ -29,7 +29,7 @@ export function ChangesetsTable({
     <div className="overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50">
       <div className="overflow-x-auto">
         <table className="min-w-full divide-y divide-slate-200 dark:divide-zinc-800 text-left text-sm">
-          <thead className="bg-slate-50 dark:bg-zinc-950 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
+          <thead className="hidden bg-slate-50 dark:bg-zinc-950 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400 sm:table-header-group">
             <tr>
               <th className="px-3 py-3 sm:px-4">Changeset</th>
               <th className="hidden px-3 py-3 sm:table-cell sm:px-4">Status</th>
@@ -105,7 +105,7 @@ function ChangesetRow({
 
   return (
     <tr className="align-top transition hover:bg-slate-50 dark:hover:bg-zinc-950">
-      <td className="max-w-[14rem] px-3 py-4 sm:min-w-72 sm:max-w-none sm:px-4">
+      <td className="px-3 py-3.5 sm:min-w-72 sm:px-4 sm:py-4">
         <div className="flex flex-col gap-1">
           <div className="sm:hidden">
             <StatusBadge status={changeset.status} />
@@ -116,7 +116,7 @@ function ChangesetRow({
               params={{ id: detailId }}
               to="/cs/$id"
             >
-              <span className="block max-w-xl line-clamp-2 break-words font-semibold text-zinc-950 dark:text-zinc-50 underline decoration-slate-300 underline-offset-4 group-hover:decoration-slate-700">
+              <span className="block max-w-xl line-clamp-2 break-words font-semibold text-zinc-950 dark:text-zinc-50 underline-offset-2 group-hover:text-sky-700 group-hover:underline dark:group-hover:text-sky-300">
                 {changeset.title || "Untitled changeset"}
               </span>
               <span className="mt-1 block break-words text-sm text-slate-500 dark:text-zinc-400">
@@ -204,36 +204,6 @@ function changesetLabel(changeset: Changeset) {
     return `#${changeset.number}`;
   }
   return changeset.id || "Changeset";
-}
-
-function StatusBadge({ status }: { status?: string }) {
-  return (
-    <span
-      className={cn(
-        "inline-flex rounded-md border px-2 py-1 text-xs font-semibold",
-        statusClass(status)
-      )}
-    >
-      {status || "unknown"}
-    </span>
-  );
-}
-
-function statusClass(status?: string) {
-  switch ((status || "").toLowerCase()) {
-    case "published":
-    case "merged":
-    case "submitted":
-      return "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-200";
-    case "pending_publish":
-      return "border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/30 text-amber-900 dark:text-amber-200";
-    case "abandoned":
-      return "border-red-200 bg-red-50 text-red-800";
-    case "draft":
-      return "border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 text-slate-700 dark:text-zinc-300";
-    default:
-      return "border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-950 text-slate-700 dark:text-zinc-300";
-  }
 }
 
 // Submit (merge) is only valid while the changeset is still open. Once it has

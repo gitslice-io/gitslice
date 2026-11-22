@@ -1,4 +1,4 @@
-import { Suspense, lazy, type ComponentType } from "react";
+import { Suspense, lazy, useEffect, useRef, type ComponentType } from "react";
 import { useParams } from "@tanstack/react-router";
 
 import {
@@ -26,6 +26,13 @@ export function DocPage() {
   const params = useParams({ strict: false }) as DocParams;
   const section = normalizeSection(params.section);
   const ActiveSection = lazyDocSections[section];
+  const navRef = useRef<HTMLElement>(null);
+
+  // Keep the active section pill visible in the mobile horizontal nav strip.
+  useEffect(() => {
+    const active = navRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
+    active?.scrollIntoView?.({ block: "nearest", inline: "center" });
+  }, [section]);
 
   return (
     <section className="mx-auto grid w-full max-w-[100rem] grid-cols-1 gap-8 lg:grid-cols-[17rem_minmax(0,1fr)]">
@@ -33,6 +40,7 @@ export function DocPage() {
         <nav
           aria-label="Documentation sections"
           className="-mx-2 flex flex-nowrap gap-2 overflow-x-auto px-2 pb-1 lg:mx-0 lg:grid lg:overflow-visible lg:px-0 lg:pb-0"
+          ref={navRef}
         >
           {docSections.map((item) => (
             <SectionLink
