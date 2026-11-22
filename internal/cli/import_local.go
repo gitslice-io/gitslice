@@ -26,9 +26,9 @@ import (
 const (
 	defaultLocalImportBatchSize = 50
 	maxLocalImportBatchSize     = 200
-	localImportMaxBatchEdits    = 2000
+	localImportMaxBatchEdits    = 4000
 	localImportBlobChunkBytes   = 32 << 20
-	localImportBlobChunkCount   = 512
+	localImportBlobChunkCount   = 1024
 	localImportMaxBlobBytes     = 100 << 20
 )
 

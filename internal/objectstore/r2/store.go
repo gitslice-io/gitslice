@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -77,9 +79,14 @@ func New(cfg Config) (*Store, error) {
 		cfg.Region = "auto"
 	}
 
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.MaxIdleConns = 256
+	transport.MaxIdleConnsPerHost = 128
+	transport.IdleConnTimeout = 90 * time.Second
 	awsCfg := aws.Config{
 		Region:      cfg.Region,
 		Credentials: credentials.NewStaticCredentialsProvider(cfg.AccessKeyID, cfg.SecretAccessKey, ""),
+		HTTPClient:  &http.Client{Transport: transport},
 	}
 	client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
 		o.EndpointResolver = s3.EndpointResolverFromURL(cfg.Endpoint)

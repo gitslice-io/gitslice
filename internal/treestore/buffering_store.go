@@ -10,7 +10,7 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const treeFlushConcurrency = 16
+const treeFlushConcurrency = 64
 
 type bufferingObjectStore struct {
 	base      ObjectStore

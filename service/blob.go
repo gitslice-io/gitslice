@@ -81,7 +81,7 @@ func (s *BlobService) UploadBlob(ctx context.Context, req *corev1.UploadBlobRequ
 const (
 	uploadBlobsMaxBlobs = 1000
 	uploadBlobsMaxBytes = 64 << 20
-	uploadBlobsWrites   = 8
+	uploadBlobsWrites   = 64
 )
 
 // UploadBlobs is UploadBlob for many blobs in one call (design/28_benchmarks.md).
