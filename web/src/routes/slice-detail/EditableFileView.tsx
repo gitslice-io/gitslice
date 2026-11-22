@@ -19,6 +19,8 @@ import { BinaryViewer } from "../../components/source/BinaryViewer";
 import { SourceCodeViewer, type BlameControl } from "../../components/source/SourceCodeViewer";
 import { binaryKindFromPath } from "../../components/source/sourceUtils";
 import { SlicePanel } from "../../components/slices/SlicePageParts";
+import { Button } from "../../components/ui/Button";
+import { CopyButton } from "../../components/ui/CopyButton";
 import { useMobileDetailsClass } from "../../components/MobileDetails";
 import { cn } from "../../lib/cn";
 import { shortHash } from "../../lib/objectId";
@@ -69,7 +71,6 @@ export function EditableFileView({
   const [isRenaming, setIsRenaming] = useState(false);
   const [draft, setDraft] = useState(displayedContent);
   const [renameError, setRenameError] = useState("");
-  const [copiedPath, setCopiedPath] = useState(false);
   const copyMove = useCopyMove();
   const canModifySelectedPath = canModifyPath(includedPaths, selectedPath);
   const foldedOnPhone = useMobileDetailsClass();
@@ -82,7 +83,6 @@ export function EditableFileView({
     setIsRenaming(false);
     setRenameError("");
     setDraft(displayedContent);
-    setCopiedPath(false);
   }, [displayedContent, selectedPath]);
 
   function saveEdit() {
@@ -183,23 +183,14 @@ export function EditableFileView({
                   {selectedPath || "Slice root"}
                 </h1>
                 {selectedPath ? (
-                  <button
-                    aria-label="Copy file path"
-                    className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-500 transition hover:bg-slate-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(selectedPath);
-                        setCopiedPath(true);
-                        window.setTimeout(() => setCopiedPath(false), 1800);
-                      } catch {
-                        // Clipboard unavailable; path text remains selectable.
-                      }
-                    }}
+                  <CopyButton
+                    ariaLabel="Copy file path"
+                    className="rounded px-1.5 py-0.5 text-[11px] font-medium text-slate-500 transition hover:bg-slate-100 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+                    key={selectedPath}
                     title="Copy file path"
-                    type="button"
-                  >
-                    {copiedPath ? "Copied" : "Copy"}
-                  </button>
+                    value={selectedPath}
+                    variant="unstyled"
+                  />
                 ) : null}
               </div>
               <p className="mt-1 hidden text-xs text-slate-500 dark:text-zinc-400 sm:block">
@@ -211,23 +202,25 @@ export function EditableFileView({
             </div>
             <div className="flex shrink-0 items-center gap-2">
               {onOpenPolicy ? (
-                <button
-                  className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98] max-sm:hidden"
+                <Button
+                  className="py-1.5 font-semibold max-sm:hidden"
                   onClick={onOpenPolicy}
+                  size="sm"
                   title="Owners, checks, triggers, and secrets for this folder"
-                  type="button"
+                  variant="secondary"
                 >
                   Policy
-                </button>
+                </Button>
               ) : null}
               {onOpenHistory ? (
-                <button
-                  className="rounded-md border border-slate-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98] max-sm:hidden"
+                <Button
+                  className="py-1.5 font-semibold max-sm:hidden"
                   onClick={onOpenHistory}
-                  type="button"
+                  size="sm"
+                  variant="secondary"
                 >
                   History
-                </button>
+                </Button>
               ) : null}
               {menuItems.length > 0 ? <ActionMenu items={menuItems} label="File actions" /> : null}
             </div>

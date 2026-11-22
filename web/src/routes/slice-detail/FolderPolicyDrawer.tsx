@@ -15,6 +15,7 @@ import { SecretForm, scopeFromDraft, type SecretDraft } from "../../components/s
 import { SliceNotice } from "../../components/slices/SlicePageParts";
 import { Timestamp } from "../../components/Timestamp";
 import { Button } from "../../components/ui/Button";
+import { Drawer } from "../../components/ui/Drawer";
 import { cn } from "../../lib/cn";
 import { shortChangesetId } from "../../lib/objectId";
 import { folderPolicyKey, folderPolicyQuery, triggerRunsOfKey, triggerRunsOfQuery } from "../../queries/automations";
@@ -53,8 +54,6 @@ export function FolderPolicyDrawer({
   sliceRouteParams
 }: FolderPolicyDrawerProps) {
   const queryClient = useQueryClient();
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const sheetRef = useRef<HTMLDivElement>(null);
   const tabRefs = useRef<Record<PolicyTab, HTMLButtonElement | null>>({
     automation: null,
     secrets: null,
@@ -69,30 +68,6 @@ export function FolderPolicyDrawer({
     setAddingSecret(false);
     setSecretError("");
   }, [folder, open]);
-
-  // Manage native modal <dialog> open/close with a safe fallback when showModal
-  // is unavailable (e.g. jsdom in unit tests).
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) {
-      return;
-    }
-    if (open) {
-      if (!dialog.open) {
-        if (typeof dialog.showModal === "function") {
-          dialog.showModal();
-        } else {
-          dialog.setAttribute("open", "");
-        }
-      }
-    } else if (dialog.open || dialog.hasAttribute("open")) {
-      if (typeof dialog.close === "function") {
-        dialog.close();
-      } else {
-        dialog.removeAttribute("open");
-      }
-    }
-  }, [open]);
 
   const policyQuery = useQuery({
     ...folderPolicyQuery(api, folder),
@@ -166,67 +141,24 @@ export function FolderPolicyDrawer({
   );
   const ownerProblems = problems.filter((p) => p.kind === "owners");
 
-  if (!open) {
-    return null;
-  }
-
   return (
-    <dialog
-      aria-labelledby={`${baseId}-title`}
-      className="fixed inset-0 z-50 m-0 h-dvh max-h-none w-screen max-w-none border-0 bg-transparent p-0 backdrop:bg-black/35"
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-      onClick={(event) => {
-        if (sheetRef.current && !sheetRef.current.contains(event.target as Node)) {
-          onClose();
-        }
-      }}
-      ref={dialogRef}
+    <Drawer
+      closeLabel="Close folder policy"
+      onClose={onClose}
+      open={open}
+      size="xl"
+      subtitle={
+        <>
+          <p className="mt-0.5 break-all font-mono text-xs text-slate-600 dark:text-zinc-300">{folder}</p>
+          <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+            Effective rules, checks, automations, and secrets for this folder at the head of main.
+          </p>
+        </>
+      }
+      title="Folder policy"
     >
-      <div className="flex h-full w-full justify-end">
-        <div
-          className="flex h-full w-full max-w-xl min-w-0 flex-col bg-white text-zinc-950 outline-none shadow-xl dark:bg-zinc-900 dark:text-zinc-50"
-          ref={sheetRef}
-          tabIndex={-1}
-        >
-          <div className="border-b border-slate-200 px-4 py-3 dark:border-zinc-800">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="text-base font-semibold tracking-tight text-zinc-950 dark:text-zinc-50" id={`${baseId}-title`}>
-                  Folder policy
-                </h2>
-                <p className="mt-0.5 break-all font-mono text-xs text-slate-600 dark:text-zinc-300">{folder}</p>
-                <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
-                  Effective rules, checks, automations, and secrets for this folder at the head of main.
-                </p>
-              </div>
-              <button
-                aria-label="Close folder policy"
-                className="inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-zinc-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 active:scale-[0.98] dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
-                onClick={onClose}
-                type="button"
-              >
-                <svg
-                  aria-hidden="true"
-                  className="h-4 w-4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  viewBox="0 0 24 24"
-                >
-                  <path d="M18 6 6 18" />
-                  <path d="m6 6 12 12" />
-                </svg>
-              </button>
-            </div>
-          </div>
-
-          <div
-            aria-label="Folder policy sections"
+      <div
+        aria-label="Folder policy sections"
             className="flex shrink-0 overflow-x-auto border-b border-slate-200 px-4 dark:border-zinc-800"
             role="tablist"
           >
@@ -521,9 +453,7 @@ export function FolderPolicyDrawer({
               </>
             )}
           </div>
-        </div>
-      </div>
-    </dialog>
+    </Drawer>
   );
 }
 
@@ -726,14 +656,15 @@ function TriggerCard({
           ) : null}
         </div>
         {manual ? (
-          <button
-            className="shrink-0 rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-950"
+          <Button
+            className="shrink-0 font-semibold"
             disabled={run.isPending}
             onClick={handleRunClick}
-            type="button"
+            size="xs"
+            variant="secondary"
           >
             {run.isPending ? "Starting…" : "Run"}
-          </button>
+          </Button>
         ) : null}
       </div>
       {!modalOpen && run.error ? <p className="px-3 pb-2 text-xs text-rose-700 dark:text-rose-300">{run.error.message}</p> : null}

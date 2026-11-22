@@ -14,6 +14,7 @@ import { ChangesetMetaLine } from "./ChangesetMetaLine";
 import { CopyLinkButton } from "./CopyLinkButton";
 import { ErrorBox } from "./ErrorBox";
 import { MarkdownViewer } from "../../components/source/MarkdownViewer";
+import { Button } from "../../components/ui/Button";
 import { InfoEditor } from "./InfoEditor";
 import { ReviewActions } from "./ReviewActions";
 import { changesetLabel } from "./status";
@@ -124,27 +125,29 @@ export function HeaderCard({
                 {changeset.title || "Untitled changeset"}
               </h1>
               {canEditInfo ? (
-                <button
-                  className="shrink-0 rounded-md border border-slate-200 dark:border-zinc-800 px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-zinc-400 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:text-zinc-950 dark:hover:text-zinc-50 max-lg:hidden"
+                <Button
+                  className="shrink-0 bg-transparent text-slate-600 dark:text-zinc-400 hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-transparent hover:text-zinc-950 dark:hover:text-zinc-50 max-lg:hidden"
                   onClick={() => {
                     setLocalDetails(true);
                     setEditing(true);
                   }}
-                  type="button"
+                  size="sm"
+                  variant="secondary"
                 >
                   Edit
-                </button>
+                </Button>
               ) : null}
               {hasExpandableContent ? (
-                <button
+                <Button
                   aria-expanded={showDetails}
                   aria-label={showDetails ? "Hide details" : "Show details"}
-                  className="shrink-0 rounded-md border border-slate-200 dark:border-zinc-800 px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-zinc-400 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:text-zinc-950 dark:hover:text-zinc-50 lg:hidden"
+                  className="shrink-0 bg-transparent text-slate-600 dark:text-zinc-400 hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-transparent hover:text-zinc-950 dark:hover:text-zinc-50 lg:hidden"
                   onClick={toggleDetails}
-                  type="button"
+                  size="sm"
+                  variant="secondary"
                 >
                   {showDetails ? "Hide" : "Details"}
-                </button>
+                </Button>
               ) : null}
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-slate-600 dark:text-zinc-400 md:mt-2 md:gap-x-2 md:gap-y-1.5">

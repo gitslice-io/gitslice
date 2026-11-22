@@ -1,7 +1,8 @@
-import { useEffect, useId, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useState, type FormEvent } from "react";
 
 import type { AutomationDefinition } from "../../api/types";
 import { Button } from "../../components/ui/Button";
+import { ModalDialog } from "../../components/ui/ModalDialog";
 
 export interface RunAutomationModalProps {
   automation: AutomationDefinition;
@@ -32,8 +33,6 @@ export function RunAutomationModal({
   onSubmit,
   open
 }: RunAutomationModalProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
-  const cardRef = useRef<HTMLDivElement>(null);
   const baseId = useId();
   const specs = automation.inputs ?? [];
   const [values, setValues] = useState<Record<string, string>>({});
@@ -58,26 +57,6 @@ export function RunAutomationModal({
     setValues(initial);
     setConfirmed(false);
   }, [open, automation.id]);
-
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (open) {
-      if (!dialog.open) {
-        if (typeof dialog.showModal === "function") {
-          dialog.showModal();
-        } else {
-          dialog.setAttribute("open", "");
-        }
-      }
-    } else if (dialog.open || dialog.hasAttribute("open")) {
-      if (typeof dialog.close === "function") {
-        dialog.close();
-      } else {
-        dialog.removeAttribute("open");
-      }
-    }
-  }, [open]);
 
   if (!open) {
     return null;
@@ -131,58 +110,33 @@ export function RunAutomationModal({
   }
 
   return (
-    <dialog
-      aria-labelledby={`${baseId}-title`}
-      className="fixed inset-0 z-[60] m-0 h-dvh max-h-none w-screen max-w-none border-0 bg-transparent p-4 backdrop:bg-black/45"
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
-      onClick={(event) => {
-        if (cardRef.current && !cardRef.current.contains(event.target as Node)) {
-          onClose();
-        }
-      }}
-      ref={dialogRef}
+    <ModalDialog
+      closeLabel="Cancel"
+      maxWidthClassName="max-w-lg"
+      onClose={onClose}
+      open={open}
+      subtitle={
+        <>
+          <p className="mt-0.5 break-all font-mono text-xs text-slate-600 dark:text-zinc-300">
+            {automation.id}
+          </p>
+          {automation.action === "uses" && automation.uses?.ref ? (
+            <p className="mt-0.5 break-all font-mono text-[11px] text-indigo-700 dark:text-indigo-300">
+              uses {automation.uses.ref}
+            </p>
+          ) : automation.action === "steps" ? (
+            <p className="mt-0.5 text-[11px] text-slate-500 dark:text-zinc-400">
+              Pipeline ({stepCount} step{stepCount === 1 ? "" : "s"})
+            </p>
+          ) : null}
+          {automation.description ? (
+            <p className="mt-1 text-xs text-slate-600 dark:text-zinc-400">{automation.description}</p>
+          ) : null}
+        </>
+      }
+      title="Run automation"
     >
-      <div className="flex min-h-full items-center justify-center">
-        <div
-          className="w-full max-w-lg rounded-lg border border-slate-200 bg-white text-zinc-950 shadow-xl dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-50"
-          ref={cardRef}
-        >
-          <div className="border-b border-slate-200 px-4 py-3.5 dark:border-zinc-800">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50" id={`${baseId}-title`}>
-                  Run automation
-                </h3>
-                <p className="mt-0.5 break-all font-mono text-xs text-slate-600 dark:text-zinc-300">
-                  {automation.id}
-                </p>
-                {automation.action === "uses" && automation.uses?.ref ? (
-                  <p className="mt-0.5 break-all font-mono text-[11px] text-indigo-700 dark:text-indigo-300">
-                    uses {automation.uses.ref}
-                  </p>
-                ) : automation.action === "steps" ? (
-                  <p className="mt-0.5 text-[11px] text-slate-500 dark:text-zinc-400">
-                    Pipeline ({stepCount} step{stepCount === 1 ? "" : "s"})
-                  </p>
-                ) : null}
-                {automation.description ? (
-                  <p className="mt-1 text-xs text-slate-600 dark:text-zinc-400">{automation.description}</p>
-                ) : null}
-              </div>
-              <button
-                className="shrink-0 rounded-md border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-950"
-                onClick={onClose}
-                type="button"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-
-          <form className="grid gap-4 px-4 py-4" onSubmit={handleSubmit}>
+      <form className="grid gap-4 px-4 py-4" onSubmit={handleSubmit}>
             <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2.5 text-xs dark:border-zinc-800 dark:bg-zinc-950">
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="font-semibold text-zinc-900 dark:text-zinc-100">
@@ -316,8 +270,6 @@ export function RunAutomationModal({
               </Button>
             </div>
           </form>
-        </div>
-      </div>
-    </dialog>
+    </ModalDialog>
   );
 }

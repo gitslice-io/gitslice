@@ -915,7 +915,7 @@ describe("reading a changed file in full", () => {
     fireEvent.click(await screen.findByRole("button", { name: "View parser.go" }));
 
     expect(routerMock.search).toEqual({ side: "original", view: "acme/payment/parser.go" });
-    const drawer = screen.getByRole("complementary", { name: "File" });
+    const drawer = screen.getByRole("dialog", { name: "File" });
     await waitFor(() => expect(drawer).toHaveTextContent("package payment // before"));
     expect(api.readFile).toHaveBeenCalledWith({
       path: "/acme/payment/parser.go",
@@ -962,7 +962,7 @@ describe("reading a changed file in full", () => {
     renderRoute(<ChangesetDetailPage />);
 
     await waitFor(() =>
-      expect(screen.getByRole("complementary", { name: "File" })).toHaveTextContent("package payment // old")
+      expect(screen.getByRole("dialog", { name: "File" })).toHaveTextContent("package payment // old")
     );
     expect(api.readFile).toHaveBeenCalledWith(expect.objectContaining({ rootTreeId: "tree_base" }));
     expect(screen.getByRole("button", { name: "Changed" })).toBeDisabled();

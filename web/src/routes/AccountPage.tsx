@@ -22,7 +22,7 @@ import {
   getErrorMessage
 } from "../components/slices/SlicePageParts";
 import { Timestamp } from "../components/Timestamp";
-import { Button } from "../components/ui/Button";
+import { Button, buttonClassName } from "../components/ui/Button";
 import { Input, inputClassName } from "../components/ui/Input";
 import { canAdmin, kindLabel, membershipFor, type Membership } from "../lib/accounts";
 import { isHomeSlice, isSliceSort, loadSliceSort, saveSliceSort, sliceSorts, sortSlices, type SliceSort } from "../lib/sliceOrder";
@@ -113,26 +113,18 @@ export function AccountPage() {
             </div>
             <div className="flex basis-full flex-wrap items-center gap-2 sm:basis-auto">
             {canEditProfile && !editing ? (
-              <button
-                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
-                onClick={() => setEditing(true)}
-                type="button"
-              >
+              <Button onClick={() => setEditing(true)} size="md" variant="secondary">
                 Edit profile
-              </button>
+              </Button>
             ) : null}
             {membership && membership.account !== activeAccount ? (
-              <button
-                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
-                onClick={() => setActiveAccount(membership.account)}
-                type="button"
-              >
+              <Button onClick={() => setActiveAccount(membership.account)} size="md" variant="secondary">
                 Switch to {account}
-              </button>
+              </Button>
             ) : null}
             {canAdmin(membership) ? (
               <Link
-                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
+                className={buttonClassName({ size: "md", variant: "secondary" })}
                 params={{ account }}
                 to="/accounts/$account/secrets"
               >
@@ -141,7 +133,7 @@ export function AccountPage() {
             ) : null}
             {canAdmin(membership) ? (
               <Link
-                className="rounded-md bg-zinc-950 px-3 py-1.5 text-sm font-semibold text-white transition hover:bg-zinc-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+                className={buttonClassName({ size: "md", variant: "primary" })}
                 search={{ account }}
                 to="/slices/new"
               >
@@ -311,14 +303,14 @@ export function AccountPage() {
           )}
           {slicesQuery.hasNextPage ? (
             <div className="mt-4 flex justify-center">
-              <button
-                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
+              <Button
                 disabled={slicesQuery.isFetchingNextPage}
                 onClick={() => void slicesQuery.fetchNextPage()}
-                type="button"
+                size="md"
+                variant="secondary"
               >
                 {slicesQuery.isFetchingNextPage ? "Loading…" : "Show more"}
-              </button>
+              </Button>
             </div>
           ) : null}
 

@@ -17,6 +17,8 @@ import {
   normalizeRepositoryPath,
   sortEntries
 } from "../../components/source/sourceUtils";
+import { Button } from "../../components/ui/Button";
+import { CopyButton } from "../../components/ui/CopyButton";
 import { shortHash } from "../../lib/objectId";
 import { copyMoveMenuItems, useCopyMove } from "./CopyMove";
 import { canModifyPath } from "./DirectoryHeader";
@@ -47,7 +49,6 @@ export function SliceDirectoryTable({
 }: SliceDirectoryTableProps) {
   const [renamingPath, setRenamingPath] = useState("");
   const [creatingFile, setCreatingFile] = useState(false);
-  const [copiedInit, setCopiedInit] = useState(false);
   const copyMove = useCopyMove();
   const sortedEntries = sortEntries(entries);
   const showActions = Boolean(onStageEdit);
@@ -71,33 +72,24 @@ export function SliceDirectoryTable({
         </p>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           {canCreateHere && !creatingFile ? (
-            <button
-              className="rounded-md bg-zinc-950 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-zinc-800 active:scale-[0.98] dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-white"
+            <Button
+              className="px-3 py-1.5"
               onClick={() => setCreatingFile(true)}
-              type="button"
+              size="sm"
+              variant="primary"
             >
               New file
-            </button>
+            </Button>
           ) : null}
           {initCmd ? (
             <div className="inline-flex max-w-full items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-1.5 font-mono text-xs text-slate-700 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-300">
               <code className="truncate">{initCmd}</code>
-              <button
-                aria-label="Copy checkout command"
-                className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-sans font-medium text-slate-600 transition hover:bg-slate-200/70 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(initCmd);
-                    setCopiedInit(true);
-                    window.setTimeout(() => setCopiedInit(false), 1800);
-                  } catch {
-                    // Clipboard unavailable; command text remains selectable.
-                  }
-                }}
-                type="button"
-              >
-                {copiedInit ? "Copied" : "Copy"}
-              </button>
+              <CopyButton
+                ariaLabel="Copy checkout command"
+                className="rounded px-1.5 py-0.5 text-[11px] font-sans font-medium text-slate-600 transition hover:bg-slate-200/70 hover:text-zinc-950 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+                value={initCmd}
+                variant="unstyled"
+              />
             </div>
           ) : null}
         </div>

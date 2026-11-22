@@ -7,6 +7,7 @@ import { useAppAuth } from "../../auth/AppAuthProvider";
 import { formatDate } from "../../lib/time";
 import { agentInvitesKey, agentInvitesQuery } from "../../queries/auth";
 import { Button } from "../ui/Button";
+import { CopyButton } from "../ui/CopyButton";
 import { SlicePanel, getErrorMessage } from "./SlicePageParts";
 
 type SnippetTab = "prompt" | "cli" | "mcp";
@@ -38,7 +39,6 @@ export function ConnectAgentPanel({
   const [expiresInSeconds, setExpiresInSeconds] = useState<number>(86400);
   const [created, setCreated] = useState<CreateAgentInviteResponse | null>(null);
   const [activeTab, setActiveTab] = useState<SnippetTab>("prompt");
-  const [copiedTab, setCopiedTab] = useState<SnippetTab | null>(null);
 
   const invitesQuery = useQuery({
     ...agentInvitesQuery(api),
@@ -56,7 +56,6 @@ export function ConnectAgentPanel({
     onSuccess: async (resp) => {
       setCreated(resp);
       setActiveTab("prompt");
-      setCopiedTab(null);
       await queryClient.invalidateQueries({ queryKey: agentInvitesKey });
     }
   });
@@ -89,15 +88,6 @@ export function ConnectAgentPanel({
 
   const token = created?.token ?? "";
   const snippets = token ? buildSnippets(token, sliceLabel, created?.invite?.suggestedUsername ?? "") : null;
-
-  async function copySnippet(tab: SnippetTab, text: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopiedTab(tab);
-    } catch {
-      // Clipboard API may be unavailable in restricted contexts.
-    }
-  }
 
   return (
     <SlicePanel>
@@ -219,12 +209,12 @@ export function ConnectAgentPanel({
                   ? "After joining, the agent uses its saved API key (gs auth token) with the hosted MCP endpoint."
                   : "Paste this into Claude Code, Codex, Cursor, Gemini, or any coding agent."}
               </p>
-              <Button
-                onClick={() => void copySnippet(activeTab, snippets[activeTab])}
+              <CopyButton
+                key={`${token}-${activeTab}`}
+                size="sm"
+                value={snippets[activeTab]}
                 variant="secondary"
-              >
-                {copiedTab === activeTab ? "Copied" : "Copy"}
-              </Button>
+              />
             </div>
           </div>
         ) : null}

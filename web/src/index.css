@@ -37,6 +37,15 @@ select {
   font: inherit;
 }
 
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
 ::selection {
   background: rgb(14 165 233 / 0.22);
 }

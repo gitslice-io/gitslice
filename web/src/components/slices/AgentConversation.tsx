@@ -18,7 +18,9 @@ import {
   sliceConversationsKeyPrefix
 } from "../../queries/agents";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { Button } from "../ui/Button";
 import { cn } from "../../lib/cn";
+import { useCopyToClipboard } from "../../lib/useCopyToClipboard";
 import { getErrorMessage } from "./SlicePageParts";
 import {
   eventKey,
@@ -54,11 +56,17 @@ export function AgentConversation({
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState("");
   const [isSending, setIsSending] = useState(false);
-  const [linkCopied, setLinkCopied] = useState(false);
   const [isCloseConfirmOpen, setIsCloseConfirmOpen] = useState(false);
-  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
-    undefined
-  );
+  const {
+    announcement: copyAnnouncement,
+    copied: linkCopied,
+    copy: copyToClipboard,
+    failed: linkCopyFailed
+  } = useCopyToClipboard({
+    resetMs: 1500,
+    copiedMessage: "Link copied",
+    failedMessage: "Copy failed"
+  });
   const messagesRef = useRef<HTMLDivElement>(null);
   const topSentinelRef = useRef<HTMLDivElement>(null);
 
@@ -99,15 +107,6 @@ export function AgentConversation({
     setDraft("");
   }, [conversationId]);
 
-  useEffect(
-    () => () => {
-      if (copyTimerRef.current !== undefined) {
-        clearTimeout(copyTimerRef.current);
-      }
-    },
-    []
-  );
-
   const closeConversationMutation = useMutation({
     mutationFn: () => api.closeConversation({ conversationId }),
     onSuccess: (updatedConversation) => {
@@ -135,27 +134,10 @@ export function AgentConversation({
   });
 
   async function copyConversationLink() {
-    if (
-      typeof window === "undefined" ||
-      typeof navigator === "undefined" ||
-      !navigator.clipboard
-    ) {
+    if (typeof window === "undefined") {
       return;
     }
-
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-    } catch {
-      return;
-    }
-    setLinkCopied(true);
-    if (copyTimerRef.current !== undefined) {
-      clearTimeout(copyTimerRef.current);
-    }
-    copyTimerRef.current = setTimeout(() => {
-      setLinkCopied(false);
-      copyTimerRef.current = undefined;
-    }, 1500);
+    await copyToClipboard(window.location.href);
   }
 
   function closeConversation() {
@@ -215,12 +197,14 @@ export function AgentConversation({
                   "inline-flex size-7 shrink-0 items-center justify-center rounded-md transition hover:bg-slate-100 dark:hover:bg-zinc-800 active:scale-[0.98]",
                   linkCopied
                     ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-slate-400 dark:text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-50",
+                    : linkCopyFailed
+                      ? "text-rose-600 dark:text-rose-400"
+                      : "text-slate-400 dark:text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-50"
                 )}
                 onClick={() => {
                   void copyConversationLink();
                 }}
-                title={linkCopied ? "Link copied" : "Copy link"}
+                title={linkCopied ? "Link copied" : linkCopyFailed ? "Copy failed" : "Copy link"}
                 type="button"
               >
                 <svg
@@ -243,15 +227,19 @@ export function AgentConversation({
                   )}
                 </svg>
               </button>
+              <span aria-live="polite" className="sr-only" role="status">
+                {copyAnnouncement}
+              </span>
               {!readOnly && isConversationActive ? (
-                <button
-                  className="rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-1 text-xs font-semibold text-slate-700 dark:text-zinc-300 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-100 dark:disabled:bg-zinc-800 disabled:text-slate-400 dark:disabled:text-zinc-500"
+                <Button
+                  className="font-semibold hover:border-slate-300 dark:hover:border-zinc-700"
                   disabled={closeConversationMutation.isPending}
                   onClick={() => setIsCloseConfirmOpen(true)}
-                  type="button"
+                  size="sm"
+                  variant="secondary"
                 >
                   {closeConversationMutation.isPending ? "Closing..." : "Close"}
-                </button>
+                </Button>
               ) : null}
               <ConversationStatusDot status={conversationStatus} />
             </div>

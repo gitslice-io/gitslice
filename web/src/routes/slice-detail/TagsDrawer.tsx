@@ -1,12 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import type { SliceRef, Tag } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import { AuthorLabel } from "../../components/AccountAvatar";
 import { SliceNotice } from "../../components/slices/SlicePageParts";
 import { Timestamp } from "../../components/Timestamp";
+import { Button } from "../../components/ui/Button";
+import { Drawer } from "../../components/ui/Drawer";
 import { sliceTagsQuery } from "../../queries/tags";
 
 export { sliceTagsQuery };
@@ -68,9 +70,7 @@ export function TagsDrawer({
   sliceLabel,
   sliceRef,
 }: TagsDrawerProps) {
-  const headingId = useId();
   const filterId = useId();
-  const drawerRef = useRef<HTMLElement>(null);
   const [query, setQuery] = useState("");
   const [selectedSlice, setSelectedSlice] = useState("");
 
@@ -86,33 +86,6 @@ export function TagsDrawer({
     setQuery("");
     setSelectedSlice("");
   }, [sliceId, sliceRef?.account, sliceRef?.slice]);
-
-  // Keep closed drawer inert (non-focusable and hidden from AT) instead of
-  // applying aria-hidden over focusable controls, and move focus in on open.
-  useEffect(() => {
-    const drawer = drawerRef.current;
-    if (!drawer) {
-      return;
-    }
-    drawer.inert = !open;
-    if (open && !drawer.contains(document.activeElement)) {
-      drawer.focus({ preventScroll: true });
-    }
-  }, [open]);
-
-  // Dismiss with Escape while open.
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        onClose();
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
 
   const sliceOptions = useMemo(() => {
     if (sliceRef?.slice !== "home") {
@@ -177,72 +150,26 @@ export function TagsDrawer({
   const hasFilters = Boolean(normalizedQuery || activeSliceFilter);
 
   return (
-    <>
-      {open ? (
-        <button
-          aria-label="Close tags"
-          className="fixed inset-0 z-40 bg-black/30"
-          onClick={onClose}
-          tabIndex={-1}
-          type="button"
-        />
-      ) : null}
-      <aside
-        aria-hidden={!open}
-        aria-labelledby={headingId}
-        aria-modal={open ? true : undefined}
-        className={[
-          "fixed inset-y-0 right-0 z-50 flex w-full max-w-md transform flex-col bg-white outline-none shadow-xl transition-[transform,visibility] duration-200 dark:bg-zinc-900",
-          open ? "visible translate-x-0" : "invisible pointer-events-none translate-x-full",
-        ].join(" ")}
-        ref={drawerRef}
-        role={open ? "dialog" : undefined}
-        tabIndex={open ? -1 : undefined}
-      >
-        <div className="border-b border-slate-200 px-4 py-3 dark:border-zinc-800">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h2
-                  className="text-base font-semibold tracking-tight text-zinc-950 dark:text-zinc-50"
-                  id={headingId}
-                >
-                  Tags
-                </h2>
-                {tags.length > 0 ? (
-                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
-                    {tags.length}
-                  </span>
-                ) : null}
-              </div>
-              <p className="truncate text-xs text-slate-500 dark:text-zinc-400">
-                {sliceLabel}
-              </p>
-            </div>
-            <button
-              aria-label="Close tags"
-              className="inline-flex min-h-9 min-w-9 shrink-0 items-center justify-center rounded-md text-slate-500 transition hover:bg-slate-100 hover:text-zinc-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600 active:scale-[0.98] dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-50 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
-              onClick={onClose}
-              type="button"
-            >
-              <svg
-                aria-hidden="true"
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth="2"
-                viewBox="0 0 24 24"
-              >
-                <path d="M18 6 6 18" />
-                <path d="m6 6 12 12" />
-              </svg>
-            </button>
-          </div>
-        </div>
-
-        {showFilterInput || showSliceFilters ? (
+    <Drawer
+      badge={
+        tags.length > 0 ? (
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
+            {tags.length}
+          </span>
+        ) : null
+      }
+      closeLabel="Close tags"
+      onClose={onClose}
+      open={open}
+      size="md"
+      subtitle={
+        <p className="truncate text-xs text-slate-500 dark:text-zinc-400">
+          {sliceLabel}
+        </p>
+      }
+      title="Tags"
+    >
+      {showFilterInput || showSliceFilters ? (
           <div className="space-y-2 border-b border-slate-200 bg-slate-50/70 px-4 py-2.5 dark:border-zinc-800 dark:bg-zinc-950/40">
             {showFilterInput ? (
               <div className="relative">
@@ -371,16 +298,17 @@ export function TagsDrawer({
                 No matching tags.
               </p>
               {hasFilters ? (
-                <button
-                  className="mt-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                <Button
+                  className="mt-2 px-3 py-1.5"
                   onClick={() => {
                     setQuery("");
                     setSelectedSlice("");
                   }}
-                  type="button"
+                  size="sm"
+                  variant="secondary"
                 >
                   Clear filters
-                </button>
+                </Button>
               ) : null}
             </div>
           ) : (
@@ -396,8 +324,7 @@ export function TagsDrawer({
             </ul>
           )}
         </div>
-      </aside>
-    </>
+    </Drawer>
   );
 }
 

@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useMemo, useRef, type MouseEvent } from "react";
 import { Link, useLoaderData, useParams } from "@tanstack/react-router";
+
+import { CopyButton } from "../components/ui/CopyButton";
 
 import { isDarkTheme, renderMermaid, svgDataUrl } from "../lib/diagram";
 import { BlogTags, formatPostDate } from "./blog/BlogParts";
@@ -110,23 +112,15 @@ function CopyMarkdownButton({
   markdown: string;
   title: string;
 }) {
-  const [copied, setCopied] = useState(false);
   return (
-    <button
+    <CopyButton
       className="font-medium text-slate-600 underline-offset-4 transition hover:text-zinc-950 hover:underline dark:text-zinc-400 dark:hover:text-zinc-50"
-      onClick={() => {
-        copyText(`# ${title}\n\n${markdown}`).then(
-          () => {
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1500);
-          },
-          () => undefined,
-        );
-      }}
-      type="button"
-    >
-      {copied ? "Copied" : "Copy as Markdown"}
-    </button>
+      copiedLabel="Copied"
+      label="Copy as Markdown"
+      resetMs={1500}
+      value={() => `# ${title}\n\n${markdown}`}
+      variant="unstyled"
+    />
   );
 }
 

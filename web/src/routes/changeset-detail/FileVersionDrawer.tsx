@@ -9,7 +9,9 @@ import { ImageViewer, imageMimeTypeFromPath } from "../../components/source/Imag
 import { SourceCodeViewer } from "../../components/source/SourceCodeViewer";
 import { binaryKindFromPath, decodeBase64File } from "../../components/source/sourceUtils";
 import { SliceNotice } from "../../components/slices/SlicePageParts";
+import { Drawer } from "../../components/ui/Drawer";
 import { cn } from "../../lib/cn";
+import { getErrorMessage } from "../../lib/errors";
 import { changesetFileVersionKey } from "../../queries/repository";
 
 export type FileVersionSide = "original" | "changed";
@@ -86,101 +88,81 @@ export function FileVersionDrawer({
   const data = fileQuery.data?.data ?? "";
 
   return (
-    <>
-      {open ? (
-        <button
-          aria-label="Close file"
-          className="fixed inset-0 z-40 bg-black/30"
-          onClick={onClose}
-          type="button"
-        />
-      ) : null}
-      <aside
-        aria-hidden={!open}
-        aria-label="File"
-        className={cn(
-          "fixed inset-y-0 right-0 z-50 flex w-full max-w-5xl transform flex-col bg-white shadow-xl transition-transform duration-200 dark:bg-zinc-900",
-          open ? "translate-x-0" : "translate-x-full"
-        )}
-      >
-        <div className="border-b border-slate-200 px-4 py-3 dark:border-zinc-800">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <h2 className="break-all font-mono text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-                {path}
-              </h2>
-              {target && slice?.account && slice.slice && sides.changed ? (
-                <Link
-                  className="mt-1 inline-block text-xs text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
-                  params={{ account: slice.account, slice: slice.slice } as never}
-                  search={{ path: repositoryPath(target.path) } as never}
-                  to="/slices/$account/$slice"
-                >
-                  Open the latest version in {slice.account}/{slice.slice}
-                </Link>
-              ) : null}
-            </div>
+    <Drawer
+      ariaLabel="File"
+      closeText="Close"
+      closeVariant="button"
+      headerExtra={
+        <div className="mt-3 inline-flex rounded-md border border-slate-300 p-0.5 text-xs font-semibold dark:border-zinc-700" role="group">
+          {(["original", "changed"] as const).map((value) => (
             <button
-              className="shrink-0 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-50 active:scale-[0.98] dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-950"
-              onClick={onClose}
+              aria-pressed={shownSide === value}
+              className={cn(
+                "rounded px-2.5 py-1 transition disabled:cursor-not-allowed disabled:opacity-40",
+                shownSide === value
+                  ? "bg-zinc-950 text-white dark:bg-zinc-100 dark:text-zinc-950"
+                  : "text-slate-700 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+              )}
+              disabled={!sides[value]}
+              key={value}
+              onClick={() => onSideChange(value)}
+              title={
+                sides[value]
+                  ? undefined
+                  : value === "original"
+                    ? "The file is new in this change."
+                    : "This change deletes the file."
+              }
               type="button"
             >
-              Close
+              {value === "original" ? originalLabel : changedLabel}
             </button>
-          </div>
-          <div className="mt-3 inline-flex rounded-md border border-slate-300 p-0.5 text-xs font-semibold dark:border-zinc-700" role="group">
-            {(["original", "changed"] as const).map((value) => (
-              <button
-                aria-pressed={shownSide === value}
-                className={cn(
-                  "rounded px-2.5 py-1 transition disabled:cursor-not-allowed disabled:opacity-40",
-                  shownSide === value
-                    ? "bg-zinc-950 text-white dark:bg-zinc-100 dark:text-zinc-950"
-                    : "text-slate-700 hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                )}
-                disabled={!sides[value]}
-                key={value}
-                onClick={() => onSideChange(value)}
-                title={
-                  sides[value]
-                    ? undefined
-                    : value === "original"
-                      ? "The file is new in this change."
-                      : "This change deletes the file."
-                }
-                type="button"
-              >
-                {value === "original" ? originalLabel : changedLabel}
-              </button>
-            ))}
-          </div>
+          ))}
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
-          {!open ? null : !treeId ? (
-            <SliceNotice title="This version is not available.">
-              The patchset does not record its {shownSide === "original" ? "base" : "result"} tree.
-            </SliceNotice>
-          ) : fileQuery.isPending ? (
-            <div className="h-64 animate-pulse rounded-md bg-slate-100 dark:bg-zinc-800" />
-          ) : fileQuery.isError && /not found/i.test(String(fileQuery.error)) ? (
-            <SliceNotice title={`No ${path} in this version.`}>
-              {shownSide === "original"
-                ? "The file is new in this change; see the changed version."
-                : "This change removes or moves the file; see the original version."}
-            </SliceNotice>
-          ) : fileQuery.isError ? (
-            <SliceNotice title="Could not load the file" tone="error">
-              {fileQuery.error instanceof Error ? fileQuery.error.message : String(fileQuery.error)}
-            </SliceNotice>
-          ) : isImage ? (
-            <ImageViewer data={data} path={path} />
-          ) : binaryKind ? (
-            <BinaryViewer data={data} kind={binaryKind} path={path} />
-          ) : (
-            <SourceCodeViewer code={decodeBase64File(data)} path={path} />
-          )}
-        </div>
-      </aside>
-    </>
+      }
+      onClose={onClose}
+      open={open}
+      size="5xl"
+      subtitle={
+        target && slice?.account && slice.slice && sides.changed ? (
+          <Link
+            className="mt-1 inline-block text-xs text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
+            params={{ account: slice.account, slice: slice.slice } as never}
+            search={{ path: repositoryPath(target.path) } as never}
+            to="/slices/$account/$slice"
+          >
+            Open the latest version in {slice.account}/{slice.slice}
+          </Link>
+        ) : null
+      }
+      title={path}
+      titleClassName="break-all font-mono text-sm"
+    >
+      <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-4">
+        {!open ? null : !treeId ? (
+          <SliceNotice title="This version is not available.">
+            The patchset does not record its {shownSide === "original" ? "base" : "result"} tree.
+          </SliceNotice>
+        ) : fileQuery.isPending ? (
+          <div className="h-64 animate-pulse rounded-md bg-slate-100 dark:bg-zinc-800" />
+        ) : fileQuery.isError && /not found/i.test(String(fileQuery.error)) ? (
+          <SliceNotice title={`No ${path} in this version.`}>
+            {shownSide === "original"
+              ? "The file is new in this change; see the changed version."
+              : "This change removes or moves the file; see the original version."}
+          </SliceNotice>
+        ) : fileQuery.isError ? (
+          <SliceNotice title="Could not load the file" tone="error">
+            {getErrorMessage(fileQuery.error)}
+          </SliceNotice>
+        ) : isImage ? (
+          <ImageViewer data={data} path={path} />
+        ) : binaryKind ? (
+          <BinaryViewer data={data} kind={binaryKind} path={path} />
+        ) : (
+          <SourceCodeViewer code={decodeBase64File(data)} path={path} />
+        )}
+      </div>
+    </Drawer>
   );
 }
