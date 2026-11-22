@@ -9,8 +9,8 @@ import { DocPage } from "./DocPage";
 const params = vi.hoisted(() => ({ current: {} as { section?: string } }));
 
 vi.mock("@tanstack/react-router", () => ({
-  Link: ({ children, to }: { children: ReactNode; to?: string }) => (
-    <a href={to ?? "#"}>{children}</a>
+  Link: ({ children, to, ...rest }: { children: ReactNode; to?: string } & Record<string, unknown>) => (
+    <a {...rest} href={to ?? "#"}>{children}</a>
   ),
   useParams: () => params.current
 }));
@@ -142,5 +142,33 @@ describe("DocPage", () => {
     expect(await screen.findByText("gs checkpoint [-m <message>]")).toBeInTheDocument();
     expect(screen.getByText("gs rewind [checkpoint]")).toBeInTheDocument();
     expect(screen.getByText("gs fork <checkpoint> <dir>")).toBeInTheDocument();
+  });
+
+  it("scrolls the active section pill into view when the mobile nav overflows horizontally", async () => {
+    let rafCallback: FrameRequestCallback | null = null;
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      rafCallback = cb;
+      return 1;
+    });
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+
+    params.current = { section: "cli" };
+    render(<DocPage />);
+    const nav = screen.getByRole("navigation", { name: "Documentation sections" });
+    const cliLink = nav.querySelector<HTMLElement>('[data-doc-active="true"]');
+    expect(cliLink).not.toBeNull();
+
+    Object.defineProperty(nav, "scrollWidth", { configurable: true, value: 1200 });
+    Object.defineProperty(nav, "clientWidth", { configurable: true, value: 360 });
+    nav.scrollLeft = 0;
+    nav.getBoundingClientRect = () =>
+      ({ left: 0, width: 360, top: 0, right: 360, bottom: 40, height: 40, x: 0, y: 0, toJSON: () => ({}) }) as DOMRect;
+    cliLink!.getBoundingClientRect = () =>
+      ({ left: 1000, width: 120, top: 0, right: 1120, bottom: 40, height: 40, x: 1000, y: 0, toJSON: () => ({}) }) as DOMRect;
+
+    expect(rafCallback).not.toBeNull();
+    rafCallback!(0);
+    // Centers the 120px pill inside the 360px strip: 1000 - (360 - 120) / 2 = 880.
+    expect(nav.scrollLeft).toBe(880);
   });
 });

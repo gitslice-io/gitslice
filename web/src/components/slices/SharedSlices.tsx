@@ -21,28 +21,36 @@ export function SharedSlices() {
       <p className="text-sm leading-6 text-slate-600 dark:text-zinc-400">
         Slices in other accounts that their owners shared with you.
       </p>
-      <ul className="mt-4 divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900">
+      <ul className="mt-4 divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-black/50">
         {shared.map(({ slice, role }) => {
           const ref = slice!.ref!;
           const params = toSliceRouteParams(ref);
+          const pathPreview = formatPathPreview(slice?.definition?.includedPaths ?? []);
           return (
-            <li className="flex flex-wrap items-center gap-3 px-4 py-3" key={`${ref.account}/${ref.slice}`}>
-              {params ? (
-                <Link
-                  className="min-w-0 flex-1 truncate font-mono text-sm font-medium text-sky-700 underline-offset-2 hover:underline dark:text-sky-300"
-                  params={params as never}
-                  to="/slices/$account/$slice"
-                >
-                  {ref.account}/{ref.slice}
-                </Link>
-              ) : null}
-              <span className="font-mono text-xs text-slate-500 dark:text-zinc-400">
-                {formatPathPreview(slice?.definition?.includedPaths ?? [])}
-              </span>
-              <VisibilityBadge visibility={slice?.definition?.visibility} />
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">
-                {role}
-              </span>
+            <li
+              className="flex items-start justify-between gap-3 px-4 py-3 transition hover:bg-slate-50 dark:hover:bg-zinc-950 sm:items-center"
+              key={`${ref.account}/${ref.slice}`}
+            >
+              <div className="min-w-0 flex-1 sm:flex sm:items-baseline sm:gap-3">
+                {params ? (
+                  <Link
+                    className="block truncate text-sm font-medium text-zinc-950 underline-offset-2 transition hover:text-sky-700 hover:underline dark:text-zinc-50 dark:hover:text-sky-300"
+                    params={params as never}
+                    to="/slices/$account/$slice"
+                  >
+                    {ref.account}/{ref.slice}
+                  </Link>
+                ) : null}
+                <span className="mt-0.5 block truncate font-mono text-xs text-slate-500 dark:text-zinc-400 sm:mt-0">
+                  {pathPreview}
+                </span>
+              </div>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <VisibilityBadge visibility={slice?.definition?.visibility} />
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-700 dark:bg-zinc-800 dark:text-zinc-300">
+                  {role}
+                </span>
+              </div>
             </li>
           );
         })}

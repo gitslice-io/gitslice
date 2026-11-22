@@ -45,6 +45,16 @@ export function PendingClaims({ showEmpty = false }: { showEmpty?: boolean }) {
   const claims = claimsQuery.data?.claims ?? [];
   const accepted = acceptMutation.isSuccess ? acceptMutation.data.account : "";
   if (!enabled || (claims.length === 0 && !accepted)) {
+    if (showEmpty && isLoaded && isSignedIn && authKind === "agent") {
+      return (
+        <div className="rounded-md border border-dashed border-slate-300 p-4 text-sm leading-6 text-slate-600 dark:border-zinc-700 dark:text-zinc-400">
+          <p>
+            You are signed in as an agent. Agent sessions cannot claim other agents — sign in with
+            your human account to view or accept pending claims.
+          </p>
+        </div>
+      );
+    }
     if (showEmpty && enabled && claimsQuery.isSuccess) {
       return (
         <div className="rounded-md border border-dashed border-slate-300 p-4 text-sm leading-6 text-slate-600 dark:border-zinc-700 dark:text-zinc-400">

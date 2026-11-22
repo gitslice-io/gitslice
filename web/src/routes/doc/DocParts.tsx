@@ -84,6 +84,7 @@ export function SectionLink({
   return (
     <Link
       aria-current={active ? "page" : undefined}
+      data-doc-active={active ? "true" : undefined}
       className={[
         "block shrink-0 whitespace-nowrap rounded-md border px-3 py-1.5 text-left transition active:scale-[0.98] lg:whitespace-normal lg:px-4 lg:py-3",
         active

@@ -67,18 +67,34 @@ export function AgentAccountMenu() {
   }
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative shrink-0" ref={containerRef}>
       <button
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label={`Agent session: ${displayAccount}`}
-        className="inline-flex h-8 items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 px-2.5 text-xs font-semibold text-emerald-900 transition hover:border-emerald-400 hover:bg-emerald-100 dark:border-emerald-800/70 dark:bg-emerald-950/50 dark:text-emerald-200 dark:hover:bg-emerald-950/80"
+        className="relative inline-flex size-8 shrink-0 items-center justify-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-50 p-0 text-xs font-semibold text-emerald-900 transition hover:border-emerald-400 hover:bg-emerald-100 dark:border-emerald-800/70 dark:bg-emerald-950/50 dark:text-emerald-200 dark:hover:bg-emerald-950/80 sm:w-auto sm:px-2.5"
         onClick={() => setOpen((current) => !current)}
         title={`Signed in as agent ${displayAccount}`}
         type="button"
       >
-        <span aria-hidden className="size-1.5 rounded-full bg-emerald-500" />
-        <span className="max-w-[8rem] truncate">{displayAccount}</span>
+        <svg
+          aria-hidden="true"
+          className="size-3.5 shrink-0 sm:hidden"
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeWidth={2}
+          viewBox="0 0 24 24"
+        >
+          <polyline points="4 17 10 11 4 5" />
+          <line x1="12" x2="20" y1="19" y2="19" />
+        </svg>
+        <span
+          aria-hidden
+          className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-emerald-500 ring-2 ring-white dark:ring-zinc-950 sm:static sm:size-1.5 sm:shrink-0 sm:ring-0"
+        />
+        <span className="sr-only sm:not-sr-only sm:max-w-[8rem] sm:truncate">{displayAccount}</span>
         <span className="hidden rounded bg-emerald-200/70 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-900 dark:bg-emerald-900/70 dark:text-emerald-200 sm:inline">
           agent
         </span>
@@ -86,7 +102,7 @@ export function AgentAccountMenu() {
 
       {open ? (
         <div
-          className="absolute right-0 z-50 mt-2 w-64 rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-lg shadow-slate-200/60 dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-black/50"
+          className="absolute right-0 z-50 mt-2 w-64 max-w-[calc(100vw-1rem)] rounded-lg border border-slate-200 bg-white p-3 text-sm shadow-lg shadow-slate-200/60 dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-black/50"
           role="menu"
         >
           <div className="border-b border-slate-100 pb-2.5 dark:border-zinc-800">

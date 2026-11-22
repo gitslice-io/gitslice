@@ -81,6 +81,7 @@ export function SliceMembersPanel({ slice }: { slice: SliceRef }) {
         <form className="mt-4 flex flex-wrap items-center gap-2" onSubmit={submit}>
           <Input
             aria-label="Username"
+            className="w-full sm:w-auto sm:flex-1"
             onChange={(event) => setUsername(event.target.value)}
             placeholder="username or @account/group"
             value={username}
@@ -92,7 +93,7 @@ export function SliceMembersPanel({ slice }: { slice: SliceRef }) {
               </option>
             ))}
           </Select>
-          <Button disabled={busy || !username.trim()} type="submit">
+          <Button disabled={busy || !username.trim()} type="submit" variant="primary">
             Share
           </Button>
         </form>

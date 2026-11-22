@@ -5,6 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { AppAuthContext, type AppAuthState } from "../../auth/AppAuthProvider";
 import { PendingClaims } from "./PendingClaims";
 
 const apiMock = vi.hoisted(() => ({
@@ -113,5 +114,41 @@ describe("PendingClaims", () => {
     apiMock.current = { listPendingClaims: vi.fn().mockResolvedValue({ claims: [], verifiedEmails: [] }) };
     renderClaimsWithEmpty();
     expect(await screen.findByTestId("searched-emails")).toHaveTextContent("has no verified email");
+  });
+
+  it("explains that agent sessions cannot claim other agents when showEmpty is set", () => {
+    const listPendingClaims = vi.fn();
+    apiMock.current = { listPendingClaims };
+    const agentAuth: AppAuthState = {
+      agentAccount: "release-bot",
+      agentExpiresAt: null,
+      agentKeyId: "key_1",
+      authKind: "agent",
+      getToken: async () => "tok",
+      isLoaded: true,
+      isSignedIn: true,
+      signInWithAgentKey: vi.fn(),
+      signOut: vi.fn(),
+      userId: "agent_1"
+    };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { rerender, container } = render(
+      <AppAuthContext.Provider value={agentAuth}>
+        <QueryClientProvider client={queryClient}>
+          <PendingClaims showEmpty />
+        </QueryClientProvider>
+      </AppAuthContext.Provider>
+    );
+    expect(screen.getByText(/Agent sessions cannot claim other agents/)).toBeInTheDocument();
+    expect(listPendingClaims).not.toHaveBeenCalled();
+
+    rerender(
+      <AppAuthContext.Provider value={agentAuth}>
+        <QueryClientProvider client={queryClient}>
+          <PendingClaims />
+        </QueryClientProvider>
+      </AppAuthContext.Provider>
+    );
+    expect(container).toBeEmptyDOMElement();
   });
 });

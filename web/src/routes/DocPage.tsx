@@ -30,8 +30,21 @@ export function DocPage() {
 
   // Keep the active section pill visible in the mobile horizontal nav strip.
   useEffect(() => {
-    const active = navRef.current?.querySelector<HTMLElement>('[aria-current="page"]');
-    active?.scrollIntoView?.({ block: "nearest", inline: "center" });
+    const frame = window.requestAnimationFrame(() => {
+      const nav = navRef.current;
+      if (!nav || nav.scrollWidth <= nav.clientWidth) {
+        return;
+      }
+      const active = nav.querySelector<HTMLElement>('[data-doc-active="true"]');
+      if (!active) {
+        return;
+      }
+      const navRect = nav.getBoundingClientRect();
+      const activeRect = active.getBoundingClientRect();
+      const delta = activeRect.left - navRect.left - (navRect.width - activeRect.width) / 2;
+      nav.scrollLeft = Math.max(0, nav.scrollLeft + delta);
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [section]);
 
   return (
