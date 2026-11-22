@@ -4,6 +4,7 @@
 package latency
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"time"
@@ -68,6 +69,24 @@ func (s *Store) Copy(ctx context.Context, dstKey, srcKey string) error {
 	}
 	defer rc.Close()
 	return s.base.Put(ctx, dstKey, rc)
+}
+
+// PutPack waits once for the configured delay, then forwards the pack write.
+func (s *Store) PutPack(ctx context.Context, packKey string, objects map[string][]byte) error {
+	if err := s.wait(ctx); err != nil {
+		return err
+	}
+	if pw, ok := s.base.(interface {
+		PutPack(context.Context, string, map[string][]byte) error
+	}); ok {
+		return pw.PutPack(ctx, packKey, objects)
+	}
+	for key, data := range objects {
+		if err := s.Put(ctx, key, bytes.NewReader(data)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) wait(ctx context.Context) error {

@@ -12,23 +12,26 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"gitslice.io/gitslice/internal/grpccomp"
 	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/internal/objectid"
 	"gitslice.io/gitslice/internal/paths"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/encoding/gzip"
+	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 )
 
 const (
-	defaultLocalImportBatchSize = 50
-	maxLocalImportBatchSize     = 200
-	localImportMaxBatchEdits    = 4000
+	defaultLocalImportBatchSize = 250
+	maxLocalImportBatchSize     = 1000
+	localImportMaxBatchEdits    = 20000
 	localImportBlobChunkBytes   = 32 << 20
-	localImportBlobChunkCount   = 1024
+	localImportBlobChunkCount   = 4096
 	localImportMaxBlobBytes     = 100 << 20
 )
 
@@ -67,6 +70,19 @@ type pendingLocalCommit struct {
 	deleted        []string
 	upsertGitPaths []string
 	snapshot       map[string]localImportFile
+}
+
+type preparedLocalBatch struct {
+	commits   []*corev1.ImportGitCommitInput
+	firstPos  int
+	lastPos   int
+	lastGitID string
+}
+
+type localGitCommitPair struct {
+	position int
+	prevID   string
+	commitID string
 }
 
 func (r Runner) runLocalGitImport(
@@ -188,86 +204,13 @@ func (r Runner) runLocalGitImport(
 		FinalCommitId: beginRes.GetFinalCommitId(),
 	}
 
-	known := make(map[string]localImportBlobMeta)
-	var pending []pendingLocalCommit
-	var pendingBlobIDs []string
-	pendingBlobSeen := map[string]struct{}{}
-	pendingEditsCount := 0
+	// Partition commits into already-completed (skipped), optional initial
+	// commit (when nothing has been imported yet), and delta pairs.
+	var initialPos int
+	var initialGitID string
+	var deltaPairs []localGitCommitPair
 	var previousGitCommitID string
-	startedAt := time.Now()
-	importedThisRun := 0
 	skippedCount := 0
-
-	flushBatch := func() error {
-		if len(pending) == 0 {
-			return nil
-		}
-		if len(pendingBlobIDs) > 0 {
-			if err := uploadLocalImportBlobs(callCtx, repoDir, pendingBlobIDs, known, tm, retries, logf); err != nil {
-				return err
-			}
-		}
-
-		commitInputs := make([]*corev1.ImportGitCommitInput, 0, len(pending))
-		for _, item := range pending {
-			var edits []*corev1.FileEdit
-			var err error
-			if item.isInitial {
-				edits, err = diffInitialLocalSnapshot(previousMounted, item.snapshot, known)
-			} else {
-				edits, err = buildDeltaLocalEdits(mountPath, item.deleted, item.upsertGitPaths, item.snapshot, known)
-			}
-			if err != nil {
-				return err
-			}
-			commitInputs = append(commitInputs, &corev1.ImportGitCommitInput{
-				GitCommitId: item.gitCommitID,
-				Position:    int32(item.position),
-				Message:     item.meta.Subject,
-				Description: item.meta.Body,
-				FullMessage: item.meta.FullMessage,
-				AuthorName:  item.meta.AuthorName,
-				AuthorEmail: item.meta.AuthorEmail,
-				AuthoredAt:  item.meta.AuthoredAt,
-				Edits:       edits,
-			})
-		}
-
-		var batchRes *corev1.ImportGitCommitBatchResponse
-		req := &corev1.ImportGitCommitBatchRequest{
-			ImportId:       beginRes.GetImportId(),
-			AuthoringSlice: ref,
-			MountPath:      mountPath,
-			TargetRef:      model.DefaultTargetRef,
-			Commits:        commitInputs,
-		}
-		if err := retryLocalImportCall(ctx, retries, logf, fmt.Sprintf("publish commits %d-%d", pending[0].position, pending[len(pending)-1].position), func() error {
-			batchCtx, cancel := context.WithTimeout(callCtx, 5*time.Minute)
-			defer cancel()
-			var callErr error
-			batchRes, callErr = repoClient.ImportGitCommitBatch(batchCtx, req, grpc.UseCompressor(gzip.Name))
-			return callErr
-		}); err != nil {
-			return err
-		}
-		for _, c := range batchRes.GetCommits() {
-			response.Commits = append(response.Commits, c)
-			response.FinalCommitId = c.GetNativeCommitId()
-		}
-		importedThisRun += len(pending)
-		last := pending[len(pending)-1]
-		elapsed := time.Since(startedAt).Seconds()
-		rate := float64(importedThisRun) / max(elapsed, 0.001)
-		logf("published %d/%d %s -> %s (%d commit(s), %.1f commits/s)",
-			last.position, len(gitCommits), shortID(last.gitCommitID), shortID(response.FinalCommitId), len(pending), rate)
-
-		pending = pending[:0]
-		pendingBlobIDs = pendingBlobIDs[:0]
-		clear(pendingBlobSeen)
-		pendingEditsCount = 0
-		return nil
-	}
-
 	for i, gitCommitID := range gitCommits {
 		if existing, ok := completed[gitCommitID]; ok {
 			response.Commits = append(response.Commits, existing)
@@ -276,69 +219,200 @@ func (r Runner) runLocalGitImport(
 			skippedCount++
 			continue
 		}
-		if skippedCount > 0 {
-			logf("resumed: skipped %d already-imported commit(s)", skippedCount)
-			skippedCount = 0
-		}
-
-		meta, err := localGitCommitMetadata(ctx, repoDir, gitCommitID)
-		if err != nil {
-			return fmt.Errorf("read git commit %s metadata: %w", shortID(gitCommitID), err)
-		}
-
-		var item pendingLocalCommit
-		item.gitCommitID = gitCommitID
-		item.position = i + 1
-		item.meta = meta
-
-		var commitBlobIDs []string
-		var commitEditEstimate int
 		if previousGitCommitID == "" {
-			item.isInitial = true
-			item.snapshot, commitBlobIDs, err = localGitSnapshotMetadata(ctx, repoDir, gitCommitID, mountPath)
-			if err != nil {
-				return fmt.Errorf("read git commit %s tree: %w", shortID(gitCommitID), err)
-			}
-			commitEditEstimate = len(item.snapshot) + len(previousMounted)
+			initialPos = i + 1
+			initialGitID = gitCommitID
 		} else {
-			item.deleted, item.upsertGitPaths, item.snapshot, commitBlobIDs, err = localGitDeltaMetadata(ctx, repoDir, previousGitCommitID, gitCommitID, mountPath)
-			if err != nil {
-				return fmt.Errorf("read git commit %s diff: %w", shortID(gitCommitID), err)
-			}
-			commitEditEstimate = len(item.deleted) + len(item.snapshot)
-		}
-
-		if len(pending) > 0 && (len(pending) >= batchSize || pendingEditsCount+commitEditEstimate > localImportMaxBatchEdits || len(pendingBlobIDs) >= localImportBlobChunkCount) {
-			if err := flushBatch(); err != nil {
-				return err
-			}
-		}
-
-		pending = append(pending, item)
-		pendingEditsCount += commitEditEstimate
-		for _, id := range commitBlobIDs {
-			if _, ok := known[id]; ok {
-				continue
-			}
-			if _, seen := pendingBlobSeen[id]; seen {
-				continue
-			}
-			pendingBlobSeen[id] = struct{}{}
-			pendingBlobIDs = append(pendingBlobIDs, id)
+			deltaPairs = append(deltaPairs, localGitCommitPair{
+				position: i + 1,
+				prevID:   previousGitCommitID,
+				commitID: gitCommitID,
+			})
 		}
 		previousGitCommitID = gitCommitID
-
-		if commitEditEstimate > localImportMaxBatchEdits {
-			if err := flushBatch(); err != nil {
-				return err
-			}
-		}
 	}
 	if skippedCount > 0 {
-		logf("all %d commit(s) were already imported", skippedCount)
+		if initialGitID == "" && len(deltaPairs) == 0 {
+			logf("all %d commit(s) were already imported", skippedCount)
+		} else {
+			logf("resumed: skipped %d already-imported commit(s)", skippedCount)
+		}
 	}
-	if err := flushBatch(); err != nil {
-		return err
+
+	startedAt := time.Now()
+	importedThisRun := 0
+
+	if initialGitID != "" || len(deltaPairs) > 0 {
+		pipeCtx, cancelPipe := context.WithCancel(callCtx)
+		defer cancelPipe()
+		readyCh := make(chan preparedLocalBatch, 2)
+		prodErrCh := make(chan error, 1)
+
+		go func() {
+			defer close(readyCh)
+			known := make(map[string]localImportBlobMeta)
+			var pending []pendingLocalCommit
+			var pendingBlobIDs []string
+			pendingBlobSeen := map[string]struct{}{}
+			pendingEditsCount := 0
+
+			emitBatch := func() error {
+				if len(pending) == 0 {
+					return nil
+				}
+				if len(pendingBlobIDs) > 0 {
+					if err := uploadLocalImportBlobs(pipeCtx, repoDir, pendingBlobIDs, known, tm, retries, logf); err != nil {
+						return err
+					}
+				}
+				commitInputs := make([]*corev1.ImportGitCommitInput, 0, len(pending))
+				for _, item := range pending {
+					var edits []*corev1.FileEdit
+					var err error
+					if item.isInitial {
+						edits, err = diffInitialLocalSnapshot(previousMounted, item.snapshot, known)
+					} else {
+						edits, err = buildDeltaLocalEdits(mountPath, item.deleted, item.upsertGitPaths, item.snapshot, known)
+					}
+					if err != nil {
+						return err
+					}
+					commitInputs = append(commitInputs, &corev1.ImportGitCommitInput{
+						GitCommitId: item.gitCommitID,
+						Position:    int32(item.position),
+						Message:     item.meta.Subject,
+						Description: item.meta.Body,
+						FullMessage: item.meta.FullMessage,
+						AuthorName:  item.meta.AuthorName,
+						AuthorEmail: item.meta.AuthorEmail,
+						AuthoredAt:  item.meta.AuthoredAt,
+						Edits:       edits,
+					})
+				}
+				batch := preparedLocalBatch{
+					commits:   commitInputs,
+					firstPos:  pending[0].position,
+					lastPos:   pending[len(pending)-1].position,
+					lastGitID: pending[len(pending)-1].gitCommitID,
+				}
+				pending = pending[:0]
+				pendingBlobIDs = pendingBlobIDs[:0]
+				clear(pendingBlobSeen)
+				pendingEditsCount = 0
+
+				select {
+				case readyCh <- batch:
+					return nil
+				case <-pipeCtx.Done():
+					return pipeCtx.Err()
+				}
+			}
+
+			addCommit := func(item pendingLocalCommit, commitBlobIDs []string, commitEditEstimate int) error {
+				if len(pending) > 0 && (len(pending) >= batchSize || pendingEditsCount+commitEditEstimate > localImportMaxBatchEdits || len(pendingBlobIDs) >= localImportBlobChunkCount) {
+					if err := emitBatch(); err != nil {
+						return err
+					}
+				}
+				pending = append(pending, item)
+				pendingEditsCount += commitEditEstimate
+				for _, id := range commitBlobIDs {
+					if _, ok := known[id]; ok {
+						continue
+					}
+					if _, seen := pendingBlobSeen[id]; seen {
+						continue
+					}
+					pendingBlobSeen[id] = struct{}{}
+					pendingBlobIDs = append(pendingBlobIDs, id)
+				}
+				if commitEditEstimate > localImportMaxBatchEdits {
+					return emitBatch()
+				}
+				return nil
+			}
+
+			if initialGitID != "" {
+				meta, err := localGitCommitMetadata(pipeCtx, repoDir, initialGitID)
+				if err != nil {
+					prodErrCh <- fmt.Errorf("read git commit %s metadata: %w", shortID(initialGitID), err)
+					return
+				}
+				snapshot, commitBlobIDs, err := localGitSnapshotMetadata(pipeCtx, repoDir, initialGitID, mountPath)
+				if err != nil {
+					prodErrCh <- fmt.Errorf("read git commit %s tree: %w", shortID(initialGitID), err)
+					return
+				}
+				item := pendingLocalCommit{
+					gitCommitID: initialGitID,
+					position:    initialPos,
+					meta:        meta,
+					isInitial:   true,
+					snapshot:    snapshot,
+				}
+				if err := addCommit(item, commitBlobIDs, len(snapshot)+len(previousMounted)); err != nil {
+					prodErrCh <- err
+					return
+				}
+			}
+
+			if len(deltaPairs) > 0 {
+				if err := streamLocalGitDeltas(pipeCtx, repoDir, deltaPairs, mountPath, func(item pendingLocalCommit, commitBlobIDs []string) error {
+					return addCommit(item, commitBlobIDs, len(item.deleted)+len(item.snapshot))
+				}); err != nil {
+					prodErrCh <- err
+					return
+				}
+			}
+
+			if err := emitBatch(); err != nil {
+				prodErrCh <- err
+				return
+			}
+			prodErrCh <- nil
+		}()
+
+		var consumeErr error
+		for batch := range readyCh {
+			var batchRes *corev1.ImportGitCommitBatchResponse
+			req := &corev1.ImportGitCommitBatchRequest{
+				ImportId:       beginRes.GetImportId(),
+				AuthoringSlice: ref,
+				MountPath:      mountPath,
+				TargetRef:      model.DefaultTargetRef,
+				Commits:        batch.commits,
+			}
+			if err := retryLocalImportCall(ctx, retries, logf, fmt.Sprintf("publish commits %d-%d", batch.firstPos, batch.lastPos), func() error {
+				batchCtx, cancel := context.WithTimeout(callCtx, 5*time.Minute)
+				defer cancel()
+				var callErr error
+				batchRes, callErr = repoClient.ImportGitCommitBatch(batchCtx, req, grpc.UseCompressor(grpccomp.ZstdName))
+				return callErr
+			}); err != nil {
+				consumeErr = err
+				cancelPipe()
+				break
+			}
+			for _, c := range batchRes.GetCommits() {
+				response.Commits = append(response.Commits, c)
+				response.FinalCommitId = c.GetNativeCommitId()
+			}
+			importedThisRun += len(batch.commits)
+			elapsed := time.Since(startedAt).Seconds()
+			rate := float64(importedThisRun) / max(elapsed, 0.001)
+			logf("published %d/%d %s -> %s (%d commit(s), %.1f commits/s)",
+				batch.lastPos, len(gitCommits), shortID(batch.lastGitID), shortID(response.FinalCommitId), len(batch.commits), rate)
+		}
+		// Drain readyCh so producer goroutine can exit cleanly on cancellation.
+		for range readyCh {
+		}
+		prodErr := <-prodErrCh
+		if consumeErr != nil {
+			return consumeErr
+		}
+		if prodErr != nil {
+			return prodErr
+		}
 	}
 
 	logf("finalizing import and draining indexes...")
@@ -425,6 +499,12 @@ func prepareLocalImportRepo(ctx context.Context, source, mode string, maxCommits
 	return repoDir, source, cleanup, nil
 }
 
+const (
+	localImportUploadChunkBytes = 8 << 20
+	localImportUploadChunkBlobs = 1000
+	localImportUploadWorkers    = 3
+)
+
 func uploadLocalImportBlobs(
 	ctx context.Context,
 	repoDir string,
@@ -434,81 +514,187 @@ func uploadLocalImportBlobs(
 	retries int,
 	logf func(string, ...any),
 ) error {
-	type chunkEntry struct {
+	if len(blobIDs) == 0 {
+		return nil
+	}
+	type rawBlob struct {
+		gitBlobID string
+		data      []byte
+	}
+	type hashedBlob struct {
 		gitBlobID   string
 		contentHash string
 		blobID      string
 		size        int64
 		data        []byte
 	}
-	var chunk []chunkEntry
-	var chunkBytes int64
+
+	g, gctx := errgroup.WithContext(ctx)
+	chunkCh := make(chan []rawBlob, localImportUploadWorkers)
+
+	var mu sync.Mutex
 	uploadedTotal := 0
 	lastLog := time.Now()
 
-	flushChunk := func() error {
-		if len(chunk) == 0 {
+	for w := 0; w < localImportUploadWorkers; w++ {
+		g.Go(func() error {
+			for chunk := range chunkCh {
+				entries := make([]hashedBlob, len(chunk))
+				byHash := make(map[string][]byte, len(chunk))
+				uniqueHashes := make([]string, 0, len(chunk))
+				for i, item := range chunk {
+					h := objectid.NewBlobHasher()
+					_, _ = h.Write(item.data)
+					contentHash := h.RawContentHash()
+					entries[i] = hashedBlob{
+						gitBlobID:   item.gitBlobID,
+						contentHash: contentHash,
+						blobID:      h.BlobID(),
+						size:        int64(len(item.data)),
+						data:        item.data,
+					}
+					if _, exists := byHash[contentHash]; !exists {
+						byHash[contentHash] = item.data
+						uniqueHashes = append(uniqueHashes, contentHash)
+					}
+				}
+				if err := uploadLocalImportChunk(gctx, tm, uniqueHashes, byHash, retries, logf); err != nil {
+					return err
+				}
+				mu.Lock()
+				for _, entry := range entries {
+					known[entry.gitBlobID] = localImportBlobMeta{
+						BlobID:      entry.blobID,
+						ContentHash: entry.contentHash,
+						Size:        entry.size,
+					}
+				}
+				uploadedTotal += len(entries)
+				if len(blobIDs) > localImportBlobChunkCount && (time.Since(lastLog) >= 2*time.Second || uploadedTotal == len(blobIDs)) {
+					logf("  uploaded %d/%d blobs", uploadedTotal, len(blobIDs))
+					lastLog = time.Now()
+				}
+				mu.Unlock()
+			}
+			return nil
+		})
+	}
+
+	var cur []rawBlob
+	var curBytes int64
+	sendChunk := func() error {
+		if len(cur) == 0 {
 			return nil
 		}
-		byHash := make(map[string][]byte, len(chunk))
-		edits := make([]*corev1.FileEdit, 0, len(chunk))
-		for _, entry := range chunk {
-			if _, exists := byHash[entry.contentHash]; !exists {
-				byHash[entry.contentHash] = entry.data
-				edits = append(edits, &corev1.FileEdit{
-					Op:          "upsert",
-					ContentHash: entry.contentHash,
-				})
-			}
+		batch := cur
+		cur = nil
+		curBytes = 0
+		select {
+		case chunkCh <- batch:
+			return nil
+		case <-gctx.Done():
+			return gctx.Err()
 		}
-		if err := retryLocalImportCall(ctx, retries, logf, "upload blobs", func() error {
-			for _, e := range edits {
-				e.BlobId = ""
-			}
-			_, err := tm.AttachAndUploadBlobs(ctx, edits, BlobBytesSources(byHash), nil, defaultUploadConcurrency())
-			return err
-		}); err != nil {
-			return err
-		}
-		for _, entry := range chunk {
-			known[entry.gitBlobID] = localImportBlobMeta{
-				BlobID:      entry.blobID,
-				ContentHash: entry.contentHash,
-				Size:        entry.size,
-			}
-		}
-		uploadedTotal += len(chunk)
-		if len(blobIDs) > localImportBlobChunkCount && (time.Since(lastLog) >= 2*time.Second || uploadedTotal == len(blobIDs)) {
-			logf("  uploaded %d/%d blobs", uploadedTotal, len(blobIDs))
-			lastLog = time.Now()
-		}
-		clear(chunk)
-		chunk = chunk[:0]
-		chunkBytes = 0
-		return nil
 	}
 
 	beforeRead := func(size int64) error {
-		if len(chunk) > 0 && (chunkBytes+size > localImportBlobChunkBytes || len(chunk) >= localImportBlobChunkCount) {
-			return flushChunk()
+		if len(cur) > 0 && (curBytes+size > localImportUploadChunkBytes || len(cur) >= localImportUploadChunkBlobs) {
+			return sendChunk()
 		}
 		return nil
 	}
 	onBlob := func(gitBlobID string, data []byte) error {
-		chunk = append(chunk, chunkEntry{
-			gitBlobID:   gitBlobID,
-			contentHash: objectid.RawContentHash(data),
-			blobID:      objectid.BlobID(data),
-			size:        int64(len(data)),
-			data:        data,
-		})
-		chunkBytes += int64(len(data))
+		cur = append(cur, rawBlob{gitBlobID: gitBlobID, data: data})
+		curBytes += int64(len(data))
 		return nil
 	}
-	if err := streamLocalGitBlobs(ctx, repoDir, blobIDs, beforeRead, onBlob); err != nil {
+	readErr := streamLocalGitBlobs(gctx, repoDir, blobIDs, beforeRead, onBlob)
+	if readErr == nil {
+		readErr = sendChunk()
+	}
+	close(chunkCh)
+	workerErr := g.Wait()
+	if workerErr != nil {
+		return workerErr
+	}
+	return readErr
+}
+
+func uploadLocalImportChunk(
+	ctx context.Context,
+	tm *TransferManager,
+	uniqueHashes []string,
+	byHash map[string][]byte,
+	retries int,
+	logf func(string, ...any),
+) error {
+	if len(uniqueHashes) == 0 {
+		return nil
+	}
+	available := map[string]bool{}
+	if err := retryLocalImportCall(ctx, retries, logf, "check blob status", func() error {
+		statusRes, err := tm.Blob.GetBlobStatus(ctx, &corev1.GetBlobStatusRequest{
+			ContentHashes: uniqueHashes,
+			Slice:         tm.SliceRef,
+		})
+		if err != nil {
+			if grpcstatus.Code(err) == codes.Unimplemented {
+				return nil
+			}
+			return err
+		}
+		for _, rec := range statusRes.GetBlobs() {
+			if rec.GetId() != "" && rec.GetState() == "available" {
+				available[rec.GetContentHash()] = true
+			}
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
-	return flushChunk()
+
+	var small []*corev1.UploadBlobsEntry
+	var large []string
+	for _, h := range uniqueHashes {
+		if available[h] {
+			continue
+		}
+		data := byHash[h]
+		if int64(len(data)) > blobStreamThresholdBytes {
+			large = append(large, h)
+			continue
+		}
+		small = append(small, &corev1.UploadBlobsEntry{
+			ContentHash: h,
+			Data:        data,
+		})
+	}
+
+	if len(small) > 0 {
+		req := &corev1.UploadBlobsRequest{
+			Slice: tm.SliceRef,
+			Blobs: small,
+		}
+		if err := retryLocalImportCall(ctx, retries, logf, "upload blobs", func() error {
+			callCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+			defer cancel()
+			_, err := tm.Blob.UploadBlobs(callCtx, req, grpc.UseCompressor(grpccomp.ZstdName))
+			return err
+		}); err != nil {
+			return err
+		}
+	}
+
+	for _, h := range large {
+		data := byHash[h]
+		if err := retryLocalImportCall(ctx, retries, logf, "upload large blob", func() error {
+			_, err := uploadBlobReader(ctx, tm.Blob, tm.SliceRef, h, int64(len(data)), bytes.NewReader(data))
+			return err
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func streamLocalGitBlobs(
@@ -708,35 +894,235 @@ func localGitSnapshotMetadata(ctx context.Context, repoDir, commitID, mountPath 
 	return snapshot, blobIDs, nil
 }
 
-func localGitDeltaMetadata(ctx context.Context, repoDir, previousCommitID, commitID, mountPath string) ([]string, []string, map[string]localImportFile, []string, error) {
-	raw, err := localGitOutputBytes(ctx, repoDir, "diff-tree", "-r", "-z", "--no-commit-id", "--name-status", "--find-renames", previousCommitID, commitID)
-	if err != nil {
-		return nil, nil, nil, nil, err
+func streamLocalGitDeltas(
+	ctx context.Context,
+	repoDir string,
+	pairs []localGitCommitPair,
+	mountPath string,
+	onCommit func(pendingLocalCommit, []string) error,
+) error {
+	if len(pairs) == 0 {
+		return nil
 	}
-	deleted, upsertGitPaths, err := parseLocalGitDiffNameStatus(raw)
+	cmd := exec.CommandContext(ctx, "git", "diff-tree", "--stdin", "-r", "-z", "--no-renames", "--no-abbrev", "--always",
+		"--format=COMMIT%x1f%H%x1f%an%x1f%ae%x1f%aI%x1f%s%x1f%B")
+	cmd.Dir = repoDir
+	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return err
 	}
-	snapshot := map[string]localImportFile{}
-	seen := map[string]struct{}{}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	writeErrCh := make(chan error, 1)
+	go func() {
+		w := bufio.NewWriterSize(stdin, 64<<10)
+		for _, pair := range pairs {
+			if _, err := fmt.Fprintf(w, "%s %s\n", pair.commitID, pair.prevID); err != nil {
+				_ = stdin.Close()
+				writeErrCh <- err
+				return
+			}
+		}
+		if err := w.Flush(); err != nil {
+			_ = stdin.Close()
+			writeErrCh <- err
+			return
+		}
+		writeErrCh <- stdin.Close()
+	}()
+
+	abort := func() {
+		_ = cmd.Process.Kill()
+		<-writeErrCh
+		_ = cmd.Wait()
+	}
+
+	reader := bufio.NewReaderSize(stdout, 256<<10)
+	readToken := func() (string, bool, error) {
+		raw, err := reader.ReadBytes(0)
+		if err != nil {
+			if err == io.EOF && len(raw) == 0 {
+				return "", false, nil
+			}
+			if err == io.EOF {
+				return string(raw), true, nil
+			}
+			return "", false, err
+		}
+		return string(raw[:len(raw)-1]), true, nil
+	}
+
+	var hasCurrent bool
+	var current pendingLocalCommit
+	var deletedSet map[string]struct{}
+	var upsertSet map[string]struct{}
+	var blobSeen map[string]struct{}
 	var blobIDs []string
-	const chunkSize = 512
-	for start := 0; start < len(upsertGitPaths); start += chunkSize {
-		end := min(start+chunkSize, len(upsertGitPaths))
-		args := []string{"ls-tree", "-r", "-z", "--full-tree", commitID, "--"}
-		for _, p := range upsertGitPaths[start:end] {
-			args = append(args, ":(literal)"+p)
+	pairIdx := 0
+
+	flushCurrent := func() error {
+		if !hasCurrent {
+			return nil
 		}
-		treeRaw, err := localGitOutputBytes(ctx, repoDir, args...)
-		if err != nil {
-			return nil, nil, nil, nil, err
+		if len(deletedSet) > 0 {
+			current.deleted = make([]string, 0, len(deletedSet))
+			for p := range deletedSet {
+				if _, upserted := upsertSet[p]; !upserted {
+					current.deleted = append(current.deleted, p)
+				}
+			}
+			sort.Strings(current.deleted)
 		}
-		blobIDs, err = parseLocalGitTreeRecords(treeRaw, mountPath, snapshot, seen, blobIDs)
+		if len(upsertSet) > 0 {
+			current.upsertGitPaths = make([]string, 0, len(upsertSet))
+			for p := range upsertSet {
+				current.upsertGitPaths = append(current.upsertGitPaths, p)
+			}
+			sort.Strings(current.upsertGitPaths)
+		}
+		hasCurrent = false
+		return onCommit(current, blobIDs)
+	}
+
+	for {
+		tok, ok, err := readToken()
 		if err != nil {
-			return nil, nil, nil, nil, err
+			abort()
+			return fmt.Errorf("read git diff-tree stream: %w", err)
+		}
+		if !ok {
+			break
+		}
+		trimmed := strings.TrimPrefix(tok, "\n")
+		if trimmed == "" {
+			continue
+		}
+		if strings.HasPrefix(trimmed, "COMMIT\x1f") {
+			if err := flushCurrent(); err != nil {
+				abort()
+				return err
+			}
+			if pairIdx >= len(pairs) {
+				abort()
+				return fmt.Errorf("unexpected extra commit in git diff-tree stream")
+			}
+			fields := strings.SplitN(trimmed, "\x1f", 7)
+			if len(fields) != 7 {
+				abort()
+				return fmt.Errorf("malformed git diff-tree commit header")
+			}
+			pair := pairs[pairIdx]
+			pairIdx++
+			meta := localImportCommitMeta{
+				AuthorName:  strings.TrimSpace(fields[2]),
+				AuthorEmail: strings.TrimSpace(fields[3]),
+				Subject:     strings.TrimSpace(fields[5]),
+				FullMessage: strings.TrimRight(fields[6], " \t\r\n"),
+			}
+			if authored, err := time.Parse(time.RFC3339, strings.TrimSpace(fields[4])); err == nil {
+				meta.AuthoredAt = authored.UTC().Format(time.RFC3339)
+			}
+			if _, body, ok := strings.Cut(meta.FullMessage, "\n"); ok {
+				meta.Body = strings.TrimSpace(body)
+			}
+			if meta.Subject == "" {
+				meta.Subject = "Import git commit " + shortID(pair.commitID)
+			}
+			current = pendingLocalCommit{
+				gitCommitID: pair.commitID,
+				position:    pair.position,
+				meta:        meta,
+				snapshot:    map[string]localImportFile{},
+			}
+			deletedSet = map[string]struct{}{}
+			upsertSet = map[string]struct{}{}
+			blobSeen = map[string]struct{}{}
+			blobIDs = nil
+			hasCurrent = true
+			continue
+		}
+		if !strings.HasPrefix(trimmed, ":") {
+			abort()
+			return fmt.Errorf("unexpected git diff-tree token %q", trimmed)
+		}
+		if !hasCurrent {
+			abort()
+			return fmt.Errorf("git diff-tree file record before commit header")
+		}
+		parts := strings.Fields(trimmed[1:])
+		if len(parts) < 5 {
+			abort()
+			return fmt.Errorf("malformed git diff-tree raw header %q", trimmed)
+		}
+		oldMode, newMode, newSHA, statusVal := parts[0], parts[1], parts[3], parts[4]
+		gitPath, pathOK, err := readToken()
+		if err != nil || !pathOK {
+			abort()
+			return fmt.Errorf("missing path in git diff-tree stream: %v", err)
+		}
+		if statusVal[0] == 'D' || newMode == "000000" {
+			if oldMode != "160000" {
+				deletedSet[gitPath] = struct{}{}
+			}
+			continue
+		}
+		if newMode == "160000" {
+			if oldMode != "000000" && oldMode != "160000" {
+				deletedSet[gitPath] = struct{}{}
+			}
+			continue
+		}
+		modeValue, err := strconv.ParseUint(newMode, 8, 32)
+		if err != nil {
+			abort()
+			return fmt.Errorf("invalid git file mode %q for %s: %w", newMode, gitPath, err)
+		}
+		globalPath, err := paths.FromWorkspacePath(mountPath, gitPath)
+		if err != nil {
+			abort()
+			return err
+		}
+		upsertSet[gitPath] = struct{}{}
+		current.snapshot[globalPath] = localImportFile{
+			Path:      globalPath,
+			GitPath:   gitPath,
+			GitBlobID: newSHA,
+			Mode:      uint32(modeValue),
+		}
+		if _, ok := blobSeen[newSHA]; !ok {
+			blobSeen[newSHA] = struct{}{}
+			blobIDs = append(blobIDs, newSHA)
 		}
 	}
-	return deleted, upsertGitPaths, snapshot, blobIDs, nil
+
+	if err := flushCurrent(); err != nil {
+		abort()
+		return err
+	}
+	if err := <-writeErrCh; err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return err
+	}
+	if err := cmd.Wait(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return fmt.Errorf("git diff-tree --stdin: %s", msg)
+	}
+	if pairIdx != len(pairs) {
+		return fmt.Errorf("git diff-tree emitted %d of %d commit(s)", pairIdx, len(pairs))
+	}
+	return nil
 }
 
 func parseLocalGitTreeRecords(raw []byte, mountPath string, snapshot map[string]localImportFile, seen map[string]struct{}, blobIDs []string) ([]string, error) {
@@ -774,59 +1160,6 @@ func parseLocalGitTreeRecords(raw []byte, mountPath string, snapshot map[string]
 		}
 	}
 	return blobIDs, nil
-}
-
-func parseLocalGitDiffNameStatus(raw []byte) ([]string, []string, error) {
-	if len(raw) == 0 {
-		return nil, nil, nil
-	}
-	tokens := bytes.Split(raw, []byte{0})
-	deletedSet := map[string]struct{}{}
-	upsertSet := map[string]struct{}{}
-	for i := 0; i < len(tokens); {
-		if len(tokens[i]) == 0 {
-			i++
-			continue
-		}
-		statusValue := string(tokens[i])
-		i++
-		switch statusValue[0] {
-		case 'A', 'C', 'M', 'T':
-			if i >= len(tokens) {
-				return nil, nil, fmt.Errorf("malformed git diff status %q", statusValue)
-			}
-			upsertSet[string(tokens[i])] = struct{}{}
-			i++
-		case 'D':
-			if i >= len(tokens) {
-				return nil, nil, fmt.Errorf("malformed git diff status %q", statusValue)
-			}
-			deletedSet[string(tokens[i])] = struct{}{}
-			i++
-		case 'R':
-			if i+1 >= len(tokens) {
-				return nil, nil, fmt.Errorf("malformed git rename status %q", statusValue)
-			}
-			deletedSet[string(tokens[i])] = struct{}{}
-			upsertSet[string(tokens[i+1])] = struct{}{}
-			i += 2
-		default:
-			return nil, nil, fmt.Errorf("unsupported git diff status %q", statusValue)
-		}
-	}
-	deleted := make([]string, 0, len(deletedSet))
-	for p := range deletedSet {
-		if _, upserted := upsertSet[p]; !upserted {
-			deleted = append(deleted, p)
-		}
-	}
-	upserts := make([]string, 0, len(upsertSet))
-	for p := range upsertSet {
-		upserts = append(upserts, p)
-	}
-	sort.Strings(deleted)
-	sort.Strings(upserts)
-	return deleted, upserts, nil
 }
 
 func diffInitialLocalSnapshot(previous map[string]localImportMountedFile, snapshot map[string]localImportFile, known map[string]localImportBlobMeta) ([]*corev1.FileEdit, error) {

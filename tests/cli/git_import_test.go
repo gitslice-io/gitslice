@@ -283,3 +283,69 @@ func TestGitImportDeepMaxCommitsAndResume(t *testing.T) {
 		t.Fatalf("resume stderr missing skipped progress:\n%s", stderr)
 	}
 }
+
+func TestGitImportLocalDeepEndToEnd(t *testing.T) {
+	ts := startTestServer(t)
+	home := t.TempDir()
+	workspace := t.TempDir()
+	sourceRepo := createImportGitRepo(t)
+	loginTestCLI(t, ts, home, workspace)
+
+	raw := runCLI(t, home, workspace,
+		"import", sourceRepo,
+		"--local",
+		"--deep",
+		"--batch-size", "2",
+		"--mount", "/acme/payment/imported/local-deep",
+		"--slice", "acme/payment",
+		"--json",
+	)
+	var imported struct {
+		Commits []struct {
+			NativeCommitID string `json:"native_commit_id"`
+			Message        string `json:"message"`
+		} `json:"commits"`
+		FinalCommitID string `json:"final_commit_id"`
+	}
+	if err := json.Unmarshal([]byte(raw), &imported); err != nil {
+		t.Fatal(err)
+	}
+	if len(imported.Commits) != 3 {
+		t.Fatalf("local deep import commits = %d, want 3: %s", len(imported.Commits), raw)
+	}
+	if imported.FinalCommitID != imported.Commits[2].NativeCommitID {
+		t.Fatalf("final commit = %q, want %q", imported.FinalCommitID, imported.Commits[2].NativeCommitID)
+	}
+
+	catOut := runCLI(t, home, workspace, "fs", "cat", "/acme/payment/imported/local-deep/README.md")
+	if catOut != "hello v2\n" {
+		t.Fatalf("fs cat README.md = %q, want %q", catOut, "hello v2\n")
+	}
+
+	logOut := runCLI(t, home, workspace, "log", "--slice", "acme/payment", "--limit", "5", "--", "/acme/payment/imported/local-deep")
+	for _, want := range []string{"first commit", "second commit", "third commit"} {
+		if !strings.Contains(logOut, want) {
+			t.Fatalf("log missing %q:\n%s", want, logOut)
+		}
+	}
+
+	// Re-running with resume should be idempotent.
+	resumedRaw := runCLI(t, home, workspace,
+		"import", sourceRepo,
+		"--local",
+		"--deep",
+		"--mount", "/acme/payment/imported/local-deep",
+		"--slice", "acme/payment",
+		"--json",
+	)
+	var resumed struct {
+		Commits       []any  `json:"commits"`
+		FinalCommitID string `json:"final_commit_id"`
+	}
+	if err := json.Unmarshal([]byte(resumedRaw), &resumed); err != nil {
+		t.Fatal(err)
+	}
+	if len(resumed.Commits) != 3 || resumed.FinalCommitID != imported.FinalCommitID {
+		t.Fatalf("resumed local import mismatch: %#v vs %#v", resumed, imported)
+	}
+}

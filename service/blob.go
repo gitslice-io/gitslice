@@ -79,9 +79,10 @@ func (s *BlobService) UploadBlob(ctx context.Context, req *corev1.UploadBlobRequ
 }
 
 const (
-	uploadBlobsMaxBlobs = 1000
+	uploadBlobsMaxBlobs = 4000
 	uploadBlobsMaxBytes = 64 << 20
 	uploadBlobsWrites   = 64
+	blobPackThreshold   = 8
 )
 
 // UploadBlobs is UploadBlob for many blobs in one call (design/28_benchmarks.md).
@@ -104,8 +105,8 @@ func (s *BlobService) UploadBlobs(ctx context.Context, req *corev1.UploadBlobsRe
 }
 
 // uploadBlobs stores blobs into a slice the caller can write: one slice
-// authorization, each distinct blob written once (concurrently), and one
-// statement each to record the blobs, their Git ids and their slice.
+// authorization, each distinct blob written once (packed when supported), and
+// one statement each to record the blobs, their Git ids and their slice.
 func (s *BlobService) uploadBlobs(ctx context.Context, sliceRef *corev1.SliceRef, blobs []*corev1.UploadBlobsEntry) ([]*corev1.UploadBlobResponse, error) {
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
@@ -119,41 +120,94 @@ func (s *BlobService) uploadBlobs(ctx context.Context, sliceRef *corev1.SliceRef
 		return nil, err
 	}
 
-	out := make([]*corev1.UploadBlobResponse, len(blobs))
-	data := map[string][]byte{}
-	var rows []storage.BlobUpsert
-	gitIDs := map[string]string{}
-	var hashes []string
-	for i, blob := range blobs {
-		contentHash := objectid.RawContentHash(blob.GetData())
-		if blob.GetContentHash() != "" && blob.GetContentHash() != contentHash {
+	type hashedBlob struct {
+		blobID      string
+		contentHash string
+		gitID       string
+		size        int64
+	}
+	hashed := make([]hashedBlob, len(blobs))
+	hashOne := func(i int) error {
+		b := blobs[i].GetData()
+		h := objectid.NewBlobHasher()
+		_, _ = h.Write(b)
+		contentHash := h.RawContentHash()
+		if blobs[i].GetContentHash() != "" && blobs[i].GetContentHash() != contentHash {
 			message := "content hash does not match blob bytes"
 			if len(blobs) > 1 {
-				message = fmt.Sprintf("content hash %s does not match the bytes of blob %d", blob.GetContentHash(), i)
+				message = fmt.Sprintf("content hash %s does not match the bytes of blob %d", blobs[i].GetContentHash(), i)
 			}
-			return nil, status.Error(codes.InvalidArgument, message)
+			return status.Error(codes.InvalidArgument, message)
 		}
-		out[i] = &corev1.UploadBlobResponse{BlobId: objectid.BlobID(blob.GetData()), ContentHash: contentHash, Size: int64(len(blob.GetData()))}
-		if _, seen := data[contentHash]; seen {
-			continue
+		hashed[i] = hashedBlob{
+			blobID:      h.BlobID(),
+			contentHash: contentHash,
+			gitID:       objectid.GitBlobID(b),
+			size:        int64(len(b)),
 		}
-		data[contentHash] = blob.GetData()
-		rows = append(rows, storage.BlobUpsert{ID: out[i].BlobId, ContentHash: contentHash, Size: out[i].Size, StorageLocation: filesystem.BlobKey(contentHash)})
-		if gitID := objectid.GitBlobID(blob.GetData()); gitID != "" {
-			gitIDs[contentHash] = gitID
+		return nil
+	}
+	if len(blobs) >= 32 {
+		hg, _ := errgroup.WithContext(ctx)
+		hg.SetLimit(8)
+		for i := range blobs {
+			idx := i
+			hg.Go(func() error { return hashOne(idx) })
 		}
-		hashes = append(hashes, contentHash)
+		if err := hg.Wait(); err != nil {
+			return nil, err
+		}
+	} else {
+		for i := range blobs {
+			if err := hashOne(i); err != nil {
+				return nil, err
+			}
+		}
 	}
 
-	group, groupCtx := errgroup.WithContext(ctx)
-	group.SetLimit(uploadBlobsWrites)
-	for _, contentHash := range hashes {
-		group.Go(func() error {
-			return s.ObjectStore.Put(groupCtx, filesystem.BlobKey(contentHash), bytes.NewReader(data[contentHash]))
-		})
+	out := make([]*corev1.UploadBlobResponse, len(blobs))
+	data := make(map[string][]byte, len(blobs))
+	rows := make([]storage.BlobUpsert, 0, len(blobs))
+	gitIDs := make(map[string]string, len(blobs))
+	hashes := make([]string, 0, len(blobs))
+	for i, hb := range hashed {
+		out[i] = &corev1.UploadBlobResponse{BlobId: hb.blobID, ContentHash: hb.contentHash, Size: hb.size}
+		if _, seen := data[hb.contentHash]; seen {
+			continue
+		}
+		data[hb.contentHash] = blobs[i].GetData()
+		rows = append(rows, storage.BlobUpsert{ID: hb.blobID, ContentHash: hb.contentHash, Size: hb.size, StorageLocation: filesystem.BlobKey(hb.contentHash)})
+		if hb.gitID != "" {
+			gitIDs[hb.contentHash] = hb.gitID
+		}
+		hashes = append(hashes, hb.contentHash)
 	}
-	if err := group.Wait(); err != nil {
-		return nil, grpcError(err)
+
+	if pw, ok := s.ObjectStore.(interface {
+		PutPack(context.Context, string, map[string][]byte) error
+	}); ok && len(hashes) >= blobPackThreshold {
+		packID, err := objectid.RandomID("bpk")
+		if err != nil {
+			return nil, grpcError(err)
+		}
+		packObjects := make(map[string][]byte, len(hashes))
+		for _, contentHash := range hashes {
+			packObjects[filesystem.BlobKey(contentHash)] = data[contentHash]
+		}
+		if err := pw.PutPack(ctx, "packs/blobs/"+packID+".pack", packObjects); err != nil {
+			return nil, grpcError(err)
+		}
+	} else {
+		group, groupCtx := errgroup.WithContext(ctx)
+		group.SetLimit(uploadBlobsWrites)
+		for _, contentHash := range hashes {
+			group.Go(func() error {
+				return s.ObjectStore.Put(groupCtx, filesystem.BlobKey(contentHash), bytes.NewReader(data[contentHash]))
+			})
+		}
+		if err := group.Wait(); err != nil {
+			return nil, grpcError(err)
+		}
 	}
 	if err := s.Blobs.UpsertMany(ctx, rows); err != nil {
 		return nil, grpcError(err)

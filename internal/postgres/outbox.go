@@ -145,6 +145,12 @@ func (s *ChangesetStore) applyOutboxRowTx(ctx context.Context, tx *sql.Tx, kind 
 			return err
 		}
 		return s.applyCommitPublishedOutboxTx(ctx, tx, payload)
+	case outboxKindGitImportBatchPublished:
+		var payload gitImportBatchOutboxPayload
+		if err := decodeJSON(raw, &payload); err != nil {
+			return err
+		}
+		return s.applyGitImportBatchPublishedOutboxTx(ctx, tx, payload)
 	default:
 		return fmt.Errorf("%w: unknown outbox kind %q", ErrInvalid, kind)
 	}
@@ -173,6 +179,85 @@ func (s *ChangesetStore) applyCommitPublishedOutboxTx(ctx context.Context, tx *s
 	// can serve head reads. Without this the marker would only ever be set by the
 	// manual RebuildDerivedIndexes admin path and the fast path would never engage
 	// in normal operation.
+	return setMaterializedHeadTx(ctx, tx, payload.TargetRef, payload.CommitID)
+}
+
+func (s *ChangesetStore) applyGitImportBatchPublishedOutboxTx(ctx context.Context, tx *sql.Tx, payload gitImportBatchOutboxPayload) error {
+	if payload.TargetRef == "" || payload.CommitID == "" || payload.CommittedAt.IsZero() {
+		return fmt.Errorf("%w: incomplete git_import_batch_published payload", ErrInvalid)
+	}
+	const chunkSize = 5000
+	for start := 0; start < len(payload.Deletes); start += chunkSize {
+		end := min(start+chunkSize, len(payload.Deletes))
+		if _, err := tx.ExecContext(ctx, `
+			delete from current_path_entities
+			where target_ref = $1 and path = any($2)
+		`, payload.TargetRef, payload.Deletes[start:end]); err != nil {
+			return err
+		}
+	}
+	for _, prefix := range payload.DeletePrefixes {
+		if _, err := tx.ExecContext(ctx, `
+			delete from current_path_entities
+			where target_ref = $1 and (path = $2 or path like $3 escape '\')
+		`, payload.TargetRef, prefix, likePrefixPattern(prefix)); err != nil {
+			return err
+		}
+	}
+	for start := 0; start < len(payload.Upserts); start += chunkSize {
+		end := min(start+chunkSize, len(payload.Upserts))
+		chunk := payload.Upserts[start:end]
+		paths := make([]string, len(chunk))
+		kinds := make([]string, len(chunk))
+		hashes := make([]sql.NullString, len(chunk))
+		modes := make([]sql.NullInt32, len(chunk))
+		for i, u := range chunk {
+			paths[i] = u.Path
+			kinds[i] = u.Kind
+			if u.Kind == "file" && u.ContentHash != "" {
+				hashes[i] = sql.NullString{String: u.ContentHash, Valid: true}
+			}
+			if u.Kind == "file" && u.Mode != 0 {
+				modes[i] = sql.NullInt32{Int32: int32(u.Mode), Valid: true}
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `
+			insert into fs_entities(account_id, entity_id, kind, created_commit_id, created_at)
+			select accounts.id,
+			       'ent_imp_' || left(input.kind, 1) || '_' || md5(input.path),
+			       input.kind,
+			       $1,
+			       $2
+			from unnest($3::text[], $4::text[]) as input(path, kind)
+			join accounts on accounts.slug = split_part(trim(leading '/' from input.path), '/', 1)
+			on conflict (account_id, entity_id) do nothing
+		`, payload.CommitID, payload.CommittedAt, paths, kinds); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			insert into current_path_entities(target_ref, path, account_id, entity_id, kind, content_hash, mode, updated_at)
+			select $1,
+			       input.path,
+			       accounts.id,
+			       'ent_imp_' || left(input.kind, 1) || '_' || md5(input.path),
+			       input.kind,
+			       input.content_hash,
+			       input.mode,
+			       now()
+			from unnest($2::text[], $3::text[], $4::text[], $5::integer[])
+				as input(path, kind, content_hash, mode)
+			join accounts on accounts.slug = split_part(trim(leading '/' from input.path), '/', 1)
+			on conflict (target_ref, path) do update
+			set account_id = excluded.account_id,
+			    entity_id = excluded.entity_id,
+			    kind = excluded.kind,
+			    content_hash = excluded.content_hash,
+			    mode = excluded.mode,
+			    updated_at = now()
+		`, payload.TargetRef, paths, kinds, hashes, modes); err != nil {
+			return err
+		}
+	}
 	return setMaterializedHeadTx(ctx, tx, payload.TargetRef, payload.CommitID)
 }
 
@@ -259,9 +344,9 @@ func (s *ChangesetStore) RebuildDerivedIndexes(ctx context.Context, targetRef st
 			update outbox
 			set processed_at = now()
 			where processed_at is null
-			  and kind = $2
+			  and kind in ($2, $3)
 			  and payload->>'target_ref' = $1
-		`, targetRef, outboxKindCommitPublished); err != nil {
+		`, targetRef, outboxKindCommitPublished, outboxKindGitImportBatchPublished); err != nil {
 			return err
 		}
 		return setMaterializedHeadTx(ctx, tx, targetRef, currentCommitID)
@@ -295,11 +380,11 @@ func lockTargetOutboxRowsTx(ctx context.Context, tx *sql.Tx, targetRef string) e
 		select id
 		from outbox
 		where processed_at is null
-		  and kind = $2
+		  and kind in ($2, $3)
 		  and payload->>'target_ref' = $1
 		order by id
 		for update
-	`, targetRef, outboxKindCommitPublished)
+	`, targetRef, outboxKindCommitPublished, outboxKindGitImportBatchPublished)
 	if err != nil {
 		return err
 	}

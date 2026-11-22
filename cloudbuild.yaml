@@ -167,7 +167,7 @@ steps:
           --min-instances=${_MIN_INSTANCES} --max-instances=${_MAX_INSTANCES} \
           --cpu=1 --memory=1Gi --concurrency=80 --timeout=3600 \
           --allow-unauthenticated \
-          --set-env-vars "$$ENVS,GITSLICE_RUN_MIGRATIONS=0" \
+          --set-env-vars "$$ENVS,GITSLICE_RUN_MIGRATIONS=0,GOMEMLIMIT=768MiB" \
           --set-secrets "$$SECRETS"
 
 timeout: 1800s

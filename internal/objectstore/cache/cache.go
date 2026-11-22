@@ -36,6 +36,10 @@ type objectCopier interface {
 	Copy(ctx context.Context, dstKey, srcKey string) error
 }
 
+type packWriter interface {
+	PutPack(ctx context.Context, packKey string, objects map[string][]byte) error
+}
+
 type Store struct {
 	inner          ObjectStore
 	maxBytes       int64
@@ -104,6 +108,25 @@ func (s *Store) Put(ctx context.Context, key string, r io.Reader) error {
 		return err
 	}
 	s.insert(key, head)
+	return nil
+}
+
+// PutPack forwards a batched pack write to inner when supported (or falls back
+// to individual Puts). Bulk pack writes bypass write-through insertion into the
+// byte cache so large blob/history imports do not evict hot read-cached objects
+// or spike heap memory; subsequent full-object Gets still read-fill on miss.
+func (s *Store) PutPack(ctx context.Context, packKey string, objects map[string][]byte) error {
+	if len(objects) == 0 {
+		return nil
+	}
+	if pw, ok := s.inner.(packWriter); ok {
+		return pw.PutPack(ctx, packKey, objects)
+	}
+	for key, data := range objects {
+		if err := s.Put(ctx, key, bytes.NewReader(data)); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

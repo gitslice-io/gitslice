@@ -7,6 +7,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/storage"
@@ -33,6 +34,9 @@ type RepositoryService struct {
 	importClones     *importCloneCache
 	// importFlights serializes imports of one source into one place.
 	importFlights importFlights
+	// lastBulkImportUnixNano records recent bulk import batch activity so
+	// background blame warming pauses until the import finishes.
+	lastBulkImportUnixNano atomic.Int64
 
 	publishedTreesMu   sync.Mutex
 	publishedRootTrees map[string]struct{}

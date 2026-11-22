@@ -17,7 +17,8 @@ import (
 )
 
 const (
-	outboxKindCommitPublished = "commit_published"
+	outboxKindCommitPublished         = "commit_published"
+	outboxKindGitImportBatchPublished = "git_import_batch_published"
 
 	submitRetryAttempts        = 5
 	submitRetryBaseWait        = 5 * time.Millisecond

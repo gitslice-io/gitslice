@@ -421,10 +421,10 @@ func recordAccountRootEntityUpdateTx(ctx context.Context, tx *sql.Tx, baseCommit
 			select 1
 			from outbox
 			where processed_at is null
-			  and kind = $1
-			  and payload->>'target_ref' = $2
+			  and kind in ($1, $2)
+			  and payload->>'target_ref' = $3
 		)
-	`, outboxKindCommitPublished, DefaultTargetRef).Scan(&hasPendingOutbox); err != nil {
+	`, outboxKindCommitPublished, outboxKindGitImportBatchPublished, DefaultTargetRef).Scan(&hasPendingOutbox); err != nil {
 		return err
 	}
 	if hasPendingOutbox {

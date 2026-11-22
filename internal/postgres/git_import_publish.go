@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path"
 	"sort"
 	"strings"
@@ -114,6 +115,7 @@ func (s *ChangesetStore) publishGitImportBatchOnce(
 		return nil, err
 	}
 
+	t0 := time.Now()
 	roots, err := s.trees.ApplyEditChain(ctx, originalRootTreeID, editSets)
 	if errors.Is(err, treestore.ErrNotFound) {
 		return nil, ErrConflict
@@ -121,23 +123,26 @@ func (s *ChangesetStore) publishGitImportBatchOnce(
 	if err != nil {
 		return nil, err
 	}
+	tApply := time.Now()
 	finalRootTreeID := roots[len(roots)-1]
 	pathHeadMutations, err := s.pathHeadMutationsForImportBatchRoot(ctx, originalRootTreeID, finalRootTreeID, allEdits)
 	if err != nil {
 		return nil, err
 	}
+	tPathHeads := time.Now()
 
 	baseTime := time.Now().UTC().Truncate(time.Microsecond)
 	currentCommitID := originalCommitID
 	commitInserts := make([]publishCommitInsert, 0, len(in.Commits))
-	outboxPayloads := make([]commitPublishedPayload, 0, len(in.Commits))
+	changedPathRows := make([]batchCommitChangedPathRow, 0, len(allEdits))
 	importRecords := make([]GitImportedCommitRecord, 0, len(in.Commits))
 	published := make([]storage.GitImportPublishedCommit, 0, len(in.Commits))
 
+	var finalCommittedAt time.Time
 	for i, spec := range in.Commits {
 		rootTreeID := roots[i]
-		baseCommitID := currentCommitID
 		now := baseTime.Add(time.Duration(i) * time.Microsecond)
+		finalCommittedAt = now
 		message := storage.CommitMessage(spec.Title, spec.Description)
 		if message == "" {
 			message = "Import git commit " + spec.GitCommitID
@@ -167,14 +172,13 @@ func (s *ChangesetStore) publishGitImportBatchOnce(
 			CreatedAt:       now,
 			ChangedJSON:     changedJSON,
 		})
-		outboxPayloads = append(outboxPayloads, commitPublishedPayload{
-			TargetRef:    targetRef,
-			CommitID:     commitID,
-			BaseCommitID: baseCommitID,
-			ChangedPaths: spec.ChangedPaths,
-			FileEdits:    spec.FileEdits,
-			CommittedAt:  now,
-		})
+		for _, p := range spec.ChangedPaths {
+			changedPathRows = append(changedPathRows, batchCommitChangedPathRow{
+				CommitID:    commitID,
+				Path:        p,
+				CommittedAt: now,
+			})
+		}
 		if in.ImportID != "" {
 			importRecords = append(importRecords, GitImportedCommitRecord{
 				ImportID:         in.ImportID,
@@ -197,6 +201,9 @@ func (s *ChangesetStore) publishGitImportBatchOnce(
 		currentCommitID = commitID
 	}
 
+	batchOutbox := buildGitImportBatchOutboxPayload(targetRef, currentCommitID, finalCommittedAt, pathHeadMutations)
+
+	tTxStart := time.Now()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -223,10 +230,13 @@ func (s *ChangesetStore) publishGitImportBatchOnce(
 	if err := insertPublishedCommitsTx(ctx, tx, commitInserts); err != nil {
 		return nil, err
 	}
+	if err := insertBatchCommitChangedPathsTx(ctx, tx, targetRef, changedPathRows); err != nil {
+		return nil, err
+	}
 	if err := applyPublishPathHeadMutationsTx(ctx, tx, pathHeadMutations); err != nil {
 		return nil, err
 	}
-	if err := insertCommitPublishedOutboxTx(ctx, tx, outboxPayloads); err != nil {
+	if err := insertGitImportBatchOutboxTx(ctx, tx, batchOutbox); err != nil {
 		return nil, err
 	}
 	if len(importRecords) > 0 {
@@ -253,6 +263,14 @@ func (s *ChangesetStore) publishGitImportBatchOnce(
 	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
+	slog.Info("git import batch published",
+		"commits", len(in.Commits),
+		"edits", len(allEdits),
+		"apply_ms", tApply.Sub(t0).Milliseconds(),
+		"path_heads_ms", tPathHeads.Sub(tApply).Milliseconds(),
+		"tx_ms", time.Since(tTxStart).Milliseconds(),
+		"total_ms", time.Since(t0).Milliseconds(),
+	)
 	return published, nil
 }
 
@@ -403,5 +421,124 @@ func recordGitImportCommitsTx(ctx context.Context, tx *sql.Tx, importID string, 
 		where git_imports.id = $%d
 	`, lastGitIdx, lastNativeIdx, importIDIdx))
 	_, err := tx.ExecContext(ctx, b.String(), args...)
+	return err
+}
+
+type batchCommitChangedPathRow struct {
+	CommitID    string
+	Path        string
+	CommittedAt time.Time
+}
+
+type gitImportBatchOutboxUpsert struct {
+	Path        string `json:"path"`
+	Kind        string `json:"kind"`
+	ContentHash string `json:"content_hash,omitempty"`
+	Mode        uint32 `json:"mode,omitempty"`
+}
+
+type gitImportBatchOutboxPayload struct {
+	TargetRef      string                       `json:"target_ref"`
+	CommitID       string                       `json:"commit_id"`
+	CommittedAt    time.Time                    `json:"committed_at"`
+	Upserts        []gitImportBatchOutboxUpsert `json:"upserts,omitempty"`
+	Deletes        []string                     `json:"deletes,omitempty"`
+	DeletePrefixes []string                     `json:"delete_prefixes,omitempty"`
+}
+
+func buildGitImportBatchOutboxPayload(targetRef, finalCommitID string, committedAt time.Time, mutations []publishPathHeadMutation) gitImportBatchOutboxPayload {
+	payload := gitImportBatchOutboxPayload{
+		TargetRef:   targetRef,
+		CommitID:    finalCommitID,
+		CommittedAt: committedAt,
+	}
+	upsertByPath := map[string]gitImportBatchOutboxUpsert{}
+	deleteSet := map[string]struct{}{}
+	prefixSet := map[string]struct{}{}
+	for _, mutation := range mutations {
+		if mutation.DeletePath != "" {
+			prefixSet[mutation.DeletePath] = struct{}{}
+			continue
+		}
+		for _, head := range mutation.Heads {
+			if !head.Exists {
+				deleteSet[head.Path] = struct{}{}
+				delete(upsertByPath, head.Path)
+				continue
+			}
+			kind := "directory"
+			if head.ContentHash != "" {
+				kind = "file"
+			}
+			delete(deleteSet, head.Path)
+			upsertByPath[head.Path] = gitImportBatchOutboxUpsert{
+				Path:        head.Path,
+				Kind:        kind,
+				ContentHash: head.ContentHash,
+				Mode:        head.Mode,
+			}
+		}
+	}
+	if len(upsertByPath) > 0 {
+		payload.Upserts = make([]gitImportBatchOutboxUpsert, 0, len(upsertByPath))
+		for _, u := range upsertByPath {
+			payload.Upserts = append(payload.Upserts, u)
+		}
+		sort.Slice(payload.Upserts, func(i, j int) bool { return payload.Upserts[i].Path < payload.Upserts[j].Path })
+	}
+	if len(deleteSet) > 0 {
+		payload.Deletes = make([]string, 0, len(deleteSet))
+		for p := range deleteSet {
+			payload.Deletes = append(payload.Deletes, p)
+		}
+		sort.Strings(payload.Deletes)
+	}
+	if len(prefixSet) > 0 {
+		payload.DeletePrefixes = make([]string, 0, len(prefixSet))
+		for p := range prefixSet {
+			payload.DeletePrefixes = append(payload.DeletePrefixes, p)
+		}
+		sort.Strings(payload.DeletePrefixes)
+	}
+	return payload
+}
+
+func insertBatchCommitChangedPathsTx(ctx context.Context, tx *sql.Tx, targetRef string, rows []batchCommitChangedPathRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	const chunkSize = 10000
+	for start := 0; start < len(rows); start += chunkSize {
+		end := min(start+chunkSize, len(rows))
+		chunk := rows[start:end]
+		commitIDs := make([]string, len(chunk))
+		paths := make([]string, len(chunk))
+		times := make([]time.Time, len(chunk))
+		for i, row := range chunk {
+			commitIDs[i] = row.CommitID
+			paths[i] = row.Path
+			times[i] = row.CommittedAt
+		}
+		if _, err := tx.ExecContext(ctx, `
+			insert into commit_changed_paths(target_ref, commit_id, path, committed_at)
+			select $1, input.commit_id, input.path, input.committed_at
+			from unnest($2::text[], $3::text[], $4::timestamptz[]) as input(commit_id, path, committed_at)
+			on conflict do nothing
+		`, targetRef, commitIDs, paths, times); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func insertGitImportBatchOutboxTx(ctx context.Context, tx *sql.Tx, payload gitImportBatchOutboxPayload) error {
+	raw, err := encodeJSON(payload)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `
+		insert into outbox(kind, payload, created_at)
+		values ($1, $2, $3)
+	`, outboxKindGitImportBatchPublished, raw, payload.CommittedAt)
 	return err
 }

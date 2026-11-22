@@ -167,11 +167,11 @@ func uploadCachedBlobsWithFallback(ctx context.Context, blobClient corev1.BlobSe
 	return uploadBlobsInBatches(ctx, blobClient, sliceRef, blobs, concurrency)
 }
 
-const uploadBatchBytes = 4 << 20
+const uploadBatchBytes = 16 << 20
 
 // uploadBatchBlobs is how many blobs one UploadBlobs call takes at most (a
 // variable so tests can make batches small).
-var uploadBatchBlobs = 256
+var uploadBatchBlobs = 1000
 
 // pendingBlobUpload is one blob for uploadBlobsInBatches: read gives a small
 // blob's bytes for a batch; uploadOne uploads it alone (large blobs, or a

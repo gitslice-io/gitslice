@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"time"
 
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/paths"
@@ -14,8 +15,8 @@ import (
 )
 
 const (
-	maxImportBatchCommits = 200
-	maxImportBatchEdits   = 100000
+	maxImportBatchCommits = 1000
+	maxImportBatchEdits   = 250000
 	maxImportSourceLength = 1024
 )
 
@@ -108,6 +109,10 @@ func (s *RepositoryService) BeginGitImport(ctx context.Context, req *corev1.Begi
 }
 
 func (s *RepositoryService) ImportGitCommitBatch(ctx context.Context, req *corev1.ImportGitCommitBatchRequest) (*corev1.ImportGitCommitBatchResponse, error) {
+	s.lastBulkImportUnixNano.Store(time.Now().UnixNano())
+	defer func() {
+		s.lastBulkImportUnixNano.Store(time.Now().UnixNano())
+	}()
 	subjectID, err := requireSubject(ctx)
 	if err != nil {
 		return nil, err
@@ -151,7 +156,21 @@ func (s *RepositoryService) ImportGitCommitBatch(ctx context.Context, req *corev
 	// Idempotent retry: skip commits already recorded for this import session.
 	existingByGitID := map[string]storage.GitImportedCommitRecord{}
 	if req.ImportId != "" {
-		rows, err := s.Repository.ListGitImportCommits(ctx, req.ImportId)
+		var rows []storage.GitImportedCommitRecord
+		var err error
+		if targeted, ok := s.Repository.(interface {
+			ListGitImportCommitsByGitIDs(context.Context, string, []string) ([]storage.GitImportedCommitRecord, error)
+		}); ok {
+			gitIDs := make([]string, 0, len(req.Commits))
+			for _, commit := range req.Commits {
+				if commit != nil && strings.TrimSpace(commit.GitCommitId) != "" {
+					gitIDs = append(gitIDs, commit.GitCommitId)
+				}
+			}
+			rows, err = targeted.ListGitImportCommitsByGitIDs(ctx, req.ImportId, gitIDs)
+		} else {
+			rows, err = s.Repository.ListGitImportCommits(ctx, req.ImportId)
+		}
 		if err != nil {
 			return nil, grpcError(err)
 		}

@@ -60,12 +60,38 @@ func (s *Store) ApplyEditChain(ctx context.Context, baseRootTreeID string, editS
 	if err := buf.flush(ctx); err != nil {
 		return nil, err
 	}
-	if s.nodes != nil {
-		for id, node := range buffered.staged {
-			s.nodes.add(id, node)
-		}
+	if s.nodes != nil && len(roots) > 0 {
+		cacheReachableNodes(s.nodes, roots[len(roots)-1], buffered.staged)
 	}
 	return roots, nil
+}
+
+func cacheReachableNodes(cache *nodeCache, rootID string, staged map[string]Node) {
+	if cache == nil || rootID == "" || len(staged) == 0 {
+		return
+	}
+	visited := make(map[string]struct{}, 64)
+	var walk func(id string)
+	walk = func(id string) {
+		if id == "" {
+			return
+		}
+		if _, seen := visited[id]; seen {
+			return
+		}
+		node, ok := staged[id]
+		if !ok {
+			return
+		}
+		visited[id] = struct{}{}
+		for _, entry := range node.Entries {
+			if entry.Kind == "directory" {
+				walk(entry.TreeID)
+			}
+		}
+		cache.add(id, node)
+	}
+	walk(rootID)
 }
 
 func (s *Store) applyEditSet(ctx context.Context, buffered *Store, current string, edits []FileEdit) (string, error) {

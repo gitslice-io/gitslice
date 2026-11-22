@@ -9919,4 +9919,18 @@ Clerk) and update the relevant design and CLI documentation.
   - Added unit tests in `service/git_import_batch_test.go` and `internal/cli/import_local_test.go`.
 - **Verification:** `gofmt`, `go vet ./...`, `go test ./...`, `go build ./cmd/...`, cross-OS `cmd/gs` builds, and `npm run build` in `web/`.
 
+## 2026-11-22 — Packed Object Store, Zstd gRPC Compression & Pipelined Local Git Import
+
+- **Goal:** Eliminate the per-object R2 write fan-out, serial gzip blob uploads, per-commit `git` subprocess overhead, and per-commit outbox drain that made importing full 29,280-commit repositories (`okou-ai/okou`, 17.4 GB raw blobs / 733k objects) take ~2 hours.
+- **Decisions & implementation:**
+  - **Packed object store (`internal/objectstore/packed`, `internal/postgres/migrations/0068_packed_objects.sql`, `internal/postgres/packed_objects.go`):** Added `packed_objects` byte-range index and transparent `packed.Store` wrapper (before `cache.Store` in `server/server.go`). `PutPack` compresses eligible objects (`blobs/` and `trees/`) with pooled `zstd.SpeedFastest` (raw fallback for small/incompressible payloads), writes one pack object to R2/FS, and bulk-records byte ranges via chunked `unnest`. `Get` transparently resolves packed keys via range reads + zstd decode (with a 131k-entry LRU location cache and full loose-object backward compatibility). Wired `PutPack` into `treestore` (`buffering_store.go`, packing ≥8 tree nodes) and `BlobService.UploadBlobs` (`service/blob.go`, packing ≥8 blobs, raising `uploadBlobsMaxBlobs` to 4000 with single-pass parallel `NewBlobHasher()`).
+  - **Cache & memory hygiene for 1 GiB Cloud Run:** `cache.Store.PutPack` bypasses write-through byte-cache insertion so bulk packs neither bloat heap nor evict hot read-cached objects; `treestore.ApplyEditChain` caches only nodes reachable from the batch's final root in `nodeCache`; `service/blame_warm.go` pauses while `ImportGitCommitBatch` is active; set `GOMEMLIMIT=768MiB` on the 1 GiB Cloud Run deploy in `cloudbuild.yaml`.
+  - **Bulk commit publish & collapsed batch outbox:** Raised `maxImportBatchCommits` to 1000 / `maxImportBatchEdits` to 250,000 (`service/git_import_batch.go`), added targeted `ListGitImportCommitsByGitIDs` (`internal/postgres/git_import_store.go`), bulk-inserted `commit_changed_paths` via `unnest` inside `PublishGitImportBatch` (`internal/postgres/git_import_publish.go`), and emitted one collapsed `git_import_batch_published` outbox row per batch handled by `applyGitImportBatchPublishedOutboxTx` (`internal/postgres/outbox.go`).
+  - **Pooled zstd gRPC compressor & pipelined streaming CLI (`internal/grpccomp`, `internal/cli/import_local.go`):** Registered pooled `"zstd"` gRPC compressor; replaced 3 per-commit `git` subprocesses with a single streaming `git diff-tree --stdin -r -z` pipeline; overlapped batch `k+1` 3-worker parallel 8 MiB zstd blob uploads with batch `k` `ImportGitCommitBatch` publishing.
+- **Local benchmark (`okou-ai/okou`, 29,280 commits, real Postgres 16 + 150ms simulated R2 latency, `GOMEMLIMIT=768MiB`):**
+  - End-to-end cold import: ~11.3 min (down from ~2 hours; ~46–125 commits/s), peak RSS 664 MiB.
+  - Object compression & packing: 732,979 objects (297,263 blobs / 17.38 GB raw + 435,716 trees / 3.55 GB raw = 20.92 GB) → 2,335 packs (2,260 blob packs + 75 tree packs) totaling 5.16 GB (4.05× smaller, 314× fewer PUTs), `pending_outbox = 0`.
+- **Verification:** `gofmt`, `go vet ./...`, `go test ./...`, real-Postgres `internal/postgres`, `tests/rpc`, and `tests/cli` (including new `TestPackedObjectStoreAndColdRead`, `TestPublishGitImportBatchPacksTreesAndDrainsBatchOutbox`, and `TestGitImportLocalDeepEndToEnd`), plus cross-OS `cmd/gs` builds.
+
+
 

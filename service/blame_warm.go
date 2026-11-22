@@ -19,12 +19,13 @@ import (
 // walk. Files nobody blamed before are warmed too, as a landing is the moment
 // their history is shortest to read.
 const (
-	blameWarmInterval    = 3 * time.Second
-	blameWarmMaxFiles    = 60      // changed files warmed per round, at most
-	blameWarmMaxBytes    = 1 << 20 // larger files are left to whoever opens them
-	blameWarmConcurrency = 4
-	blameWarmRetries     = 4 // a file whose history was not indexed yet is tried again
-	blameWarmAncestry    = 100
+	blameWarmInterval              = 3 * time.Second
+	blameWarmMaxFiles              = 60      // changed files warmed per round, at most
+	blameWarmMaxBytes              = 1 << 20 // larger files are left to whoever opens them
+	blameWarmConcurrency           = 4
+	blameWarmRetries               = 4 // a file whose history was not indexed yet is tried again
+	blameWarmAncestry              = 100
+	blameWarmBulkImportQuietWindow = 15 * time.Second
 )
 
 // RunBlameWarmer warms the blames of the files each landing on the default
@@ -62,6 +63,10 @@ func (s *RepositoryService) warmBlamesOnce(ctx context.Context, last string, ret
 		return last
 	}
 	if last == "" {
+		return head.CommitId
+	}
+	if ts := s.lastBulkImportUnixNano.Load(); ts > 0 && time.Since(time.Unix(0, ts)) < blameWarmBulkImportQuietWindow {
+		clear(retry)
 		return head.CommitId
 	}
 	var files []string

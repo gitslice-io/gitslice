@@ -161,7 +161,7 @@ func (r Runner) importCommand(opts *commandOptions) *cobra.Command {
 	importCmd.Flags().BoolVar(&importResume, "resume", importResume, "resume previously completed commits for the same import")
 	importCmd.Flags().IntVar(&importRetries, "retries", importRetries, "when the connection drops, reconnect and resume up to this many times in a row without progress (0 = never)")
 	importCmd.Flags().BoolVar(&importLocal, "local", importLocal, "clone/read the repository locally, upload blobs in batches, and publish commits in batches")
-	importCmd.Flags().IntVar(&importBatchSize, "batch-size", importBatchSize, "commits per server publish batch with --local (max 200)")
+	importCmd.Flags().IntVar(&importBatchSize, "batch-size", importBatchSize, "commits per server publish batch with --local (max 1000)")
 
 	return importCmd
 }

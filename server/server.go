@@ -21,6 +21,7 @@ import (
 	"gitslice.io/gitslice/internal/objectstore/cache"
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
 	"gitslice.io/gitslice/internal/objectstore/latency"
+	"gitslice.io/gitslice/internal/objectstore/packed"
 	"gitslice.io/gitslice/internal/objectstore/r2"
 	"gitslice.io/gitslice/internal/postgres"
 	"gitslice.io/gitslice/internal/rpclimits"
@@ -31,8 +32,9 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
-	// Registers gzip, so clients can compress batch calls (ReadFiles,
-	// UploadBlobs) and their responses.
+	// Registers gzip and zstd, so clients can compress batch calls (ReadFiles,
+	// UploadBlobs, ImportGitCommitBatch) and their responses.
+	_ "gitslice.io/gitslice/internal/grpccomp"
 	_ "google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/health"
 	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
@@ -103,6 +105,7 @@ func Run(ctx context.Context, cfg Config) error {
 	if err != nil {
 		return err
 	}
+	objectStore = packed.New(objectStore, db.PackedObjects())
 	objectStore = cache.New(objectStore, cfg.ObjectCacheBytes, 4<<20)
 	tracker, err := analytics.New(cfg.PostHogAPIKey, cfg.PostHogHost, cfg.PostHogEnvironment)
 	if err != nil {
@@ -388,6 +391,7 @@ func Migrate(ctx context.Context, cfg Config) (err error) {
 	if err != nil {
 		return err
 	}
+	objectStore = packed.New(objectStore, db.PackedObjects())
 	objectStore = cache.New(objectStore, cfg.ObjectCacheBytes, 4<<20)
 	db.SetTreeStore(treestore.New(objectStore))
 	return db.Migrate(ctx)

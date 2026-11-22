@@ -12,19 +12,20 @@ import (
 )
 
 type DB struct {
-	db          *sql.DB
-	auth        *AuthStore
-	blobs       *BlobStore
-	repository  *RepositoryStore
-	slices      *SliceStore
-	changesets  *ChangesetStore
-	agents      *AgentStore
-	checks      *CheckStore
-	events      *EventStore
-	automations *AutomationStore
-	feedback    *FeedbackStore
-	blames      *BlameStore
-	mirrors     *GitMirrorStore
+	db            *sql.DB
+	auth          *AuthStore
+	blobs         *BlobStore
+	repository    *RepositoryStore
+	slices        *SliceStore
+	changesets    *ChangesetStore
+	agents        *AgentStore
+	checks        *CheckStore
+	events        *EventStore
+	automations   *AutomationStore
+	feedback      *FeedbackStore
+	blames        *BlameStore
+	mirrors       *GitMirrorStore
+	packedObjects *PackedObjectStore
 }
 
 func Open(ctx context.Context, databaseURL string) (*DB, error) {
@@ -111,6 +112,11 @@ func (d *DB) Feedback() *FeedbackStore {
 	return d.feedback
 }
 
+// PackedObjects returns the Postgres byte-range index for packed object storage.
+func (d *DB) PackedObjects() *PackedObjectStore {
+	return d.packedObjects
+}
+
 func (d *DB) initStores() {
 	d.auth = &AuthStore{db: d.db}
 	d.blobs = &BlobStore{db: d.db}
@@ -128,4 +134,5 @@ func (d *DB) initStores() {
 	d.feedback = &FeedbackStore{db: d.db}
 	d.blames = &BlameStore{db: d.db}
 	d.mirrors = &GitMirrorStore{db: d.db}
+	d.packedObjects = &PackedObjectStore{db: d.db}
 }

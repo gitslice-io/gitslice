@@ -94,6 +94,31 @@ func (s *RepositoryStore) ListGitImportCommits(ctx context.Context, importID str
 	return out, rows.Err()
 }
 
+func (s *RepositoryStore) ListGitImportCommitsByGitIDs(ctx context.Context, importID string, gitCommitIDs []string) ([]GitImportedCommitRecord, error) {
+	if importID == "" || len(gitCommitIDs) == 0 {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select `+gitImportCommitColumns+`
+		from git_import_commits
+		where import_id = $1 and git_commit_id = any($2)
+		order by position
+	`, importID, gitCommitIDs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []GitImportedCommitRecord
+	for rows.Next() {
+		row, err := scanGitImportCommit(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, row)
+	}
+	return out, rows.Err()
+}
+
 func (s *RepositoryStore) GitImportsForCommits(ctx context.Context, nativeCommitIDs []string) (map[string]GitImportedCommitRecord, error) {
 	out := map[string]GitImportedCommitRecord{}
 	if len(nativeCommitIDs) == 0 {

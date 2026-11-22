@@ -175,7 +175,18 @@ func importRetryable(err error) bool {
 		return true
 	case codes.Internal, codes.Unknown, codes.Canceled:
 		msg := strings.ToLower(st.Message())
-		for _, transient := range []string{"context canceled", "rst_stream", "eof", "connection reset", "transport is closing", "goaway", "server closed the stream without sending trailers"} {
+		for _, transient := range []string{
+			"context canceled",
+			"rst_stream",
+			"eof",
+			"connection reset",
+			"transport is closing",
+			"goaway",
+			"server closed the stream without sending trailers",
+			"unexpected content-type",
+			"statuscode: 429",
+			"serviceunavailable",
+		} {
 			if strings.Contains(msg, transient) {
 				return true
 			}

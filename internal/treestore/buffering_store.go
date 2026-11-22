@@ -3,6 +3,8 @@ package treestore
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"sync"
@@ -10,7 +12,22 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const treeFlushConcurrency = 64
+const (
+	treeFlushConcurrency = 64
+	treePackThreshold    = 8
+)
+
+type packWriter interface {
+	PutPack(ctx context.Context, packKey string, objects map[string][]byte) error
+}
+
+func randomTreePackKey() (string, error) {
+	var raw [16]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return "packs/trees/tpk_" + hex.EncodeToString(raw[:]) + ".pack", nil
+}
 
 type bufferingObjectStore struct {
 	base      ObjectStore
@@ -139,6 +156,23 @@ func (b *bufferingObjectStore) flush(ctx context.Context) error {
 	b.mu.Unlock()
 	if len(writes) == 0 {
 		return nil
+	}
+
+	if len(writes) >= treePackThreshold {
+		if pw, ok := b.base.(packWriter); ok {
+			packKey, err := randomTreePackKey()
+			if err != nil {
+				return err
+			}
+			if err := pw.PutPack(ctx, packKey, writes); err != nil {
+				return err
+			}
+			b.mu.Lock()
+			b.writes = map[string][]byte{}
+			b.writtenID = map[string]string{}
+			b.mu.Unlock()
+			return nil
+		}
 	}
 
 	group, groupCtx := errgroup.WithContext(ctx)
