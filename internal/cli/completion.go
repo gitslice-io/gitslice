@@ -64,7 +64,7 @@ func (r Runner) completeChangesets(cmd *cobra.Command, args []string, toComplete
 	}
 	ctx, cancel := completionContext(cmd)
 	defer cancel()
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -99,7 +99,7 @@ func (r Runner) completeSlices(cmd *cobra.Command, args []string, toComplete str
 	}
 	ctx, cancel := completionContext(cmd)
 	defer cancel()
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}

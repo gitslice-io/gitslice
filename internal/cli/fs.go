@@ -214,7 +214,7 @@ func (r Runner) homeFSReadScope(ctx context.Context) (UserConfig, *grpc.ClientCo
 	if err != nil {
 		return UserConfig{}, nil, nil, nil, "", err
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return UserConfig{}, nil, nil, nil, "", err
 	}

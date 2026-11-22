@@ -70,10 +70,11 @@ type commitLogOptions struct {
 }
 
 type commitShowOptions struct {
-	Full     bool
-	NameOnly bool
-	Stat     bool
-	Patch    bool
+	Full        bool
+	NameOnly    bool
+	Stat        bool
+	Patch       bool
+	DiffContext diffContextOption
 }
 
 func (r Runner) runCommitLog(ctx context.Context, opts commandOptions, logOpts commitLogOptions) error {
@@ -86,118 +87,108 @@ func (r Runner) runCommitLog(ctx context.Context, opts commandOptions, logOpts c
 	if logOpts.All && strings.TrimSpace(logOpts.Slice) != "" {
 		return userError("invalid_args", "--all cannot be combined with --slice", "Use --slice for one slice or --all for broader readable history.")
 	}
-	cfg, err := r.readUserConfig()
-	if err != nil {
-		return err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	callCtx := authContext(ctx, cfg)
-	pathFilter, err := r.resolveCommitLogPath(logOpts.Path)
-	if err != nil {
-		return err
-	}
-	if logOpts.Follow && strings.TrimSpace(pathFilter) == "" {
-		return userError("invalid_args", "--follow requires exactly one path", "Pass a path with gs log --follow -- <path>.")
-	}
-	scopeSlice, scopeAll, err := r.resolveCommitLogScope(callCtx, cfg, conn, logOpts.Slice, logOpts.All)
-	if err != nil {
-		return err
-	}
-	req := &corev1.ListCommitsRequest{
-		RefName:   model.DefaultTargetRef,
-		Limit:     int32(logOpts.Limit),
-		Path:      pathFilter,
-		Slice:     scopeSlice,
-		PageToken: logOpts.PageToken,
-	}
-	if logOpts.NoFollowMoves {
-		followMoves := false
-		req.FollowMoves = &followMoves
-	}
-	res, err := corev1.NewRepositoryServiceClient(conn).ListCommits(callCtx, req)
-	if err != nil {
-		return err
-	}
-	output := commitLogOutput{
-		Commits:       commitsToOutput(res.Commits),
-		NextPageToken: res.NextPageToken,
-	}
-	if logOpts.IncludeScope {
-		output.Scope = &commitLogScopeOutput{
-			RefName:     req.RefName,
-			Slice:       scopeSlice,
-			Path:        pathFilter,
-			FollowMoves: req.FollowMoves == nil || req.GetFollowMoves(),
-			All:         scopeAll,
-		}
-	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, output)
-	}
-	if opts.Quiet {
-		return nil
-	}
-	color := r.colorEnabled(opts)
-	if opts.Format == "medium" {
-		printCommitLogMedium(r.Stdout, res.Commits, logOpts.Full, logOpts.NameOnly, color)
-	} else {
-		printCommitLogOneline(r.Stdout, res.Commits, logOpts.Full, logOpts.NameOnly, color)
-	}
-	if res.NextPageToken != "" {
-		fmt.Fprintf(r.Stdout, "%s %s\n", colorize(color, ansiDim, "next_page_token:"), res.NextPageToken)
-		fmt.Fprintf(r.Stdout, "%s Run gs log --page-token %s with the same filters.\n", colorize(color, ansiDim, "hint:"), res.NextPageToken)
-	}
-	return nil
-}
-
-func (r Runner) runCommitShow(ctx context.Context, opts commandOptions, commitID string, showOpts commitShowOptions) error {
-	cfg, err := r.readUserConfig()
-	if err != nil {
-		return err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	commit, err := r.resolveCommit(ctx, cfg, conn, commitID, nil)
-	if err != nil {
-		return err
-	}
-	out := commitToOutput(commit)
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, out)
-	}
-	if opts.Quiet {
-		return nil
-	}
-	color := r.colorEnabled(opts)
-	if showOpts.NameOnly {
-		printPathListColor(r.Stdout, commit.ChangedPaths, color)
-		return nil
-	}
-	if showOpts.Stat {
-		if diffText, err := r.commitDiffText(ctx, cfg, conn, "", commit.Id); err == nil {
-			printUnifiedDiffStatColor(r.Stdout, commit.ChangedPaths, diffText, color)
-			return nil
-		}
-		printPathStatColor(r.Stdout, commit.ChangedPaths, color)
-		return nil
-	}
-	if showOpts.Patch {
-		diffText, err := r.commitDiffText(ctx, cfg, conn, "", commit.Id)
+	return r.withSession(ctx, func(s *Session) error {
+		cfg := s.Config()
+		conn := s.Conn()
+		callCtx := s.Ctx()
+		pathFilter, err := r.resolveCommitLogPath(logOpts.Path)
 		if err != nil {
 			return err
 		}
-		_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, opts.diffContext()), color))
-		return err
-	}
-	printCommitDetails(r.Stdout, commit, showOpts.Full, color)
-	return nil
+		if logOpts.Follow && strings.TrimSpace(pathFilter) == "" {
+			return userError("invalid_args", "--follow requires exactly one path", "Pass a path with gs log --follow -- <path>.")
+		}
+		scopeSlice, scopeAll, err := r.resolveCommitLogScope(callCtx, cfg, conn, logOpts.Slice, logOpts.All)
+		if err != nil {
+			return err
+		}
+		req := &corev1.ListCommitsRequest{
+			RefName:   model.DefaultTargetRef,
+			Limit:     int32(logOpts.Limit),
+			Path:      pathFilter,
+			Slice:     scopeSlice,
+			PageToken: logOpts.PageToken,
+		}
+		if logOpts.NoFollowMoves {
+			followMoves := false
+			req.FollowMoves = &followMoves
+		}
+		res, err := s.Repository().ListCommits(callCtx, req)
+		if err != nil {
+			return err
+		}
+		output := commitLogOutput{
+			Commits:       commitsToOutput(res.Commits),
+			NextPageToken: res.NextPageToken,
+		}
+		if logOpts.IncludeScope {
+			output.Scope = &commitLogScopeOutput{
+				RefName:     req.RefName,
+				Slice:       scopeSlice,
+				Path:        pathFilter,
+				FollowMoves: req.FollowMoves == nil || req.GetFollowMoves(),
+				All:         scopeAll,
+			}
+		}
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, output)
+		}
+		if opts.Quiet {
+			return nil
+		}
+		color := r.colorEnabled(opts)
+		if opts.Format == "medium" {
+			printCommitLogMedium(r.Stdout, res.Commits, logOpts.Full, logOpts.NameOnly, color)
+		} else {
+			printCommitLogOneline(r.Stdout, res.Commits, logOpts.Full, logOpts.NameOnly, color)
+		}
+		if res.NextPageToken != "" {
+			fmt.Fprintf(r.Stdout, "%s %s\n", colorize(color, ansiDim, "next_page_token:"), res.NextPageToken)
+			fmt.Fprintf(r.Stdout, "%s Run gs log --page-token %s with the same filters.\n", colorize(color, ansiDim, "hint:"), res.NextPageToken)
+		}
+		return nil
+	})
+}
+
+func (r Runner) runCommitShow(ctx context.Context, opts commandOptions, commitID string, showOpts commitShowOptions) error {
+	return r.withSession(ctx, func(s *Session) error {
+		cfg := s.Config()
+		conn := s.Conn()
+		commit, err := r.resolveCommit(ctx, cfg, conn, commitID, nil)
+		if err != nil {
+			return err
+		}
+		out := commitToOutput(commit)
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, out)
+		}
+		if opts.Quiet {
+			return nil
+		}
+		color := r.colorEnabled(opts)
+		if showOpts.NameOnly {
+			printPathListColor(r.Stdout, commit.ChangedPaths, color)
+			return nil
+		}
+		if showOpts.Stat {
+			if diffText, err := r.commitDiffText(ctx, cfg, conn, "", commit.Id); err == nil {
+				printUnifiedDiffStatColor(r.Stdout, commit.ChangedPaths, diffText, color)
+				return nil
+			}
+			printPathStatColor(r.Stdout, commit.ChangedPaths, color)
+			return nil
+		}
+		if showOpts.Patch {
+			diffText, err := r.commitDiffText(ctx, cfg, conn, "", commit.Id)
+			if err != nil {
+				return err
+			}
+			_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, showOpts.DiffContext.lines()), color))
+			return err
+		}
+		printCommitDetails(r.Stdout, commit, showOpts.Full, color)
+		return nil
+	})
 }
 
 func (r Runner) resolveCommitLogPath(raw string) (string, error) {

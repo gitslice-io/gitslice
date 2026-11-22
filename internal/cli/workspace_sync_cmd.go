@@ -49,8 +49,8 @@ const (
 	blobStreamChunkBytes     = 1 << 20
 )
 
-func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error {
-	mergeStrategy, err := normalizeWorkspaceSyncMergeStrategy(opts.SyncMerge)
+func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions, rawMergeStrategy string) error {
+	mergeStrategy, err := normalizeWorkspaceSyncMergeStrategy(rawMergeStrategy)
 	if err != nil {
 		return err
 	}
@@ -67,7 +67,7 @@ func (r Runner) runWorkspaceSync(ctx context.Context, opts commandOptions) error
 	if oldBaseCommitID == "" {
 		return userError("invalid_workspace_state", "workspace has no base commit", "Run gs init <slice|account:slice> again.")
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}

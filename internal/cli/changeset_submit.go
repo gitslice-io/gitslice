@@ -58,7 +58,7 @@ func (r Runner) runChangesetSubmit(ctx context.Context, opts commandOptions, req
 		return err
 	}
 	cfg, ws, state, hasWorkspace, changesetID, usingWorkspaceCurrent := target.Config, target.Workspace, target.State, target.HasWorkspace, target.ChangesetID, target.UsingWorkspaceCurrent
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
@@ -236,7 +236,7 @@ func (r Runner) runStackSubmit(ctx context.Context, opts commandOptions, request
 	if stackID == "" {
 		return userError("no_active_stack", "no active dependency tree in workspace", "Run gs create first or pass a dependent changeset id.")
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
@@ -265,7 +265,7 @@ func (r Runner) runStackSubmit(ctx context.Context, opts commandOptions, request
 }
 
 func (r Runner) runStackSubmitActivePath(ctx context.Context, opts commandOptions, cfg UserConfig, state WorkspaceState, watch bool, watchTimeout time.Duration) error {
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}

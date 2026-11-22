@@ -31,7 +31,7 @@ func (r Runner) authenticatedConn(ctx context.Context) (UserConfig, *grpc.Client
 	if err != nil {
 		return UserConfig{}, nil, nil, err
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return UserConfig{}, nil, nil, err
 	}
@@ -122,6 +122,20 @@ func (c bearerTokenCreds) RequireTransportSecurity() bool {
 
 func authContext(ctx context.Context, cfg UserConfig) context.Context {
 	return context.WithValue(ctx, bearerTokenContextKey{}, cfg.Token)
+}
+
+func (r Runner) dialServer(ctx context.Context, addr string) (*grpc.ClientConn, error) {
+	if r.Dial != nil {
+		return r.Dial(ctx, addr)
+	}
+	return dial(ctx, addr)
+}
+
+func (r Runner) dialServerLazy(ctx context.Context, addr string) (*grpc.ClientConn, error) {
+	if r.Dial != nil {
+		return r.Dial(ctx, addr)
+	}
+	return dialLazy(addr, r.Insecure)
 }
 
 func dial(ctx context.Context, addr string) (*grpc.ClientConn, error) {

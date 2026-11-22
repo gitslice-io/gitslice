@@ -55,7 +55,7 @@ func (r Runner) finishClerkLogin(ctx context.Context, opts commandOptions, serve
 }
 
 func (r Runner) runAuthLoginClerkBrowser(ctx context.Context, opts commandOptions, serverAddr, webURL string) error {
-	conn, err := dial(ctx, serverAddr)
+	conn, err := r.dialServer(ctx, serverAddr)
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func (r Runner) runAuthLoginClerkBrowser(ctx context.Context, opts commandOption
 // verifyToken dials serverAddr and calls AuthService.GetAuthStatus using token as
 // the bearer credential, returning the authenticated subject ID.
 func (r Runner) verifyToken(ctx context.Context, serverAddr, token string) (string, error) {
-	conn, err := dial(ctx, serverAddr)
+	conn, err := r.dialServer(ctx, serverAddr)
 	if err != nil {
 		return "", err
 	}

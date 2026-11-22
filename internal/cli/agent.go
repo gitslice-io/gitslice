@@ -274,7 +274,7 @@ func (r Runner) agentHost(cfg UserConfig, opts commandOptions) agentd.HostCallba
 			var stderr bytes.Buffer
 			child := r.agentChildRunner(cfg, workdir, envOverrides, io.Discard)
 			child.Stderr = io.MultiWriter(&stderr, r.stderr())
-			err := child.runWorkspaceInit(ctx, commandOptions{Format: "text", Quiet: true, AgentConversationID: conversationID}, sliceRef)
+			err := child.runWorkspaceInit(ctx, commandOptions{Format: "text", Quiet: true}, sliceRef, conversationID)
 			return strings.TrimSpace(stderr.String()), err
 		},
 		CaptureChangeset: func(ctx context.Context, workdir string, envOverrides map[string]string, title string) (bool, string, error) {

@@ -74,7 +74,7 @@ func (r Runner) runRPCCall(ctx context.Context, opts commandOptions, selector, r
 			serverAddr = cfg.ServerAddr
 		}
 	}
-	conn, err := dial(ctx, serverAddr)
+	conn, err := r.dialServer(ctx, serverAddr)
 	if err != nil {
 		return err
 	}

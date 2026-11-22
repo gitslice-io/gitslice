@@ -75,18 +75,18 @@ func (r Runner) historyCommands(opts *commandOptions) []*cobra.Command {
 		Args: exactArgs(1, "gs show <commit-id-or-prefix|changeset>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			showOpts := commitShowOptions{
-				Full:     showFull,
-				NameOnly: showNameOnly,
-				Stat:     showStat,
-				Patch:    showPatch,
+				Full:        showFull,
+				NameOnly:    showNameOnly,
+				Stat:        showStat,
+				Patch:       showPatch,
+				DiffContext: diffContextFromFlag(cmd, showContext),
 			}
-			cmdOpts := diffContextOptions(cmd, *opts, showContext)
 			if looksLikeChangesetID(args[0]) {
-				return r.runShowChangeset(cmd.Context(), cmdOpts, args[0], showOpts)
+				return r.runShowChangeset(cmd.Context(), *opts, args[0], showOpts)
 			}
-			err := r.runCommitShow(cmd.Context(), cmdOpts, args[0], showOpts)
+			err := r.runCommitShow(cmd.Context(), *opts, args[0], showOpts)
 			if err != nil && commitNotFound(err) {
-				if csErr := r.runShowChangeset(cmd.Context(), cmdOpts, args[0], showOpts); csErr == nil {
+				if csErr := r.runShowChangeset(cmd.Context(), *opts, args[0], showOpts); csErr == nil {
 					return nil
 				}
 			}
@@ -109,7 +109,7 @@ func (r Runner) historyCommands(opts *commandOptions) []*cobra.Command {
 		Short: "Show workspace, changeset, or commit diffs",
 		Args:  maxArgs(2, "gs diff [commit-or-changeset] [commit-id-or-prefix] [--from patchset --to patchset]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runDiff(cmd.Context(), diffContextOptions(cmd, *opts, diffContext), args, diffFrom, diffTo, diffNameOnly, diffStat)
+			return r.runDiff(cmd.Context(), *opts, args, diffFrom, diffTo, diffNameOnly, diffStat, diffContextFromFlag(cmd, diffContext))
 		},
 	}
 	diffCmd.Flags().StringVar(&diffFrom, "from", diffFrom, "patchset number or id to diff from")

@@ -17,6 +17,7 @@ import (
 type fsUploadOptions struct {
 	Recursive   bool
 	Concurrency int
+	NoSubmit    bool
 }
 
 type localUploadPlan struct {
@@ -61,7 +62,7 @@ func (r Runner) runFSUpload(ctx context.Context, opts commandOptions, localPath,
 	if len(edits) == 0 {
 		return userError("empty_upload", "no files or directories to upload", "Choose a non-empty source or a destination below the home root.")
 	}
-	return mutator.apply(ctx, opts, "upload", edits)
+	return mutator.apply(ctx, opts, "upload", edits, uploadOpts.NoSubmit)
 }
 
 func localUploadSourcePath(cwd, value string) string {

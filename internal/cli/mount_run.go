@@ -14,7 +14,7 @@ import (
 	"gitslice.io/gitslice/internal/lazyfs"
 )
 
-func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dirArg, workspaceID string, foreground, debug bool, readOnly *bool, prefetch []string) (err error) {
+func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dirArg, workspaceID string, foreground, debug bool, readOnly *bool, prefetch []string, agentConversationID string) (err error) {
 	for _, pattern := range prefetch {
 		if !doublestar.ValidatePattern(pattern) {
 			return userError("invalid_args", "invalid --prefetch pattern "+pattern, "Use a glob relative to the mount, such as 'acme/app/**/*.go'.")
@@ -34,7 +34,7 @@ func (r Runner) runMount(ctx context.Context, opts commandOptions, sliceArg, dir
 			return err
 		}
 	}
-	rec, created, err := r.mountRecordFor(ctx, sliceArg, dir, workspaceID, strings.TrimSpace(opts.AgentConversationID), !opts.Quiet && !opts.jsonOutput())
+	rec, created, err := r.mountRecordFor(ctx, sliceArg, dir, workspaceID, strings.TrimSpace(agentConversationID), !opts.Quiet && !opts.jsonOutput())
 	if err != nil {
 		return err
 	}

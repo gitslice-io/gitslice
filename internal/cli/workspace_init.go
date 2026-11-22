@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, sliceRef string) error {
+func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, sliceRef, agentConversationID string) error {
 	cfg, err := r.readUserConfig()
 	if err != nil {
 		return err
@@ -19,7 +19,7 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 	if err != nil {
 		return err
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
@@ -43,7 +43,7 @@ func (r Runner) runWorkspaceInit(ctx context.Context, opts commandOptions, slice
 		DefinitionHash: slice.DefinitionHash,
 		IncludedPaths:  slice.Definition.IncludedPaths,
 		BaseCommitID:   commitID,
-		ConversationID: strings.TrimSpace(opts.AgentConversationID),
+		ConversationID: strings.TrimSpace(agentConversationID),
 	}
 	if err := r.writeWorkspaceConfig(workspace); err != nil {
 		return err
@@ -178,7 +178,7 @@ func (r Runner) runWorkspaceHydrate(ctx context.Context, opts commandOptions, re
 	if err != nil {
 		return err
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}

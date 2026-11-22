@@ -133,7 +133,7 @@ func (s *serverShell) mutate(ctx context.Context, operation string, edits []*cor
 	var captured strings.Builder
 	originalStdout := s.mutator.runner.Stdout
 	s.mutator.runner.Stdout = &captured
-	err := s.mutator.apply(ctx, commandOptions{Quiet: true}, operation, edits)
+	err := s.mutator.apply(ctx, commandOptions{Quiet: true}, operation, edits, false)
 	s.mutator.runner.Stdout = originalStdout
 	if err != nil {
 		return err

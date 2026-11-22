@@ -179,7 +179,7 @@ func (d *doctor) checkServer(ctx context.Context, cfg UserConfig) *grpc.ClientCo
 		return nil
 	}
 	_ = probe.Close()
-	conn, err := dial(ctx, addr)
+	conn, err := d.runner.dialServer(ctx, addr)
 	if err != nil {
 		d.add("server", "fail", fmt.Sprintf("server %s: %v", addr, err), "Check the address (gs auth login --server <addr>) and your network.")
 		return nil

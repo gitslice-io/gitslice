@@ -32,7 +32,7 @@ func (r Runner) runChangesetUpdate(ctx context.Context, opts commandOptions) err
 		}
 		clearConflicts = true
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
@@ -107,7 +107,7 @@ func (r Runner) runStackModify(ctx context.Context, opts commandOptions, message
 	if state.CurrentChangesetID == "" {
 		return userError("no_current_changeset", "no current changeset in workspace", "Run gs create first.")
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}

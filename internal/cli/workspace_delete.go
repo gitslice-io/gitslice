@@ -98,7 +98,7 @@ func (r Runner) unheldLazyEdits(ctx context.Context, rec mountRecord, edits []la
 	if err != nil {
 		return nil, err
 	}
-	conn, err := dialLazy(cfg.ServerAddr, r.Insecure)
+	conn, err := r.dialServerLazy(ctx, cfg.ServerAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +242,7 @@ func (r Runner) checkoutEditPaths(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	conn, err := dialLazy(cfg.ServerAddr, r.Insecure)
+	conn, err := r.dialServerLazy(ctx, cfg.ServerAddr)
 	if err != nil {
 		return nil, err
 	}

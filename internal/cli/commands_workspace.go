@@ -43,9 +43,9 @@ matching files in the background; --read-only refuses writes.`,
 					}
 					sub := r
 					sub.Dir = into
-					return sub.runWorkspaceInit(cmd.Context(), *opts, args[0])
+					return sub.runWorkspaceInit(cmd.Context(), *opts, args[0], "")
 				}
-				return r.runWorkspaceInit(cmd.Context(), *opts, args[0])
+				return r.runWorkspaceInit(cmd.Context(), *opts, args[0], "")
 			}
 			dir := ""
 			if len(args) == 2 {
@@ -69,16 +69,17 @@ matching files in the background; --read-only refuses writes.`,
 		RunE:    requireSubcommand("workspace"),
 	}
 	markSchemaGroup(workspaceCmd)
+	workspaceInitConvID := ""
 	workspaceInitCmd := &cobra.Command{
 		Use:    "init <slice|account:slice>",
 		Short:  "Bind the current directory to a slice",
 		Hidden: true,
 		Args:   exactArgs(1, "gs workspace init <slice|account:slice>"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runWorkspaceInit(cmd.Context(), *opts, args[0])
+			return r.runWorkspaceInit(cmd.Context(), *opts, args[0], workspaceInitConvID)
 		},
 	}
-	workspaceInitCmd.Flags().StringVar(&opts.AgentConversationID, "agent-conversation", "", "link changesets in this workspace to an agent conversation id")
+	workspaceInitCmd.Flags().StringVar(&workspaceInitConvID, "agent-conversation", "", "link changesets in this workspace to an agent conversation id")
 	_ = workspaceInitCmd.Flags().MarkHidden("agent-conversation")
 	workspaceHydrateCmd := &cobra.Command{
 		Use:   "hydrate <path> [path...]",
@@ -88,15 +89,16 @@ matching files in the background; --read-only refuses writes.`,
 			return r.runWorkspaceHydrate(cmd.Context(), *opts, args)
 		},
 	}
+	workspaceSyncMerge := defaultWorkspaceSyncMergeStrategy
 	workspaceSyncCmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Sync the workspace to the latest remote base",
 		Args:  noArgs("gs workspace sync"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runWorkspaceSync(cmd.Context(), *opts)
+			return r.runWorkspaceSync(cmd.Context(), *opts, workspaceSyncMerge)
 		},
 	}
-	workspaceSyncCmd.Flags().StringVar(&opts.SyncMerge, "merge", defaultWorkspaceSyncMergeStrategy, "merge strategy for same-path changes: line, manual, ours, or theirs")
+	workspaceSyncCmd.Flags().StringVar(&workspaceSyncMerge, "merge", defaultWorkspaceSyncMergeStrategy, "merge strategy for same-path changes: line, manual, ours, or theirs")
 	workspaceDeleteForce := false
 	workspaceDeleteCmd := &cobra.Command{
 		Use:     "delete [dir]",
@@ -123,15 +125,16 @@ Pass the workspace's own directory, not a folder inside it.`,
 	workspaceDeleteCmd.Flags().BoolVar(&workspaceDeleteForce, "force", false, "delete even when there are local edits no changeset holds, discarding them")
 	workspaceCmd.AddCommand(workspaceInitCmd, workspaceHydrateCmd, workspaceSyncCmd, workspaceDeleteCmd)
 
+	syncMerge := defaultWorkspaceSyncMergeStrategy
 	syncCmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Sync the workspace to the latest remote base",
 		Args:  noArgs("gs sync"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runWorkspaceSync(cmd.Context(), *opts)
+			return r.runWorkspaceSync(cmd.Context(), *opts, syncMerge)
 		},
 	}
-	syncCmd.Flags().StringVar(&opts.SyncMerge, "merge", defaultWorkspaceSyncMergeStrategy, "merge strategy for same-path changes: line, manual, ours, or theirs")
+	syncCmd.Flags().StringVar(&syncMerge, "merge", defaultWorkspaceSyncMergeStrategy, "merge strategy for same-path changes: line, manual, ours, or theirs")
 
 	return []*cobra.Command{initCmd, workspaceCmd, syncCmd}
 }

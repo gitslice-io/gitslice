@@ -321,13 +321,23 @@ func (r Runner) resolveChangesetTargetWithConfig(preloadedCfg UserConfig, hasPre
 }
 
 func (r Runner) withConfigSession(ctx context.Context, cfg UserConfig, fn func(s *Session) error) error {
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
 	s := newSession(r, cfg, conn, authContext(ctx, cfg))
 	defer s.Close()
 	return fn(s)
+}
+
+func (r Runner) withWorkspaceSession(ctx context.Context, fn func(s *Session, ws WorkspaceConfig, state WorkspaceState) error) error {
+	cfg, ws, state, err := r.loadLocalState()
+	if err != nil {
+		return err
+	}
+	return r.withConfigSession(ctx, cfg, func(s *Session) error {
+		return fn(s, ws, state)
+	})
 }
 
 func (r Runner) withSession(ctx context.Context, fn func(s *Session) error) error {

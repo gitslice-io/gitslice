@@ -282,7 +282,7 @@ func agentClaimInstructionsWithSlice(email, claimURL, agentSubjectID, requestedS
 func (r Runner) registerAgentOnce(ctx context.Context, serverAddr string, req *corev1.RegisterAgentRequest) (*corev1.RegisterAgentResponse, error) {
 	attemptCtx, cancel := context.WithTimeout(ctx, registerAgentAttemptTimeout)
 	defer cancel()
-	conn, err := dial(attemptCtx, serverAddr)
+	conn, err := r.dialServer(attemptCtx, serverAddr)
 	if err != nil {
 		return nil, err
 	}

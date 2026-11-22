@@ -174,7 +174,7 @@ func (r Runner) runOnboard(ctx context.Context, opts commandOptions, in onboardO
 		subOpts.JSONFields = nil
 		subOpts.JQ = ""
 		subOpts.Template = ""
-		if err := sub.runWorkspaceInit(ctx, subOpts, targetSlice); err != nil {
+		if err := sub.runWorkspaceInit(ctx, subOpts, targetSlice, ""); err != nil {
 			return err
 		}
 		out.WorkspaceDir = in.dir
@@ -235,7 +235,7 @@ func (r Runner) checkExistingAuth(ctx context.Context) (existingAuthSummary, boo
 	if err != nil || strings.TrimSpace(cfg.Token) == "" {
 		return existingAuthSummary{}, false
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return existingAuthSummary{}, false
 	}

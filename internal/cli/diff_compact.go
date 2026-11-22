@@ -12,11 +12,15 @@ import (
 // change, as git does.
 const defaultDiffContext = 3
 
-// diffContext is how many unchanged lines of context diff output shows around
-// a change: -U/--unified, else three. Negative shows the whole file.
-func (o commandOptions) diffContext() int {
-	if o.DiffContextSet {
-		return o.DiffContext
+// diffContextOption holds -U/--unified for a diff-printing command.
+type diffContextOption struct {
+	Context int
+	Set     bool
+}
+
+func (d diffContextOption) lines() int {
+	if d.Set {
+		return d.Context
 	}
 	return defaultDiffContext
 }
@@ -26,11 +30,12 @@ func addDiffContextFlag(cmd *cobra.Command, value *int) {
 	cmd.Flags().IntVarP(value, "unified", "U", defaultDiffContext, "unchanged lines of context around each change; a negative number shows the whole file")
 }
 
-// diffContextOptions returns opts with the context the command's -U flag chose.
-func diffContextOptions(cmd *cobra.Command, opts commandOptions, value int) commandOptions {
-	opts.DiffContext = value
-	opts.DiffContextSet = cmd.Flags().Changed("unified")
-	return opts
+// diffContextFromFlag returns the diffContextOption chosen by cmd's -U flag.
+func diffContextFromFlag(cmd *cobra.Command, value int) diffContextOption {
+	return diffContextOption{
+		Context: value,
+		Set:     cmd.Flags().Changed("unified"),
+	}
 }
 
 // compactUnifiedDiff rewrites a diff whose files are each one hunk covering the

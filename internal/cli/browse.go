@@ -236,7 +236,7 @@ func (r Runner) browseTargetForPath(ctx context.Context, p string) (browseTarget
 	}
 	lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	conn, err := dial(lookupCtx, cfg.ServerAddr)
+	conn, err := r.dialServer(lookupCtx, cfg.ServerAddr)
 	if err != nil {
 		return out, nil
 	}
@@ -270,7 +270,7 @@ func (r Runner) browseNotes(ctx context.Context, t browseTarget) []string {
 	}
 	lookupCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	conn, err := dial(lookupCtx, cfg.ServerAddr)
+	conn, err := r.dialServer(lookupCtx, cfg.ServerAddr)
 	if err != nil {
 		return []string{fmt.Sprintf("note: could not reach %s to check %s: %v", cfg.ServerAddr, name, err)}
 	}

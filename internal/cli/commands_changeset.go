@@ -170,7 +170,7 @@ func (r Runner) changesetCommand(opts *commandOptions) *cobra.Command {
 			if len(args) > 0 {
 				id = args[0]
 			}
-			return r.runChangesetDiff(cmd.Context(), diffContextOptions(cmd, *opts, csDiffContext), id, csDiffPatchset, csDiffFrom, csDiffTo, csDiffNameOnly, csDiffStat)
+			return r.runChangesetDiff(cmd.Context(), *opts, id, csDiffPatchset, csDiffFrom, csDiffTo, csDiffNameOnly, csDiffStat, diffContextFromFlag(cmd, csDiffContext))
 		},
 	}
 	csDiffCmd.Flags().StringVar(&csDiffPatchset, "patchset", csDiffPatchset, "patchset number or id to diff against its base")

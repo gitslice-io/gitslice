@@ -177,7 +177,7 @@ func TestWorkspaceSyncDoesNotCorruptGsMetadataWhenUpdateChangesetFails(t *testin
 		t.Fatal(err)
 	}
 
-	if err := r.runWorkspaceSync(context.Background(), commandOptions{Format: "text", SyncMerge: defaultWorkspaceSyncMergeStrategy}); err == nil {
+	if err := r.runWorkspaceSync(context.Background(), commandOptions{Format: "text"}, defaultWorkspaceSyncMergeStrategy); err == nil {
 		t.Fatal("expected runWorkspaceSync to fail when UpdateChangeset fails")
 	}
 

@@ -2,8 +2,16 @@ package cli
 
 import (
 	"context"
+	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"google.golang.org/grpc"
 )
 
 func TestSessionCachesServiceClients(t *testing.T) {
@@ -171,5 +179,64 @@ func TestSessionOptionalSliceAccountAndAuthCtxHelpers(t *testing.T) {
 	meta, err := creds.GetRequestMetadata(sWS.AuthCtx(context.Background()))
 	if err != nil || meta["authorization"] != "Bearer tok_sub" {
 		t.Fatalf("AuthCtx bearer metadata = %v (err=%v)", meta, err)
+	}
+}
+
+func TestRunnerDialSeamInterceptsSessionAndLazyDial(t *testing.T) {
+	home := t.TempDir()
+	sentinel := errors.New("dial intercepted")
+	var dialed []string
+	r := Runner{
+		Home: home,
+		Dir:  t.TempDir(),
+		Dial: func(_ context.Context, addr string) (*grpc.ClientConn, error) {
+			dialed = append(dialed, addr)
+			return nil, sentinel
+		},
+	}
+	if err := r.writeUserConfig(UserConfig{ServerAddr: "example.test:443", Token: "tok_abc", SubjectID: "user_alice"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.withSession(context.Background(), func(*Session) error { return nil }); !errors.Is(err, sentinel) {
+		t.Fatalf("withSession err = %v, want %v", err, sentinel)
+	}
+	if _, err := r.dialServerLazy(context.Background(), "lazy.test:443"); !errors.Is(err, sentinel) {
+		t.Fatalf("dialServerLazy err = %v, want %v", err, sentinel)
+	}
+	if len(dialed) != 2 || dialed[0] != "example.test:443" || dialed[1] != "lazy.test:443" {
+		t.Fatalf("dialed = %v, want [example.test:443 lazy.test:443]", dialed)
+	}
+}
+
+func TestNoDirectDialOutsideConnectionGo(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fset := token.NewFileSet()
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || name == "connection.go" {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			ident, ok := call.Fun.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			if ident.Name == "dial" || ident.Name == "dialLazy" {
+				pos := fset.Position(call.Pos())
+				t.Errorf("%s:%d calls %s directly; use Runner.withSession / Runner.dialServer / Runner.dialServerLazy", name, pos.Line, ident.Name)
+			}
+			return true
+		})
 	}
 }

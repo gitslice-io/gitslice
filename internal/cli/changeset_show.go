@@ -127,7 +127,7 @@ func (r Runner) runChangesetStatus(ctx context.Context, opts commandOptions, req
 
 func (r Runner) runShowChangeset(ctx context.Context, opts commandOptions, requestedID string, showOpts commitShowOptions) error {
 	if showOpts.NameOnly || showOpts.Stat || showOpts.Patch {
-		return r.runChangesetDiff(ctx, opts, requestedID, "", "", "", showOpts.NameOnly, showOpts.Stat)
+		return r.runChangesetDiff(ctx, opts, requestedID, "", "", "", showOpts.NameOnly, showOpts.Stat, showOpts.DiffContext)
 	}
 	return r.runChangesetShow(ctx, opts, requestedID)
 }
@@ -269,7 +269,7 @@ func (r Runner) runChangesetVersions(ctx context.Context, opts commandOptions, r
 	})
 }
 
-func (r Runner) runChangesetDiff(ctx context.Context, opts commandOptions, requestedID, patchset, from, to string, nameOnly, stat bool) error {
+func (r Runner) runChangesetDiff(ctx context.Context, opts commandOptions, requestedID, patchset, from, to string, nameOnly, stat bool, diffCtx diffContextOption) error {
 	return r.withChangesetSession(ctx, requestedID, func(s *Session, target ChangesetTarget) error {
 		res, err := s.Changeset().DiffChangeset(s.Ctx(), &corev1.DiffChangesetRequest{
 			ChangesetId:  target.ChangesetID,
@@ -294,7 +294,7 @@ func (r Runner) runChangesetDiff(ctx context.Context, opts commandOptions, reque
 			printUnifiedDiffStatColor(r.Stdout, res.ChangedPaths, res.Diff, r.colorEnabled(opts))
 			return nil
 		}
-		_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(res.Diff, opts.diffContext()), r.colorEnabled(opts)))
+		_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(res.Diff, diffCtx.lines()), r.colorEnabled(opts)))
 		return err
 	})
 }
@@ -341,7 +341,7 @@ func (r Runner) runChangesetList(ctx context.Context, opts commandOptions, slice
 }
 
 func (r Runner) getChangeset(ctx context.Context, cfg UserConfig, changesetID string) (*corev1.Changeset, error) {
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return nil, err
 	}

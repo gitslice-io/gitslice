@@ -25,7 +25,7 @@ func (r Runner) runChangesetCreate(ctx context.Context, opts commandOptions, tit
 	if err != nil {
 		return err
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func (r Runner) runStackCreate(ctx context.Context, opts commandOptions, title, 
 	if err := rejectPreStackWorkspaceState(state); err != nil {
 		return err
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}

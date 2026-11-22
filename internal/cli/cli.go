@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"gitslice.io/gitslice/internal/agentd"
+	"google.golang.org/grpc"
 )
 
 type Runner struct {
@@ -24,6 +25,9 @@ type Runner struct {
 	// (such as GS_TOKEN) that Env does not name, so an isolated child run only
 	// sees the identity it was given.
 	Env map[string]string
+	// Dial overrides gRPC dialing for Session and command RPCs (primarily for
+	// unit tests); nil uses the default dialer.
+	Dial func(ctx context.Context, addr string) (*grpc.ClientConn, error)
 	// AgentDoctorProbes and AgentService are optional host-operation seams for
 	// the agent preflight and user-service commands. They are primarily useful
 	// to unit tests; nil uses the real machine.
@@ -44,17 +48,6 @@ type commandOptions struct {
 	Debug          bool
 	Trace          bool
 	Insecure       bool
-	SyncMerge      string
-	// AgentConversationID, when set on `workspace init`, stamps the workspace
-	// config so changesets authored here link to the agent conversation.
-	AgentConversationID string
-	// NoSubmit leaves the changeset a gs fs write creates open for review
-	// instead of landing it.
-	NoSubmit bool
-	// DiffContext is -U/--unified of the diff commands: the unchanged lines
-	// shown around each change. DiffContextSet tells it was given.
-	DiffContext    int
-	DiffContextSet bool
 }
 
 func (o commandOptions) jsonOutput() bool {
@@ -101,7 +94,7 @@ func (r Runner) Run(ctx context.Context, args []string) error {
 }
 
 func (r Runner) rootCommand() *cobra.Command {
-	opts := &commandOptions{Format: "text", SyncMerge: defaultWorkspaceSyncMergeStrategy}
+	opts := &commandOptions{Format: "text"}
 	jsonFlagValue := ""
 
 	root := &cobra.Command{

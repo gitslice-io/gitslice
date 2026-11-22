@@ -406,7 +406,7 @@ func (r Runner) runFork(ctx context.Context, opts commandOptions, selector, dir 
 	}
 	quiet := opts
 	quiet.Quiet = true
-	if err := r.runMount(ctx, quiet, lw.rec.Account+":"+lw.rec.Slice, abs, "", false, false, nil, nil); err != nil {
+	if err := r.runMount(ctx, quiet, lw.rec.Account+":"+lw.rec.Slice, abs, "", false, false, nil, nil, ""); err != nil {
 		return err
 	}
 	forked := r
@@ -465,7 +465,7 @@ func (r Runner) lazyRemote() (UserConfig, *grpc.ClientConn, error) {
 	if err != nil {
 		return cfg, nil, err
 	}
-	conn, err := dialLazy(cfg.ServerAddr, r.Insecure)
+	conn, err := r.dialServerLazy(context.Background(), cfg.ServerAddr)
 	return cfg, conn, err
 }
 

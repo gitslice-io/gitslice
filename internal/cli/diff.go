@@ -23,84 +23,77 @@ type workspaceDiffOutput struct {
 	Diff             string   `json:"diff,omitempty"`
 }
 
-func (r Runner) runDiff(ctx context.Context, opts commandOptions, commitArgs []string, from, to string, nameOnly, stat bool) error {
+func (r Runner) runDiff(ctx context.Context, opts commandOptions, commitArgs []string, from, to string, nameOnly, stat bool, diffCtx diffContextOption) error {
 	hasPatchsetRange := strings.TrimSpace(from) != "" || strings.TrimSpace(to) != ""
 	if len(commitArgs) == 2 {
 		if hasPatchsetRange {
 			return userError("invalid_args", "commit ids cannot be combined with --from or --to", "Use gs diff <commit> <commit> or gs diff [changeset] --from <patchset> --to <patchset>.")
 		}
-		return r.runCommitDiff(ctx, opts, commitArgs, nameOnly, stat)
+		return r.runCommitDiff(ctx, opts, commitArgs, nameOnly, stat, diffCtx)
 	}
 	if len(commitArgs) == 1 {
 		arg := commitArgs[0]
 		if looksLikeChangesetID(arg) || hasPatchsetRange {
-			return r.runChangesetDiff(ctx, opts, arg, "", from, to, nameOnly, stat)
+			return r.runChangesetDiff(ctx, opts, arg, "", from, to, nameOnly, stat, diffCtx)
 		}
-		err := r.runCommitDiff(ctx, opts, commitArgs, nameOnly, stat)
+		err := r.runCommitDiff(ctx, opts, commitArgs, nameOnly, stat, diffCtx)
 		if err != nil && commitNotFound(err) {
-			if csErr := r.runChangesetDiff(ctx, opts, arg, "", from, to, nameOnly, stat); csErr == nil {
+			if csErr := r.runChangesetDiff(ctx, opts, arg, "", from, to, nameOnly, stat, diffCtx); csErr == nil {
 				return nil
 			}
 		}
 		return err
 	}
 	if hasPatchsetRange {
-		return r.runChangesetDiff(ctx, opts, "", "", from, to, nameOnly, stat)
+		return r.runChangesetDiff(ctx, opts, "", "", from, to, nameOnly, stat, diffCtx)
 	}
-	return r.runWorkspaceDiff(ctx, opts, nameOnly, stat)
+	return r.runWorkspaceDiff(ctx, opts, nameOnly, stat, diffCtx)
 }
 
-func (r Runner) runCommitDiff(ctx context.Context, opts commandOptions, commitArgs []string, nameOnly, stat bool) error {
-	cfg, err := r.readUserConfig()
-	if err != nil {
+func (r Runner) runCommitDiff(ctx context.Context, opts commandOptions, commitArgs []string, nameOnly, stat bool, diffCtx diffContextOption) error {
+	return r.withSession(ctx, func(s *Session) error {
+		oldInput := ""
+		newInput := commitArgs[0]
+		if len(commitArgs) == 2 {
+			oldInput = commitArgs[0]
+			newInput = commitArgs[1]
+		}
+		oldCommit, newCommit, changed, diffText, err := r.commitDiff(ctx, s.Config(), s.Conn(), oldInput, newInput)
+		if err != nil {
+			return err
+		}
+		if opts.jsonOutput() {
+			return r.writeJSONOutput(opts, map[string]any{
+				"from_commit_id": oldCommitID(oldCommit),
+				"to_commit_id":   newCommit.Id,
+				"changed_paths":  changed,
+				"diff":           diffText,
+			})
+		}
+		if opts.Quiet {
+			return nil
+		}
+		color := r.colorEnabled(opts)
+		if nameOnly {
+			printPathListColor(r.Stdout, changed, color)
+			return nil
+		}
+		if stat {
+			printUnifiedDiffStatColor(r.Stdout, changed, diffText, color)
+			return nil
+		}
+		_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, diffCtx.lines()), color))
 		return err
-	}
-	conn, err := dial(ctx, cfg.ServerAddr)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	oldInput := ""
-	newInput := commitArgs[0]
-	if len(commitArgs) == 2 {
-		oldInput = commitArgs[0]
-		newInput = commitArgs[1]
-	}
-	oldCommit, newCommit, changed, diffText, err := r.commitDiff(ctx, cfg, conn, oldInput, newInput)
-	if err != nil {
-		return err
-	}
-	if opts.jsonOutput() {
-		return r.writeJSONOutput(opts, map[string]any{
-			"from_commit_id": oldCommitID(oldCommit),
-			"to_commit_id":   newCommit.Id,
-			"changed_paths":  changed,
-			"diff":           diffText,
-		})
-	}
-	if opts.Quiet {
-		return nil
-	}
-	color := r.colorEnabled(opts)
-	if nameOnly {
-		printPathListColor(r.Stdout, changed, color)
-		return nil
-	}
-	if stat {
-		printUnifiedDiffStatColor(r.Stdout, changed, diffText, color)
-		return nil
-	}
-	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, opts.diffContext()), color))
-	return err
+	})
 }
 
-func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameOnly, stat bool) error {
+func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameOnly, stat bool, diffCtx diffContextOption) error {
 	cfg, ws, state, err := r.loadLocalState()
 	if err != nil {
 		return err
 	}
 	// Lazily: --stat and --name-only work from local state, offline too.
-	conn, err := dialLazy(cfg.ServerAddr, r.Insecure)
+	conn, err := r.dialServerLazy(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
@@ -153,7 +146,7 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 	if err != nil {
 		return err
 	}
-	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, opts.diffContext()), r.colorEnabled(opts)))
+	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, diffCtx.lines()), r.colorEnabled(opts)))
 	return err
 }
 
@@ -163,7 +156,7 @@ func (r Runner) workspaceDiffText(ctx context.Context, conn *grpc.ClientConn, cf
 	}
 	if conn == nil {
 		var err error
-		conn, err = dial(ctx, cfg.ServerAddr)
+		conn, err = r.dialServer(ctx, cfg.ServerAddr)
 		if err != nil {
 			return "", err
 		}

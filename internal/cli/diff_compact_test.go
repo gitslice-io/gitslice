@@ -288,13 +288,13 @@ func trailingContext(h parsedHunk) int {
 }
 
 func TestDiffContextDefaultsToThree(t *testing.T) {
-	if got := (commandOptions{}).diffContext(); got != 3 {
+	if got := (diffContextOption{}).lines(); got != 3 {
 		t.Fatalf("default context = %d", got)
 	}
-	if got := (commandOptions{DiffContext: 0, DiffContextSet: true}).diffContext(); got != 0 {
+	if got := (diffContextOption{Context: 0, Set: true}).lines(); got != 0 {
 		t.Fatalf("-U0 context = %d", got)
 	}
-	if got := (commandOptions{DiffContext: -1, DiffContextSet: true}).diffContext(); got != -1 {
+	if got := (diffContextOption{Context: -1, Set: true}).lines(); got != -1 {
 		t.Fatalf("-U-1 context = %d", got)
 	}
 }

@@ -70,7 +70,7 @@ func (r Runner) runMountFetch(ctx context.Context, opts commandOptions, workspac
 	if err != nil {
 		return err
 	}
-	conn, err := dial(ctx, rec.ServerAddr)
+	conn, err := r.dialServer(ctx, rec.ServerAddr)
 	if err != nil {
 		return err
 	}
@@ -180,7 +180,7 @@ func (r Runner) runInitLazy(ctx context.Context, opts commandOptions, sliceArg, 
 	if atCurrent {
 		dirArg = r.cwd()
 	}
-	if err := r.runMount(ctx, opts, sliceArg, dirArg, "", false, false, readOnly, prefetch); err != nil {
+	if err := r.runMount(ctx, opts, sliceArg, dirArg, "", false, false, readOnly, prefetch, ""); err != nil {
 		return err
 	}
 	if atCurrent && !opts.jsonOutput() && !opts.Quiet {

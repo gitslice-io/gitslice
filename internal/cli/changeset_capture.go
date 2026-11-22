@@ -95,7 +95,7 @@ func (r Runner) captureChangeset(ctx context.Context, opts commandOptions, title
 	if err != nil {
 		return result, err
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return result, err
 	}

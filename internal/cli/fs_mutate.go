@@ -29,11 +29,11 @@ type fileMutationOutput struct {
 	ChangedPaths   []string `json:"changed_paths"`
 }
 
-func (r Runner) runFileMkdir(ctx context.Context, opts commandOptions, p string) error {
-	return r.runHomeFileMutation(ctx, opts, "mkdir", []*corev1.FileEdit{{Op: "mkdir", Path: p}})
+func (r Runner) runFileMkdir(ctx context.Context, opts commandOptions, p string, noSubmit bool) error {
+	return r.runHomeFileMutation(ctx, opts, "mkdir", []*corev1.FileEdit{{Op: "mkdir", Path: p}}, noSubmit)
 }
 
-func (r Runner) runFileWrite(ctx context.Context, opts commandOptions, p string, data []byte) error {
+func (r Runner) runFileWrite(ctx context.Context, opts commandOptions, p string, data []byte, noSubmit bool) error {
 	cfg, conn, mutator, err := r.homeFileMutator(ctx)
 	if err != nil {
 		return err
@@ -47,24 +47,24 @@ func (r Runner) runFileWrite(ctx context.Context, opts commandOptions, p string,
 	if err != nil {
 		return err
 	}
-	return mutator.apply(ctx, opts, "write", []*corev1.FileEdit{edit})
+	return mutator.apply(ctx, opts, "write", []*corev1.FileEdit{edit}, noSubmit)
 }
 
-func (r Runner) runFileMove(ctx context.Context, opts commandOptions, oldPath, newPath string) error {
-	return r.runHomeFileMutation(ctx, opts, "mv", []*corev1.FileEdit{{Op: "rename", OldPath: oldPath, Path: newPath}})
+func (r Runner) runFileMove(ctx context.Context, opts commandOptions, oldPath, newPath string, noSubmit bool) error {
+	return r.runHomeFileMutation(ctx, opts, "mv", []*corev1.FileEdit{{Op: "rename", OldPath: oldPath, Path: newPath}}, noSubmit)
 }
 
-func (r Runner) runFileRemove(ctx context.Context, opts commandOptions, p string) error {
-	return r.runHomeFileMutation(ctx, opts, "rm", []*corev1.FileEdit{{Op: "delete", Path: p}})
+func (r Runner) runFileRemove(ctx context.Context, opts commandOptions, p string, noSubmit bool) error {
+	return r.runHomeFileMutation(ctx, opts, "rm", []*corev1.FileEdit{{Op: "delete", Path: p}}, noSubmit)
 }
 
-func (r Runner) runHomeFileMutation(ctx context.Context, opts commandOptions, operation string, edits []*corev1.FileEdit) error {
+func (r Runner) runHomeFileMutation(ctx context.Context, opts commandOptions, operation string, edits []*corev1.FileEdit, noSubmit bool) error {
 	_, conn, mutator, err := r.homeFileMutator(ctx)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	return mutator.apply(ctx, opts, operation, edits)
+	return mutator.apply(ctx, opts, operation, edits, noSubmit)
 }
 
 func (r Runner) homeFileMutator(ctx context.Context) (UserConfig, *grpc.ClientConn, *remoteFileMutator, error) {
@@ -72,7 +72,7 @@ func (r Runner) homeFileMutator(ctx context.Context) (UserConfig, *grpc.ClientCo
 	if err != nil {
 		return UserConfig{}, nil, nil, err
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return UserConfig{}, nil, nil, err
 	}
@@ -140,7 +140,7 @@ type remoteFileMutator struct {
 	last fileMutationOutput
 }
 
-func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, operation string, edits []*corev1.FileEdit) error {
+func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, operation string, edits []*corev1.FileEdit, noSubmit bool) error {
 	if len(edits) == 0 {
 		return userError("empty_mutation", "no file edits to apply", "Pass at least one file path.")
 	}
@@ -177,7 +177,7 @@ func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, oper
 		return err
 	}
 	handle := firstNonEmpty(displayChangesetID(cs), cs.Id)
-	if opts.NoSubmit {
+	if noSubmit {
 		output := fileMutationOutput{
 			Operation:    operation,
 			Slice:        m.slice.Ref.Account + ":" + m.slice.Ref.Slice,

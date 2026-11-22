@@ -19,7 +19,7 @@ func (r Runner) runStackMove(ctx context.Context, opts commandOptions, entry, on
 	if state.ActiveStackID == "" {
 		return userError("no_active_stack", "no active dependency tree in workspace", "Run gs create first.")
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
@@ -133,7 +133,7 @@ func (r Runner) runStackDetach(ctx context.Context, opts commandOptions, entry, 
 	if state.ActiveStackID == "" {
 		return userError("no_active_stack", "no active dependency tree in workspace", "Run gs create first.")
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}
@@ -243,7 +243,7 @@ func (r Runner) runStackInsert(ctx context.Context, opts commandOptions, parentS
 	if state.ActiveStackID == "" {
 		return userError("no_active_stack", "no active dependency tree in workspace", "Run gs create first.")
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}

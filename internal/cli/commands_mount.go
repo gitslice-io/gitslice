@@ -7,7 +7,7 @@ import (
 // mountCommands builds gs mount (with list and status), gs unmount and gs
 // fetch: lazy workspaces (design/30_lazy_workspaces.md).
 func (r Runner) mountCommands(opts *commandOptions) []*cobra.Command {
-	foreground, workspaceID, debug, readOnly := false, "", false, false
+	foreground, workspaceID, debug, readOnly, agentConversationID := false, "", false, false, ""
 	var prefetch []string
 	mountCmd := &cobra.Command{
 		Use:   "mount <dir>",
@@ -54,7 +54,7 @@ them all; gs mount discard deletes one.`,
 			if cmd.Flags().Changed("prefetch") {
 				prefetchSetting = append([]string{}, prefetch...)
 			}
-			return r.runMount(cmd.Context(), *opts, slice, dir, workspaceID, foreground, debug, readOnlySetting, prefetchSetting)
+			return r.runMount(cmd.Context(), *opts, slice, dir, workspaceID, foreground, debug, readOnlySetting, prefetchSetting, agentConversationID)
 		},
 	}
 	mountCmd.Flags().BoolVar(&foreground, "foreground", false, "serve the mount in this process instead of a background daemon")
@@ -63,7 +63,7 @@ them all; gs mount discard deletes one.`,
 	mountCmd.Flags().StringArrayVar(&prefetch, "prefetch", nil, "fetch files matching this glob (relative to the mount, such as 'acme/app/**/*.go') in the background; repeatable; kept for later mounts")
 	mountCmd.Flags().BoolVar(&debug, "debug-fuse", false, "log every FUSE request (with --foreground)")
 	_ = mountCmd.Flags().MarkHidden("debug-fuse")
-	mountCmd.Flags().StringVar(&opts.AgentConversationID, "agent-conversation", "", "link changesets in this workspace to an agent conversation id")
+	mountCmd.Flags().StringVar(&agentConversationID, "agent-conversation", "", "link changesets in this workspace to an agent conversation id")
 	_ = mountCmd.Flags().MarkHidden("agent-conversation")
 
 	listCmd := &cobra.Command{

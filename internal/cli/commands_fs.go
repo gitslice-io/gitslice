@@ -17,7 +17,8 @@ func (r Runner) fsCommand(opts *commandOptions) *cobra.Command {
 		RunE: requireSubcommand("fs"),
 	}
 	markSchemaGroup(fsCmd)
-	fsCmd.PersistentFlags().BoolVar(&opts.NoSubmit, "no-submit", false, "open the changeset for review instead of submitting it")
+	fsNoSubmit := false
+	fsCmd.PersistentFlags().BoolVar(&fsNoSubmit, "no-submit", false, "open the changeset for review instead of submitting it")
 	fsLsCmd := &cobra.Command{
 		Use:   "ls [remote-path]",
 		Short: "List a remote directory or file in the signed-in home slice",
@@ -50,7 +51,7 @@ home slice root, for example /nic/notes.`,
 		Short: "Create a remote directory",
 		Args:  exactArgs(1, "gs fs mkdir /account/path"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runFileMkdir(cmd.Context(), *opts, args[0])
+			return r.runFileMkdir(cmd.Context(), *opts, args[0], fsNoSubmit)
 		},
 	}
 	fsTouchCmd := &cobra.Command{
@@ -58,7 +59,7 @@ home slice root, for example /nic/notes.`,
 		Short: "Create an empty remote file",
 		Args:  exactArgs(1, "gs fs touch /account/path"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runFileWrite(cmd.Context(), *opts, args[0], nil)
+			return r.runFileWrite(cmd.Context(), *opts, args[0], nil, fsNoSubmit)
 		},
 	}
 	fsWriteText := ""
@@ -84,7 +85,7 @@ home slice root, for example /nic/notes.`,
 			} else {
 				data = []byte(fsWriteText)
 			}
-			return r.runFileWrite(cmd.Context(), *opts, args[0], data)
+			return r.runFileWrite(cmd.Context(), *opts, args[0], data, fsNoSubmit)
 		},
 	}
 	fsWriteCmd.Flags().StringVar(&fsWriteText, "text", fsWriteText, "file content")
@@ -99,6 +100,7 @@ home slice root, for example /nic/notes.`,
 			return r.runFSUpload(cmd.Context(), *opts, args[0], args[1], fsUploadOptions{
 				Recursive:   fsUploadRecursive,
 				Concurrency: fsUploadConcurrency,
+				NoSubmit:    fsNoSubmit,
 			})
 		},
 	}
@@ -109,7 +111,7 @@ home slice root, for example /nic/notes.`,
 		Short: "Rename or move a remote file or directory",
 		Args:  exactArgs(2, "gs fs mv /account/old /account/new"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runFileMove(cmd.Context(), *opts, args[0], args[1])
+			return r.runFileMove(cmd.Context(), *opts, args[0], args[1], fsNoSubmit)
 		},
 	}
 	fsRmCmd := &cobra.Command{
@@ -117,7 +119,7 @@ home slice root, for example /nic/notes.`,
 		Short: "Delete a remote file or directory",
 		Args:  exactArgs(1, "gs fs rm /account/path"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runFileRemove(cmd.Context(), *opts, args[0])
+			return r.runFileRemove(cmd.Context(), *opts, args[0], fsNoSubmit)
 		},
 	}
 	fsCmd.AddCommand(fsLsCmd, fsCatCmd, fsMkdirCmd, fsTouchCmd, fsWriteCmd, fsUploadCmd, fsMvCmd, fsRmCmd)

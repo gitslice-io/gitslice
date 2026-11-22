@@ -22,7 +22,7 @@ func (r Runner) runShell(ctx context.Context, opts commandOptions, commitID, sli
 	if err != nil {
 		return err
 	}
-	conn, err := dial(ctx, cfg.ServerAddr)
+	conn, err := r.dialServer(ctx, cfg.ServerAddr)
 	if err != nil {
 		return err
 	}

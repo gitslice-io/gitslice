@@ -273,7 +273,7 @@ func (r Runner) joinAgentInvite(ctx context.Context, in joinAgentInviteOptions) 
 	if serverAddr == "" {
 		serverAddr = defaultServerAddr()
 	}
-	conn, err := dial(ctx, serverAddr)
+	conn, err := r.dialServer(ctx, serverAddr)
 	if err != nil {
 		return joinAgentInviteOutput{}, err
 	}
