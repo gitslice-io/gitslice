@@ -18,7 +18,7 @@ import { Button } from "../../components/ui/Button";
 import { cn } from "../../lib/cn";
 import { shortChangesetId } from "../../lib/objectId";
 import { secretsKey } from "../../queries/secrets";
-import { isFinalTriggerStatus, AutomationRunLog } from "../changeset-detail/TriggerRunsPanel";
+import { AutomationRunLog, isFinalTriggerStatus } from "../../components/automations/AutomationRunLog";
 import { needsRunModal, RunAutomationModal } from "./RunAutomationModal";
 
 type PolicyTab = "automation" | "secrets" | "owners";

@@ -7,7 +7,7 @@ import { useConnectStream } from "../../lib/useConnectStream";
 import { useStickToBottomScroll } from "../../lib/useStickToBottomScroll";
 import { isTerminalCheckStatus } from "./checkStatus";
 import { errorMessage } from "./status";
-import { AutomationRunLog } from "./TriggerRunsPanel";
+import { AutomationRunLog } from "../../components/automations/AutomationRunLog";
 
 export const MAX_CHECK_LOG_CHARS = 512 * 1024;
 

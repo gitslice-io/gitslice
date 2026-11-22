@@ -1,5 +1,5 @@
-import { hasSessionCookie } from "./sessionCookie";
-import { visitorBannerWanted } from "./visitorBanner";
+import { hasSessionCookie } from "../lib/sessionCookie";
+import { visitorBannerWanted } from "../lib/visitorBanner";
 
 // A short edge cache for the pages a visitor with no session reads from the
 // API: a slice, a changeset, a list of changesets, an account. Rendering one

@@ -10,7 +10,7 @@ import { ApprovalsCard } from "./ApprovalsCard";
 import type { ApprovalSummary } from "./approvalSummary";
 import { groupTriggersAndChecks } from "./automationGrouping";
 import { isTerminalCheckStatus } from "./checkStatus";
-import { isFinalTriggerStatus } from "./TriggerRunsPanel";
+import { isFinalTriggerStatus } from "../../components/automations/AutomationRunLog";
 import { TriggersChecksPanel } from "./TriggersChecksPanel";
 
 const POLL_MS = 3500;

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { gitProxyTarget } from "./lib/gitProxy";
+import { gitProxyTarget } from "./server/gitProxy";
 
 describe("gitProxyTarget", () => {
   afterEach(() => {

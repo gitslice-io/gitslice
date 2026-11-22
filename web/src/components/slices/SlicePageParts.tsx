@@ -2,6 +2,9 @@ import type { ReactNode } from "react";
 
 import type { Slice } from "../../api/types";
 import { cn } from "../../lib/cn";
+import { getErrorMessage } from "../../lib/errors";
+
+export { getErrorMessage };
 
 interface PageHeaderProps {
   eyebrow?: string;
@@ -170,12 +173,4 @@ export function formatPathPreview(paths: string[], max = 2) {
   const remaining = paths.length - max;
 
   return remaining > 0 ? `${visiblePaths} and ${remaining} more` : visiblePaths;
-}
-
-export function getErrorMessage(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return "Something went wrong.";
 }

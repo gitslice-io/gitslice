@@ -1,14 +1,14 @@
 import handler, { createServerEntry } from "@tanstack/react-start/server-entry";
 
 import { handleIngestProxy } from "./analytics/ingestProxy";
-import { handleAgentAuthRequest } from "./lib/agentSession";
-import { gitProxyTarget } from "./lib/gitProxy";
-import { llmsAliasResponse } from "./lib/llmsAlias";
-import { handleMCPProxyRequest } from "./lib/mcpProxy";
-import { apiSliceLookup, goImportResponse, sliceGoImportResponse } from "./lib/goImport";
-import { servePage, type PageCacheStore } from "./lib/pageCache";
-import { releaseResponse, type ReleaseBucket } from "./lib/releases";
-import { socialImageResponse } from "./lib/socialImage";
+import { handleAgentAuthRequest } from "./server/agentAuthHandler";
+import { gitProxyTarget } from "./server/gitProxy";
+import { llmsAliasResponse } from "./server/llmsAlias";
+import { handleMCPProxyRequest } from "./server/mcpProxy";
+import { apiSliceLookup, goImportResponse, sliceGoImportResponse } from "./server/goImport";
+import { servePage, type PageCacheStore } from "./server/pageCache";
+import { releaseResponse, type ReleaseBucket } from "./server/releases";
+import { socialImageResponse } from "./server/socialImage";
 
 export default createServerEntry({
   async fetch(request) {

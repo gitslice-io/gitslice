@@ -3,7 +3,7 @@ import { queryOptions } from "@tanstack/react-query";
 import type { Secret, SliceRef, SliceSecret } from "../api/types";
 import type { ApiClient } from "../api/useApi";
 
-// Account and slice secrets. AccountSecretsPanel, SliceSecretsPanel and
+// Account and slice secrets. AccountSecretsPanel, FolderPolicyDrawer and
 // SliceGitMirrorPanel share these keys so mutations invalidate every secret
 // view consistently.
 

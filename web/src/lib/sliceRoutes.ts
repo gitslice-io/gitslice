@@ -1,5 +1,13 @@
 import type { SliceRef } from "../api/types";
-import type { Crumb } from "../components/Breadcrumb";
+
+export interface Crumb {
+  label: string;
+  // Shown on hover, for a crumb whose label is short.
+  title?: string;
+  to?: string;
+  params?: unknown;
+  search?: unknown;
+}
 
 export interface SliceRouteParams {
   account: string;

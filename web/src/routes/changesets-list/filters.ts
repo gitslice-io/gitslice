@@ -45,10 +45,6 @@ export function parseSearch(typed: string): ChangesetSearch {
   return { query: words.join(" "), author };
 }
 
-export function changesetsListKeyPrefix(slice: SliceRef) {
-  return ["changesets", slice.account ?? "", slice.slice ?? ""] as const;
-}
-
 export function changesetsListRequest(
   slice: SliceRef,
   tab: StatusTab,

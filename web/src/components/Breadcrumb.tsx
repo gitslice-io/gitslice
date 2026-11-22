@@ -1,15 +1,9 @@
 import { Link } from "@tanstack/react-router";
 
+import type { Crumb } from "../lib/sliceRoutes";
 import { useHomeTarget } from "../state/homeTarget";
 
-export interface Crumb {
-  label: string;
-  // Shown on hover, for a crumb whose label is short.
-  title?: string;
-  to?: string;
-  params?: unknown;
-  search?: unknown;
-}
+export type { Crumb };
 
 export function Breadcrumb({ items }: { items: Crumb[] }): JSX.Element {
   // "Home" crumbs go to the active account's Home itself.

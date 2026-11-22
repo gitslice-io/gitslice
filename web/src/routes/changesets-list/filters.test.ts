@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { changesetsListQuery } from "../../queries/changesets";
+import { changesetsListKeyPrefix, changesetsListQuery } from "../../queries/changesets";
 import {
-  changesetsListKeyPrefix,
   changesetsListRequest,
   parseSearch,
   parseStatusTab,

@@ -4,8 +4,7 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 import type { Changeset, SliceRef } from "../../../api/types";
 import { type ApiClient } from "../../../api/useApi";
 import { shortChangesetId } from "../../../lib/objectId";
-import { changesetKey, changesetQuery } from "../../../queries/changesets";
-import { changesetsListKeyPrefix } from "../../../routes/changesets-list/filters";
+import { changesetKey, changesetQuery, changesetsListKeyPrefix } from "../../../queries/changesets";
 import {
   currentChangesetPatchset,
   errorMessageFromUnknown,

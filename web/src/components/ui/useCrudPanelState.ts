@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 
-import { getErrorMessage } from "../slices/SlicePageParts";
+import { getErrorMessage } from "../../lib/errors";
 
 export interface CrudPanelState<TItem> {
   editing: string | null;

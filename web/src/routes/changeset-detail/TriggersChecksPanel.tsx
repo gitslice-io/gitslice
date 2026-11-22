@@ -21,7 +21,7 @@ import {
   AutomationRunLog,
   TriggerStatusBadge,
   isFinalTriggerStatus
-} from "./TriggerRunsPanel";
+} from "../../components/automations/AutomationRunLog";
 
 const POLL_MS = 3500;
 

@@ -5,7 +5,6 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { SliceSecretsPanel } from "../slices/SliceSecretsPanel";
 import { AccountSecretsPanel } from "./AccountSecretsPanel";
 
 const apiMock = vi.hoisted(() => ({
@@ -159,54 +158,5 @@ describe("AccountSecretsPanel", () => {
     expect(dialog).toHaveTextContent("Checks in /acme will no longer get");
     fireEvent.click(within(dialog).getByRole("button", { name: "Delete secret" }));
     await waitFor(() => expect(deleteSecret).toHaveBeenCalledWith({ id: "sec_2" }));
-  });
-});
-
-describe("SliceSecretsPanel", () => {
-  afterEach(cleanup);
-
-  it("shows each secret's folders and edits only those on the slice's own", async () => {
-    apiMock.current = {
-      listSliceSecrets: vi.fn().mockResolvedValue({
-        names: ["CI_TOKEN", "DEPLOY_TOKEN", "NPM_TOKEN"],
-        secrets: [
-          { name: "CI_TOKEN", paths: ["/acme/api"], secretId: "sec_1" },
-          { name: "DEPLOY_TOKEN", paths: ["/acme/api", "/acme/web"], secretId: "sec_2" },
-          { name: "NPM_TOKEN", paths: ["/acme"], secretId: "sec_3" }
-        ]
-      })
-    };
-    renderWithQuery(<SliceSecretsPanel hasCIDaemon includedPaths={["/acme/api"]} slice={{ account: "acme", slice: "api" }} />);
-    expect(await screen.findByText("/acme/api")).toBeInTheDocument();
-    expect(screen.getByText("/acme/api, /acme/web")).toBeInTheDocument();
-    expect(screen.getByText("/acme")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Edit" })).toHaveLength(1);
-    expect(screen.getAllByText("Edit on acme's secrets")).toHaveLength(2);
-    expect(screen.queryByText("No CI daemon")).not.toBeInTheDocument();
-  });
-
-  it("adds a secret on this slice's folders and says when no daemon will receive it", async () => {
-    const createSecret = vi.fn().mockResolvedValue({ id: "sec_9" });
-    apiMock.current = {
-      createSecret,
-      listSliceSecrets: vi.fn().mockResolvedValue({ names: [] }),
-      listSlices: vi.fn().mockResolvedValue(acmeSlices)
-    };
-    renderWithQuery(
-      <SliceSecretsPanel hasCIDaemon={false} includedPaths={["/acme/web", "/acme/shared/ui"]} slice={{ account: "acme", slice: "web" }} />
-    );
-    expect(await screen.findByText("No CI daemon")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Add secret" }));
-    expect(await screen.findByRole("button", { name: "Remove /acme/web" })).toBeInTheDocument();
-    fireEvent.change(screen.getByPlaceholderText("DEPLOY_TOKEN"), { target: { value: "CI_TOKEN" } });
-    fireEvent.change(screen.getByLabelText("Value"), { target: { value: "v" } });
-    fireEvent.click(lastButton("Add secret"));
-    await waitFor(() => expect(createSecret).toHaveBeenCalled());
-    expect(createSecret.mock.calls[0][0]).toEqual({
-      account: "acme",
-      name: "CI_TOKEN",
-      scope: { paths: ["/acme/shared/ui", "/acme/web"] },
-      value: "v"
-    });
   });
 });
