@@ -1,4 +1,4 @@
-package cli
+package workspace
 
 import (
 	"os"
@@ -13,11 +13,8 @@ import (
 )
 
 // The listing cache keeps the listing a lazy workspace was made from, per
-// slice definition and commit, under the client cache. A commit's listing
-// never changes, and the server still checks access (it sends the header
-// only to a caller who may read the slice) before a cached listing is used,
-// so a second workspace on the same commit, or one made again, skips the
-// listing transfer. Each slice keeps its newest listingsKeptPerSlice.
+// slice definition and commit, under the client cache. Each slice keeps its
+// newest listingsKeptPerSlice entries.
 const listingsKeptPerSlice = 16
 
 func listingCachePath(cache *clientcache.ObjectCache, slice *corev1.Slice, commitID string) (string, bool) {
@@ -33,7 +30,7 @@ func listingCachePath(cache *clientcache.ObjectCache, slice *corev1.Slice, commi
 	return filepath.Join(cache.Root(), "listings", slice.GetId(), key+".json"), true
 }
 
-func readCachedListing(cache *clientcache.ObjectCache, slice *corev1.Slice, commitID string) ([]*corev1.TreeEntry, bool) {
+func ReadCachedListing(cache *clientcache.ObjectCache, slice *corev1.Slice, commitID string) ([]*corev1.TreeEntry, bool) {
 	if os.Getenv("GS_LISTING_CACHE") == "off" {
 		return nil, false
 	}
@@ -54,8 +51,8 @@ func readCachedListing(cache *clientcache.ObjectCache, slice *corev1.Slice, comm
 	return listing.GetEntries(), true
 }
 
-// writeCachedListing keeps a listing; failing to keep it is not an error.
-func writeCachedListing(cache *clientcache.ObjectCache, slice *corev1.Slice, commitID string, entries []*corev1.TreeEntry) {
+// WriteCachedListing keeps a listing; failing to keep it is not an error.
+func WriteCachedListing(cache *clientcache.ObjectCache, slice *corev1.Slice, commitID string, entries []*corev1.TreeEntry) {
 	if os.Getenv("GS_LISTING_CACHE") == "off" {
 		return
 	}
@@ -108,21 +105,13 @@ func pruneListingCache(dir string) {
 	}
 }
 
-// A listing the cache has for a slice is also the base of the next one: a
-// Checkout that names it (CheckoutRequest.since_commit_id) gets only what
-// changed since, so syncing a workspace, or making another one after the
-// slice moved, costs the change rather than the slice
-// (design/30_lazy_workspaces.md, "Moving the base").
-
-// listingBase is a cached listing a Checkout can ask for changes since.
-type listingBase struct {
-	commitID       string
-	definitionHash string
-	entries        []*corev1.TreeEntry
+// ListingBase is a cached listing a Checkout can ask for changes since.
+type ListingBase struct {
+	CommitID       string
+	DefinitionHash string
+	Entries        []*corev1.TreeEntry
 }
 
-// listingRefPath is where the cache remembers which slice id a ref names, so
-// a Checkout by ref can find that slice's listings before the server answers.
 func listingRefPath(cache *clientcache.ObjectCache, ref *corev1.SliceRef) (string, bool) {
 	if cache == nil || ref == nil || ref.GetAccount() == "" || ref.GetSlice() == "" {
 		return "", false
@@ -134,8 +123,8 @@ func listingRefPath(cache *clientcache.ObjectCache, ref *corev1.SliceRef) (strin
 	return filepath.Join(cache.Root(), "listings", "refs", name), true
 }
 
-// rememberListingRef records the slice id ref resolved to.
-func rememberListingRef(cache *clientcache.ObjectCache, ref *corev1.SliceRef, slice *corev1.Slice) {
+// RememberListingRef records the slice id ref resolved to.
+func RememberListingRef(cache *clientcache.ObjectCache, ref *corev1.SliceRef, slice *corev1.Slice) {
 	path, ok := listingRefPath(cache, ref)
 	if !ok || slice.GetId() == "" || os.Getenv("GS_LISTING_CACHE") == "off" {
 		return
@@ -156,10 +145,9 @@ func rememberListingRef(cache *clientcache.ObjectCache, ref *corev1.SliceRef, sl
 	}
 }
 
-// newestCachedListing returns the most recently used listing the cache has
-// for the slice ref names, under any definition (the server sends a delta
-// only when the definition is still the slice's).
-func newestCachedListing(cache *clientcache.ObjectCache, ref *corev1.SliceRef) (*listingBase, bool) {
+// NewestCachedListing returns the most recently used listing the cache has
+// for the slice ref names.
+func NewestCachedListing(cache *clientcache.ObjectCache, ref *corev1.SliceRef) (*ListingBase, bool) {
 	if os.Getenv("GS_LISTING_CACHE") == "off" {
 		return nil, false
 	}
@@ -203,13 +191,13 @@ func newestCachedListing(cache *clientcache.ObjectCache, ref *corev1.SliceRef) (
 	if !strings.Contains(commitID, ":") {
 		commitID = "sha256:" + commitID
 	}
-	return &listingBase{commitID: commitID, definitionHash: key[:at], entries: listing.GetEntries()}, true
+	return &ListingBase{CommitID: commitID, DefinitionHash: key[:at], Entries: listing.GetEntries()}, true
 }
 
-// applyListingDelta applies a Checkout delta to the listing it was made
+// ApplyListingDelta applies a Checkout delta to the listing it was made
 // against: removed paths go with everything under them, then the changed
 // entries are added or replace what was there. The result is in path order.
-func applyListingDelta(base []*corev1.TreeEntry, removed []string, changed []*corev1.TreeEntry) []*corev1.TreeEntry {
+func ApplyListingDelta(base []*corev1.TreeEntry, removed []string, changed []*corev1.TreeEntry) []*corev1.TreeEntry {
 	gone := make(map[string]bool, len(removed))
 	for _, p := range removed {
 		gone[p] = true
@@ -232,7 +220,6 @@ func applyListingDelta(base []*corev1.TreeEntry, removed []string, changed []*co
 	return out
 }
 
-// removedByDelta reports whether p or a directory above it was removed.
 func removedByDelta(p string, gone map[string]bool) bool {
 	for {
 		if gone[p] {

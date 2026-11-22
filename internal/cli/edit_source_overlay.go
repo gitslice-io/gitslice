@@ -168,7 +168,7 @@ func (s overlayEditSource) edits(ctx context.Context, base BaseSnapshot, _ int) 
 			if ignore == nil {
 				ignore = s.ignoreRules(ctx, base, baseFiles, manifest)
 			}
-			if ignore.skip(rel, false) {
+			if ignore.Skip(rel, false) {
 				continue
 			}
 		}
@@ -208,7 +208,7 @@ func (s overlayEditSource) ignoreRules(ctx context.Context, base BaseSnapshot, b
 	} else {
 		ig = newWorkspaceIgnore("", s.ws, baseFiles, base.Files)
 	}
-	ig.read = func(dir string) []byte {
+	ig.Read = func(dir string) []byte {
 		globalPath, err := workspaceRelativePathToGlobalPath(s.ws, path.Join(dir, ".gitignore"))
 		if err != nil {
 			return nil

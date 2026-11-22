@@ -262,11 +262,6 @@ func (h *workspaceHydrator) recordFile(entry *corev1.TreeEntry, rel, target stri
 	h.progress.Add(1)
 }
 
-// isSymlinkMode reports whether a native file mode is a symbolic link.
-func isSymlinkMode(mode uint32) bool {
-	return mode&0o170000 == 0o120000
-}
-
 // writeWorkspaceFile materializes one file. A symlink whose target is a
 // safe relative path inside the workspace becomes a real symlink (its content
 // is the link target, as in Git). Other symlinks are written as regular files

@@ -111,7 +111,7 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if shouldSkip(rel, entry) || ignore.skip(rel, entry.IsDir()) {
+		if shouldSkip(rel, entry) || ignore.Skip(rel, entry.IsDir()) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
@@ -184,7 +184,7 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 	var toHash []int
 	for i, candidate := range candidates {
 		if candidate.linkTarget == nil {
-			if hash, ok := known.hash(candidate.relPath, candidate.size, candidate.modTime, candidate.mode); ok {
+			if hash, ok := known.Hash(candidate.relPath, candidate.size, candidate.modTime, candidate.mode); ok {
 				objects[i] = clientcache.Object{ContentHash: hash, Size: candidate.size}
 				continue
 			}

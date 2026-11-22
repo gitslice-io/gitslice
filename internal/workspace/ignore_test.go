@@ -1,4 +1,4 @@
-package cli
+package workspace
 
 import (
 	"os"
@@ -6,13 +6,13 @@ import (
 	"testing"
 )
 
-func TestWorkspaceIgnoreFollowsGitignoreRules(t *testing.T) {
+func TestIgnoreFollowsGitignoreRules(t *testing.T) {
 	root := t.TempDir()
 	writeIgnoreFile(t, root, ".gitignore", "# build output\nnode_modules/\n/bin/\n*.log\n!keep.log\n*.tmp\nbuild/\n!build/keep.txt\n")
 	writeIgnoreFile(t, root, "web/.gitignore", "dist/\n/.clerk/\n!special.tmp\n")
 
-	ws := WorkspaceConfig{Account: "acme", IncludedPaths: []string{"/acme/app"}}
-	ig := newWorkspaceIgnore(root, ws, map[string]BaseSnapshotFile{
+	ws := Config{Account: "acme", IncludedPaths: []string{"/acme/app"}}
+	ig := NewIgnore(root, ws, map[string]BaseSnapshotFile{
 		"/acme/app/tracked.log":           {RelPath: "acme/app/tracked.log"},
 		"/acme/app/vendor/build/kept.txt": {RelPath: "vendor/build/kept.txt"},
 	})
@@ -42,20 +42,20 @@ func TestWorkspaceIgnoreFollowsGitignoreRules(t *testing.T) {
 		{rel: "vendor/build/new.txt", want: true},
 		{rel: "src/main.go", want: false},
 	} {
-		if got := ig.skip(tc.rel, tc.isDir); got != tc.want {
-			t.Errorf("skip(%q, dir=%v) = %v, want %v", tc.rel, tc.isDir, got, tc.want)
+		if got := ig.Skip(tc.rel, tc.isDir); got != tc.want {
+			t.Errorf("Skip(%q, dir=%v) = %v, want %v", tc.rel, tc.isDir, got, tc.want)
 		}
 	}
 }
 
 func TestParseGitignoreEscapesAndBlankLines(t *testing.T) {
-	rules := parseGitignore([]byte("\n   \n\\#literal\n\\!bang\n{a,b}.txt\ntrailing   \n"))
+	rules := ParseGitignore([]byte("\n   \n\\#literal\n\\!bang\n{a,b}.txt\ntrailing   \n"))
 	want := []string{"**/#literal", "**/!bang", `**/\{a,b\}.txt`, "**/trailing"}
 	if len(rules) != len(want) {
 		t.Fatalf("rules = %#v, want %d", rules, len(want))
 	}
 	for i, rule := range rules {
-		if rule.pattern != want[i] || rule.negate || rule.dirOnly {
+		if rule.Pattern != want[i] || rule.Negate || rule.DirOnly {
 			t.Fatalf("rule %d = %#v, want pattern %q", i, rule, want[i])
 		}
 	}

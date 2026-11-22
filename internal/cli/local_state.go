@@ -1,76 +1,24 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"gitslice.io/gitslice/internal/workspace"
 )
 
-type UserConfig struct {
-	ServerAddr string            `json:"server_addr"`
-	Token      string            `json:"token"`
-	SubjectID  string            `json:"subject_id"`
-	Aliases    map[string]string `json:"aliases,omitempty"`
-	// ActiveAccount is the account commands default to (gs account use), when
-	// the user still belongs to it; otherwise their personal account.
-	ActiveAccount string `json:"active_account,omitempty"`
-}
-
-type WorkspaceConfig struct {
-	Account        string   `json:"account"`
-	Slice          string   `json:"slice"`
-	SliceID        string   `json:"slice_id"`
-	DefinitionHash string   `json:"definition_hash"`
-	IncludedPaths  []string `json:"included_paths"`
-	BaseCommitID   string   `json:"base_commit_id"`
-	// ConversationID links changesets authored in this workspace to an agent
-	// conversation (set when an agent daemon hydrates a conversation workspace).
-	ConversationID string `json:"conversation_id,omitempty"`
-}
-
-type WorkspaceState struct {
-	CurrentChangesetID string `json:"current_changeset_id"`
-	CurrentPatchsetID  string `json:"current_patchset_id"`
-	BaseCommitID       string `json:"base_commit_id"`
-	ActiveStackID      string `json:"active_stack_id,omitempty"`
-}
-
-type WorkspaceConflictState struct {
-	OldBaseCommitID string              `json:"old_base_commit_id"`
-	NewBaseCommitID string              `json:"new_base_commit_id"`
-	ChangesetID     string              `json:"changeset_id,omitempty"`
-	PatchsetID      string              `json:"patchset_id,omitempty"`
-	Conflicts       []WorkspaceConflict `json:"conflicts"`
-}
-
-type WorkspaceConflict struct {
-	Path              string `json:"path"`
-	ConflictClass     string `json:"conflict_class"`
-	OldBaseCommitID   string `json:"old_base_commit_id"`
-	NewBaseCommitID   string `json:"new_base_commit_id"`
-	BaseFingerprint   string `json:"base_fingerprint,omitempty"`
-	LocalFingerprint  string `json:"local_fingerprint,omitempty"`
-	RemoteFingerprint string `json:"remote_fingerprint,omitempty"`
-	BaseContentHash   string `json:"base_content_hash,omitempty"`
-	LocalContentHash  string `json:"local_content_hash,omitempty"`
-	RemoteContentHash string `json:"remote_content_hash,omitempty"`
-}
-
-type BaseSnapshot struct {
-	CommitID string                      `json:"commit_id"`
-	Files    map[string]BaseSnapshotFile `json:"files"`
-}
-
-type BaseSnapshotFile struct {
-	Path        string `json:"path"`
-	RelPath     string `json:"rel_path"`
-	ContentHash string `json:"content_hash"`
-	Mode        uint32 `json:"mode"`
-	Size        int64  `json:"size"`
-}
+type (
+	UserConfig             = workspace.UserConfig
+	WorkspaceConfig        = workspace.Config
+	WorkspaceState         = workspace.State
+	WorkspaceConflictState = workspace.ConflictState
+	WorkspaceConflict      = workspace.Conflict
+	BaseSnapshot           = workspace.BaseSnapshot
+	BaseSnapshotFile       = workspace.BaseSnapshotFile
+)
 
 // WorkspaceMetadataStore coordinates reads and atomic multi-file commits across
 // .gs/{slice.json,state.json,base_snapshot.json,conflicts.json} so BaseCommitID
@@ -397,90 +345,22 @@ func (r Runner) workspaceRoot() (string, error) {
 // workspaceRootFrom finds the gitslice workspace that contains dir, walking up
 // from it.
 func workspaceRootFrom(dir string) (string, error) {
-	for {
-		if _, err := os.Stat(filepath.Join(dir, ".gs", "slice.json")); err == nil {
-			return dir, nil
-		} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return "", err
-		}
-		// A .gs without its slice.json is a workspace that lost its binding.
-		// Walking past it would make the next gs init or gs sync start a second
-		// workspace inside it.
-		if info, err := os.Stat(filepath.Join(dir, ".gs")); err == nil && info.IsDir() {
-			return "", userError("workspace_damaged", "found "+filepath.Join(dir, ".gs")+" without slice.json, so this workspace has lost its slice binding",
-				"Restore .gs/slice.json, or move the files you want to keep out and run gs init <slice|account:slice> in a new empty directory.")
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", userError("not_in_workspace", "not in a gitslice workspace", "Run gs init <slice|account:slice>.")
-		}
-		dir = parent
-	}
+	root, err := workspace.FindRoot(dir)
+	return root, translateWorkspaceError(err)
 }
 
 func readJSONFile(path string, v any) error {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, v)
+	return workspace.ReadJSONFile(path, v)
 }
 
 func writeJSONFile(path string, v any, mode fs.FileMode) error {
-	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	return writeAtomicFile(path, data, mode)
+	return workspace.WriteJSONFile(path, v, mode)
 }
 
 func writeCompactJSONFile(path string, v any, mode fs.FileMode) error {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
-	return writeAtomicFile(path, data, mode)
+	return workspace.WriteCompactJSONFile(path, v, mode)
 }
 
 func writeAtomicFile(path string, data []byte, mode fs.FileMode) error {
-	dir := filepath.Dir(path)
-	dirMode := fs.FileMode(0o755)
-	if mode&0o077 == 0 {
-		dirMode = 0o700
-	}
-	if err := os.MkdirAll(dir, dirMode); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	cleanup := true
-	defer func() {
-		if cleanup {
-			_ = os.Remove(tmpPath)
-		}
-	}()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Chmod(mode); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmpPath, mode); err != nil {
-		return err
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return err
-	}
-	cleanup = false
-	return nil
+	return workspace.WriteAtomicFile(path, data, mode)
 }

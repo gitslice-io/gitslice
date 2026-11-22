@@ -63,7 +63,7 @@ func receiveCheckoutStream(ctx context.Context, conn *grpc.ClientConn, ref *core
 	if !includeContent {
 		if base, ok := newestCachedListing(cache, ref); ok {
 			since = base
-			req.SinceCommitId, req.SinceDefinitionHash = base.commitID, base.definitionHash
+			req.SinceCommitId, req.SinceDefinitionHash = base.CommitID, base.DefinitionHash
 		}
 	}
 	stream, err := corev1.NewRepositoryServiceClient(conn).Checkout(ctx, req, grpc.UseCompressor(gzip.Name))
@@ -124,7 +124,7 @@ func receiveCheckoutStream(ctx context.Context, conn *grpc.ClientConn, ref *core
 	}
 	if delta {
 		out.deltaEntries, out.deltaRemoved = len(out.entries), len(removed)
-		out.entries = applyListingDelta(since.entries, removed, out.entries)
+		out.entries = applyListingDelta(since.Entries, removed, out.entries)
 	}
 	if !includeContent {
 		writeCachedListing(cache, out.slice, out.commitID, out.entries)

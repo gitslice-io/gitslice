@@ -1,4 +1,4 @@
-package cli
+package workspace
 
 import (
 	"testing"
@@ -54,7 +54,7 @@ func TestMergeTextLines(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, ok := mergeTextLines([]byte(tc.base), []byte(tc.local), []byte(tc.remote))
+			got, ok := MergeTextLines([]byte(tc.base), []byte(tc.local), []byte(tc.remote))
 			if ok != tc.ok {
 				t.Fatalf("merge ok = %v, want %v", ok, tc.ok)
 			}

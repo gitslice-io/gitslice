@@ -193,13 +193,13 @@ func (r Runner) dropIgnoredLazyEdits(rec mountRecord, edits []lazyfs.Edit, read 
 		})
 	}
 	ig := newWorkspaceIgnore("", ws, tracked)
-	ig.read = func(dir string) []byte {
+	ig.Read = func(dir string) []byte {
 		return read(path.Join(dir, ".gitignore"))
 	}
 	out := edits[:0:0]
 	for _, edit := range edits {
 		rel, err := workspaceRelPath(ws, edit.Path)
-		if err != nil || !ig.skip(filepath.ToSlash(rel), false) {
+		if err != nil || !ig.Skip(filepath.ToSlash(rel), false) {
 			out = append(out, edit)
 		}
 	}

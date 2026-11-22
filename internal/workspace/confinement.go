@@ -1,4 +1,4 @@
-package cli
+package workspace
 
 import (
 	"bytes"
@@ -9,11 +9,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
-// hasReservedGsSegment reports whether any path component names the workspace
+// IsSymlinkMode reports whether a native file mode is a symbolic link.
+func IsSymlinkMode(mode uint32) bool {
+	return mode&0o170000 == 0o120000
+}
+
+// HasReservedGsSegment reports whether any path component names the workspace
 // metadata directory (.gs).
-func hasReservedGsSegment(p string) bool {
+func HasReservedGsSegment(p string) bool {
 	normalized := strings.ReplaceAll(strings.TrimSpace(p), "\\", "/")
 	for _, seg := range strings.Split(normalized, "/") {
 		if seg == ".gs" {
@@ -23,14 +29,17 @@ func hasReservedGsSegment(p string) bool {
 	return false
 }
 
-func ensureNotReservedGsPath(p string) error {
-	if hasReservedGsSegment(p) {
-		return userError("reserved_path", "path refers to reserved .gs metadata: "+p, "Choose a path outside .gs.")
+// EnsureNotReservedGsPath returns ErrReservedPath when p references .gs.
+func EnsureNotReservedGsPath(p string) error {
+	if HasReservedGsSegment(p) {
+		return &ReservedPathError{Path: p}
 	}
 	return nil
 }
 
-func cleanConfinedRelPath(rel string) (string, error) {
+// CleanConfinedRelPath validates and cleans a workspace-relative path,
+// rejecting traversal segments and .gs segments.
+func CleanConfinedRelPath(rel string) (string, error) {
 	normalized := strings.TrimSpace(strings.ReplaceAll(rel, "\\", "/"))
 	normalized = strings.TrimPrefix(normalized, "/")
 	if normalized == "" || normalized == "." {
@@ -41,15 +50,15 @@ func cleanConfinedRelPath(rel string) (string, error) {
 		case "", ".", "..":
 			return "", fmt.Errorf("invalid workspace relative path %q", rel)
 		case ".gs":
-			return "", ensureNotReservedGsPath(rel)
+			return "", EnsureNotReservedGsPath(rel)
 		}
 	}
 	return filepath.FromSlash(normalized), nil
 }
 
-// isSafeRelativeSymlink reports whether a symlink at absTarget with target link
+// IsSafeRelativeSymlink reports whether a symlink at absTarget with target link
 // is a relative link that stays strictly within absRoot and outside .gs.
-func isSafeRelativeSymlink(absRoot, absTarget, link string) bool {
+func IsSafeRelativeSymlink(absRoot, absTarget, link string) bool {
 	if link == "" || strings.ContainsRune(link, 0) {
 		return false
 	}
@@ -68,7 +77,7 @@ func isSafeRelativeSymlink(absRoot, absTarget, link string) bool {
 	if err != nil || targetRel == "." || targetRel == ".." || strings.HasPrefix(targetRel, ".."+string(filepath.Separator)) || filepath.IsAbs(targetRel) {
 		return false
 	}
-	if hasReservedGsSegment(filepath.ToSlash(targetRel)) {
+	if HasReservedGsSegment(filepath.ToSlash(targetRel)) {
 		return false
 	}
 
@@ -77,7 +86,7 @@ func isSafeRelativeSymlink(absRoot, absTarget, link string) bool {
 	if err != nil || relToRoot == "." || relToRoot == ".." || strings.HasPrefix(relToRoot, ".."+string(filepath.Separator)) || filepath.IsAbs(relToRoot) {
 		return false
 	}
-	if hasReservedGsSegment(filepath.ToSlash(relToRoot)) {
+	if HasReservedGsSegment(filepath.ToSlash(relToRoot)) {
 		return false
 	}
 
@@ -97,7 +106,7 @@ func isSafeRelativeSymlink(absRoot, absTarget, link string) bool {
 		if err != nil || relCur == ".." || strings.HasPrefix(relCur, ".."+string(filepath.Separator)) || filepath.IsAbs(relCur) {
 			return false
 		}
-		if relCur != "." && hasReservedGsSegment(filepath.ToSlash(relCur)) {
+		if relCur != "." && HasReservedGsSegment(filepath.ToSlash(relCur)) {
 			return false
 		}
 		info, lerr := os.Lstat(cur)
@@ -117,7 +126,7 @@ func isSafeRelativeSymlink(absRoot, absTarget, link string) bool {
 			if relErr != nil || relReal == ".." || strings.HasPrefix(relReal, ".."+string(filepath.Separator)) || filepath.IsAbs(relReal) {
 				return false
 			}
-			if relReal != "." && hasReservedGsSegment(filepath.ToSlash(relReal)) {
+			if relReal != "." && HasReservedGsSegment(filepath.ToSlash(relReal)) {
 				return false
 			}
 			cur = realCur
@@ -126,9 +135,9 @@ func isSafeRelativeSymlink(absRoot, absTarget, link string) bool {
 	return true
 }
 
-// ensureConfinedDir creates relDir (or "." for root itself) under root while
+// EnsureConfinedDir creates relDir (or "." for root itself) under root while
 // rejecting .gs segments and any symlink along the ancestor chain.
-func ensureConfinedDir(root, relDir string) (string, error) {
+func EnsureConfinedDir(root, relDir string) (string, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return "", err
@@ -141,7 +150,7 @@ func ensureConfinedDir(root, relDir string) (string, error) {
 	if normalized == "" || normalized == "." {
 		return absRoot, nil
 	}
-	osRel, err := cleanConfinedRelPath(normalized)
+	osRel, err := CleanConfinedRelPath(normalized)
 	if err != nil {
 		return "", err
 	}
@@ -150,13 +159,13 @@ func ensureConfinedDir(root, relDir string) (string, error) {
 		return "", err
 	}
 	defer osRoot.Close()
-	if err := mkdirAllNoSymlinksInRoot(osRoot, osRel); err != nil {
+	if err := MkdirAllNoSymlinksInRoot(osRoot, osRel); err != nil {
 		return "", err
 	}
 	return filepath.Join(absRoot, osRel), nil
 }
 
-func mkdirAllNoSymlinksInRoot(osRoot *os.Root, osRel string) error {
+func MkdirAllNoSymlinksInRoot(osRoot *os.Root, osRel string) error {
 	if osRel == "" || osRel == "." {
 		return nil
 	}
@@ -203,7 +212,7 @@ func mkdirAllNoSymlinksInRoot(osRoot *os.Root, osRel string) error {
 	return nil
 }
 
-func ensureNoAncestorSymlinksInRoot(osRoot *os.Root, parentRel string) error {
+func EnsureNoAncestorSymlinksInRoot(osRoot *os.Root, parentRel string) error {
 	if parentRel == "" || parentRel == "." {
 		return nil
 	}
@@ -235,15 +244,15 @@ func ensureNoAncestorSymlinksInRoot(osRoot *os.Root, parentRel string) error {
 	return nil
 }
 
-// writeConfinedWorkspaceFile writes a workspace file or validated relative
+// WriteConfinedFile writes a workspace file or validated relative
 // symlink strictly inside root (never inside .gs, never traversing ancestor
 // symlinks, and never overwriting through a leaf symlink).
-func writeConfinedWorkspaceFile(root, rel string, mode uint32, r io.Reader) (string, int64, error) {
+func WriteConfinedFile(root, rel string, mode uint32, r io.Reader) (string, int64, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return "", 0, err
 	}
-	osRel, err := cleanConfinedRelPath(rel)
+	osRel, err := CleanConfinedRelPath(rel)
 	if err != nil {
 		return "", 0, err
 	}
@@ -258,7 +267,7 @@ func writeConfinedWorkspaceFile(root, rel string, mode uint32, r io.Reader) (str
 
 	parentRel := filepath.Dir(osRel)
 	if parentRel != "." {
-		if err := mkdirAllNoSymlinksInRoot(osRoot, parentRel); err != nil {
+		if err := MkdirAllNoSymlinksInRoot(osRoot, parentRel); err != nil {
 			return "", 0, err
 		}
 	}
@@ -277,15 +286,15 @@ func writeConfinedWorkspaceFile(root, rel string, mode uint32, r io.Reader) (str
 		return "", 0, err
 	}
 
-	if isSymlinkMode(mode) {
+	if IsSymlinkMode(mode) {
 		data, err := io.ReadAll(r)
 		if err != nil {
 			return "", 0, err
 		}
 		link := string(data)
-		if isSafeRelativeSymlink(absRoot, absTarget, link) {
+		if IsSafeRelativeSymlink(absRoot, absTarget, link) {
 			if parentRel != "." {
-				if err := ensureNoAncestorSymlinksInRoot(osRoot, parentRel); err != nil {
+				if err := EnsureNoAncestorSymlinksInRoot(osRoot, parentRel); err != nil {
 					return "", 0, err
 				}
 			}
@@ -323,14 +332,14 @@ func writeConfinedWorkspaceFile(root, rel string, mode uint32, r io.Reader) (str
 	return absTarget, n, nil
 }
 
-// removeConfinedWorkspaceFile removes a file or leaf symlink strictly inside
+// RemoveConfinedFile removes a file or leaf symlink strictly inside
 // root without traversing intermediate symlink directories.
-func removeConfinedWorkspaceFile(root, rel string) error {
+func RemoveConfinedFile(root, rel string) error {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return err
 	}
-	osRel, err := cleanConfinedRelPath(rel)
+	osRel, err := CleanConfinedRelPath(rel)
 	if err != nil {
 		return err
 	}
@@ -345,7 +354,7 @@ func removeConfinedWorkspaceFile(root, rel string) error {
 
 	parentRel := filepath.Dir(osRel)
 	if parentRel != "." {
-		if err := ensureNoAncestorSymlinksInRoot(osRoot, parentRel); err != nil {
+		if err := EnsureNoAncestorSymlinksInRoot(osRoot, parentRel); err != nil {
 			if errors.Is(err, os.ErrNotExist) {
 				return nil
 			}
@@ -358,14 +367,14 @@ func removeConfinedWorkspaceFile(root, rel string) error {
 	return nil
 }
 
-// readConfinedWorkspaceFile reads a regular file strictly inside root, refusing
-// .gs paths, ancestor symlinks, and leaf symlinks.
-func readConfinedWorkspaceFile(root, rel string) ([]byte, error) {
+// ReadConfinedFile reads a regular file strictly inside root, refusing
+// .gs paths, ancestor symlinks, and unsafe leaf symlinks.
+func ReadConfinedFile(root, rel string) ([]byte, error) {
 	absRoot, err := filepath.Abs(root)
 	if err != nil {
 		return nil, err
 	}
-	osRel, err := cleanConfinedRelPath(rel)
+	osRel, err := CleanConfinedRelPath(rel)
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +386,7 @@ func readConfinedWorkspaceFile(root, rel string) ([]byte, error) {
 
 	parentRel := filepath.Dir(osRel)
 	if parentRel != "." {
-		if err := ensureNoAncestorSymlinksInRoot(osRoot, parentRel); err != nil {
+		if err := EnsureNoAncestorSymlinksInRoot(osRoot, parentRel); err != nil {
 			return nil, err
 		}
 	}
@@ -388,7 +397,7 @@ func readConfinedWorkspaceFile(root, rel string) ([]byte, error) {
 	if info.Mode()&fs.ModeSymlink != 0 {
 		absTarget := filepath.Join(absRoot, osRel)
 		link, lerr := os.Readlink(absTarget)
-		if lerr != nil || !isSafeRelativeSymlink(absRoot, absTarget, link) {
+		if lerr != nil || !IsSafeRelativeSymlink(absRoot, absTarget, link) {
 			return nil, fmt.Errorf("refusing to read unsafe symlink %q", rel)
 		}
 	}
@@ -400,7 +409,9 @@ func readConfinedWorkspaceFile(root, rel string) ([]byte, error) {
 	return io.ReadAll(f)
 }
 
-func inferConfiningRootForTarget(target string) (string, string, error) {
+// InferConfiningRootForTarget finds the nearest enclosing workspace root for
+// target (or its parent directory if none exists).
+func InferConfiningRootForTarget(target string) (string, string, error) {
 	absTarget, err := filepath.Abs(target)
 	if err != nil {
 		return "", "", err
@@ -421,4 +432,34 @@ func inferConfiningRootForTarget(target string) (string, string, error) {
 		cur = parent
 	}
 	return filepath.Dir(absTarget), filepath.Base(absTarget), nil
+}
+
+// BackupUncommittedEdits copies the workspace files at logical paths (as
+// /account/...) into .gs/sync-backup/<time>/ before gs sync merges into them,
+// and returns that folder relative to the workspace root. A path deleted
+// locally has nothing to copy.
+func BackupUncommittedEdits(root string, logicalPaths []string) (string, error) {
+	rel := filepath.Join(".gs", "sync-backup", time.Now().UTC().Format("20060102T150405Z"))
+	dir := filepath.Join(root, rel)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	for _, p := range logicalPaths {
+		name := strings.TrimPrefix(p, "/")
+		data, err := ReadConfinedFile(root, name)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return "", fmt.Errorf("back up %s: %w", p, err)
+		}
+		target := filepath.Join(dir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(target, data, 0o600); err != nil {
+			return "", err
+		}
+	}
+	return rel, nil
 }

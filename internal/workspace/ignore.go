@@ -1,4 +1,4 @@
-package cli
+package workspace
 
 import (
 	"bufio"
@@ -11,8 +11,8 @@ import (
 	"github.com/bmatcuk/doublestar/v4"
 )
 
-// workspaceIgnore decides which untracked paths a workspace scan skips. It
-// reads .gitignore files the way Git does:
+// Ignore decides which untracked paths a workspace scan skips. It reads
+// .gitignore files the way Git does:
 //
 //   - A file's patterns apply below its own directory.
 //   - Within a file, a later match overrides an earlier one.
@@ -22,30 +22,31 @@ import (
 // Tracked paths, those in the base snapshot, are never skipped. Ignoring a file
 // that is already in the slice therefore cannot turn it into a delete. Build
 // output such as node_modules stays out of status, changesets and sync.
-type workspaceIgnore struct {
+type Ignore struct {
 	root        string
-	rules       map[string][]ignoreRule // by workspace-relative directory, "" for the root
+	rules       map[string][]IgnoreRule // by workspace-relative directory, "" for the root
 	dirIgnored  map[string]bool         // memoized directory decisions
 	tracked     map[string]struct{}     // workspace-relative tracked files
 	trackedDirs map[string]struct{}     // workspace-relative ancestors of tracked files
-	// read returns the .gitignore of a workspace-relative directory ("" for
+	// Read returns the .gitignore of a workspace-relative directory ("" for
 	// the root), or nil. It reads the disk unless set: a lazy workspace reads
 	// through its layers.
-	read func(dir string) []byte
+	Read func(dir string) []byte
 }
 
-type ignoreRule struct {
-	pattern string // doublestar pattern relative to the .gitignore's directory
-	negate  bool
-	dirOnly bool
+// IgnoreRule is one compiled rule from a .gitignore file.
+type IgnoreRule struct {
+	Pattern string // doublestar pattern relative to the .gitignore's directory
+	Negate  bool
+	DirOnly bool
 }
 
-// newWorkspaceIgnore builds the matcher for a workspace rooted at root.
+// NewIgnore builds the matcher for a workspace rooted at root.
 // tracked holds the base snapshot entries, keyed by global path.
-func newWorkspaceIgnore(root string, ws WorkspaceConfig, tracked ...map[string]BaseSnapshotFile) *workspaceIgnore {
-	ig := &workspaceIgnore{
+func NewIgnore(root string, ws Config, tracked ...map[string]BaseSnapshotFile) *Ignore {
+	ig := &Ignore{
 		root:        root,
-		rules:       map[string][]ignoreRule{},
+		rules:       map[string][]IgnoreRule{},
 		dirIgnored:  map[string]bool{},
 		tracked:     map[string]struct{}{},
 		trackedDirs: map[string]struct{}{},
@@ -55,7 +56,7 @@ func newWorkspaceIgnore(root string, ws WorkspaceConfig, tracked ...map[string]B
 			rel := file.RelPath
 			if rel == "" {
 				var err error
-				if rel, err = workspaceRelPath(ws, globalPath); err != nil {
+				if rel, err = RelPath(ws, globalPath); err != nil {
 					continue
 				}
 			}
@@ -69,10 +70,10 @@ func newWorkspaceIgnore(root string, ws WorkspaceConfig, tracked ...map[string]B
 	return ig
 }
 
-// skip reports whether the scan should leave out rel, a workspace-relative
+// Skip reports whether the scan should leave out rel, a workspace-relative
 // slash path. Directories are skipped whole only when no tracked file lies
 // beneath them.
-func (ig *workspaceIgnore) skip(rel string, isDir bool) bool {
+func (ig *Ignore) Skip(rel string, isDir bool) bool {
 	if ig == nil {
 		return false
 	}
@@ -88,7 +89,7 @@ func (ig *workspaceIgnore) skip(rel string, isDir bool) bool {
 	return ig.ancestorIgnored(rel) || ig.matches(rel, false)
 }
 
-func (ig *workspaceIgnore) directoryIgnored(dir string) bool {
+func (ig *Ignore) directoryIgnored(dir string) bool {
 	if ignored, ok := ig.dirIgnored[dir]; ok {
 		return ignored
 	}
@@ -97,7 +98,7 @@ func (ig *workspaceIgnore) directoryIgnored(dir string) bool {
 	return ignored
 }
 
-func (ig *workspaceIgnore) ancestorIgnored(rel string) bool {
+func (ig *Ignore) ancestorIgnored(rel string) bool {
 	for dir := path.Dir(rel); dir != "." && dir != "/"; dir = path.Dir(dir) {
 		if ig.directoryIgnored(dir) {
 			return true
@@ -108,7 +109,7 @@ func (ig *workspaceIgnore) ancestorIgnored(rel string) bool {
 
 // matches evaluates the patterns of every .gitignore from the workspace root
 // down to rel's parent directory. The last matching pattern decides.
-func (ig *workspaceIgnore) matches(rel string, isDir bool) bool {
+func (ig *Ignore) matches(rel string, isDir bool) bool {
 	ignored := false
 	var dirs []string // deepest first; iterated backwards from the root
 	for dir := path.Dir(rel); dir != "." && dir != "/"; dir = path.Dir(dir) {
@@ -122,38 +123,38 @@ func (ig *workspaceIgnore) matches(rel string, isDir bool) bool {
 			sub = strings.TrimPrefix(rel, dir+"/")
 		}
 		for _, rule := range ig.rulesFor(dir) {
-			if rule.dirOnly && !isDir {
+			if rule.DirOnly && !isDir {
 				continue
 			}
-			if ok, _ := doublestar.Match(rule.pattern, sub); ok {
-				ignored = !rule.negate
+			if ok, _ := doublestar.Match(rule.Pattern, sub); ok {
+				ignored = !rule.Negate
 			}
 		}
 	}
 	return ignored
 }
 
-func (ig *workspaceIgnore) rulesFor(dir string) []ignoreRule {
+func (ig *Ignore) rulesFor(dir string) []IgnoreRule {
 	if rules, ok := ig.rules[dir]; ok {
 		return rules
 	}
 	// A missing or unreadable .gitignore contributes no rules.
 	var data []byte
-	if ig.read != nil {
-		data = ig.read(dir)
+	if ig.Read != nil {
+		data = ig.Read(dir)
 	} else {
 		data, _ = os.ReadFile(filepath.Join(ig.root, filepath.FromSlash(dir), ".gitignore"))
 	}
-	rules := parseGitignore(data)
+	rules := ParseGitignore(data)
 	ig.rules[dir] = rules
 	return rules
 }
 
-// parseGitignore turns .gitignore content into doublestar rules. It covers
+// ParseGitignore turns .gitignore content into doublestar rules. It covers
 // comments, negation, directory-only and anchored patterns, and "**"; Git's
 // escapes for a leading "#" or "!" and for trailing spaces are kept literal.
-func parseGitignore(data []byte) []ignoreRule {
-	var rules []ignoreRule
+func ParseGitignore(data []byte) []IgnoreRule {
+	var rules []IgnoreRule
 	scanner := bufio.NewScanner(bytes.NewReader(data))
 	for scanner.Scan() {
 		line := strings.TrimSuffix(scanner.Text(), "\r")
@@ -163,15 +164,15 @@ func parseGitignore(data []byte) []ignoreRule {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		rule := ignoreRule{}
+		rule := IgnoreRule{}
 		if strings.HasPrefix(line, "!") {
-			rule.negate = true
+			rule.Negate = true
 			line = line[1:]
 		} else if strings.HasPrefix(line, `\#`) || strings.HasPrefix(line, `\!`) {
 			line = line[1:]
 		}
 		if strings.HasSuffix(line, "/") {
-			rule.dirOnly = true
+			rule.DirOnly = true
 			line = strings.TrimRight(line, "/")
 		}
 		if line == "" {
@@ -189,7 +190,7 @@ func parseGitignore(data []byte) []ignoreRule {
 		if !doublestar.ValidatePattern(line) {
 			continue
 		}
-		rule.pattern = line
+		rule.Pattern = line
 		rules = append(rules, rule)
 	}
 	return rules

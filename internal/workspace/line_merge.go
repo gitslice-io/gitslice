@@ -1,4 +1,4 @@
-package cli
+package workspace
 
 import (
 	"bytes"
@@ -16,7 +16,9 @@ type lineDiffOp struct {
 	line string
 }
 
-func mergeTextLines(baseData, localData, remoteData []byte) ([]byte, bool) {
+// MergeTextLines performs a 3-way line-level merge of localData and remoteData
+// against baseData, returning ok=false on overlapping edits.
+func MergeTextLines(baseData, localData, remoteData []byte) ([]byte, bool) {
 	switch {
 	case bytes.Equal(localData, remoteData):
 		return localData, true
