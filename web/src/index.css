@@ -230,3 +230,119 @@ select {
     transition-behavior: allow-discrete;
   }
 }
+
+/* Blog articles (routes/BlogPostPage). */
+.blog-article .blog-heading {
+  position: relative;
+  scroll-margin-top: 5rem;
+}
+
+.blog-article .blog-anchor {
+  position: absolute;
+  left: -1.1em;
+  padding-right: 0.3em;
+  color: rgb(148 163 184);
+  text-decoration: none !important;
+  opacity: 0;
+  transition: opacity 120ms;
+}
+
+.blog-article .blog-heading:hover .blog-anchor,
+.blog-article .blog-anchor:focus-visible {
+  opacity: 1;
+}
+
+.blog-article .blog-code {
+  margin: 1.5rem 0;
+  overflow: hidden;
+  border: 1px solid rgb(226 232 240);
+  border-radius: 0.5rem;
+  background: rgb(248 250 252);
+}
+
+.blog-article .blog-code figcaption {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid rgb(226 232 240);
+  padding: 0.375rem 0.5rem 0.375rem 0.875rem;
+  font-size: 0.75rem;
+  color: rgb(100 116 139);
+}
+
+.blog-article .blog-code-title {
+  font-weight: 600;
+  color: rgb(51 65 85);
+}
+
+.blog-article .blog-code-titled .blog-code-title {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 500;
+}
+
+.blog-article .blog-code-copy {
+  margin-left: auto;
+  border-radius: 0.375rem;
+  padding: 0.125rem 0.5rem;
+  font-weight: 500;
+  transition: background-color 120ms, color 120ms;
+}
+
+.blog-article .blog-code-copy:hover {
+  background: rgb(226 232 240);
+  color: rgb(15 23 42);
+}
+
+.blog-article .blog-code pre {
+  margin: 0;
+  overflow-x: auto;
+  padding: 0.875rem 1rem;
+  background: transparent !important;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: rgb(24 24 27);
+}
+
+.blog-article .blog-diagram {
+  margin: 1.5rem 0;
+  border: 1px solid rgb(226 232 240);
+  border-radius: 0.5rem;
+  background: white;
+  padding: 1rem;
+  text-align: center;
+}
+
+.blog-article .blog-diagram img {
+  display: inline-block;
+  max-width: 100%;
+  margin: 0;
+}
+
+:root.dark .blog-article .blog-code,
+:root.dark .blog-article .blog-diagram {
+  border-color: rgb(39 39 42);
+  background: rgb(9 9 11);
+}
+
+:root.dark .blog-article .blog-code figcaption {
+  border-color: rgb(39 39 42);
+  color: rgb(161 161 170);
+}
+
+:root.dark .blog-article .blog-code-title {
+  color: rgb(212 212 216);
+}
+
+:root.dark .blog-article .blog-code-copy:hover {
+  background: rgb(39 39 42);
+  color: rgb(250 250 250);
+}
+
+:root.dark .blog-article .blog-code pre {
+  color: rgb(244 244 245);
+}
+
+:root.dark .blog-article .blog-code .shiki,
+:root.dark .blog-article .blog-code .shiki span {
+  background-color: transparent !important;
+}

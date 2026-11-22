@@ -9,6 +9,7 @@ import { dehydrate, type DehydratedState } from "@tanstack/react-query";
 
 import { conversationsEnabled } from "../lib/features";
 import { changesetHead, sliceHead } from "../lib/socialMeta";
+import { getPostMeta } from "./blog/postIndex";
 import { accountProfileQuery } from "../queries/accounts";
 import { conversationQuery } from "../queries/agents";
 import { authStatusQuery } from "../queries/auth";
@@ -90,7 +91,18 @@ const conversationsRoute = createRoute({
 const docRoute = createRoute({ getParentRoute: () => publicAppRoute, path: "doc", component: lazyPages.DocPage });
 const docSectionRoute = createRoute({ getParentRoute: () => publicAppRoute, path: "doc/$section", component: lazyPages.DocPage });
 const blogsRoute = createRoute({ getParentRoute: () => publicAppRoute, path: "blogs", component: lazyPages.BlogListPage });
-const blogPostRoute = createRoute({ getParentRoute: () => publicAppRoute, path: "blogs/$slug", component: lazyPages.BlogPostPage });
+const blogPostRoute = createRoute({
+  getParentRoute: () => publicAppRoute,
+  path: "blogs/$slug",
+  // The post's Markdown is loaded before render, so the server sends the
+  // whole article (each body is its own code-split chunk).
+  loader: async ({ params }) => {
+    const { loadPostMarkdown } = await import("./blog/postIndex");
+    return { markdown: (await loadPostMarkdown(params.slug)) ?? null };
+  },
+  head: ({ params }) => blogPostHead(params.slug),
+  component: lazyPages.BlogPostPage
+});
 const slicesRoute = createRoute({ getParentRoute: () => appRoute, path: "slices", component: lazyPages.HomePage });
 const organizationCreateRoute = createRoute({ getParentRoute: () => appRoute, path: "organizations/new", component: lazyPages.NewOrganizationPage });
 const sliceCreateRoute = createRoute({ getParentRoute: () => appRoute, path: "slices/new", validateSearch: validateSliceCreateSearch, component: lazyPages.SliceCreatePage });
@@ -201,6 +213,29 @@ const changesetShortRoute = createRoute({
     loaderData?.social ? changesetHead(loaderData.social) : { meta: [{ title: `Changeset ${params.id} · Gitslice` }] },
   component: lazyPages.ChangesetDetailPage
 });
+
+function blogPostHead(slug: string) {
+  const post = getPostMeta(slug);
+  if (!post) {
+    return { meta: [{ title: "Blog · Gitslice" }] };
+  }
+  const url = `https://gitslice.io/blogs/${post.slug}`;
+  return {
+    meta: [
+      { title: `${post.title} · Gitslice` },
+      { name: "description", content: post.dek },
+      { property: "og:type", content: "article" },
+      { property: "og:title", content: post.title },
+      { property: "og:description", content: post.dek },
+      { property: "og:url", content: url },
+      { property: "article:published_time", content: post.date },
+      { name: "twitter:card", content: "summary" },
+      { name: "twitter:title", content: post.title },
+      { name: "twitter:description", content: post.dek }
+    ],
+    links: [{ rel: "canonical", href: url }]
+  };
+}
 
 const routeTree = rootRoute.addChildren([
   indexRoute, loginRoute, loginFlowRoute, agentLoginRoute, signupRoute, signupFlowRoute, cliLoginRoute,

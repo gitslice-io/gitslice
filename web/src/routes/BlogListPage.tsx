@@ -1,63 +1,57 @@
 import { Link } from "@tanstack/react-router";
 
+import { BlogTags, formatPostDate } from "./blog/BlogParts";
 import { blogPostIndex } from "./blog/postIndex";
-
-const dateFormatter = new Intl.DateTimeFormat("en", {
-  day: "numeric",
-  month: "long",
-  timeZone: "UTC",
-  year: "numeric"
-});
-
-function formatDate(date: string) {
-  return dateFormatter.format(new Date(`${date}T00:00:00Z`));
-}
 
 export function BlogListPage() {
   const posts = [...blogPostIndex].sort((left, right) =>
-    right.date.localeCompare(left.date)
+    right.date.localeCompare(left.date),
   );
 
   return (
-    <section className="mx-auto w-full max-w-4xl">
-      <header className="border-b border-slate-200 dark:border-zinc-800 pb-5">
-        <p className="text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
-          Gitslice
-        </p>
-        <h1 className="mt-2 text-xl font-semibold tracking-normal text-zinc-950 dark:text-zinc-50 sm:text-2xl">
+    <section className="mx-auto w-full max-w-4xl pb-16">
+      <header className="pb-10 pt-4">
+        <h1 className="text-[clamp(2rem,5vw,3rem)] font-medium leading-[1.08] tracking-tight text-zinc-950 dark:text-zinc-50">
           Blog
         </h1>
-        <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600 dark:text-zinc-400">
+        <p className="mt-3 max-w-2xl text-lg leading-8 text-slate-600 dark:text-zinc-400">
           Product updates, benchmarks, and engineering notes from Gitslice.
         </p>
       </header>
 
-      <div className="mt-8 grid gap-4">
+      <ol className="border-t border-slate-200 dark:border-zinc-800">
         {posts.map((post) => (
-          <Link
-            className="block rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 p-5 transition hover:bg-slate-50 dark:hover:bg-zinc-950 active:scale-[0.98]"
+          <li
+            className="grid gap-x-10 gap-y-2 border-b border-slate-200 py-8 dark:border-zinc-800 sm:grid-cols-[9rem_1fr]"
             key={post.slug}
-            params={{ slug: post.slug }}
-            to="/blogs/$slug"
           >
-            <article>
-              <h2 className="text-base font-semibold text-zinc-950 dark:text-zinc-50 sm:text-lg">
-                {post.title}
+            <time
+              className="pt-1 text-[0.8125rem] font-medium tabular-nums text-slate-500 dark:text-zinc-400"
+              dateTime={post.date}
+            >
+              {formatPostDate(post.date)}
+            </time>
+            <article className="min-w-0">
+              <h2 className="text-balance text-xl font-medium leading-snug tracking-tight text-zinc-950 dark:text-zinc-50 sm:text-2xl">
+                <Link
+                  className="transition hover:text-sky-700 dark:hover:text-sky-300"
+                  params={{ slug: post.slug }}
+                  to="/blogs/$slug"
+                >
+                  {post.title}
+                </Link>
               </h2>
-              <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-zinc-400">
+              <p className="mt-2 text-pretty leading-7 text-slate-600 dark:text-zinc-400">
                 {post.dek}
               </p>
-              <p className="mt-4 text-xs font-medium text-slate-500 dark:text-zinc-400">
-                <time dateTime={post.date}>{formatDate(post.date)}</time>
-                {" · "}
-                {post.readingMinutes} min read
-                {" · "}
-                {post.tags.join(", ")}
-              </p>
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-[0.8125rem] text-slate-500 dark:text-zinc-400">
+                <BlogTags tags={post.tags} />
+                <span>{post.readingMinutes} min read</span>
+              </div>
             </article>
-          </Link>
+          </li>
         ))}
-      </div>
+      </ol>
     </section>
   );
 }

@@ -26,5 +26,10 @@ cut anything they can't act on.
 ## Style
 
 Plain, direct sentences; numbered `##` sections; code blocks for commands.
+Every fenced block names its language (`bash`, `yaml`, `go`, ...) so it is
+highlighted; add `title=<file>` after the language to label a file
+(`yaml title=.gitslice/automations.yaml`). A `mermaid` block is drawn as a
+diagram. `renderPost.ts` renders posts on the server, so test a new post with
+`npx vitest run src/routes/blog`.
 Link to the docs (`/doc/...`) for reference material instead of repeating it.
 Escape backticks and `${` inside the template literal.
