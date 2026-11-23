@@ -498,6 +498,114 @@ automations:
         </ul>
       </DocSectionCard>
 
+      <DocSectionCard title="Official first-party automations">
+        <p>
+          The public{" "}
+          <a
+            href="/slices/gitslice/automations"
+            className="text-accent underline-offset-2 hover:underline"
+          >
+            gitslice/automations
+          </a>{" "}
+          slice publishes ready-to-use <InlineCode>on: [call]</InlineCode>{" "}
+          integration templates pinned by immutable tags. Every template runs
+          exclusively with sealed secrets through HTTP-Gate (no{" "}
+          <InlineCode>reveal</InlineCode> or{" "}
+          <InlineCode>egress: direct</InlineCode> required).
+        </p>
+        <DocTable
+          ariaLabel="Official first-party automation templates"
+          firstColMono
+          head={["Template", "Secret, network & outputs"]}
+          rows={[
+            [
+              "/gitslice/automations/slack-notify@v1.0.0",
+              "Secret: SLACK_WEBHOOK_PATH · Host: hooks.slack.com · Output: delivered",
+            ],
+            [
+              "/gitslice/automations/github-dispatch@v1.0.0",
+              "Secret: GITHUB_TOKEN · Host: api.github.com · Outputs: dispatched_url, mode",
+            ],
+            [
+              "/gitslice/automations/linear-sync@v1.0.0",
+              "Secret: LINEAR_API_KEY · Host: api.linear.app · Outputs: issue_keys, issue_urls, synced_count",
+            ],
+            [
+              "/gitslice/automations/vercel-deploy@v1.0.0",
+              "Secret: VERCEL_DEPLOY_HOOK_PATH · Host: api.vercel.com · Outputs: job_id, job_state",
+            ],
+            [
+              "/gitslice/automations/cloudflare-deploy@v1.0.0",
+              "Secret: CLOUDFLARE_API_TOKEN · Hosts: api.cloudflare.com, registry.npmjs.org · Outputs: version_id, deployment_url",
+            ],
+          ]}
+        />
+        <CommandBlock label="first-party catalog examples">{`# Inspect any template's full input schema, secrets, hosts, and tags:
+#   gs auto inspect /gitslice/automations/slack-notify@v1.0.0
+
+version: 1
+automations:
+  # 1. Slack notification on push (SLACK_WEBHOOK_PATH = path after https://hooks.slack.com/services/)
+  notify-slack:
+    on: [push]
+    secrets: [SLACK_WEBHOOK_PATH]
+    network: [hooks.slack.com]
+    action:
+      uses: /gitslice/automations/slack-notify@v1.0.0
+      with:
+        status: success
+        include_files: true
+
+  # 2. Trigger a GitHub Actions workflow on tag creation
+  trigger-gh-release:
+    on: [tag.created]
+    secrets: [GITHUB_TOKEN]
+    network: [api.github.com]
+    action:
+      uses: /gitslice/automations/github-dispatch@v1.0.0
+      with:
+        owner: acme
+        repo: app-mirror
+        mode: workflow_dispatch
+        workflow: release.yml
+        ref: main
+
+  # 3. Sync Linear issues (e.g. ENG-123) mentioned in changesets
+  linear-on-submit:
+    on: [changeset.submitted]
+    secrets: [LINEAR_API_KEY]
+    network: [api.linear.app]
+    action:
+      uses: /gitslice/automations/linear-sync@v1.0.0
+      with:
+        team_prefix: ENG
+        target_state: Done
+
+  # 4. Trigger Vercel deploy hook (VERCEL_DEPLOY_HOOK_PATH = path after .../integrations/deploy/)
+  deploy-frontend:
+    on: [push]
+    paths: [web/**]
+    secrets: [VERCEL_DEPLOY_HOOK_PATH]
+    network: [api.vercel.com]
+    action:
+      uses: /gitslice/automations/vercel-deploy@v1.0.0
+      with:
+        project_url: https://app.acme.com
+
+  # 5. Build and deploy a Cloudflare Worker with wrangler in the node container runtime
+  deploy-worker:
+    on: [push, manual]
+    secrets: [CLOUDFLARE_API_TOKEN]
+    network: [api.cloudflare.com, registry.npmjs.org]
+    action:
+      uses: /gitslice/automations/cloudflare-deploy@v1.0.0
+      with:
+        account_id: "0123456789abcdef0123456789abcdef"
+        directory: worker
+        build_command: npm run build
+        environment: production`}</CommandBlock>
+      </DocSectionCard>
+
       <DocSectionCard title="Multi-step pipelines">
         <p>
           Chain up to 20 sequential steps with{" "}

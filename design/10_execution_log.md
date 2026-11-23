@@ -9932,5 +9932,20 @@ Clerk) and update the relevant design and CLI documentation.
   - Object compression & packing: 732,979 objects (297,263 blobs / 17.38 GB raw + 435,716 trees / 3.55 GB raw = 20.92 GB) → 2,335 packs (2,260 blob packs + 75 tree packs) totaling 5.16 GB (4.05× smaller, 314× fewer PUTs), `pending_outbox = 0`.
 - **Verification:** `gofmt`, `go vet ./...`, `go test ./...`, real-Postgres `internal/postgres`, `tests/rpc`, and `tests/cli` (including new `TestPackedObjectStoreAndColdRead`, `TestPublishGitImportBatchPacksTreesAndDrainsBatchOutbox`, and `TestGitImportLocalDeepEndToEnd`), plus cross-OS `cmd/gs` builds.
 
+## 2026-11-22 — Official First-Party Reusable Automations (`gitslice/automations@v1.0.0`)
+
+- **Goal:** Ship an official catalog of drop-in first-party `on: [call]` integration templates so any account on Gitslice can connect to Slack, GitHub Actions, Linear, Vercel, and Cloudflare in a few lines of YAML with sealed secrets and zero `reveal:` / `egress: direct` requirements.
+- **Decisions & implementation:**
+  - Created public slice `gitslice:automations` (`/gitslice/automations`) and landed changeset `c77ca46291`, tagged `v1.0.0` (`sha256:ac0e30819398`), containing 5 reusable templates:
+    - `/gitslice/automations/slack-notify@v1.0.0` (`workers/slack-notify.js`, `SLACK_WEBHOOK_PATH`, `hooks.slack.com`)
+    - `/gitslice/automations/github-dispatch@v1.0.0` (`workers/github-dispatch.js`, `GITHUB_TOKEN`, `api.github.com`)
+    - `/gitslice/automations/linear-sync@v1.0.0` (`workers/linear-sync.js`, `LINEAR_API_KEY`, `api.linear.app`)
+    - `/gitslice/automations/vercel-deploy@v1.0.0` (`workers/vercel-deploy.js`, `VERCEL_DEPLOY_HOOK_PATH`, `api.vercel.com`)
+    - `/gitslice/automations/cloudflare-deploy@v1.0.0` (`scripts/cloudflare-deploy.sh`, `CLOUDFLARE_API_TOKEN`, `api.cloudflare.com` + `registry.npmjs.org`)
+  - Added `gs.setOutput(key, value)` to `internal/cli/trigger_local_harness.mjs` so `gs auto run --local` supports worker templates that emit outputs.
+  - Added an **Official first-party automations** catalog table and copy-paste YAML examples to `web/src/routes/doc/AutomationsDoc.tsx`.
+- **Verification:** `node --test test/automations.test.mjs` (7/7 passing), Go `automations.Parse` + cross-account `BindTemplate` validation, live `gs auto inspect` on prod for all 5 `@v1.0.0` templates, `go test ./internal/cli/...`, and `npx tsc -b`, `npm test -- --run`, and `npm run build` in `web/`.
+
+
 
 

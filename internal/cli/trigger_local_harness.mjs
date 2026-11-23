@@ -104,6 +104,11 @@ const gs = {
     if (u.protocol !== "https:") throw new Error("a details URL must use https");
     say(`details: ${u.href}`);
   },
+  async setOutput(key, value) {
+    const k = String(key ?? "").trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/.test(k)) throw new Error(`invalid output key ${JSON.stringify(k)}`);
+    say(`output ${k}=${String(value ?? "")}`);
+  },
   checks: {
     async create(fields) {
       const c = { id: `check_local_${++checkSeq}`, status: "queued", ...fields };
