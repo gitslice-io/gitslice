@@ -1,548 +1,232 @@
 # Gitslice Indexing Design
 
-This document defines Gitslice derived indexes, indexing events, freshness
-semantics, and rebuild rules. Product context is in [00_product.md](00_product.md),
-the top-level architecture is in
-[01_gitslice_architecture_design.md](01_gitslice_architecture_design.md), storage
-is in [02_storage.md](02_storage.md), conflict resolution and batched submit are
-in [07_conflict_resolution.md](07_conflict_resolution.md), MVP implementation
-details are in [08_mvp_implementation.md](08_mvp_implementation.md), and rollout
-phases are in [09_execution_plan.md](09_execution_plan.md).
+This document defines Gitslice's derived indexes, transactional outbox,
+background index worker, synchronous prefix tables, and rebuild rules.
 
-## 1. Indexing Goals
+Related documents:
 
-Indexes are derived data. They should make reads, review, authorization, submit
-requirement resolution, build selection, and projection fast, but they must not
-become the source of truth.
+- [00_product.md](00_product.md): product overview
+- [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md): top-level architecture
+- [02_storage.md](02_storage.md): authoritative storage schema and object store
+- [07_conflict_resolution.md](07_conflict_resolution.md): path-head CAS and batched submit
+- [13_file_identity_and_move_history.md](13_file_identity_and_move_history.md): entity-aware move history
+- [27_blame.md](27_blame.md): line-level blame snapshots
 
-The source of truth remains:
+## 1. Indexing Principles
 
-```text
-Refs
-Commits
-Trees
-Blobs
-Slice definitions
-Path lock records
-```
+Indexes are derived data. They accelerate reads, history queries, slice
+coverage lookups, move-following log/blame, and commit prefix resolution, but
+they are never the source of truth.
 
-If an index is missing or stale, the system should be able to rebuild it from
-those source objects.
-
-The MVP does not include code text search or per-directory policy indexes.
-
-## 2. Indexing Systems
-
-Gitslice should keep the MVP index stack small.
-
-MVP systems:
+The authoritative source of truth remains:
 
 ```text
-PostgreSQL
-  operational indexes
-  freshness/provenance records
-  transactional outbox
-  worker checkpoints
-
-Filesystem object store
-  immutable tree nodes
-  large immutable index artifacts
-  build/test graph snapshots
-  projection cache artifacts
-  rebuild checkpoints
-
-index workers
-  consume outbox events
-  update metadata indexes
-  publish large artifacts
-```
-
-PostgreSQL is the same transactional system used for refs, commits, changesets,
-submit state, and slice metadata. Using SQL tables for the MVP keeps
-correctness-critical indexes easy to inspect, repair, and transactionally
-update. If scale requires a different backing store later, it should preserve
-the same logical key shapes and freshness guarantees.
-
-### 2.1 System Responsibilities
-
-Metadata database indexes:
-
-- slice coverage
-- submit requirement provenance
-- changed paths
-- patchset read/write sets
-- path history and entity-aware move history
-- projection cache registry
-- index freshness and provenance
-- outbox events and worker checkpoints
-
-Object storage artifacts:
-
-- build graph snapshots
-- test graph snapshots
-- projection cache artifacts
-- rebuild checkpoints and comparison reports
-
-Not all indexes have the same freshness requirement. Indexes used for submit
-validation must be fresh for exact source inputs or recomputed from
-source-of-truth objects.
-
-### 2.2 Metadata Index Tables
-
-The metadata index schema should be prefix-oriented because canonical paths are
-account-rooted.
-
-Representative tables:
-
-```text
-index_outbox(
-  event_id,
-  event_type,
-  target_ref,
-  old_commit_id,
-  new_commit_id,
-  changed_paths[],
-  affected_slice_ids[],
-  created_at
-)
-
-index_worker_checkpoint(
-  worker_name,
-  shard_key,
-  last_event_id,
-  source_commit_id,
-  indexer_version,
-  updated_at
-)
-
-slice_prefix_index(
-  account,
-  slice_id,
-  slice_definition_hash,
-  included_prefix,
-  visibility,
-  updated_at
-)
-
-submit_requirement_index(
-  account,
-  slice_id,
-  slice_definition_hash,
-  path_lock_set_hash,
-  target_ref,
-  required_approvals[],
-  required_checks[],
-  source_commit_id
-)
-
-changed_path_index(
-  target_ref,
-  commit_id,
-  path,
-  blob_hash,
-  change_kind
-)
-
-patchset_path_base_index(
-  target_ref,
-  changeset_id,
-  patchset_id,
-  path,
-  recursive,
-  access_kind,
-  check_kind,
-  base_commit_id,
-  entry_fingerprint,
-  indexed_at
-)
-
-path_history_index(
-  path,
-  commit_id,
-  parent_commit_ids[],
-  change_kind,
-  committed_at
-)
-
-entity_history_index(
-  account_id,
-  entity_id,
-  target_ref,
-  commit_id,
-  path,
-  old_path,
-  change_kind,
-  committed_at
-)
-
-current_path_entity_index(
-  target_ref,
-  path,
-  account_id,
-  entity_id,
-  kind,
-  indexed_at
-)
-
-projection_manifest(
-  slice_id,
-  slice_definition_hash,
-  source_commit_id,
-  projected_tree_id,
-  synthetic_git_commit_id,
-  artifact_ids[],
-  published_at
-)
-```
-
-Path-prefix indexes should support:
-
-```text
-find prefixes covering a path
-find prefixes covered by a changed directory
-find slices whose included paths overlap changed paths
-lookup submit settings for an authoring slice
-```
-
-The exact physical representation can be SQL btree/range tables for the MVP and
-an ordered KV prefix trie later. The logical API should remain prefix lookup and
-overlap lookup, not ad hoc string matching in application code. The concrete
-PostgreSQL tables and database indexes are defined in
-[02_storage.md](02_storage.md#42-postgresql-indexes-and-constraints).
-
-## 3. Required Indexes
-
-Initial required indexes:
-
-- slice coverage
-- submit requirement provenance
-- changed paths
-- patchset read/write sets
-- path history
-- commit id prefix resolution
-- slice projection
-- build graph
-- test graph
-- index freshness/provenance
-
-### 3.1 Slice Coverage
-
-Maps global paths to slices whose latest accepted `included_paths` cover those
-paths.
-
-```text
-covering_slices(path, definition_epoch) -> []slice_id
-```
-
-This index accelerates authorization containment checks, projection
-invalidation, visibility analysis, and affected-slice calculation. It is derived
-from slice definitions and does not create multi-slice changesets or extra
-approval requirements.
-
-### 3.2 Submit Requirement Provenance
-
-Maps authoring slices to the submit settings in their latest accepted slice
-definition:
-
-```text
-submit_requirements(slice_id, slice_definition_hash)
-  -> required approvals
-  -> required checks
-  -> path locks that intersect changed paths
-```
-
-Submit requirement resolution must be recomputed before submit against the
-latest accepted slice definition and active path locks. The index is an
-accelerator and provenance record, not an authority.
-
-### 3.3 Changed Paths
-
-Changed-path indexes support review summaries, CI selection, projection
-invalidation, and incremental index updates.
-
-### 3.4 Patchset Read/Write Sets
-
-Maps open patchsets to their read-set predicates and write-set paths. This
-index accelerates batched submit candidate discovery for a hot target ref.
-
-```text
-ready_patchsets(target_ref, compatible_read_write_set, fresh_requirements)
-  -> []patchset_id
-```
-
-The index is only an accelerator. Submit must revalidate path predicates against
-the current target-ref head before publishing.
-
-### 3.5 Path History
-
-Maps paths to commits that touched those paths. Rename handling can start as
-path-based, but move-preserving history requires an entity-aware index keyed by
-stable file and directory identity. Explicit native rename operations are
-authoritative lineage. Delete/add inference and Git import rename detection are
-secondary inputs that must record their source and ambiguity status. See
-[13_file_identity_and_move_history.md](13_file_identity_and_move_history.md).
-
-The MVP stores this as `commit_changed_paths(target_ref, commit_id, path,
-change_kind, committed_at)`. Directory history is a prefix query over canonical
-paths, and slice history resolves the slice's current included path prefixes
-before querying the same index. Cursor pagination uses the ordered
-`(committed_at, commit_id)` pair from the last returned index hit.
-
-### 3.6 Commit ID Prefix Resolution
-
-Human-facing commit commands should be able to resolve short commit id prefixes
-to canonical native commit ids without scanning all history on the client.
-Resolution is a read-side convenience over the canonical `commits.id`; it does
-not create a second id namespace.
-
-Canonical ids remain full `sha256:<hex>` strings. The database should support
-prefix matching on those canonical ids:
-
-```sql
-create index if not exists idx_commits_id_prefix
-on commits (id text_pattern_ops);
-```
-
-Exact lookup continues to use the `commits.id` primary key. Prefix lookup should
-be scoped through the caller's visible history before deciding whether a prefix
-is unique. For path and slice history, the resolver should reuse
-`commit_changed_paths` and the same prefix predicates as `ListCommits`:
-
-```sql
-select c.id,
-       c.parent_ids,
-       c.root_tree_id,
-       coalesce(c.author_subject_id, '') as author_subject_id,
-       c.message,
-       c.created_at,
-       c.changed_paths,
-       max(cp.committed_at) as committed_at
-from commit_changed_paths cp
-join commits c on c.id = cp.commit_id
-where cp.target_ref = $1
-  and c.id like $2 || '%'
-  and (
-    cp.path = $3
-    or left(cp.path, length($4)) = $4
-  )
-group by c.id
-order by committed_at desc, c.id desc
-limit 2;
-```
-
-The resolver should fetch only enough candidates to prove uniqueness or
-ambiguity. A `limit 2` query is enough for server logic; a small larger limit
-can support friendlier CLI ambiguity messages. For default unfiltered CLI
-resolution, the path prefixes should be the signed-in subject's readable
-account roots, for example `/nic` or `/acme`.
-
-Move-following prefix resolution should reuse the entity-history indexes from
-[13_file_identity_and_move_history.md](13_file_identity_and_move_history.md):
-resolve the current path to entity refs, query commits by those refs, add the
-same `c.id like $prefix || '%'` predicate, and de-duplicate before deciding
-ambiguity.
-
-### 3.7 Slice Projection
-
-Projection indexes cache deterministic slice projections:
-
-```text
-(slice_id, slice_definition_hash, global_commit_id) -> projected_tree_id
-(slice_id, slice_definition_hash, global_commit_id) -> synthetic_git_commit_id
-```
-
-Projection caches can be invalidated or lazily rebuilt when slice definitions or
-commits change.
-
-### 3.8 Build And Test Graphs
-
-Build and test indexes support affected target calculation and required check
-selection.
-
-These indexes may depend on language-specific analyzers. They should degrade to
-broader check selection if stale or unavailable.
-
-## 4. Incremental Update Flow
-
-Incremental indexing starts from a successful accepted ref update. The submit
-path writes the source-of-truth mutation first, then publishes durable outbox
-events for index workers.
-
-```text
-submit transaction
-  -> create commit
-  -> move target ref with CAS
-  -> write index_outbox events
-  -> commit metadata transaction
-```
-
-Workers consume the outbox independently:
-
-```text
-index dispatcher
-  -> metadata index worker
-  -> projection worker
-  -> build/test graph worker
-```
-
-Normal code edit:
-
-```text
-CommitCreated(new_commit, changed_paths)
-  -> append changed_path_index rows
-  -> append path_history_index rows
-  -> identify affected slices by prefix overlap
-  -> mark open patchsets with stale read-set predicates
-  -> invalidate affected projection cache entries
-  -> invalidate affected build/test graph entries
-```
-
-Patchset update:
-
-```text
-PatchsetUpdated(patchset_id)
-  -> recompute path base predicates
-  -> update patchset_path_base_index
-  -> update ready-for-batch candidate indexes
-```
-
-Slice definition edit:
-
-```text
-SliceDefinitionChanged(slice_id)
-  -> update slice_prefix_index
-  -> update submit_requirement_index
-  -> invalidate projection cache entries for that slice
-  -> mark affected open changesets NeedsRequirementRefresh
-  -> publish new slice definition epoch
-```
-
-Workers must be idempotent. Replaying the same event must either produce the
-same rows and artifact manifests or recognize that the event has already been
-applied.
-
-## 5. Event Pipeline
-
-Each accepted metadata transition emits events.
-
-Core events:
-
-```text
-CommitCreated
-RefUpdated
-FileChanged
-DirectoryChanged
-PatchsetUpdated
-SliceDefinitionChanged
-SliceProjectionInvalidated
-BuildGraphInvalidated
-TestGraphInvalidated
-```
-
-Submit workers should emit indexing events after a successful ref update. Events
-must include enough ids to make handlers idempotent:
-
-```text
-event_id
-commit_id
-parent_commit_ids[]
-target_ref
-changed_paths[]
-affected_slice_ids[]
-affected_patchset_ids[]
-created_at
-```
-
-Async workers consume events and update derived indexes.
-
-## 6. Freshness Model
-
-Index-backed APIs should expose freshness:
-
-```text
-fresh
-stale_but_usable
-unavailable
-```
-
-Fresh means the index is known to include the relevant commit and slice
-definition versions.
-
-Stale-but-usable means results may omit the latest changes, but they are still
-safe to display for non-authoritative UX such as review summaries or history
-views. Stale indexes must not be used as the final authority for submit
-validation.
-
-Unavailable means the service should fall back to source-of-truth reads where
-possible or return a structured unavailable response.
-
-## 7. Submit-Time Rules
-
-Submit validation must recompute authoritative requirements from source-of-truth
-state or from indexes proven fresh for the exact inputs.
-
-Authoritative submit inputs include:
-
-```text
-target_ref
-base_commit
-current_patchset
-slice_definition_hashes
-path_base_predicates
-read_set
-write_set
-path_lock_set_hash
-```
-
-If a relevant index is stale, submit should recompute directly or return a
-refresh-required state. It should not accept based on stale coverage or
-submit-requirement data.
-
-## 8. Rebuild Rules
-
-Every index must have a rebuild path.
-
-Rebuild inputs:
-
-```text
+refs
 commits
-trees
-blobs
-slice definitions
-path lock records
+tree nodes (gitslice.tree.v1 in object storage)
+blobs (object storage + blobs table)
+slices (included_paths, submit settings)
+patchsets / pending_publish
 ```
 
-Rebuilds may run per index, per account, per slice, per path prefix, or globally.
+Every derived index can be rebuilt from those source objects. Correctness-critical
+paths (submit admission, authorization, Git projection history) either read
+authoritative tables directly or gate fast paths on explicit head-equality
+markers (`ref_materialized_heads`).
 
-Indexes should store provenance:
+## 2. Implemented PostgreSQL Derived Tables
 
-```text
-source_commit_id
-slice_definition_hash
-path_lock_set_hash
-check_kind
-entry_fingerprint
-indexer_version
-indexed_at
+All currently implemented derived indexes live in PostgreSQL alongside the
+authoritative metadata tables:
+
+```sql
+-- Transactional outbox for asynchronous derived-index updates (0009_outbox.sql)
+outbox(
+  id            bigserial primary key,
+  kind          text not null,          -- currently: 'commit_published'
+  payload       jsonb not null,
+  created_at    timestamptz not null default now(),
+  processed_at  timestamptz,
+  attempts      integer not null default 0
+)
+
+-- Per-ref changed-path history index (0002_commit_changed_paths.sql)
+commit_changed_paths(
+  target_ref    text not null references refs(name),
+  commit_id     text not null references commits(id),
+  path          text not null,
+  change_kind   text not null default 'modified',
+  committed_at  timestamptz not null,
+  primary key(target_ref, commit_id, path)
+)
+
+-- Stable file/directory entity catalog (0003_entity_move_history.sql)
+fs_entities(
+  account_id        text not null references accounts(id),
+  entity_id         text not null,
+  kind              text not null,
+  created_commit_id text references commits(id),
+  deleted_commit_id text references commits(id),
+  created_at        timestamptz not null default now(),
+  primary key(account_id, entity_id)
+)
+
+-- Materialized head path -> entity/content mapping (0003_entity_move_history.sql)
+current_path_entities(
+  target_ref    text not null references refs(name),
+  path          text not null,
+  account_id    text not null,
+  entity_id     text not null,
+  kind          text not null,
+  content_hash  text,
+  mode          integer,
+  updated_at    timestamptz not null default now(),
+  primary key(target_ref, path),
+  foreign key(account_id, entity_id) references fs_entities(account_id, entity_id)
+)
+
+-- Entity-aware commit change lineage (0003_entity_move_history.sql)
+commit_entity_changes(
+  target_ref    text not null references refs(name),
+  commit_id     text not null references commits(id),
+  account_id    text not null,
+  entity_id     text not null,
+  kind          text not null,
+  path          text not null,
+  old_path      text,
+  change_kind   text not null,
+  source        text not null default 'explicit',
+  confidence    integer not null default 100,
+  content_hash  text,
+  mode          integer,
+  committed_at  timestamptz not null,
+  primary key(target_ref, commit_id, account_id, entity_id, path, change_kind),
+  foreign key(account_id, entity_id) references fs_entities(account_id, entity_id)
+)
+
+-- Synchronous slice prefix lookup table (0008_slice_included_paths.sql)
+slice_included_paths(
+  slice_id  text not null references slices(id) on delete cascade,
+  prefix    text not null,
+  primary key(slice_id, prefix)
+)
+
+-- Head-equality marker gating flat-index read fast paths (0022_ref_materialized_heads.sql)
+ref_materialized_heads(
+  target_ref  text primary key references refs(name),
+  commit_id   text not null,
+  updated_at  timestamptz not null default now()
+)
+
+-- Cached line-level blame snapshots (0035_blame_snapshots.sql)
+blame_snapshots(
+  commit_id   text not null,
+  path        text not null,
+  data        bytea not null,
+  created_at  timestamptz not null default now(),
+  primary key(commit_id, path)
+)
 ```
 
-Provenance lets APIs and submit workers decide whether an index result is fresh
-for a request.
+Key supporting indexes include:
 
-## 9. Operational Notes
+- `idx_outbox_processed_id` on `outbox(processed_at, id)`
+- `idx_commit_changed_paths_ref_path_time` and `idx_commit_changed_paths_path_time`
+- `idx_current_path_entities_ref_prefix`, `idx_current_path_entities_ref_entity`, `idx_current_path_entities_ref_path_pattern` (`text_pattern_ops`), and partial indexes for `.gitslice/` config discovery
+- `idx_commit_entity_changes_ref_entity_time` and `idx_commit_entity_changes_ref_path_time`
+- `idx_slice_included_paths_prefix` on `slice_included_paths(prefix)`
+- `idx_commits_id_prefix` on `commits(id text_pattern_ops)` for short commit ID prefix resolution
 
-Index workers should be idempotent. Replaying the same event must produce the
-same index state.
+## 3. Update Flows
 
-Index writes should be monotonic when possible. A newer indexed commit should
-not be overwritten by an older event without explicit repair mode.
+### 3.1 Asynchronous Outbox (`commit_published`)
 
-Repair workflows should be able to:
+When the submit publisher lands a commit (or batch of commits) and moves
+`refs/global/main` via CAS, it writes a `commit_published` row to `outbox` in
+the same PostgreSQL transaction. The payload contains `target_ref`,
+`base_commit_id`, `commit_id`, `patchset_id` (or `file_edits`), `changed_paths`,
+and `committed_at`.
 
-- pause an index worker
-- rebuild an index from source objects
-- compare indexed provenance against refs and commits
-- resume event processing from a known checkpoint
+`ChangesetStore.ProcessOutbox` (`internal/postgres/outbox.go`) drains pending
+rows in ID order:
 
-The system should prefer blocking submit over accepting with stale coverage or
-submit-requirement data.
+1. Acquires a transaction-scoped advisory lock (`pg_advisory_xact_lock(724943, 1)`) so only one outbox step applies entity transitions at a time.
+2. Selects the next unprocessed row (`where processed_at is null and id > $1 order by id limit 1 for update skip locked`).
+3. Opens a `savepoint outbox_apply` and runs `applyCommitPublishedOutboxTx`:
+   - inserts rows into `commit_changed_paths`
+   - loads `file_edits` (from the patchset when `patchset_id` is set, else inline) and updates `fs_entities`, `current_path_entities`, and `commit_entity_changes` (`applyEntityHistoryTx`)
+   - advances `ref_materialized_heads(target_ref, commit_id)` in the **same transaction** so the flat-index read fast path (`RepositoryStore.GetFile` / `GetEntry` and `path_bases` head lookups) only engages when `current_path_entities` matches the requested head commit
+4. On success, releases the savepoint and sets `processed_at = now()`. On failure, rolls back to the savepoint and increments `attempts`.
+
+`commit_published` is currently the only outbox event kind.
+
+### 3.2 Index Worker & Activity Idle Gating
+
+`internal/indexworker/worker.go` runs a background loop that calls
+`store.ProcessOutbox(ctx, batchSize)` (default `batchSize = 128`):
+
+- **Immediate wake via `Nudge()`**: commit publication nudges the worker so newly landed commits are indexed with minimal latency (resets delay to `defaultInterval = 25ms`).
+- **Exponential backoff**: empty polls double the poll delay from `25ms` up to `defaultMaxInterval = 60s`; errors retry after `errorRetryInterval = 1s`.
+- **Queue depth metrics**: samples `OutboxDepth` every `30s` (`depthSampleInterval`) and immediately after a batch processes rows, exporting queue depth and processed/failed counters.
+- **Idle gating (`internal/activity`)**: before each timer-driven poll, the worker calls `activity.Default.Wait(ctx)`. Once no request has been active for `activity.IdleAfter` (`5m`), the worker sleeps without querying PostgreSQL so Neon can scale to zero. Any incoming request or `Nudge()` wakes it immediately.
+
+### 3.3 Synchronous `slice_included_paths` Updates
+
+`slice_included_paths` is **not** updated via the outbox. `SliceStore`
+(`internal/postgres/slice_store.go`, `slice_lifecycle.go`) updates
+`slice_included_paths` synchronously inside the same transaction whenever a
+slice is created, updated, or deleted. This guarantees that covering-slice
+queries and authorization checks immediately observe the latest slice
+definition with zero async lag.
+
+### 3.4 Blame Snapshots (`blame_snapshots`)
+
+Line-level blame snapshots are populated lazily on `Blame` queries and by the
+activity-gated blame warmer; see [27_blame.md](27_blame.md).
+
+## 4. Query Patterns
+
+### 4.1 Path History & Move-Following History
+
+- Literal path history (`follow_moves = false`) queries `commit_changed_paths` by `(target_ref, path)` or directory prefix with `(committed_at, commit_id)` cursor pagination.
+- Move-following history (`follow_moves = true`, default for single-path `gs log`) resolves the path in `current_path_entities` and queries `commit_entity_changes` by `(target_ref, account_id, entity_id)` plus ancestor directory moves. See [13_file_identity_and_move_history.md](13_file_identity_and_move_history.md).
+
+### 4.2 Commit ID Prefix Resolution
+
+Canonical commit IDs are `sha256:<hex>`. Short prefixes (8+ hex chars) are
+resolved server-side using `idx_commits_id_prefix` (`id text_pattern_ops`)
+scoped to the caller's authorized path/slice prefixes via `commit_changed_paths`
+or `commit_entity_changes`, fetching `limit 2` candidates to prove uniqueness
+without leaking commits outside the caller's visible scope.
+
+### 4.3 Materialized-Head Fast Path
+
+When a read targets `refs/global/main`'s current head and `ref_materialized_heads`
+matches that exact `commit_id`, PostgreSQL can resolve file metadata and
+path-base fingerprints directly from `current_path_entities` instead of walking
+tree nodes in object storage. If the outbox is lagging (so
+`ref_materialized_heads.commit_id != requested_commit_id`), reads fall back
+automatically to walking the authoritative tree in `treestore`.
+
+## 5. Rebuild Rules (`RebuildDerivedIndexes`)
+
+`ChangesetStore.RebuildDerivedIndexes(ctx, targetRef)` (`internal/postgres/outbox.go`)
+reconstructs all outbox-derived tables for a target ref inside a single
+transactional repair pass:
+
+1. Acquires the outbox advisory lock (`pg_advisory_xact_lock(724943, 1)`).
+2. Locks the `refs` row for `targetRef` (`for update`) and all unprocessed `commit_published` rows in `outbox` targeting `targetRef`.
+3. Deletes existing `commit_changed_paths`, `commit_entity_changes`, and `current_path_entities` rows for `targetRef`, then deletes orphaned `fs_entities` rows.
+4. Rebuilds `commit_changed_paths` by walking the commit graph recursively from `refs.commit_id` via `commits.parent_ids` and `commits.changed_paths`.
+5. Rebuilds `fs_entities`, `current_path_entities`, and `commit_entity_changes` by replaying published `pending_publish` patchsets in commit order (`rebuildEntityHistoryTx`).
+6. Marks all pending `commit_published` outbox rows for `targetRef` as processed and updates `ref_materialized_heads` to `currentCommitID`.
+
+## 6. Future Work
+
+The following indexing capabilities from earlier architecture sketches are **not**
+implemented yet:
+
+- **Build and test graph indexers**: language-aware dependency graph snapshots in object storage for affected-target check selection and dependency-derived read sets.
+- **Explicit API freshness enums**: returning structured `fresh` / `stale_but_usable` / `unavailable` freshness metadata on index-backed RPC responses (today, head fast paths check `ref_materialized_heads` internally and fall back to trees transparently).
+- **Additional outbox event kinds & sharded worker checkpoints**: splitting indexing across multiple worker types/shards with `index_worker_checkpoint` tables and separate `SliceDefinitionChanged` / `PatchsetUpdated` outbox events.
+- **Path-lock & submit-requirement provenance index tables**: dedicated `path_locks` and `submit_requirement_index` tables (today submit requirements are evaluated directly from the authoritative slice definition and `.gitslice/` config).

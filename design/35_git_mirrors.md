@@ -72,9 +72,12 @@ Two counters make the queue: `pending_seq` grows whenever something needs
 pushing, `pushed_seq` records what the last good push covered.
 
 - **Marking.** The event dispatcher's drain (`internal/events`) already sees every
-  recorded event. For each `push` it marks the mirrors of the account whose
-  slice includes a changed path; for each `tag.created`, the account's
-  mirrors. Saving the setting and "Push now" mark it too.
+  recorded event and calls `GitMirrors.FanOut`. For each
+  `EventChangesetSubmitted` on the default target, it marks every mirrored
+  slice whose paths cover `event.ChangedPaths` (or all mirrored slices if
+  `ChangedPaths` is empty), across all accounts. For each `EventTagCreated`, it
+  marks only the mirror for `event.SliceID`. Saving the setting and "Push now"
+  mark it too.
 - **Claiming.** The same drain claims mirrors with `pending_seq > pushed_seq`
   whose retry time has come and whose lease is free, with a 30-minute lease.
 - **Running.** Like covers (design/23), the push is CPU work, and Cloud Run
@@ -100,14 +103,15 @@ pushing, `pushed_seq` records what the last good push covered.
 4. `internal/gitmirror` (the exporter, moved out of `ops/mirror`, which now
    calls it) finds the sync point and writes the new commits.
 5. A lazily built projection has commits and trees but not every file
-   (design/30). Before pushing, the files the new commits need and the remote
+   (design/05). Before pushing, the files the new commits need and the remote
    lacks are listed (`rev-list --objects --missing=print`) and read from the
    object store into the projection, as a fetch would.
 6. Push the branch (fast-forward only), then the new tags.
 
 The work repository is a cache. A new instance builds it again by fetching
-the remote branch; a failed push removes it, so the next attempt starts
-clean.
+the remote branch; a failed push removes it so the next attempt starts clean,
+except when the failure is `gitmirror.ErrDiverged` (where the work repository
+is preserved).
 
 ## Code
 

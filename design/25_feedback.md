@@ -37,14 +37,16 @@ gs feedback resolve <id> --reopen
 
 The team is the server's operators (`GITSLICE_OPERATOR_SUBJECTS`) and the
 owners and admins of the feedback account (`GITSLICE_FEEDBACK_ACCOUNT`,
-default `gitslice`; `none` leaves only the operators). Anyone else listing
-without `--mine` gets `PermissionDenied`, and the CLI points them to `--mine`.
+default `gitslice`; `none` leaves only the operators). An operator using a
+scoped/restricted API key does not receive operator feedback privileges
+(`!hasRestrictedKey`). Anyone else listing without `--mine` gets
+`PermissionDenied`, and the CLI points them to `--mine`.
 
-Resolving requires a note: it is the answer the sender reads in
-`gs feedback list --mine`, so it should say what changed and where (a release,
-a changeset link), or why nothing will. `--reopen` sets the status back to
-open and keeps the earlier answer. Lists are newest first and page with
-`--limit` (up to 200) and `--cursor`.
+Resolving requires a note (up to 5,000 characters, `maxFeedbackResolution = 5000`
+runes): it is the answer the sender reads in `gs feedback list --mine`, so it
+should say what changed and where (a release, a changeset link), or why nothing
+will. `--reopen` sets the status back to open and keeps the earlier answer.
+Lists are newest first and page with `--limit` (up to 200) and `--cursor`.
 
 ## API
 

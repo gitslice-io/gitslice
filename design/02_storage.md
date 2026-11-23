@@ -1,1599 +1,324 @@
 # Gitslice Storage Design
 
-This document defines the native storage model for Gitslice. Product context is
-in [00_product.md](00_product.md), the top-level architecture is in
-[01_gitslice_architecture_design.md](01_gitslice_architecture_design.md), the
-gRPC API surface is in [03_core_api.md](03_core_api.md), and derived indexes are
-covered in [06_indexing.md](06_indexing.md). Conflict resolution and batched
-submit are covered in [07_conflict_resolution.md](07_conflict_resolution.md).
-Stable file and directory identity for move-preserving history is covered in
+This document specifies the native storage model, content-addressed hashing,
+object/cache hierarchy, PostgreSQL schema groups, Go storage interfaces, and
+3-stage asynchronous publish pipeline for Gitslice.
+
+Companion documents:
+[00_product.md](00_product.md),
+[01_gitslice_architecture_design.md](01_gitslice_architecture_design.md),
+[03_core_api.md](03_core_api.md),
+[06_indexing.md](06_indexing.md),
+[07_conflict_resolution.md](07_conflict_resolution.md),
 [13_file_identity_and_move_history.md](13_file_identity_and_move_history.md).
 
-## 1. Storage Goals
+---
 
-Gitslice storage is built around:
+## 1. Storage Architecture Overview
 
-- Content-addressed immutable blobs
-- Content-addressed immutable tree nodes
-- Content-addressed immutable commits
-- Transactional metadata
-- Atomic refs
-- Separate blob and metadata stores
-- Deterministic canonical paths and tree hashes
-
-The core invariant is:
+Gitslice separates transactional metadata from immutable content-addressed
+payloads:
 
 ```text
 Ref -> Commit -> RootTree -> TreeEntries -> Blobs
 ```
 
-Everything except refs is immutable.
+Everything except mutable `refs` (and operational/workflow rows) is immutable.
 
-### 1.1 Native Object Identity
+- **Metadata & operational indexes**: **PostgreSQL (Neon)** via
+  `internal/postgres` (migrations `0001_init.sql` through
+  `0066_reusable_automations_and_pipelines.sql`). PostgreSQL stores `refs`,
+  `commits` (including `root_tree_id`), `blobs` metadata, slices, changesets,
+  patchsets, path heads, `pending_publish`, `outbox`, derived indexes, and all
+  control-plane state. It never stores a full per-commit file listing.
+- **Object storage**: **Cloudflare R2** (`internal/objectstore/r2`) stores
+  immutable blob bytes and canonical JSON tree nodes. Production enforces
+  `GITSLICE_REQUIRE_R2=1` so `gitslice-server` refuses to start with the local
+  filesystem object store (`internal/objectstore/filesystem`), which is used
+  only in local development and tests.
+- **In-process caches**:
+  - **Object cache** (`internal/objectstore/cache`): wraps the backing
+    `ObjectStore` with a 256 MiB default budget (`GITSLICE_OBJECT_CACHE_BYTES`,
+    default `256<<20`) and a 4 MiB maximum single-entry cap (`4<<20`).
+  - **Decoded tree-node cache** (`internal/treestore/node_cache.go`): an LRU
+    cache (`nodeCacheEntries = 200_000` total entries across cached nodes) of
+    immutable decoded `treestore.Node` structs keyed by `tree_id`. Because tree
+    nodes are content-addressed, cached nodes never go stale; writers copy on
+    mutation.
 
-Native storage ids are content-addressed ids, not arbitrary database ids.
+---
 
-```text
-blob_id   = hash(gitslice.blob.v1, raw file bytes)
-tree_id   = hash(gitslice.tree.v1, canonical tree entries)
-commit_id = hash(gitslice.commit.v1, canonical commit object)
-```
+## 2. Content-Addressed Object Identity (`internal/objectid`)
 
-`root_tree_id` is the `tree_id` of the root directory tree referenced by a
-commit. It is therefore also a content hash, not a generated row id.
+All native object ids use SHA-256 formatted as `sha256:<64-hex>` with explicit
+domain separation (`<domain>\x00<payload>`) in `internal/objectid/objectid.go`:
 
-Native ids should include an algorithm/version prefix, for example
-`sha256:<hex>`, and must be treated as opaque strings by clients. The hash input
-must include a domain separator such as `gitslice.tree.v1` so blob, tree, and
-commit ids cannot collide across object kinds even if their payload bytes happen
-to match.
+### 2.1 Blobs
 
-Human interfaces may abbreviate native ids for display, for example showing the
-first 12 hex characters of a commit id. Abbreviations are presentation and
-lookup conveniences only. Storage continues to persist the full canonical
-`sha256:<hex>` id, and any short-id lookup must resolve back to exactly one
-canonical id before reading an object.
+- **`RawContentHash(data)`**: `sha256(raw_bytes)` — used as `content_hash` for
+  deduplication, patchset predicates, and client upload checks.
+- **`BlobID(data)`**: `sha256("gitslice.blob.v1\x00" || raw_bytes)` — native
+  domain-separated blob identifier. `NewBlobHasher()` computes both hashes and
+  byte length in a single streaming pass.
+- Git blob SHA-1 ids are stored separately (`blobs.git_blob_id`, migration
+  `0029_blob_git_ids.sql`) solely for Git projection speed and are never native
+  ids.
 
-Stable file and directory entity ids are different from these content-addressed
-storage ids. Entity ids are opaque logical ids used to follow history across
-moves, while blob, tree, and commit ids identify immutable content-addressed
-objects.
+### 2.2 Trees (`gitslice.tree.v1`)
 
-PostgreSQL may store rows and indexes around these objects, but those rows do
-not assign durable object identity. Git-compatible object ids are separate
-projection artifacts generated by the Git gateway and must not be used as native
-commit, tree, or blob ids.
-
-## 2. Commit Model
-
-Commits are immutable storage-level snapshots of the global tree. A commit id is
-the content hash of the canonical commit object. The commit's `root_tree_id`
-points to the content-addressed root tree for that snapshot.
-
-```text
-Commit:
-  id
-  parent_ids
-  root_tree_id
-  author
-  message
-  created_at
-  changed_paths[]
-  metadata
-```
-
-There is one global commit graph. All slices project views from that same graph.
-
-This gives the system:
-
-- Unified history
-- Consistent global indexing
-- Overlap visibility without multi-slice changesets
-- Deterministic slice projection
-
-## 3. Ref Model
-
-A ref is a mutable named pointer to a commit.
-
-In Git terms, branches and tags are refs. In Gitslice, commits and trees are
-immutable, but refs move as work is submitted.
+Tree nodes are stored as JSON in object storage under:
 
 ```text
-refs/global/main -> G123
+trees/sha256/{hash[0:2]}/{hash[2:4]}/{hash}.json
 ```
 
-When a changeset lands, Gitslice creates a new commit and atomically moves the
-target ref:
+(see `treestore.Key(treeID)` in `internal/treestore/treestore.go`).
+
+Each node has `version: "gitslice.tree.v1"` and an ordered `entries` slice
+sorted lexicographically by child `name`. `objectid.TreeID(entries)` hashes:
 
 ```text
-refs/global/main: G123 -> G124
+sha256("gitslice.tree.v1\x00" || json({"entries": entries}))
 ```
 
-Refs are needed because immutable commits alone do not say which commit is the
-current accepted state.
+Each `objectid.TreeEntry` / `treestore.Entry` carries:
 
-### 3.1 Target Refs
+```json
+{
+  "name": "handler.go",
+  "kind": "file",
+  "mode": 420,
+  "tree_id": "",
+  "blob_id": "sha256:...",
+  "symlink_target": "",
+  "size": 1234,
+  "content_hash": "sha256:..."
+}
+```
 
-A target ref is the ref the submit service updates when a changeset lands.
+- `EmptyTreeID()` / `treestore.EmptyRootID()` is `TreeID([]TreeEntry{})`.
+- **`gitslice.tree.v1` does NOT embed `entity_id` in tree entries.** Move and
+  rename identity is tracked in PostgreSQL (`fs_entities`,
+  `current_path_entities`, `commit_entity_changes`). Embedding `entity_id` in
+  tree nodes (`gitslice.tree.v2`) is an unimplemented future option.
 
-The initial system may use one accepted global tree ref:
+### 2.3 Commits (`gitslice.commit.v1`)
+
+`objectid.CommitID(obj)` normalizes `ParentIDs` and `ChangedPaths` to non-nil
+slices, converts `CreatedAt` to UTC, marshals `objectid.CommitObject` to JSON,
+and hashes:
 
 ```text
-refs/global/main
+sha256("gitslice.commit.v1\x00" || json({
+  "parent_ids":    [...],
+  "root_tree_id":  "sha256:...",
+  "author":        "<subject_id>",
+  "message":       "<commit_message>",
+  "created_at":    "<RFC3339Nano UTC>",
+  "changed_paths": [...]
+}))
 ```
 
-This must not imply one global submission lock. Final ref updates are serialized
-by the target-ref landing sequencer and still protected by CAS.
-
-Future branch support can add target refs such as:
-
-```text
-refs/global/branches/{branch}
-refs/accounts/{account}/branches/{branch}
-```
-
-### 3.2 Changeset Refs
-
-Changeset patchsets can be addressed with refs:
-
-```text
-refs/changes/{account}/{slice}/{changeset_number}/{patchset_number}
-```
-
-These refs make it possible to integrate with Git tooling, CI systems, and
-review systems without making changesets ordinary branches.
-
-`refs/changes/new` can be supported as a Git push alias that asks the server to
-allocate a new changeset id and per-authoring-slice changeset number. User
-messages should report the resulting shareable handle, for example
-`acme/payment@42`, rather than the raw storage id.
-
-### 3.3 Projected Git Refs
-
-When a slice is exposed as a Git repository, the Git gateway projects native
-refs into Git refs.
-
-```text
-native target ref: refs/global/main
-git ref:           refs/heads/main
-```
-
-Projected Git refs are compatibility views. The native source of truth remains
-the global ref.
-
-### 3.4 Atomic Ref Updates
-
-Refs use compare-and-swap semantics.
-
-```text
-update_ref(ref, expected_old_commit, new_commit)
-```
-
-The update succeeds only if:
-
-```text
-current_commit == expected_old_commit
-```
-
-Otherwise the changeset must be rebased and retried through submit validation.
-
-## 4. Storage Architecture
-
-The MVP storage stack is intentionally concrete:
-
-```text
-Metadata and operational indexes: PostgreSQL
-Blob/tree/object storage: prototype filesystem object store
-```
-
-PostgreSQL is the source of truth for refs, commit metadata, slice definitions,
-changesets, path predicates, operational indexes, outbox events, leases, and GC
-state. PostgreSQL stores only the `root_tree_id` hash for a commit, not a
-per-commit file listing.
-
-The prototype filesystem object store stores immutable blob bytes, immutable
-tree-node payloads, and large derived artifacts for the local MVP. Tree
-traversal starts from the `root_tree_id` stored on the commit row and resolves
-directory nodes from object storage. Object-store directory listing is never
-authoritative; Postgres records decide which roots are reachable and which
-objects may be deleted.
-
-The metadata store must support:
-
-```text
-point lookup
-range scan
-transactional writes
-compare-and-swap ref updates
-consistent reads for submit validation
-```
-
-For the MVP, these capabilities come from PostgreSQL transactions, row locks,
-unique constraints, partial indexes, and transaction-scoped advisory locks where
-they simplify sequencer leases.
-
-Runtime services depend on narrow Go storage interfaces in `internal/storage`
-rather than concrete PostgreSQL store structs. PostgreSQL remains the production
-metadata source of truth, and the `internal/postgres` stores are the production
-implementation of those interfaces. Tests may use an in-memory implementation
-of the same interfaces when they need fast service-level coverage without a
-database process.
-
-Derived indexes:
-
-```text
-PostgreSQL tables for operational indexes
-prototype filesystem object store for immutable index artifacts and shard snapshots
-purpose-built workers for projection, build, and test indexes
-```
-
-Hot metadata cache:
-
-```text
-process-local cache
-distributed cache later if measured load requires it
-```
-
-### 4.1 PostgreSQL Logical Schema
-
-The schema below is logical, not a complete migration file. Implementation may
-split large JSON fields into normalized tables as query patterns harden, but the
-source-of-truth ownership should remain the same.
-
-Identity and account tables:
-
-```text
-accounts(
-  id primary key,
-  slug unique not null,
-  kind,
-  created_at,
-  updated_at
-)
-
-subjects(
-  id primary key,
-  kind,
-  external_provider,
-  external_subject,
-  display_name,
-  created_at
-)
-
-account_memberships(
-  account_id references accounts(id),
-  subject_id references subjects(id),
-  role,
-  created_at,
-  primary key(account_id, subject_id, role)
-)
-
-sessions(
-  id primary key,
-  subject_id references subjects(id),
-  refresh_token_hash unique,
-  scopes[],
-  expires_at,
-  revoked_at
-)
-```
-
-Refs, commits, trees, and blobs:
-
-```text
-refs(
-  name primary key,
-  commit_id not null,
-  version bigint not null,
-  updated_at,
-  updated_by
-)
-
-commits(
-  id primary key,                 -- commit_id = hash(canonical commit object)
-  root_tree_id not null,          -- tree_id of the root directory
-  author_subject_id,
-  message,
-  created_at,
-  metadata jsonb
-)
-
-commit_parents(
-  commit_id references commits(id),
-  parent_commit_id references commits(id),
-  position int,
-  primary key(commit_id, position)
-)
-
-commit_changed_paths(
-  target_ref,
-  commit_id references commits(id),
-  path,
-  change_kind,
-  committed_at,
-  primary key(target_ref, commit_id, path)
-)
-
-fs_entities(
-  account_id references accounts(id),
-  entity_id,
-  kind,
-  created_commit_id references commits(id),
-  deleted_commit_id references commits(id),
-  created_at,
-  primary key(account_id, entity_id)
-)
-
-current_path_entities(
-  target_ref references refs(name),
-  path,
-  account_id,
-  entity_id,
-  kind,
-  content_hash,
-  mode,
-  updated_at,
-  primary key(target_ref, path)
-)
-
-commit_entity_changes(
-  target_ref,
-  commit_id references commits(id),
-  account_id,
-  entity_id,
-  path,
-  old_path,
-  change_kind,
-  content_hash,
-  mode,
-  committed_at
-)
-
-`commit_changed_paths` is an operational path-history index. It is populated
-when accepted native commits are published and backfilled from `commits` during
-migration. API calls such as `RepositoryService.ListCommits(path, slice)` use it
-to answer file, directory, and custom-slice history without scanning every
-commit's JSON changed-path payload. Slice history is still definition-driven:
-the server resolves the slice's current included paths and queries matching
-changed paths, so a custom slice can include past commits even when the slice
-definition was created later than those commits.
-Paged path-history reads use an opaque cursor derived from the last returned
-`(committed_at, commit_id)` pair.
-
-`fs_entities`, `current_path_entities`, and `commit_entity_changes` extend that
-path index with stable file and directory identity so move-following history can
-cross explicit renames and unambiguous inferred moves. `current_path_entities`
-is the lookup table that resolves a current path to the entity ids whose
-history should be followed.
-
-object-store tree node:
-  key = trees/sha256/{prefix}/{tree_hash}.json
-  id = hash(gitslice.tree.v1 or later format version, canonical tree entries)
-  entries[] = ordered child names and file/directory metadata
-
-blobs(
-  id primary key,                 -- blob_id = hash(raw file bytes)
-  content_hash unique not null,
-  size,
-  compression,
-  state,
-  r2_bucket,
-  r2_key,
-  created_at,
-  verified_at,
-  expires_at
-)
-```
-
-For blobs, `id` and `content_hash` are derived from the same verified raw file
-bytes. Keeping both fields can make predicates and external diagnostics clearer,
-but they must never be independently assigned.
-
-Slice and submit metadata:
-
-```text
-slices(
-  id primary key,
-  account_id references accounts(id),
-  slug,
-  current_definition_id,
-  created_at,
-  updated_at,
-  unique(account_id, slug)
-)
-
-slice_definitions(
-  id primary key,
-  slice_id references slices(id),
-  version bigint,
-  definition_hash unique not null,
-  default_branch,
-  visibility,
-  roles jsonb,
-  submit_settings jsonb,
-  created_by,
-  created_at,
-  unique(slice_id, version)
-)
-
-slice_included_paths(
-  slice_definition_id references slice_definitions(id),
-  account_id references accounts(id),
-  path_prefix,
-  prefix_end,
-  primary key(slice_definition_id, path_prefix)
-)
-
-path_locks(
-  id primary key,
-  account_id references accounts(id),
-  path_prefix,
-  prefix_end,
-  owner_subject_id,
-  reason,
-  state,
-  created_at,
-  expires_at
-)
-```
-
-MVP implementation note: the current slice definition is stored on `slices` for
-fast reads, and `slice_definition_versions(slice_id, version, definition_hash,
-visibility, included_paths, required_approvals, required_checks, created_by,
-created_at)` records each accepted definition version. Migration backfill starts
-history at each existing slice's current `slices.version`; later creates and
-definition updates append rows in the same transaction as the current-row
-mutation.
-
-Changeset and patchset metadata:
-
-```text
-changesets(
-  id primary key,
-  authoring_slice_id references slices(id),
-  number bigint,
-  author_subject_id references subjects(id),
-  target_ref,
-  base_commit_id,
-  current_patchset_id,
-  commit_id,
-  status,
-  title,
-  description,
-  created_at,
-  updated_at,
-  unique(authoring_slice_id, number)
-)
-
-The shareable changeset handle is derived from the authoring slice ref and
-`changesets.number` as `account/slice@number`. Store the canonical id and the
-numeric sequence separately; do not make user-facing text depend on the raw id.
-Changeset numbers are allocated transactionally per authoring slice and are
-never reused, including after abandon/delete-style lifecycle changes.
-
-patchsets(
-  id primary key,
-  changeset_id references changesets(id),
-  number bigint,
-  base_commit_id,
-  author_subject_id references subjects(id),
-  submit_requirements jsonb,
-  source_slice_definition_hash,
-  source_path_lock_set_hash,
-  created_at,
-  unique(changeset_id, number)
-)
-
-file_edits(
-  patchset_id references patchsets(id),
-  position int,
-  op,
-  path,
-  old_path,
-  staged_blob_id references blobs(id),
-  content_hash,
-  mode,
-  primary key(patchset_id, position)
-)
-
-patchset_path_bases(
-  patchset_id references patchsets(id),
-  path,
-  base_commit_id,
-  check_kind,
-  exists boolean,
-  entry_kind,
-  mode,
-  blob_id,
-  content_hash,
-  tree_id,
-  symlink_target,
-  entry_fingerprint,
-  primary key(patchset_id, path, check_kind)
-)
-
-patchset_path_sets(
-  patchset_id references patchsets(id),
-  target_ref,
-  access_kind,        -- read or write
-  path,
-  recursive boolean,
-  primary key(patchset_id, access_kind, path)
-)
-
-path_heads(
-  path primary key,
-  exists boolean,
-  entry_fingerprint,
-  blob_id,
-  content_hash,
-  mode,
-  size,
-  accepted_changeset_id references changesets(id),
-  accepted_patchset_id references patchsets(id),
-  updated_at
-)
-
-pending_publish(
-  id primary key,
-  sequence bigint unique,
-  changeset_id references changesets(id),
-  patchset_id references patchsets(id),
-  target_ref references refs(name),
-  base_ref_commit_id,
-  status,             -- pending, published, failed
-  commit_id,
-  error,
-  created_at,
-  updated_at,
-  published_at
-)
-
-path_coverage_snapshots(
-  patchset_id references patchsets(id),
-  path,
-  covering_slice_ids[],
-  slice_definition_hashes[],
-  primary key(patchset_id, path)
-)
-
-approvals(
-  id primary key,
-  changeset_id references changesets(id),
-  patchset_id references patchsets(id),
-  approver_subject_id references subjects(id),
-  requirement_key,
-  state,
-  created_at
-)
-
-check_runs(
-  id primary key,
-  changeset_id references changesets(id),
-  patchset_id references patchsets(id),
-  check_name,
-  state,
-  external_url,
-  started_at,
-  completed_at
-)
-```
-
-Coverage snapshots are derived metadata for overlap, projection invalidation,
-visibility analysis, and conflict reporting. They are not a changeset ownership
-model. `changesets.authoring_slice_id` is singular, and every `file_edits.path`
-must be contained by that authoring slice.
-
-Operational tables:
-
-```text
-target_ref_leases(
-  target_ref primary key,
-  holder_id,
-  lease_token unique,
-  expires_at,
-  updated_at
-)
-
-index_outbox(
-  event_id primary key,
-  event_type,
-  target_ref,
-  commit_id,
-  payload jsonb,
-  idempotency_key unique,
-  created_at,
-  processed_at
-)
-
-index_worker_checkpoints(
-  worker_name,
-  shard_key,
-  last_event_id,
-  source_commit_id,
-  indexer_version,
-  updated_at,
-  primary key(worker_name, shard_key)
-)
-
-reachability_roots(
-  kind,
-  id,
-  ref_name,
-  commit_id,
-  changeset_id,
-  patchset_id,
-  cache_key,
-  expires_at,
-  primary key(kind, id)
-)
-```
-
-### 4.2 PostgreSQL Indexes And Constraints
-
-Required constraints:
-
-```text
-accounts.slug unique
-subjects(external_provider, external_subject) unique where external_provider is not null
-refs.name primary key
-commits.id primary key
-blobs.id primary key
-blobs.content_hash unique
-slices(account_id, slug) unique
-slice_definitions(slice_id, version) unique
-slice_definitions.definition_hash unique
-changesets(authoring_slice_id, number) unique
-patchsets(changeset_id, number) unique
-index_outbox.idempotency_key unique
-```
-
-Critical lookup indexes:
-
-```text
-commit_parents(parent_commit_id)
-commit_changed_paths(target_ref, path, committed_at, commit_id)
-commit_changed_paths(path, committed_at, commit_id)
-blobs(state, expires_at)
-blobs(content_hash)
-slice_included_paths(account_id, path_prefix, prefix_end)
-path_locks(account_id, state, path_prefix, prefix_end)
-changesets(authoring_slice_id, status, updated_at)
-changesets(target_ref, status, updated_at)
-patchsets(changeset_id, number desc)
-file_edits(path)
-patchset_path_bases(path)
-patchset_path_sets(target_ref, access_kind, path)
-approvals(changeset_id, patchset_id, state)
-check_runs(changeset_id, patchset_id, check_name, state)
-target_ref_leases(expires_at)
-index_outbox(processed_at, created_at)
-reachability_roots(expires_at)
-```
-
-Prefix lookup should use canonical account-rooted path bounds. For each prefix,
-store:
-
-```text
-path_prefix = /acme/payment
-prefix_end  = lexical upper bound for descendants of /acme/payment
-```
-
-The bounds must be segment-aware so `/acme/pay` does not cover
-`/acme/payment`. A simple implementation is to normalize directory prefixes
-with a trailing `/` for descendant checks while separately handling exact file
-paths.
-
-Then covering and overlap queries use btree range predicates:
-
-```sql
--- Prefixes that cover a path.
-where account_id = $1
-  and path_prefix <= $path
-  and prefix_end > $path
-
--- Prefixes affected by a changed directory.
-where account_id = $1
-  and path_prefix >= $changed_prefix
-  and path_prefix < $changed_prefix_end
-```
-
-Submit batching indexes:
-
-```text
-changesets(target_ref, status, updated_at)
-path_heads(path, entry_fingerprint)
-pending_publish(status, sequence)
-patchset_path_sets(target_ref, access_kind, path, recursive)
-patchset_path_bases(path, check_kind, entry_fingerprint)
-patchsets(source_slice_definition_hash, source_path_lock_set_hash)
-```
-
-`path_heads` is not just an accelerator. It is the accepted logical head for
-path-level conflict detection. A submit admission transaction compares every
-patchset path predicate against `path_heads`, updates those rows to the
-post-patch fingerprints, and appends a `pending_publish` row. Missing paths are
-represented with tombstone rows when they have been touched, so a pending delete
-blocks stale same-path updates even before `refs/global/main` moves.
-
-The remaining indexes are accelerators. The publish worker still checks
-pending-row status and ref CAS preconditions before making commits reachable,
-but normal same-path conflict detection happens at path-head CAS admission.
-
-Ref CAS is implemented with a conditional update:
-
-```sql
-update refs
-set commit_id = $new_commit_id,
-    version = version + 1,
-    updated_at = now(),
-    updated_by = $actor
-where name = $target_ref
-  and commit_id = $expected_old_commit_id;
-```
-
-The update succeeds only when exactly one row is updated.
-
-### 4.3 Prototype Filesystem Object Layout
-
-Prototype filesystem object paths should be deterministic and content-addressed
-where possible:
-
-```text
-blobs/sha256/{aa}/{bb}/{content_hash}
-staging/{upload_id}/{part_number}
-git-projections/{slice_id}/{definition_hash}/{commit_id}/{artifact}
-index-artifacts/{index_name}/{indexer_version}/{source_commit_id}/{artifact}
-gc-quarantine/{generation_id}/{object_id}
-```
-
-Rules:
-
-- Blob keys are immutable after verification.
-- Blob content is verified by hash before the corresponding Postgres `blobs`
-  row becomes `available`.
-- Temporary staging files may be cleaned opportunistically, but Postgres GC
-  remains authoritative for available blob deletion.
-- Projection and index artifacts are disposable caches unless they have an
-  active `reachability_roots` row.
-- Filesystem directory listing is useful for repair, not for source-of-truth
-  reads.
-
-### 4.4 High-Level Storage Interface
-
-The storage layer exposes an internal capability interface to higher-level
-services such as the changeset service, Git gateway, submit service, and index
-workers. It is not the public product API; public clients use the gRPC API
-defined in [03_core_api.md](03_core_api.md).
-
-In the Go implementation this boundary is split by capability:
-
-- auth store
-- blob metadata store
-- changeset store
-- repository/read store
-- slice store
-
-Services should consume these capability interfaces, not concrete PostgreSQL
-types. Storage-specific helpers and migrations remain in `internal/postgres`.
-
-The interface should be narrow and source-of-truth oriented. A proto-shaped
-contract:
-
-```proto
-syntax = "proto3";
-
-package gitslice.storage.v1;
-
-import "google/protobuf/timestamp.proto";
-
-option go_package = "gitslice.io/gitslice/proto/storage/v1;storagev1";
-
-service StorageService {
-  // Source-of-truth reads.
-  rpc ResolveRef(ResolveRefRequest) returns (Ref);
-  rpc GetCommit(GetCommitRequest) returns (Commit);
-  rpc GetTree(GetTreeRequest) returns (Tree);
-  rpc ResolvePath(ResolvePathRequest) returns (ResolvePathResponse);
-  rpc ListDirectory(ListDirectoryRequest) returns (ListDirectoryResponse);
-  rpc ReadBlob(ReadBlobRequest) returns (stream ReadBlobResponse);
-  rpc GetBlobStatus(GetBlobStatusRequest) returns (GetBlobStatusResponse);
-
-  // Blob staging. Object storage is outside the metadata transaction.
-  rpc StageBlob(stream StageBlobRequest) returns (StageBlobResponse);
-  rpc VerifyBlob(VerifyBlobRequest) returns (VerifyBlobResponse);
-  rpc PromoteBlob(PromoteBlobRequest) returns (PromoteBlobResponse);
-  rpc AbortStagedBlob(AbortStagedBlobRequest) returns (AbortStagedBlobResponse);
-
-  // Immutable tree construction.
-  rpc ApplyTreeEdits(ApplyTreeEditsRequest) returns (ApplyTreeEditsResponse);
-  rpc CreateTree(CreateTreeRequest) returns (CreateTreeResponse);
-  rpc GetTreeDiff(GetTreeDiffRequest) returns (GetTreeDiffResponse);
-
-  // Atomic commit publication and ref movement.
-  rpc PublishCommit(PublishCommitRequest) returns (PublishCommitResponse);
-  rpc PublishCommitBatch(PublishCommitBatchRequest) returns (PublishCommitBatchResponse);
-
-  // Reachability and lifecycle maintenance. Restricted to storage maintenance
-  // workers; normal product services should not call these directly.
-  rpc ListReachabilityRoots(ListReachabilityRootsRequest) returns (ListReachabilityRootsResponse);
-  rpc ListObjectReferences(ListObjectReferencesRequest) returns (ListObjectReferencesResponse);
-  rpc DeleteUnreferencedObjects(DeleteUnreferencedObjectsRequest) returns (DeleteUnreferencedObjectsResponse);
-
-  // Low-level repair/admin primitives. Normal services should prefer
-  // purpose-built operations above.
-  rpc ReadTransaction(ReadTransactionRequest) returns (ReadTransactionResponse);
-  rpc WriteTransaction(WriteTransactionRequest) returns (WriteTransactionResponse);
-}
-
-message Ref {
-  string name = 1;
-  string commit_id = 2;
-  google.protobuf.Timestamp updated_at = 3;
-  string updated_by = 4;
-}
-
-message Commit {
-  // Native commit_id: hash(gitslice.commit.v1, canonical commit object).
-  string id = 1;
-  repeated string parent_ids = 2;
-  // Native tree_id for the root directory tree.
-  string root_tree_id = 3;
-  string author = 4;
-  string message = 5;
-  google.protobuf.Timestamp created_at = 6;
-  repeated string changed_paths = 7;
-  map<string, string> metadata = 8;
-}
-
-message Tree {
-  // Native tree_id: hash(gitslice.tree.v1, canonical tree entries).
-  string id = 1;
-  // Same digest material as id, retained only if implementation wants a raw
-  // digest field separate from the algorithm-prefixed id.
-  string content_hash = 2;
-  repeated TreeEntry entries = 3;
-  repeated string chunk_ids = 4;
-}
-
-message TreeEntry {
-  string name = 1;
-  string path = 2;
-  EntryKind kind = 3;
-  uint32 mode = 4;
-  string tree_id = 5;
-  string blob_id = 6;
-  string symlink_target = 7;
-  int64 size = 8;
-  string content_hash = 9;
-}
-
-enum EntryKind {
-  ENTRY_KIND_UNSPECIFIED = 0;
-  ENTRY_KIND_FILE = 1;
-  ENTRY_KIND_DIRECTORY = 2;
-  ENTRY_KIND_SYMLINK = 3;
-}
-
-message BlobRecord {
-  // Native blob_id: hash(gitslice.blob.v1, raw file bytes).
-  string id = 1;
-  string content_hash = 2;
-  int64 size = 3;
-  string compression = 4;
-  BlobState state = 5;
-  string storage_location = 6;
-}
-
-enum BlobState {
-  BLOB_STATE_UNSPECIFIED = 0;
-  BLOB_STATE_STAGED = 1;
-  BLOB_STATE_VERIFIED = 2;
-  BLOB_STATE_AVAILABLE = 3;
-}
-
-message ResolveRefRequest {
-  string ref_name = 1;
-}
-
-message GetCommitRequest {
-  string commit_id = 1;
-}
-
-message GetTreeRequest {
-  string tree_id = 1;
-}
-
-message ResolvePathRequest {
-  string commit_id = 1;
-  string path = 2;
-}
-
-message ResolvePathResponse {
-  TreeEntry entry = 1;
-}
-
-message ListDirectoryRequest {
-  string commit_id = 1;
-  string path = 2;
-  string cursor = 3;
-  int32 page_size = 4;
-}
-
-message ListDirectoryResponse {
-  repeated TreeEntry entries = 1;
-  string next_cursor = 2;
-}
-
-message ReadBlobRequest {
-  string blob_id = 1;
-  int64 offset = 2;
-  int64 length = 3;
-}
-
-message ReadBlobResponse {
-  bytes data = 1;
-  int64 offset = 2;
-  string content_hash = 3;
-}
-
-message GetBlobStatusRequest {
-  repeated string content_hashes = 1;
-}
-
-message GetBlobStatusResponse {
-  repeated BlobRecord blobs = 1;
-}
-
-message StageBlobHeader {
-  string content_hash = 1;
-  int64 size = 2;
-  string compression = 3;
-}
-
-message StageBlobRequest {
-  oneof part {
-    StageBlobHeader header = 1;
-    bytes data = 2;
-  }
-}
-
-message StageBlobResponse {
-  BlobRecord blob = 1;
-}
-
-message VerifyBlobRequest {
-  string staged_blob_id = 1;
-}
-
-message VerifyBlobResponse {
-  BlobRecord blob = 1;
-}
-
-message PromoteBlobRequest {
-  string staged_blob_id = 1;
-}
-
-message PromoteBlobResponse {
-  BlobRecord blob = 1;
-}
-
-message AbortStagedBlobRequest {
-  string staged_blob_id = 1;
-}
-
-message AbortStagedBlobResponse {}
-
-message FileEdit {
-  FileEditOp op = 1;
-  string path = 2;
-  string old_path = 3;
-  string blob_id = 4;
-  string content_hash = 5;
-  uint32 mode = 6;
-}
-
-enum FileEditOp {
-  FILE_EDIT_OP_UNSPECIFIED = 0;
-  FILE_EDIT_OP_ADD = 1;
-  FILE_EDIT_OP_MODIFY = 2;
-  FILE_EDIT_OP_DELETE = 3;
-  FILE_EDIT_OP_RENAME = 4;
-}
-
-message ApplyTreeEditsRequest {
-  string base_root_tree_id = 1;
-  repeated FileEdit file_edits = 2;
-}
-
-message ApplyTreeEditsResponse {
-  string root_tree_id = 1;
-  repeated string changed_paths = 2;
-}
-
-message CreateTreeRequest {
-  repeated TreeEntry entries = 1;
-}
-
-message CreateTreeResponse {
-  string tree_id = 1;
-}
-
-message GetTreeDiffRequest {
-  string old_tree_id = 1;
-  string new_tree_id = 2;
-  repeated string path_prefixes = 3;
-}
-
-message GetTreeDiffResponse {
-  repeated string changed_paths = 1;
-}
-
-message OutboxEvent {
-  string event_id = 1;
-  string event_type = 2;
-  bytes payload = 3;
-  string idempotency_key = 4;
-}
-
-message PublishCommitRequest {
-  string expected_ref_name = 1;
-  string expected_old_commit_id = 2;
-  repeated string parent_commit_ids = 3;
-  // Native tree_id for the already-created root tree. The storage layer computes
-  // commit_id from this and the other canonical commit fields.
-  string root_tree_id = 4;
-  repeated string changed_paths = 5;
-  string author = 6;
-  string message = 7;
-  map<string, string> metadata = 8;
-  repeated string required_blob_ids = 9;
-  repeated OutboxEvent outbox_events = 10;
-}
-
-message PublishCommitResponse {
-  string commit_id = 1;
-  Ref new_ref = 2;
-}
-
-message CommitPublication {
-  repeated string extra_parent_commit_ids = 1;
-  // Native tree_id for the already-created root tree of this commit.
-  string root_tree_id = 2;
-  repeated string changed_paths = 3;
-  string author = 4;
-  string message = 5;
-  map<string, string> metadata = 6;
-  repeated string required_blob_ids = 7;
-}
-
-message PublishedCommit {
-  int32 index = 1;
-  string commit_id = 2;
-}
-
-message PublishCommitBatchRequest {
-  string expected_ref_name = 1;
-  string expected_old_commit_id = 2;
-  repeated CommitPublication commits = 3;
-  repeated OutboxEvent outbox_events = 4;
-}
-
-message PublishCommitBatchResponse {
-  repeated PublishedCommit commits = 1;
-  Ref new_ref = 2;
-}
-
-message ReachabilityRoot {
-  ReachabilityRootKind kind = 1;
-  string id = 2;
-  string ref_name = 3;
-  string commit_id = 4;
-  string changeset_id = 5;
-  string patchset_id = 6;
-  string cache_key = 7;
-  google.protobuf.Timestamp expires_at = 8;
-}
-
-enum ReachabilityRootKind {
-  REACHABILITY_ROOT_KIND_UNSPECIFIED = 0;
-  REACHABILITY_ROOT_KIND_ACCEPTED_REF = 1;
-  REACHABILITY_ROOT_KIND_CHANGESET_PATCHSET = 2;
-  REACHABILITY_ROOT_KIND_DRAFT_WORKSPACE = 3;
-  REACHABILITY_ROOT_KIND_STAGED_BLOB_LEASE = 4;
-  REACHABILITY_ROOT_KIND_GIT_PROJECTION_CACHE = 5;
-  REACHABILITY_ROOT_KIND_INDEX_REPAIR_CHECKPOINT = 6;
-}
-
-message ListReachabilityRootsRequest {
-  string cursor = 1;
-  int32 page_size = 2;
-  google.protobuf.Timestamp not_after = 3;
-}
-
-message ListReachabilityRootsResponse {
-  repeated ReachabilityRoot roots = 1;
-  string next_cursor = 2;
-}
-
-message ObjectReference {
-  string object_id = 1;
-  ObjectKind kind = 2;
-  repeated string referenced_object_ids = 3;
-}
-
-enum ObjectKind {
-  OBJECT_KIND_UNSPECIFIED = 0;
-  OBJECT_KIND_COMMIT = 1;
-  OBJECT_KIND_TREE = 2;
-  OBJECT_KIND_BLOB = 3;
-  OBJECT_KIND_GIT_PROJECTION = 4;
-  OBJECT_KIND_INDEX_CHECKPOINT = 5;
-}
-
-message ListObjectReferencesRequest {
-  repeated string object_ids = 1;
-  string cursor = 2;
-  int32 page_size = 3;
-}
-
-message ListObjectReferencesResponse {
-  repeated ObjectReference references = 1;
-  string next_cursor = 2;
-}
-
-message DeleteUnreferencedObjectsRequest {
-  repeated string candidate_object_ids = 1;
-  string gc_generation_id = 2;
-  google.protobuf.Timestamp older_than = 3;
-  bool dry_run = 4;
-}
-
-message DeleteUnreferencedObjectsResponse {
-  repeated string deleted_object_ids = 1;
-  repeated string retained_object_ids = 2;
-}
-
-message MetadataKey {
-  string space = 1;
-  bytes key = 2;
-}
-
-message MetadataValue {
-  MetadataKey key = 1;
-  bytes value = 2;
-  int64 version = 3;
-}
-
-message ReadTransactionRequest {
-  repeated MetadataKey read_keys = 1;
-}
-
-message ReadTransactionResponse {
-  repeated MetadataValue values = 1;
-}
-
-message MetadataCompare {
-  MetadataKey key = 1;
-  bytes expected_value = 2;
-  bool must_not_exist = 3;
-}
-
-message MetadataMutation {
-  MetadataKey key = 1;
-  bytes value = 2;
-  bool delete_key = 3;
-}
-
-message WriteTransactionRequest {
-  repeated MetadataCompare compares = 1;
-  repeated MetadataMutation mutations = 2;
-  repeated OutboxEvent outbox_events = 3;
-}
-
-message WriteTransactionResponse {
-  bool committed = 1;
-}
-
-enum StorageErrorReason {
-  STORAGE_ERROR_REASON_UNSPECIFIED = 0;
-  STORAGE_ERROR_REASON_NOT_FOUND = 1;
-  STORAGE_ERROR_REASON_ALREADY_EXISTS = 2;
-  STORAGE_ERROR_REASON_INVALID_PATH = 3;
-  STORAGE_ERROR_REASON_MISSING_BLOB = 4;
-  STORAGE_ERROR_REASON_UNVERIFIED_BLOB = 5;
-  STORAGE_ERROR_REASON_REF_CONFLICT = 6;
-  STORAGE_ERROR_REASON_INVARIANT_VIOLATION = 7;
-  STORAGE_ERROR_REASON_UNAVAILABLE = 8;
-}
-```
-
-`StorageErrorReason` should be carried in structured gRPC error details. Ref CAS
-failures should map to a retryable `ABORTED` status, missing source objects to
-`NOT_FOUND`, invariant failures to `INTERNAL`, and temporary backend failures to
-`UNAVAILABLE`.
-
-`PublishCommit` and `PublishCommitBatch` are the only normal operations that
-create commits and move a target ref. `PublishCommit` runs as one metadata
-transaction:
-
-```text
-1. Verify every required blob is available.
-2. Verify parent commits and root tree exist.
-3. Verify expected ref still points at expected_old_commit_id.
-4. Write commit metadata.
-5. Move the ref with CAS.
-6. Write outbox events for indexers.
-```
-
-`PublishCommitBatch` publishes a deterministic commit chain and moves the
-target ref once:
-
-```text
-1. Verify every required blob for every commit is available.
-2. Verify expected ref still points at expected_old_commit_id.
-3. Write commit metadata in request order:
-   expected_old_commit_id -> C1 -> C2 -> ... -> Cn
-4. Move the ref from expected_old_commit_id to Cn with CAS.
-5. Write outbox events for every included changeset and changed path.
-```
-
-The batch operation is still a single metadata transaction. Either every commit
-in the chain is published and the target ref moves, or none of them are
-published through that ref.
-
-If the ref CAS fails, the operation returns a retryable conflict and publishes
-no commit. Higher-level services must rebase or reapply through the submit
-flow.
-
-The transaction interface is intentionally lower level than `PublishCommit`.
-Most services should use specific storage operations rather than constructing
-arbitrary metadata transactions. Administrative repair workflows may need the
-lower-level primitive behind stricter authorization and audit logging.
-
-Storage operations must be idempotent where practical. In particular, staging an
-already available content hash should return the existing blob record, and
-replaying outbox event writes for the same committed transaction must not create
-duplicate logical events.
-
-## 5. Blob And Metadata Transaction Semantics
-
-Object storage systems are not part of the metadata transaction. The write
-protocol must account for that.
-
-Recommended staged write flow:
-
-```text
-1. Client uploads missing blob content by hash.
-2. Server verifies hash and size.
-3. Server marks blob records as staged or available.
-4. Publisher writes immutable tree nodes to object storage, then records commit
-   metadata and the ref update transactionally in PostgreSQL.
-5. After commit succeeds, referenced blobs are considered live.
-6. Background GC removes unreferenced staged blobs after a grace period.
-```
-
-The metadata transaction must never point at a blob that has not been verified.
-
-Tree-node writes are content-addressed and idempotent. The publisher may write
-new tree nodes before the PostgreSQL transaction commits. If the transaction
-later fails, those nodes are harmless unreachable objects and are eligible for
-reachability-based GC. PostgreSQL must not expose a commit until its
-`root_tree_id` and all referenced blob records are durable.
-
-Blob upload can happen before submit. Commit publication happens only through
-the metadata transaction and atomic ref update.
-
-### 5.1 Distributed Garbage Collection
-
-Garbage collection is a correctness feature, not only a cost-control feature.
-The storage system must eventually remove abandoned staged blobs, obsolete
-projection artifacts, and unreachable metadata without deleting anything that
-can still be observed by a ref, changeset, cache lease, or repair workflow.
-
-Reachability roots:
-
-- accepted refs such as `refs/global/main`
-- changeset patchset refs and open review state
-- draft workspace snapshots with active leases
-- staged blob leases that have not expired
-- submit operations that are finalizing
-- Git projection and packfile cache entries with active leases
-- index repair checkpoints and replication watermarks
-
-GC should run as a multi-phase mark, quarantine, and sweep workflow:
-
-```text
-1. Select a GC generation and stable metadata read watermark.
-2. Enumerate reachability roots at or before that watermark.
-3. Traverse commits, trees, blobs, patchsets, and registered cache artifacts.
-4. Mark reachable object ids for the generation.
-5. Quarantine unmarked candidates older than the grace period.
-6. Recheck candidates against fresh roots before deletion.
-7. Delete object-store bytes only after metadata references are gone or expired.
-8. Emit audited deletion events.
-```
-
-The grace period must exceed expected replica lag, indexing lag, and client
-upload retry windows. Staged blobs can use a shorter TTL, but available blobs
-and metadata objects require reachability-based deletion. Projection caches and
-derived indexes must register either a reachability root or an expiration time;
-unregistered caches are disposable and must not be required for correctness.
-
-Deletes must be idempotent. A failed or interrupted GC generation can be retried
-without changing committed refs or visible changeset state.
-
-## 6. Object Model
-
-### 6.1 Blob
-
-```text
-Blob:
-  id              # blob_id = hash(gitslice.blob.v1, raw file bytes)
-  content_hash    # same verified file-byte digest, if stored separately
-  size
-  compression
-  storage_location
-  state
-```
-
-Blobs are immutable and content-addressed. The object store key should be
-derived from `blob_id` or the same content hash.
-
-### 6.2 Tree
-
-```text
-Tree:
-  id              # tree_id = hash(gitslice.tree.v1 or later, canonical tree entries)
-  entries_or_chunks[]
-```
-
-Trees are immutable and content-addressed. Identical canonical directory
-contents produce the same `tree_id` within the same tree format version.
-
-### 6.3 Tree Entry
-
-```text
-TreeEntry:
-  name
-  entity_id
-  kind
-  mode
-  tree_id
-  blob_id
-  symlink_target
-  size
-  content_hash
-```
-
-Supported entry kinds:
-
-```text
-file
-directory
-symlink
-```
-
-`entity_id` is the stable identity of the logical file, directory, or symlink.
-It is not derived from the path and must remain stable across moves. The full
-move-history model is defined in
-[13_file_identity_and_move_history.md](13_file_identity_and_move_history.md).
-
-### 6.4 Commit
-
-```text
-Commit:
-  id              # commit_id = hash(gitslice.commit.v1, canonical commit object)
-  parent_ids
-  root_tree_id
-  author
-  message
-  created_at
-  changed_paths[]
-```
-
-The `root_tree_id` field is the native `tree_id` for the root directory of the
-accepted snapshot. It is the entry point for resolving any path in the commit.
-
-### 6.5 Ref
-
-```text
-Ref:
-  name
-  commit_id
-  updated_at
-  updated_by
-```
-
-## 7. Canonical Paths And Tree Hashing
-
-The tree model must be deterministic across clients, operating systems, and
-regions.
-
-Blob ids are the simplest content-addressed ids:
-
-```text
-blob_id = hash("gitslice.blob.v1", raw file bytes)
-```
-
-Compression, object-store chunking, encryption, and filesystem staging layout
-must not change `blob_id`; they are storage details around the same verified raw
-bytes.
-
-### 7.1 Path Rules
-
-Canonical paths:
-
-- are absolute
-- start with a registered account slug, as `/{account}/...`
-- do not use reserved top-level names such as `.gitslice`, `shared`, `system`,
-  or `build`
-- use `/` as the only separator
-- are valid UTF-8
-- are normalized to Unicode NFC
-- do not contain empty segments
-- do not contain `.` or `..` segments
-- do not contain NUL
-- are case-sensitive
-
-Examples:
-
-```text
-valid:   /nicholas/app/README.md
-invalid: nicholas/app/README.md
-invalid: /nicholas/app/../secret.txt
-invalid: /shared/lib
-```
-
-### 7.2 Entry Ordering
-
-Directory entries are sorted by the byte order of their canonical UTF-8 names
-after NFC normalization.
-
-This ordering is used for:
-
-- tree hashing
-- directory pagination
-- deterministic projection
-- Git tree generation
-
-### 7.3 Tree Hash Inputs
-
-`tree_id` is computed from a canonical encoding of the tree object. The
-entity-aware tree format includes `entity_id` in the hash input:
-
-```text
-tree_id = hash(
-  "gitslice.tree.v2",
-  ordered entries:
-    name
-    entity_id
-    entry kind
-    mode
-    blob_id or child_tree_id
-    size where applicable
-    symlink target where applicable
-)
-```
-
-Directory tree hashes are computed from ordered child entries.
-
-The directory name itself is stored in the parent entry, not inside the child
-tree. This allows a directory rename to reuse the child subtree hash.
-
-### 7.4 Commit Hash Inputs
-
-`commit_id` is computed from a canonical encoding of the commit object:
-
-```text
-commit_id = hash(
-  "gitslice.commit.v1",
-  parent_ids in stored order,
-  root_tree_id,
-  author_subject_id,
-  message,
-  created_at or logical timestamp,
-  changed_paths in canonical order,
-  metadata version,
-  canonical metadata entries
-)
-```
-
-The implementation must define one timestamp policy before commit publication.
-For example, the submit service can assign a server timestamp inside the
-metadata transaction, then compute the commit hash from that timestamp and the
-other canonical fields. Recomputing the hash from stored commit metadata must
-produce the same `commit_id`.
-
-### 7.5 File Modes
-
-The initial mode model should support:
-
-```text
-regular file
-executable file
-directory
-symlink
-```
-
-Additional platform-specific mode bits should not affect the canonical source
-tree unless explicitly added to the model.
-
-### 7.6 Huge Directory Handling
-
-Very large directories must be chunked deterministically.
-
-Recommended approach:
-
-```text
-DirectoryRoot
-  -> DirectoryChunk[]
-  -> ordered TreeEntry records
-```
-
-Chunking rules:
-
-- chunks cover non-overlapping name ranges
-- entries are ordered by canonical name
-- chunk boundaries are deterministic for the same entry set
-- chunk hashes feed into the directory root hash
-- listing supports cursor-based pagination by entry name
-
-This prevents one huge directory from becoming one massive metadata object while
-keeping tree hashes deterministic.
-
-### 7.7 Rename Behavior
-
-Renaming a file changes the parent directory entries.
-
-Renaming a directory changes the parent directory entry, but can reuse the
-renamed directory's child tree because the child tree hash is independent of the
-directory's name.
-
-Path-based indexes still need to update affected path records after a rename.
-Entity-aware history indexes must also record that the same entity moved from
-`old_path` to `new_path`, so path-filtered history can follow the rename when
-requested.
-
-## 8. Replication Architecture
-
-The local prototype can start with one primary PostgreSQL instance and a
-filesystem object store rooted on local or attached storage. A production MVP
-deployment should replace the filesystem store with a durable object-store
-adapter before horizontal scaling or multi-host writes.
-
-Later, use regional read replicas and controlled write coordination.
-
-```text
-US primary
-EU replica
-Asia replica
-```
-
-Reads should be served locally when possible.
-
-Writes should be coordinated through the region that owns the target ref.
-
-Blob replication can be lazy and demand-driven.
-
-Metadata replication must preserve commit/ref consistency. PostgreSQL read
-replicas must not serve reads that are advertised as fresh for submit
-validation unless their replay position is proven current for the target ref.
-
-Ref updates must remain linearizable for target refs.
-
-## 9. Storage Invariants
-
-These invariants must not be violated:
-
-```text
-1. A committed tree is immutable.
-2. A committed blob is immutable and content-addressed.
-3. A committed tree id is the hash of canonical tree entries.
-4. A commit id is the hash of the canonical commit object.
-5. A commit points to exactly one root tree, and root_tree_id is that tree's id.
-6. Native object ids are not Git object ids.
-7. A ref update is atomic and conditional.
-8. Metadata must never reference an unverified blob.
-9. Derived indexes can be rebuilt from commits, trees, blobs, slice definitions, and path lock records.
-```
+Human-facing tools may abbreviate commit ids (minimum 8 hex chars, default 12
+in CLI) via `RepositoryService.ResolveCommit`, which resolves prefixes within
+the caller's visible commit set before reading objects.
+
+---
+
+## 3. Canonical Path Rules (`internal/paths/paths.go`)
+
+All paths stored in trees, commits, patchsets, and indexes are canonical
+account-rooted POSIX paths:
+
+- **`Canonical(p)`**: normalizes `\` to `/`, prepends `/` if missing, runs
+  `path.Clean`, rejects empty strings, `.` / `..` segments, root escapes, and
+  requires **at least 2 segments** (`/{account}/{segment}...`).
+- **`CanonicalPrefix(p)`**: applies the same normalization and safety checks
+  but permits a **single segment** (`/{account}`), used for personal home
+  slices (`nic/home` → `/nic`) and prefix-scoped queries.
+- **`Contains(prefix, p)`**: strict path-boundary prefix check (`p == prefix`
+  or `strings.HasPrefix(p, prefix+"/")`), preventing `/acme/pay` from matching
+  `/acme/payment`.
+- **`AncestorPrefixes(p)`**: expands `/a/b/c` into `["/a", "/a/b", "/a/b/c"]`
+  for covering-slice and `.gitslice/` config lookups.
+- **`FromWorkspacePath(includedPrefix, workspacePath)`**: maps a local
+  workspace-relative path back to its canonical global path.
+
+---
+
+## 4. Ref Model
+
+A ref (`refs` table) is a mutable named pointer `(name, commit_id, version,
+updated_at, updated_by)` advanced only by conditional compare-and-swap (CAS) on
+`commit_id`:
+
+- **Default target ref**: `refs/global/main`.
+- **Changeset refs (Git gateway)**:
+  `refs/changes/{account}/{slice}/{changeset_number}/{patchset_number}` (and
+  `refs/changes/new` as a Git push alias).
+- **Projected Git refs**: `refs/global/main` projects to `refs/heads/main` per
+  slice.
+
+---
+
+## 5. 3-Stage Asynchronous Publish Pipeline (`internal/postgres/changeset_publish.go`)
+
+Submit admission and commit publication are decoupled so concurrent submits on
+disjoint paths do not serialize on R2 tree writes:
+
+1. **Admission (`SubmitChangeset`)**: validates requirements, approvals, and
+   checks; performs durable **path-head CAS** on `path_heads` (comparing each
+   changed path's base fingerprint and advancing it to the accepted post-patch
+   fingerprint); sets `changesets.status = 'pending_publish'`; and appends a
+   `pending_publish` row in one PostgreSQL transaction.
+2. **Stage 1 — Claim (`claimPendingPublishBatch`)**: after
+   `reapStalePendingPublishClaims` resets any `publishing` rows older than
+   `pendingPublishClaimTimeout` (60s), opens a short transaction that selects
+   up to `limit` rows (`status = 'pending'`, ordered by `sequence`,
+   `FOR UPDATE SKIP LOCKED`), filters to the first row's `target_ref`, reads
+   the current `(refs.commit_id, commits.root_tree_id)`, marks the claimed rows
+   `status = 'publishing'`, and commits. **No DB locks are held during tree
+   building.**
+3. **Stage 2 — Build (`buildPendingPublishBatch`)**: outside any DB
+   transaction, loads each claimed changeset and patchset, converts file edits
+   to `[]treestore.FileEdit`, and calls **`treestore.ApplyEditChain(ctx,
+   claim.RootTreeID, editSets)`**. `ApplyEditChain` applies every patchset in
+   sequence against a single in-memory `bufferingObjectStore` (so intermediate
+   tree nodes are served from memory), prunes unreachable intermediate nodes,
+   performs **one batched flush to R2**, and populates `treestore.nodeCache`.
+   It then computes deterministic `CommitID`s, `path_heads` mutations, outbox
+   payloads (`commit_published`), and event records. If any step fails,
+   `releasePendingPublishClaims` returns claimed rows to `pending`.
+4. **Stage 3 — Finalize (`finalizePendingPublishBatch`)**: opens a short
+   transaction that locks the target ref with **`SELECT commit_id FROM refs
+   WHERE name = $1 FOR NO KEY UPDATE`** (not `FOR UPDATE`, preventing deadlocks
+   with `FOR KEY SHARE` FK locks taken by concurrent `pending_publish`
+   inserts), verifies `lockedCommitID == claim.OriginalCommitID` (resetting
+   claims on CAS mismatch), locks the changesets, inserts `commits`, applies
+   `path_heads` mutations, marks `pending_publish` rows published and
+   changesets `submitted`, clears `path_intents`, refreshes stack statuses,
+   inserts `outbox` and event rows, and updates `refs` with CAS (`WHERE name =
+   $3 AND commit_id = $4`).
+
+---
+
+## 6. PostgreSQL Schema Overview
+
+The schema is managed by sequential SQL migrations in
+`internal/postgres/migrations/` (`0001_init.sql`–`0066_reusable_automations_and_pipelines.sql`;
+retired tables `slice_secrets`, `secret_migrations`, `webhooks`, and
+`webhook_deliveries` were dropped in migrations `0046` and `0061`).
+
+### 6.1 Identity, Accounts, Groups & Auth
+- `accounts`, `subjects`, `subject_emails`, `account_memberships`,
+  `account_invitations`, `sessions`, `cli_login_sessions`
+- `agent_registrations`, `api_keys` (scoped API keys, `0056`)
+- `account_groups`, `account_group_members`, `slice_group_members` (`0058`)
+
+### 6.2 Core Graph, Blobs & Derived Indexes
+- `refs`, `commits`, `blobs`, `blob_slices` (slice-scoped blob visibility),
+  `ref_materialized_heads` (`0022`)
+- `commit_changed_paths` (path-prefix history index, `0002`)
+- `fs_entities`, `current_path_entities`, `commit_entity_changes` (stable
+  entity move history, `0003`)
+- `outbox` (transactional outbox drained by `indexworker.Worker`, `0009`)
+- `blame_snapshots` (cached per-file blame snapshots, `0035`)
+- `git_imports`, `git_import_commits` (resumable Git repository imports)
+
+### 6.3 Slices, Lifecycle & Git Mirrors
+- `slices`, `slice_included_paths`, `slice_definition_versions` (`0010`),
+  `slice_members` (`0034`), `slice_tags` (`0028`), `slice_aliases` (`0036`)
+- `slice_ci_daemons` (`0050`), `account_ci_daemons` (`0063`)
+- `slice_git_mirrors` (`0051`)
+
+### 6.4 Changesets, Stacks, Path Heads & Collaboration
+- `changesets` (including `submit_blocked_code`, `0062`), `patchsets`,
+  `path_heads`, `pending_publish`
+- `approvals`, `check_results` (`0007`)
+- `changeset_stacks`, `changeset_stack_entries` (`0012`)
+- `changeset_collaborators` (`0054`), `path_intents` (`0059`)
+
+### 6.5 Agents, CI Checks, Secrets, Automations & Feedback
+- `agent_daemons`, `daemon_slice_exposures`, `agent_conversations`,
+  `agent_conversation_events`
+- `check_runs`, `check_run_logs`, `patchset_secret_allowances` (`0055`)
+- `secrets`, `secret_slices` (`0045`), `secret_paths` (`0047`)
+- `webhook_events` (internal event log), `trigger_runs`, `trigger_run_logs`
+  (`0048`, `0064`–`0066`)
+- `feedback` (`0033`)
+
+---
+
+## 7. Go Storage Interfaces (`internal/storage/`)
+
+Runtime services depend on narrow Go interfaces in `internal/storage/` rather
+than concrete SQL structs. `internal/postgres` provides the production
+implementation and `internal/storage/memory` provides a parity-tested in-memory
+implementation for fast service tests:
+
+- **Core interfaces (`internal/storage/interfaces.go`)**:
+  - `AuthStore` (embeds `RoleLookupStore`, `APIKeyStore`, `AccountGroupStore`):
+    CLI login, external identities, emails, usernames, agent signup/claim,
+    delegated agents, orgs/members/invitations, profiles/avatars, API keys, and
+    groups.
+  - `BlobStore`: blob upsert/lookup, slice associations, content-hash path
+    lookups, and Git blob SHA-1 mappings.
+  - `ChangesetStore` (embeds `StackStore`, `PathIntentStore`): changeset CRUD,
+    patchsets, approvals, check results, submit admission, `PublishPending`,
+    collaborators, handoff, stacks, and path intents.
+  - `DerivedIndexStore`: `ProcessOutbox`, `OutboxDepth`, `WaitForOutboxDrain`,
+    and `RebuildDerivedIndexes`.
+  - `RepositoryStore`: refs, commit/tree reads (`GetEntryAtTree`,
+    `ListDirectoryAtTree`, `ListTreeAtTree`, `DiffTreeAtTree`), paged path and
+    entity history, commit prefix resolution, and Git import tracking.
+  - `SliceStore` (embeds `SliceSecretStore`, `SliceMemberStore`,
+    `SliceTagStore`): slice definitions/versions, visibility listings, CI
+    daemon pools, rename/archive/retire, `merge_on_submit`, and covering-slice
+    lookups.
+  - `CheckStore`: check run lifecycle, streaming logs, lease-based claiming and
+    reassignment (`ClaimCheckRuns`, `RenewCheckRunClaims`,
+    `TakeLapsedCheckRuns`), and `patchset_secret_allowances`.
+  - `AgentStore`: BYO daemon registration/standby/exposure and conversation
+    event streams.
+- **Additional store interfaces**:
+  - `AutomationStore` (`internal/storage/automations.go`): automation run and
+    log persistence, run state/output, and pipeline/callback coordination.
+  - `BlameStore` (`internal/storage/blame.go`): blame snapshot read/write.
+  - `EventStore` (`internal/storage/events.go`): durable domain event queue for
+    automations and Git mirrors.
+  - `GitMirrorStore` (`internal/storage/git_mirrors.go`): outbound Git mirror
+    config and push queue.
+  - `FeedbackStore` (`internal/storage/feedback.go`): feedback submissions and
+    resolution.
+
+---
+
+## 8. Blob Upload And Transaction Semantics
+
+Metadata and object storage never participate in a distributed two-phase commit:
+
+1. Client uploads blob bytes (`UploadBlob`, `UploadBlobs`, or
+   `UploadBlobStream`).
+2. Server hashes bytes in a single pass (`NewBlobHasher`), writes the immutable
+   object to R2, and upserts the verified `blobs` row and `blob_slices`
+   association in PostgreSQL.
+3. Patchset creation rejects any edit referencing a missing or unverified blob.
+4. Orphaned unreferenced blobs can be swept asynchronously once past their
+   retention window; R2 listing is never authoritative over PostgreSQL
+   reachability.
+
+---
+
+## 9. Storage Invariants And Future Work
+
+Invariants:
+- Blobs, trees, and commits are immutable and content-addressed (`sha256:<hex>`).
+- PostgreSQL `refs.commit_id` moves only via conditional CAS.
+- Every referenced blob is verified before any patchset or commit references it.
+- Derived index tables (`commit_changed_paths`, entity move tables,
+  `blame_snapshots`) can be rebuilt from commits, trees, and blobs.
+
+Unimplemented future extensions:
+- **`gitslice.tree.v2`**: embedding `entity_id` directly in tree entries.
+- **Multi-region replication**: active-passive or active-active regional
+  metadata/object replication.

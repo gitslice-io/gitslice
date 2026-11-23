@@ -75,7 +75,7 @@ type Client interface {
 
 - **`posthog` impl** wraps `github.com/posthog/posthog-go`, buffered with async
   flush; `Capture` never blocks the caller.
-- **`noop` impl** returned when `POSTHOG_API_KEY` is empty — used by tests,
+- **`noop` impl** returned when `GITSLICE_POSTHOG_API_KEY` is empty — used by tests,
   local dev, and CI. This is the default.
 - **Construction lives in `server/`** (wiring-only per AGENTS.md); services
   receive the `analytics.Client` interface, never the concrete type.
@@ -88,18 +88,25 @@ type Client interface {
   and cost). Pulls the actor from `authctx.SubjectID(ctx)`.
 - **Service-layer (precise).** The authoritative domain events are emitted in
   `service/` at the point the write succeeds:
-  `slice_created`, `changeset_submitted`, `changeset_merged`,
-  `patchset_pushed`, `auth_login`, `cli_login_completed`.
+  `slice_created`, `changeset_submitted`, `patchset_pushed`,
+  `cli_login_completed`, `agent_registered`, `agent_claimed` (with
+  `changeset_merged` and `auth_login` defined in the taxonomy and deferred).
 
 ## Web design
 
-- `posthog-js`, initialized **client-side only** (guard `typeof window`) — the
-  app is TanStack Start with SSR, so init happens in the hydrate path
-  (`web/src/client.tsx`) or a mount effect, never during SSR.
-- A `PostHogProvider` mounted in `web/src/start-routes/__root.tsx`, keyed off
+- `posthog-js`, initialized **client-side only** (guard `typeof window` and
+  `!import.meta.env.SSR`) — the app is TanStack Start with SSR, so init happens
+  client-side after hydration, never during SSR.
+- **Deferred loading (`web/src/analytics/idle.ts`).** `loadPostHog()` waits for
+  `afterPageLoad()` (`window` `load` + `requestIdleCallback` with a 1500 ms
+  timeout fallback) before dynamically importing `posthog-js`, so analytics
+  never competes with initial page render or script loading.
+- A `PostHogProvider` mounted in `web/src/routes/root.tsx`, keyed off
   `import.meta.env.VITE_POSTHOG_KEY` / `VITE_POSTHOG_HOST`.
-- **Autocapture + pageviews** on: TanStack Router navigation fires
-  `$pageview`.
+- **Manual pageviews + automatic pageleave:** `capture_pageview` is disabled
+  because TanStack Router navigation fires `$pageview` explicitly, while
+  `capture_pageleave: true` is kept enabled so PostHog records `$pageleave` on
+  unload/visibility change for accurate bounce rate and session duration.
 - **UI-intent events only** via `posthog.capture(...)`. Domain events
   (submit/merge/create) are NOT captured here — the server owns them.
 
@@ -113,6 +120,8 @@ type Client interface {
 | `changeset_submitted` | **server** | changeset id |
 | `patchset_pushed` | **server** | changeset id, patchset id |
 | `cli_login_completed` | **server** | — |
+| `agent_registered` | **server** | — |
+| `agent_claimed` | **server** | — |
 | `changeset_merged` | **server** _(deferred)_ | changeset id |
 | `auth_login` | **server** _(deferred)_ | method |
 
@@ -134,10 +143,12 @@ and mirrored in `web/src/analytics/events.ts`.
 
 ## Ingestion / anti-adblock
 
-Ingestion is proxied first-party through Cloudflare (`/ingest/*` on the web
-domain → PostHog ingestion host) so events survive adblockers. This is a
-Cloudflare route/Worker config, not app code. `VITE_POSTHOG_HOST` points at the
-first-party path.
+Ingestion is proxied first-party through the web Cloudflare Worker
+(`web/src/analytics/ingestProxy.ts`, hooked in `web/src/server.ts`) so events
+survive adblockers. Requests to `/ingest/static/*` are forwarded to the PostHog
+assets host (with static asset caching) and `/ingest/*` to the ingestion host,
+stripping the `/ingest` prefix and app cookies. `VITE_POSTHOG_HOST` points at
+the first-party path (`https://<domain>/ingest`).
 
 ## Configuration
 
@@ -186,25 +197,8 @@ service — so there is nothing per-event to remember. Filter or break down by
    US region; for an EU project set `VITE_POSTHOG_UPSTREAM_HOST=eu.i.posthog.com`
    and `VITE_POSTHOG_UPSTREAM_ASSETS_HOST=eu-assets.i.posthog.com`. Still needs
    end-to-end verification against a real PostHog project.
-5. **Verify** on staging (below), then set a per-product **billing limit** in
+5. **Verify** on staging, then set a per-product **billing limit** in
    PostHog as a backstop.
-
-## Rollout plan
-
-1. **Foundation** (one codex worktree): `internal/analytics` (interface +
-   posthog + noop impls) and the shared event taxonomy (Go + TS). Verify it
-   builds; no emission wired yet.
-2. **Fan out** (two parallel codex worktrees, disjoint paths):
-   - Server: interceptor + service-layer domain events (`server/`, `service/`).
-   - Web: `PostHogProvider`, pageviews, identify/alias, UI-intent events
-     (`web/`).
-3. **Config + proxy** (main agent): wrangler vars, Cloud Run env, Cloudflare
-   `/ingest/*` route.
-4. **Verify** on staging: drive login → view slice → submit changeset; confirm
-   events appear as **one stitched person** and submit/merge are **not**
-   double-counted.
-5. **Backstop:** set a per-product billing limit in PostHog. Ship to prod behind
-   env vars (dark-launchable).
 
 ## Non-goals (v1)
 

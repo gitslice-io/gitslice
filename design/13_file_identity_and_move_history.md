@@ -1,375 +1,214 @@
 # File Identity And Move History
 
-This document defines how Gitslice should preserve file and directory history
-across moves and renames. Product context is in [00_product.md](00_product.md),
-storage is in [02_storage.md](02_storage.md), API shape is in
-[03_core_api.md](03_core_api.md), CLI behavior is in
-[04_cli_design.md](04_cli_design.md), and derived indexes are in
-[06_indexing.md](06_indexing.md).
+This document defines how Gitslice preserves file and directory history across
+moves and renames.
+
+Related documents:
+
+- [00_product.md](00_product.md): product overview
+- [02_storage.md](02_storage.md): commits, trees, and blobs
+- [03_core_api.md](03_core_api.md): `ListCommits` and `ResolveCommit` APIs
+- [04_cli_design.md](04_cli_design.md): `gs log`, `gs show`, and `gs blame`
+- [06_indexing.md](06_indexing.md): outbox processing and `RebuildDerivedIndexes`
 
 ## 1. Problem Statement
 
 Path-based history is not enough.
 
-If a file starts at:
+If a file starts at `/nic/app/auth.go` and later moves to
+`/nic/services/auth/auth.go`, a history query for the new path should still
+find the older commits that touched the same logical file. A path is only a
+location; the object whose history must be preserved is the file or directory
+entity.
 
-```text
-/nic/app/auth.go
-```
-
-and later moves to:
-
-```text
-/nic/services/auth/auth.go
-```
-
-then a history query for the new path should still find the older commits that
-touched the same logical file. A path is only a location. The object whose
-history must be preserved is the file or directory entity.
-
-Git handles this mostly through diff-time rename heuristics. Gitslice should
-not make heuristics the source of truth. Explicit native moves should be
-authoritative, and inference should be a fallback for imports or clients that
-can only report delete/add pairs.
+Explicit native moves are authoritative, while exact delete/add matching serves
+as a fallback for snapshot-style clients and imports.
 
 ## 2. Core Concepts
 
 ### 2.1 Entity ID
 
 Every committed file, directory, and symlink under an account-rooted namespace
-has a stable entity id.
-
-```text
-entity_id = opaque random id
-path      = current canonical absolute path
-kind      = file | directory | symlink
-```
-
-The entity id belongs to the logical filesystem object, not to a path. Moving
-or renaming an object keeps the same entity id. Deleting an object and later
-creating a new object at the same path creates a new entity id.
-
-The id is scoped by account:
+is assigned a stable account-scoped entity ID:
 
 ```text
 (account_id, entity_id)
+kind = file | directory | symlink
 ```
 
-The account root directory, for example `/nic`, also has a directory entity id.
-The global `/` root may remain a synthetic system root.
+Moving or renaming an object keeps the same `entity_id`. Deleting an object and
+later creating a new object at the same path allocates a new `entity_id`.
 
-### 2.2 Path
+### 2.2 Path vs. Entity History
 
-A path is a mutable location for an entity at a specific commit. The same path
-can refer to different entity ids at different commits after delete/recreate
-cycles.
+A path is a mutable location for an entity at a given commit. History queries
+distinguish:
 
-History queries must therefore distinguish:
+- **path history** (`follow_moves = false`): commits that touched a literal path
+- **entity / move-following history** (`follow_moves = true`, default for single-path `gs log`): commits that touched the same logical entity, plus ancestor directory move events that changed the object's path
 
-- path history: commits that touched a literal path
-- entity history: commits that touched the same logical object
-- move-following history: entity history plus ancestor directory moves that
-  changed the object's path
+### 2.3 Move Events
 
-### 2.3 Move Event
-
-A move event records that the same entity changed location.
+A move event records that an entity changed location:
 
 ```text
 entity_id
 old_path
-new_path
+path
 change_kind = moved
-source      = explicit | exact_content_match | similarity | git_import
-confidence
+source      = explicit | exact_content_match | git_import
+confidence  = 0..100 (100 for explicit native moves)
 ```
 
-Explicit moves from native RPC operations are authoritative. Inferred moves are
-best-effort metadata and must be marked with their source and confidence.
+Explicit moves from native RPC operations (`FileEdit{op: "rename"}`, `MovePath`,
+`gs fs mv`, `gs shell mv`) are authoritative (`source = 'explicit'`,
+`confidence = 100`).
 
-## 3. Storage Model
+## 3. Current Storage Model (PostgreSQL Derived Tables)
 
-### 3.1 Tree Entries
+Entity identity currently lives in **PostgreSQL derived tables** populated by
+the `commit_published` outbox worker (`internal/postgres/outbox.go`,
+`internal/postgres/entity_rows.go`) and rebuildable via
+`RebuildDerivedIndexes` (see [06_indexing.md](06_indexing.md)).
 
-Native tree entries should carry entity ids so lineage is rebuildable from
-source-of-truth objects, not only from derived indexes.
+The object-store tree format in `internal/treestore` remains
+**`gitslice.tree.v1`**: tree entries do not yet embed `entity_id` (see §9
+Future Work).
 
-```text
-TreeEntry:
-  name
-  entity_id
-  kind
-  mode
-  tree_id
-  blob_id
-  symlink_target
-  size
-  content_hash
-```
+### 3.1 `fs_entities`
 
-Tree hashes should include `entity_id` in the next tree format version. That
-makes the native tree a snapshot of logical source state, not just byte
-contents. Two copied files with the same blob bytes can then have different
-entity ids while sharing the same blob id.
+Stores the account-scoped entity catalog (`0003_entity_move_history.sql`):
 
-Directory moves still reuse descendant tree nodes. The moved directory's child
-tree is independent of the directory name stored by the parent. The parent
-entry changes location and keeps the directory entity id.
-
-### 3.2 Entity Table
-
-PostgreSQL stores the stable entity catalog:
-
-```text
+```sql
 fs_entities(
-  account_id,
-  entity_id,
-  kind,
-  created_commit_id,
-  deleted_commit_id,
-  created_at,
+  account_id        text not null references accounts(id),
+  entity_id         text not null,
+  kind              text not null,
+  created_commit_id text references commits(id),
+  deleted_commit_id text references commits(id),
+  created_at        timestamptz not null default now(),
   primary key(account_id, entity_id)
 )
 ```
 
-`deleted_commit_id` is nullable. It marks that the entity no longer exists at
-the current head, but the entity remains queryable for history.
+`deleted_commit_id` is nullable; it marks entities no longer present at the
+current head while keeping them queryable for history.
 
-### 3.3 Commit Change Index
+### 3.2 `current_path_entities`
 
-The path-history index should evolve from path-only rows into entity-aware
-change rows:
+Maps each live path on a target ref to its current entity, content hash, and
+mode:
 
-```text
-commit_entity_changes(
-  target_ref,
-  commit_id,
-  account_id,
-  entity_id,
-  path,
-  old_path,
-  change_kind,
-  content_hash,
-  mode,
-  committed_at,
-  primary key(target_ref, commit_id, entity_id, path)
+```sql
+current_path_entities(
+  target_ref    text not null references refs(name),
+  path          text not null,
+  account_id    text not null,
+  entity_id     text not null,
+  kind          text not null,
+  content_hash  text,
+  mode          integer,
+  updated_at    timestamptz not null default now(),
+  primary key(target_ref, path),
+  foreign key(account_id, entity_id) references fs_entities(account_id, entity_id)
 )
 ```
 
-Representative `change_kind` values:
+When `ref_materialized_heads` matches the requested head commit, this table
+also powers head-read fast paths in `RepositoryStore` and `path_bases`.
 
-```text
-added
-modified
-deleted
-moved
-copied
-mode_changed
+### 3.3 `commit_entity_changes`
+
+Stores entity-aware change lineage per commit:
+
+```sql
+commit_entity_changes(
+  target_ref    text not null references refs(name),
+  commit_id     text not null references commits(id),
+  account_id    text not null,
+  entity_id     text not null,
+  kind          text not null,
+  path          text not null,
+  old_path      text,
+  change_kind   text not null,
+  source        text not null default 'explicit',
+  confidence    integer not null default 100,
+  content_hash  text,
+  mode          integer,
+  committed_at  timestamptz not null,
+  primary key(target_ref, commit_id, account_id, entity_id, path, change_kind),
+  foreign key(account_id, entity_id) references fs_entities(account_id, entity_id)
+)
 ```
 
-Path-based indexes can remain as accelerators, but entity-aware change rows are
-the durable lineage index used for history queries.
+Supporting indexes:
+
+- `idx_commit_entity_changes_ref_entity_time` on `(target_ref, account_id, entity_id, committed_at desc, commit_id)`
+- `idx_commit_entity_changes_ref_path_time` on `(target_ref, path, committed_at desc, commit_id)`
+
+Representative `change_kind` values: `added`, `modified`, `deleted`, `moved`,
+`copied`, `mode_changed`.
 
 ### 3.4 Directory Moves
 
-A directory move should not expand into one change row for every descendant.
-Large directories make that too expensive.
-
-Instead, the move commit records one directory entity change:
-
-```text
-entity_id = directory entity
-old_path  = /nic/old
-new_path  = /nic/new
-```
-
-A file history query follows the file entity and also considers ancestor
-directory move events. This lets the UI show the commit where the containing
-directory moved without writing thousands of descendant rows.
+A directory move records a single directory entity move row
+(`old_path = /nic/old`, `path = /nic/new`) rather than expanding into one
+`commit_entity_changes` row per descendant. File history queries follow the
+file entity and also include ancestor directory move events.
 
 ## 4. Move Detection
 
-Move detection should be layered.
+Move detection is layered:
 
-### 4.1 Explicit Native Moves
-
-Native operations such as `FileEdit{op: "rename", old_path, path}`,
-`gs fs mv`, and `gs shell mv` are authoritative. They must keep the old
-entity id and write one move event.
-
-Submit validation still checks both paths:
-
-- the old path must exist at the base as the expected entity
-- the new path must be allowed by the authoring slice
-- the new path must not overwrite an unrelated entity unless the operation
-  explicitly supports replacement
-
-### 4.2 Client-Side Operation Logs
-
-Workspace-aware clients should preserve local rename operations when they know
-them. A workspace snapshot that only reports final file contents loses intent,
-so operation logs are preferred when available.
-
-### 4.3 Exact Delete/Add Inference
-
-When a patchset contains a delete and an add with the same content hash and
-compatible mode, the server may infer a move if the pairing is unambiguous.
-
-Ambiguous examples must not be auto-linked:
-
-- one deleted file and multiple new files with the same content hash
-- multiple deleted files and one new file with the same content hash
-- generated empty files with identical content
-
-When ambiguous, Gitslice records delete/add as separate entities unless the
-client supplies an explicit rename.
-
-### 4.4 Similarity Inference
-
-Similarity detection can support rename-plus-edit, especially for Git imports.
-It must be treated as heuristic metadata:
-
-- run only within a bounded patchset or Git commit diff
-- require a conservative similarity threshold
-- record `source = similarity` and a confidence score
-- never override an explicit native move
-
-The MVP can defer similarity inference and start with explicit moves plus exact
-content matches.
-
-### 4.5 Git Import
-
-Git import may use Git rename detection as an import-time hint, but the native
-result should still be stored as entity moves. After import, Gitslice history
-queries should not need to rerun Git diff heuristics.
+1. **Explicit native moves**: `FileEdit{op: "rename", old_path, path}`, `MovePath`, `gs fs mv`, and `gs shell mv` preserve the existing `entity_id` and record `source = 'explicit'`, `confidence = 100`.
+2. **Exact delete/add inference**: when a snapshot-style patchset deletes one path and adds another with the exact same `content_hash` and compatible mode, the outbox processor infers a move (`source = 'exact_content_match'`) only when the pairing is unambiguous (1-to-1 within the commit). Ambiguous pairings (multiple deletes or multiple adds with the same hash, or empty files) are recorded as separate delete/add entities.
+3. **Git import**: `gs import` translates Git rename hints into native `rename` edits so imported history preserves entity lineage without re-running Git diff heuristics at query time.
 
 ## 5. History Query Semantics
 
-`ListCommits` should support path-filtered history with an explicit
-move-following option.
+`ListCommits` and `ResolveCommit` support path-filtered history with
+`follow_moves`:
 
 ```text
 ListCommits(ref_name, path, slice, follow_moves, limit, page_token)
 ResolveCommit(commit_id_or_prefix, ref_name, path, slice, follow_moves)
 ```
 
-When `path` is present:
+When `path` is supplied:
 
-1. Resolve the path at the requested ref to an entity id.
-2. Enforce slice visibility for the resolved path and commits being returned.
-3. If `follow_moves` is false, query literal path history.
-4. If `follow_moves` is true, query entity history and ancestor directory move
-   events.
-5. Return an opaque page token based on the chosen ordering and lineage cursor.
-
-The recommended default is:
-
-- `follow_moves = true` for file and directory path history
-- an explicit `--no-follow-moves` CLI flag for literal path history
-
-If the path no longer exists at the requested ref, the API should allow callers
-to request literal path history. Following entity history from a missing path
-requires either a commit selector where the path did exist or an explicit
-entity id.
-
-Short commit id resolution should use the same history scope. For example,
-`ResolveCommit` with a path and `follow_moves = true` should search the entity
-history plus ancestor directory move events before deciding whether the prefix
-is unique. With `follow_moves = false`, it should search only literal path
-history. This keeps `gs show <short-id>` and `gs diff <short-id>` aligned with
-the list the user just saw.
+1. Resolve the path at `ref_name` in `current_path_entities` (enforcing slice visibility).
+2. If `follow_moves` is `false` (`gs log --no-follow-moves`), query literal path history from `commit_changed_paths`.
+3. If `follow_moves` is `true` (default for single-path `gs log`, and used by `gs blame`), query `commit_entity_changes` for the entity plus ancestor directory moves.
+4. `ResolveCommit` uses the same scope so short commit prefixes shown by `gs log` resolve consistently in `gs show` and `gs diff`.
 
 ## 6. Slice Visibility
 
-Slices are projections over the global account-rooted tree. Entity history must
-not leak paths or commits outside the caller's visible slice.
+Entity history never leaks paths or commits outside the caller's authorized
+slice projection:
 
-For a path history query scoped to a slice:
-
-- resolve the path in that slice's projected view
-- include only commits visible through the slice definition at the relevant ref
-- hide old paths outside the slice unless the caller has access to a slice that
-  includes them
-- preserve continuity when the same entity moves within the visible projection
-
-If an entity moves out of a slice, the history query may show a terminal move
-event but should not reveal the private destination path unless authorized.
-
-The same visibility rule applies to commit prefix ambiguity. A short id that
-matches one visible commit and one hidden commit should resolve to the visible
-commit; the hidden commit must not turn the result into an ambiguity error or
-appear in candidate details.
+- Path resolution and returned commits are filtered through the slice's `included_paths`.
+- Old or destination paths outside the caller's visible projection are not disclosed.
+- Hidden commits are excluded before commit-prefix ambiguity checks in `ResolveCommit`.
 
 ## 7. Sharding And ID Shape
 
-Entity ids should be opaque random ids, not path-derived ids.
+Entity IDs are opaque account-scoped identifiers (`(account_id, entity_id)`),
+avoiding hot path-prefix ranges and remaining stable across renames. Indexes
+are shaped around `(target_ref, account_id, entity_id, committed_at desc)` and
+`(target_ref, path, committed_at desc)`.
 
-Random ids are better for hash-based sharding because they avoid hot ranges
-from popular path prefixes such as `/nic/...` or `/acme/services/...`. They
-also remain stable when the path changes.
+## 8. Rebuild & Repair
 
-The primary ownership and authorization boundary is still the account:
+Because `fs_entities`, `current_path_entities`, and `commit_entity_changes` are
+derived tables, `ChangesetStore.RebuildDerivedIndexes` replays published
+`pending_publish` patchsets in commit order to reconstruct entity tables from
+scratch (see [06_indexing.md](06_indexing.md#5-rebuild-rules-rebuildderivedindexes)).
 
-```text
-shard key candidates:
-  account_id
-  hash(account_id, entity_id)
-```
+## 9. Future Work
 
-For PostgreSQL, random UUID primary keys can cause btree page churn, so indexes
-should be designed around the actual query shapes:
+The following items are **not** yet implemented:
 
-```text
-(account_id, entity_id)
-(target_ref, account_id, entity_id, committed_at desc)
-(target_ref, path, committed_at desc)
-```
-
-At larger scale, physical sharding can use `hash(account_id, entity_id)` while
-logical APIs continue to use account-scoped entity ids.
-
-## 8. Migration Plan
-
-1. Add nullable entity ids to tree entry encoding under a new tree format
-   version.
-2. Backfill entity ids by walking current heads and recent history.
-3. Create `fs_entities` and `commit_entity_changes`.
-4. Populate entity-aware rows for new commits from explicit native operations.
-5. Add exact delete/add inference for snapshot-style patchsets.
-6. Teach `ListCommits` to follow entity lineage behind an opt-in flag.
-7. Make follow-moves the default once RPC and CLI tests cover visibility,
-   pagination, directory moves, and ambiguity cases.
-8. Keep path-only history indexes as compatibility accelerators until all
-   callers move to entity-aware queries.
-
-Backfill cannot perfectly reconstruct all old moves. Historical links inferred
-during backfill should be marked as inferred, not authoritative.
-
-## 9. Test Plan
-
-Required RPC tests:
-
-- explicit file move preserves history across old and new paths
-- explicit directory move preserves child file history without descendant row
-  expansion
-- delete and add with the same content hash infers a move only when
-  unambiguous
-- ambiguous exact matches do not create false lineage
-- delete and recreate at the same path creates a new entity id
-- path history with `follow_moves = false` remains literal
-- custom slice history follows moves only through visible paths
-- pagination remains stable while following move lineage
-
-Required CLI tests:
-
-- `gs fs mv` followed by `gs log -- <new-path>` shows older file commits
-- `gs shell mv` has the same history behavior
-- `gs log --no-follow-moves -- <path>` shows literal path history
-- unauthorized old or new paths are redacted in human and JSON output
-
-Required import tests:
-
-- Git rename imports as one entity move
-- Git copy imports as a new entity linked with `copied_from_entity_id`
-- rename-plus-edit similarity inference is either disabled or marked
-  non-authoritative with confidence metadata
+- **Entity IDs in tree objects (`gitslice.tree.v2`)**: embedding `entity_id` directly inside immutable `treestore` tree entries (currently `treestore` uses `gitslice.tree.v1`, so entity lineage is derived in PostgreSQL from patchset edits rather than stored inside tree hashes).
+- **Similarity-based rename-plus-edit inference**: heuristic content-similarity matching (`source = 'similarity'` with a graded confidence score) for modified renames in snapshot patchsets or Git imports.
+- **Copy lineage (`copied_from_entity_id`)**: recording a back-pointer on copied entities to the source `entity_id` for cross-copy history traversal.
+- **Client-side rename tracking in full checkouts**: capturing explicit local rename operations from a client operation log rather than relying on exact delete/add matching.

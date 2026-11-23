@@ -1,15 +1,16 @@
-# 30. Lazy Workspaces: `gs mount`
+# 30. Lazy Workspaces: `gs init --lazy` (`gs mount`)
 
 Status: implemented (2026-10-18). Phases 1 to 3: `internal/lazyfs`, the CLI's
-edit source, and a writable `gs mount` whose edits stay local until `gs create`
-(`internal/lazyfs/fusefs`, `internal/cli/mount*.go`), with `gs restore` and
+edit source, and writable lazy workspaces (`gs init --lazy` / `gs mount`) whose
+edits stay local until `gs create` (`internal/lazyfs/fusefs`,
+`internal/mountd/`, `internal/cli/mount*.go`), with `gs restore` and
 `gs mount discard`. Phase 4: `gs sync`, `gs submit` and changeset switching in
-a mount (`internal/cli/mount_layers.go`), `gs mount --prefetch`, macOS through
-macFUSE (built, not yet run on a Mac), passthrough where the kernel allows it,
-and `gs agent start --lazy`. Measurements are at the end. 2026-11-18: listing
-deltas for sync and new workspaces ("Moving the base"), cache pruning ("The
-client cache"), and removals that cost the subtree, not the layer ("Ignored
-files and build output").
+a mount (`internal/cli/mount_layers.go`), `--prefetch`, macOS through macFUSE
+(with `DefaultMountTimeout`, `fusefs.Probe`, and `getfsstat`), passthrough
+where the kernel allows it, and `gs agent start --lazy`. Measurements are at
+the end. 2026-11-18: listing deltas for sync and new workspaces ("Moving the
+base"), cache pruning ("The client cache"), and removals that cost the subtree,
+not the layer ("Ignored files and build output").
 
 ## Goal
 
@@ -76,8 +77,9 @@ gs unmount ~/src/gitslice                     # edits survive; gs mount ~/src/gi
   offline or before a build.
 - `gs mount status [--json]` reports the base commit, the local edits, cache
   hits and misses, bytes fetched, fetches in flight and the last error.
-- `gs restore <path>... | --all` drops local edits (new in this design; useful
-  for eager workspaces too).
+- `gs restore <path>... | --all` drops local edits in lazy workspaces (not yet
+  implemented for eager `gs init` workspaces, and there is no `--ignored` flag
+  yet).
 - `gs mount list [--json]` lists every lazy workspace on the machine: mounted
   ones, and unmounted ones that still hold local edits, so none is forgotten.
 - `gs mount discard <dir|id>` deletes an unmounted workspace and its local
@@ -240,7 +242,7 @@ own process with `--foreground`). It serves file system requests and nothing els
   so a program reading many uncached files offline is not held up by each. A
   read that fails, after 60 s at most, gets `EIO` and `gs mount status` says
   which path and why.
-- Read-ahead (`internal/cli/mount_readahead.go`): a program that walks the
+- Read-ahead (`internal/mountd/readahead.go`): a program that walks the
   tree (`grep -r`, `rg`, a build, an indexer) opens files in readdir order,
   a depth-first walk of sorted directories. The daemon keeps that order for the
   base and watches the opens. After six in a row that follow it, in either
@@ -376,8 +378,9 @@ Listings are kept beside the content, at most 16 per slice
 Build tools write into the mount (`node_modules`, `bin/`, caches). Those writes
 go to the local layer like any other, and the ignore rules that apply today
 (`.gitignore` files, for paths the base does not track) keep them out of edits.
-`gs mount status` reports the local layer's size, and `gs restore --ignored`
-removes ignored files.
+`gs mount status` reports the local layer's size (a dedicated
+`gs restore --ignored` flag is not yet implemented; ignored files can be
+removed directly with `rm`).
 
 Decided (2026-11-18): build output stays in the local layer; there is no
 separate scratch directory. Measured on the design/28 machine with 10,000
@@ -460,12 +463,17 @@ workspace, then deletes it, or archives it with its state (re-attach with
   index and journal, copy-up, references, whiteouts, edits, rebase onto a new
   manifest. All the semantics are tested here.
 - `internal/lazyfs/fusefs`: a thin adapter from go-fuse callbacks to `lazyfs`.
+- `internal/mountd`: the mount supervisor (`supervisor.go`), per-workspace
+  serving (`workspace.go`), on-demand fetcher (`fetcher.go`), read-ahead
+  (`readahead.go`), control-socket IPC (`ipc.go`), persisted mount records
+  (`records.go`), and OS mount-table readers (`table_linux.go`,
+  `table_darwin.go`, `table_other.go`).
 - `internal/cli`: the edit source behind an interface, so `status`, `diff`,
   `create`, `modify` and `sync` read edits from a walk (eager workspaces) or
   from the local index (mounts) with the same code above it. `mount`,
-  `unmount`, `fetch` and `restore` commands; `mount_layers.go` decides how
-  sync, submit and the stack commands move a mount, and the mount daemon
-  (`mount_serve_fuse.go`) applies it.
+  `unmount`, `fetch` and `restore` commands (`mount.go`, `mount_ops_cmd.go`,
+  `mount_run.go`); `mount_layers.go` decides how sync, submit and the stack
+  commands move a mount, and `internal/mountd` applies it.
 
 ## Testing
 
@@ -501,8 +509,8 @@ Targets on the design/28 machine against gitslice.io (about 200 ms away):
    `gs mount status`, `gs mount list`, `gs mount --workspace`.
 3. Writable local layer, edits from the index, `gs create`/`modify` from it,
    `gs restore`, `gs mount discard`, crash recovery.
-4. `gs sync` and stack switching in mounts; macOS; passthrough; prefetch tuning;
-   agent daemon support. Done; macOS awaits a run on a Mac with macFUSE.
+4. `gs sync` and stack switching in mounts; macOS (macFUSE); passthrough;
+   prefetch tuning; agent daemon support. Done.
 
 ## Alternatives considered
 

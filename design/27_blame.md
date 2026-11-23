@@ -97,8 +97,9 @@ nobody had blamed before showed it; counting storage calls showed why:
   that decorate commits (Git import, changeset, author names) run together.
 
 A blame logs one `blame` line with the time of each stage and what it did
-(`entry_lookups`, `blob_reads`, `move_candidates`, `walked_commits`, `steps`,
-`snapshot_hit`), which is how the next slow one is found.
+(`entry_lookups`, `blob_reads`, `move_candidates`, `index_steps`, `tree_steps`,
+`walked_commits`, `steps`, `snapshot_hit`), which is how the next slow one is
+found.
 
 **What was still slow, found by logging (2026-10-22).** After the changes above
 a first blame still took 4-7 s (median 4.4 s over 26 files, from 6.8 s). The
@@ -146,7 +147,7 @@ Not yet: blame at an older commit, and ignoring whitespace-only changes.
 
 ```bash
 gs blame <path>                 # commit, changeset, author, date, line
-gs blame <path> --lines 10,20   # just those lines
+gs blame <path> --lines 10,20   # just those lines (shorthand: -L 10,20)
 gs blame <path> --json          # ranges and commits
 ```
 

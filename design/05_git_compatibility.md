@@ -1,19 +1,20 @@
-# Gitslice Git Compatibility Design
+# Gitslice Git Compatibility & Projection Design
 
-This document explains how Gitslice exposes Git-compatible repositories while
-keeping the native source graph, changesets, submit validation, and storage
-model as the source of truth.
+This document specifies how Gitslice exposes slices as Git-compatible
+repositories over HTTP while keeping the native global source graph,
+changesets, submit validation, and storage model as the source of truth. It
+consolidates the original Git compatibility specification and the large-slice
+lazy projection, pack mirror, and cover-compaction design (formerly
+`design/archive/23_large_git_projection.md`).
 
 Related documents:
 
 - [00_product.md](00_product.md): product overview and Git-facing workflows
 - [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md): top-level architecture
-- [02_storage.md](02_storage.md): commits, refs, trees, blobs, and projection inputs
-- [03_core_api.md](03_core_api.md): gRPC APIs used by the Git gateway
+- [02_storage.md](02_storage.md): commits, refs, trees, blobs, and object storage
 - [04_cli_design.md](04_cli_design.md): native CLI behavior
-- [07_conflict_resolution.md](07_conflict_resolution.md): path-level conflicts and batched submit
-- [08_mvp_implementation.md](08_mvp_implementation.md): Go MVP implementation shape and test harness
-- [09_execution_plan.md](09_execution_plan.md): rollout phases and Git workflow validation
+- [07_conflict_resolution.md](07_conflict_resolution.md): path-level conflicts and submit admission
+- [35_git_mirrors.md](35_git_mirrors.md): outbound slice mirroring to external Git remotes (e.g. GitHub)
 
 ## 1. Core Principle
 
@@ -24,17 +25,15 @@ Native global source graph first.
 Git compatibility at the boundary.
 ```
 
-Gitslice should not be implemented internally as a traditional Git server. Git
-clients see ordinary Git repositories, but the native system stores global
-commits, trees, refs, slices, changesets, and submit metadata.
+Gitslice is not implemented internally as a Git server. Native commits, trees,
+refs, slices, changesets, and submit state in PostgreSQL and object storage
+remain authoritative. The Git HTTP gateway (`internal/gitcompat`) projects a
+slice into a deterministic Git history for `git clone` / `git fetch` and
+translates `git push` into native changesets.
 
-The Git gateway translates between Git protocol operations and native APIs.
+## 2. Repository Identity & Access Control
 
-## 2. Git Repository Identity
-
-Each slice can be exposed as a Git repository.
-
-Canonical Git URL format:
+Each slice is exposed at:
 
 ```text
 https://gitslice.io/git/{account}/{slice}.git
@@ -47,234 +46,35 @@ git clone https://gitslice.io/git/nicholas/identity.git
 git clone https://gitslice.io/git/acme/payment.git
 ```
 
-Resolution flow:
+### 2.1 Anonymous Reads & Authentication
 
-```text
-Git URL
-  -> account slug
-  -> slice slug
-  -> SliceService.ResolveSlice
-  -> slice definition
-  -> projected Git repository view
-```
+- **Public slices**: requests without credentials may `git clone` or `git fetch` a public slice.
+- **Private and missing slices**: anonymous callers receive the same `401` Basic Auth challenge for both private and non-existent slices so slice existence is not leaked.
+- **Invalid credentials**: credentials that are present but invalid are always rejected, even on public slices.
+- **Pushes**: `git push` always requires valid credentials with write permission on the target slice.
 
-Slice identity, visibility, and roles are evaluated before serving Git data.
+## 3. Architecture & Data Access
 
-## 3. Supported Git Operations
+Unlike external CLI clients, the Git gateway runs in-process with the server
+and reads **directly from storage interfaces** (`ProjectorStores`:
+`storage.AuthStore`, `storage.RepositoryStore`, `storage.SliceStore`,
+`storage.BlobStore`, plus `ObjectStore`) rather than routing reads through
+core gRPC RPCs.
 
-Initial supported operations:
+For writes (`git push`), the gateway delegates to `ChangesetService` and
+`BlobService` so Git-originated changesets pass through the exact same
+validation, containment, path-base, and approval/check pipeline as native CLI
+and API writes.
 
-- `git clone`
-- `git fetch`
-- `git push`
-- partial clone
-- Git refs
-- Git branches projected from native refs
-- Git commits projected from global commits
+`git-http-backend` handles the smart HTTP wire protocol for fetches, with
+responses streamed directly to the HTTP response writer (never buffered whole
+in memory).
 
-Unsupported or constrained operations:
+## 4. Deterministic Projection Model
 
-- Git sparse checkout is not a required compatibility feature. Slice projection
-  is Gitslice's primary sparsity mechanism.
-- Direct writes to protected accepted refs should be rejected or translated into
-  changesets.
-- A push to a slice repository must create or update a changeset for that slice
-  only. If the diff touches paths outside the URL's slice projection, the push is
-  rejected instead of becoming a cross-slice changeset.
-- Git-native repository administration should not mutate native storage objects.
-- Git object ids are compatibility artifacts, not native object ids.
+### 4.1 Path Layout
 
-## 4. Clone And Fetch
-
-Clone and fetch are read projections.
-
-```text
-git clone/fetch
-  -> authenticate user
-  -> resolve slice from URL
-  -> resolve native target refs
-  -> project native commits and trees into Git commits and trees
-  -> stream Git pack data
-```
-
-The Git gateway reads through the core APIs:
-
-```text
-ResolveSlice
-RepositoryService.GetRef
-RepositoryService.GetCommit
-RepositoryService.ResolvePath
-RepositoryService.ListDirectory
-RepositoryService.ReadFile
-```
-
-The native source of truth remains the global commit graph. Git clients receive
-only the slice projection they are authorized to read.
-
-Slices already define the visible working set, so clients should not need Git
-sparse checkout to avoid cloning unrelated repository content. Partial clone can
-still be useful to avoid downloading large blob contents inside a slice until
-needed.
-
-### 4.1 Projection Cache And Packfiles
-
-Synthetic Git objects and packfiles should be cached. This is required for
-operational correctness under load: clone and fetch must not depend on
-recomputing large projected histories from scratch for every client.
-
-Projection cache keys must include every input that changes Git-visible output:
-
-- slice id
-- slice definition hash
-- native target ref and commit id
-- projection algorithm version
-- Git protocol capabilities requested by the client
-- large-blob projection mode
-
-Cache entries are derived artifacts. They must never decide authorization,
-policy, or submit correctness. Every request still authenticates the caller and
-checks slice visibility before serving cached bytes.
-
-Packfile generation should use stable checkpoints. A large clone can stream from
-a cached base pack for `(slice, definition, commit)`, while fetch computes only
-the incremental pack relative to the client's advertised commits. Cache entries
-must register reachability leases or expiration timestamps so storage GC can
-delete obsolete synthetic Git objects and packfiles safely.
-
-## 5. Projected Git Refs
-
-When a slice is exposed as a Git repository, the Git gateway projects native refs
-into Git refs.
-
-Example:
-
-```text
-native target ref: refs/global/main
-git ref:           refs/heads/main
-```
-
-Future branch support can project additional target refs:
-
-```text
-refs/global/branches/{branch}
-refs/accounts/{account}/branches/{branch}
-```
-
-Projected Git refs are compatibility views. The native refs remain authoritative.
-
-## 6. Synthetic Git Commits
-
-Git commits exposed to clients are synthetic projections.
-
-Mapping:
-
-```text
-GitCommit(slice=nicholas/identity, hash=A)
-  -> GlobalCommit(G123)
-  -> SliceDefinitionHash(D456)
-```
-
-One global commit may map to many synthetic Git commits because each slice sees
-a different projected tree.
-
-```text
-GlobalCommit(G123)
-  -> nicholas/identity Git commit A
-  -> acme/payment Git commit B
-```
-
-Synthetic Git commit IDs must be stable for the same projection inputs:
-
-```text
-slice_id
-slice_definition_hash
-global_commit_id
-projected_parent_git_commit_ids
-projected_tree_id
-author
-message
-timestamp policy
-```
-
-The projection cache key is:
-
-```text
-(slice_id, slice_definition_hash, global_commit_id)
-```
-
-Git clients must treat a slice definition change as a projection epoch change.
-A slice's projected Git history may gain or lose commits when `included_paths`
-change.
-
-### 6.1 Implemented Projection (2026-10)
-
-The Git HTTP layer (`internal/gitcompat`) implements this as an append-only,
-deterministic history for each slice.
-
-- **One Git commit per qualifying native commit.** A native commit on
-  `refs/global/main` qualifies when its changed paths touch the slice's
-  included paths and the projected tree actually changes. Directory-only
-  changes such as `mkdir` produce nothing, because Git cannot store empty
-  directories. Each projected commit is parented on the previous one.
-- **Metadata comes only from that native commit.**
-  - Author and committer are the native author's username with the email
-    `<username>@users.noreply.gitslice.io`, falling back to `Gitslice`.
-  - Both dates are the native commit time.
-  - The message is the native message plus a
-    `Gitslice-Commit: <native commit id>` trailer.
-  - Commits that did not change the slice never contribute metadata.
-- **Deterministic ids.** Commit ids are a pure function of (slice definition,
-  native history): no wall-clock time, randomness or map order. Server
-  instances with empty caches compute identical ids, so published ids (Go
-  pseudo-versions, CI checkouts) stay valid. A slice definition change starts
-  a new projection epoch (§6).
-- **Built from the source of truth.** The native first-parent chain is read
-  with one recursive query over `commits` rows (`ListCommitChain`), never from
-  the asynchronously derived path indexes. For each new qualifying commit the
-  projector refreshes only the paths it changed. It fetches blobs concurrently
-  and writes objects with `git fast-import`.
-- **Incremental per instance.** A state file next to the bare repository
-  records the native head processed, the projected head, the
-  projected-to-native commit map and the projected tree, so later requests
-  only process new commits. Any mismatch between the state and the repository
-  causes a rebuild from scratch, which is safe because the result is
-  deterministic.
-- **Fetch by commit id works.** Repositories set
-  `uploadpack.allowReachableSHA1InWant`, which Go uses for pseudo-versions.
-- **An empty history is an empty repository.** A slice with no qualifying
-  commits projects to a repository with no `main` ref.
-
-### 6.2 Tags (2026-10)
-
-Slices have immutable tags: `SliceService.CreateTag` / `ListTags` and
-`gs tag create | list`, stored in `slice_tags`.
-
-- **What a tag records.** A tag names a native commit (by default the current
-  head) and records the slice definition version it was created under.
-  Creating an existing name again succeeds only for the same commit.
-- **Where it points in Git.** The projection publishes each tag as a
-  lightweight `refs/tags/<name>` on the projected commit for the newest
-  qualifying native commit at or before the tagged one. That is the commit
-  whose tree the tag describes.
-- **Go subdirectory copy.** For a slice with a single included path, semver
-  tags (`vX.Y.Z...`) are also published as `refs/tags/<path>/<name>`, for
-  example `acme/payment/v1.2.0`. Go uses that form to version a module whose
-  root is a repository subdirectory, which is where the canonical layout
-  (§7) puts every slice's files.
-- **Newer than the processed head.** A tag on a commit newer than the
-  projection's processed head is published on a later request, so it never
-  points at the wrong commit.
-
-## 7. Path Projection
-
-Git repositories expose a slice projection of canonical global paths.
-
-Gitslice canonical paths are account-rooted:
-
-```text
-/nicholas/services/identity/auth.go
-```
-
+Gitslice canonical paths are account-rooted (e.g. `/nicholas/services/identity/auth.go`).
 Inside a cloned slice repository, the checkout preserves the canonical path
 layout minus the leading slash:
 
@@ -286,131 +86,153 @@ identity/
         auth.go
 ```
 
-There are no custom mount aliases. This keeps diffs, authorization, review,
-submit validation, and workspace behavior aligned with the native model.
+There are no custom mount aliases for `git clone` / `git fetch`. (Outbound
+mirrors to external Git remotes such as GitHub can strip a single root folder;
+see [35_git_mirrors.md](35_git_mirrors.md).)
 
-## 8. Push Into Changesets
+### 4.2 Projected Refs & Commits
 
-Protected targets must not allow ordinary Git pushes to write directly to the
-accepted global ref. All pushes to protected refs are intercepted and routed
-through the changeset merge path.
+Native `refs/global/main` projects to `refs/heads/main`.
 
-Instead:
+- **One Git commit per qualifying native commit**: the projector reads the native first-parent chain directly from `commits` (`ListCommitChain`), never from asynchronously derived path indexes. A native commit qualifies when its changed paths intersect the slice's `included_paths` and the projected Git tree actually changes. Directory-only changes (such as `mkdir`) produce no Git commit because Git cannot represent empty directories.
+- **Deterministic IDs**: Git commit SHA-1s are a pure function of `(slice_id, slice_definition_hash, native history)` with no wall-clock time, randomness, or map iteration order. Any server instance starting from an empty cache computes identical commit IDs, keeping Go pseudo-versions and CI checkouts stable. Changing a slice's `included_paths` starts a new projection epoch.
+- **Commit metadata**:
+  - Author and committer are the native author's username with `<username>@users.noreply.gitslice.io` (falling back to `Gitslice`), or the imported Git author when preserved by `gs import`.
+  - Timestamps come from the native commit time.
+  - The message includes a `Gitslice-Commit: <native commit id>` trailer.
+  - Non-qualifying commits never contribute metadata.
+- **Empty slice**: a slice with no qualifying commits projects to an empty Git repository with no `refs/heads/main`.
+- **Fetch by commit ID & partial clone**: projected bare repositories configure `uploadpack.allowReachableSHA1InWant`, `uploadpack.allowAnySHA1InWant`, and `uploadpack.allowFilter`, enabling Go pseudo-version fetches and `--filter=blob:none` partial clones.
+
+### 4.3 Tags & Go Subdirectory Semver Tags
+
+Immutable slice tags (`SliceService.CreateTag` / `ListTags`, `gs tag create | list`, stored in `slice_tags`) are projected as lightweight Git tags (`internal/gitcompat/projection_tags.go`):
+
+- Each tag points `refs/tags/<name>` at the projected Git commit for the newest qualifying native commit at or before the tagged native commit.
+- **Go subdirectory semver copy**: for a slice with a single included path (e.g. `/acme/payment`), semver tags (`vX.Y.Z...`) are also published as `refs/tags/<path>/<name>` (e.g. `refs/tags/acme/payment/v1.2.0`), allowing Go toolchains to resolve modules rooted at the slice's canonical subdirectory.
+- A tag targeting a commit newer than the projection's processed head is published once the projection advances to that commit.
+
+## 5. Lazy Go Pack Builder & On-Demand Hydration
+
+Building a large slice eagerly by reading every blob and piping into
+`git fast-import` is too slow and memory-heavy for ephemeral Cloud Run
+instances (1 vCPU, 1 GiB memory, in-memory tmpfs). Gitslice separates building
+commit/tree history from serving file contents.
+
+### 5.1 Recording Git Blob IDs (`blobs.git_blob_id`)
+
+Git's object ID for a blob is `SHA-1("blob <size>\0" + bytes)`. Native Gitslice
+content IDs remain SHA-256, and each uploaded blob also records its Git SHA-1
+in `blobs.git_blob_id`:
+
+- Unary uploads (`UploadBlob`, `UploadBlobs`) hash bytes already in memory.
+- Streaming uploads (`UploadBlobStream`) compute the Git SHA-1 on the fly when the client declares the blob size.
+- Older or unsized blobs can be backfilled via `GITSLICE_GIT_BLOB_BACKFILL=1` (opt-in background job because Cloud Run throttles CPU between requests; best run via a dedicated job until `ListMissingGitBlobIDs` is empty).
+- During a lazy build, any blob without a recorded `git_blob_id` is read from object storage (6 concurrent workers, 8 reads ahead) and its computed ID is recorded so subsequent builds pay zero blob reads.
+
+### 5.2 Default Lazy Projection (`lazy.go`, `pack.go`)
+
+Whenever `ProjectorStores.Blobs != nil` (the default in production), the
+projector builds history lazily in Go:
+
+1. Fetches `blobs.git_blob_id` for all changed files in the pending commits.
+2. Computes Git tree and commit objects directly in Go (`gittree.go`, `pack.go`) — byte-for-byte identical to `git fast-import` (verified by equivalence tests covering executable modes, symlinks, special filenames, and directory removals).
+3. Writes one packfile per **1,000 commits** (`lazyChunkCommits = 1000`), updating `refs/heads/main` and checkpointing `gitslice_projection.json` after each chunk so an interrupted build resumes instead of restarting.
+4. Merges small incremental history packs in size tiers (16 at a time) so single-commit landings do not accumulate unbounded packfiles.
+
+**Fallback**: when `ProjectorStores.Blobs == nil` (e.g. library callers without a blob store), the projector falls back to `git fast-import` (`fast_import.go`) with `fastimport.unpackLimit=0` so imported objects are always written as packs rather than loose objects.
+
+### 5.3 On-Demand Blob Hydration (`lazy_hydrate.go`)
+
+Because lazy history packs contain only commits and trees, file blobs are
+hydrated on demand before `git-upload-pack` answers a fetch:
+
+1. Parse the incoming `git-upload-pack` request (`uploadreq.go`) to inspect requested wants and filters.
+2. Ask Git which missing objects are needed (`git rev-list --objects --missing=print`).
+   - A `--filter=blob:none` partial clone needs **zero** blobs.
+   - A lazy single-file fetch needs **one** blob.
+   - A full clone hydrates all missing blobs once and marks the head complete in memory.
+3. Stream missing blobs from the object store in parallel packs into the bare repo, verifying each blob's SHA-1 against its recorded `git_blob_id` before accepting it.
+
+## 6. Durable Pack Mirror (R2)
+
+To avoid rebuilding histories from scratch after every Cloud Run deploy or
+scale-to-zero cold start, every slice's projection is mirrored to object
+storage under `git-mirror/` (`internal/gitcompat/packmirror.go`):
+
+- **16 MiB multipart chunks**: packs and indexes are uploaded in 16 MiB parts (bounding per-upload memory to at most two 16 MiB buffers on 1 GiB instances). Part size is recorded per object in the manifest so it can change without breaking restores.
+- **Gzipped state**: `gitslice_projection.json` is stored gzipped (~10× smaller) and streamed during restore.
+- **Cold-start restore**: a new instance downloads the manifest's packs in parallel and updates refs with zero history replay. If restore fails, the instance falls back to building from scratch.
+- **Cloud Run CPU-throttling accommodation**: a request that advances the projected head waits up to **20 seconds** for the mirror publish to complete while the container still has request CPU. Failed uploads retry up to 3 times with backoff unless superseded by a newer snapshot.
+- **Safe concurrent GC**: before publishing, the manifest is re-read so packs uploaded by another instance are reused. Dropped packs are deleted two publishes later so concurrent restores from the previous manifest do not race with deletion.
+- **Observability**: `gitslice_git_mirror_operations_total{operation,result}` tracks publish and restore outcomes.
+
+The earlier `GITSLICE_GIT_MIRROR_DIR` Git-remote mirror has been removed; the R2 pack mirror replaces it for all slice sizes.
+
+## 7. Covers & Compaction (`cover.go`, `compact_http.go`)
+
+A lazy projection restores commits and trees quickly (~4s on the Gitslice
+source slice), but a cold full clone still had to hydrate all 5,364 blobs
+(162 MB) and have `git-upload-pack` delta-compress them on the fly, exceeding
+Cloudflare's 100-second request timeout.
+
+To make cold full clones fast without client-side changes, Gitslice builds
+pre-compressed **covers** (inspired by OpenAI's Pando):
+
+- **What compaction does**: acquires the repo's write serve lock, hydrates every missing blob in the history, runs `git repack -a -d -b` to produce one delta-compressed pack with a `.bitmap` index, records `cover_head` and `complete_at` in the projection state, and mirrors the cover pack + `.bitmap` to R2.
+- **Fast cold clones**: a new instance restoring a covered slice marks the repository complete immediately; `git-upload-pack` serves the pre-compressed pack nearly verbatim with zero blob hydration.
+- **Trigger thresholds & guardrails**:
+  - `coverMaxPacks = 8`: after a full fetch, if the repo has no cover or more than 8 packs (each landing adds a small pack), compaction is requested after the response finishes.
+  - `coverCooldown = 10m`: an instance requests compaction for a given slice at most once every 10 minutes.
+  - `coverMaxBytes = 512 MiB`: slices whose on-disk projection exceeds 512 MiB are skipped so an in-memory Cloud Run container does not OOM.
+- **Out-of-band execution (`POST /git/_internal/compact`)**: because Cloud Run only allocates CPU while serving a request and the triggering clone must not wait, the server POSTs `/git/_internal/compact` to its own Cloud Run URL (`GITSLICE_SELF_URL`, bypassing Cloudflare's 100s timeout), authenticated with a token derived from `GITSLICE_SECRETS_KEY`. When `GITSLICE_SELF_URL` is unset (tests, local dev), compaction runs in-process.
+- Blobs hydrated for incremental fetches after a cover are not re-mirrored until the next cover compaction.
+
+## 8. Push Into Changesets (`push.go`, `push_pack.go`, `push_protocol.go`)
+
+Protected accepted refs (`refs/heads/main`) cannot be updated directly via
+`git push`. Pushes must target a changeset ref:
 
 ```bash
 git push origin HEAD:refs/changes/new
+git push origin HEAD:refs/changes/<changeset-id>
 ```
 
-or an equivalent server-supported push target should create or update a
-changeset.
+### 8.1 Push Rules & Validation
 
-Server behavior:
+1. **Single ref update**: each push must contain exactly one ref command; ref deletions (`0000...`) and direct pushes to `refs/heads/main` are rejected.
+2. **Base resolution**:
+   - The base is the nearest first-parent ancestor of the pushed commit that belongs to the projected history, and pushed commits above it must form a single linear chain.
+   - A push on top of the projected head uses the current native head as `base_commit_id`.
+   - A push on an older projected commit keeps that commit's native `base_commit_id`, so submit validation catches overlapping concurrent edits (`stale_path_base`) instead of silently overwriting them, while disjoint edits land cleanly.
+   - A slice with no history accepts a root commit diffed against the empty tree, allowing `git push <url> HEAD:refs/changes/new` to seed an empty slice.
+   - Pushes based on an unrelated history or obsolete projection epoch fail with `NEEDS_REBASE`.
+3. **Containment & native changeset creation**:
+   - The diff is converted to canonical account-rooted paths and verified to lie entirely within the URL's authoring slice (cross-slice pushes are rejected).
+   - Empty diffs are rejected.
+   - Blobs are uploaded via `BlobService`, and `ChangesetService.CreateChangeset` / `UpdateChangeset` creates or updates the changeset and patchset.
+   - Push status messages report the 10-character `ShortChangesetID` and `<short-id>.<patchset-number>` (e.g. `Created changeset 97048df407 patchset 97048df407.1`).
 
-```text
-Git push
-  -> authenticate user
-  -> resolve slice from Git URL
-  -> convert Git diff to global absolute paths
-  -> verify every changed path is inside the authoring slice
-  -> reject if the diff would require more than one authoring slice
-  -> create or update changeset
-  -> create patchset
-  -> run validation
-```
+## 9. Large Blob Handling
 
-Direct push to a protected branch must be translated into a changeset that
-follows the same submit validation as native writes. The Git gateway must never
-allow a direct ref update to bypass the changeset pipeline. The server should
-return a message informing the user that their push was converted to a changeset
-and is awaiting validation and submit.
+Git LFS is a non-goal. Native Gitslice storage holds blobs in object storage
+with PostgreSQL metadata, and the Git gateway projects them as ordinary Git
+blobs (served lazily on demand or via partial clone `--filter=blob:none`).
 
-### 8.1 Implemented Push Rules (2026-10)
+## 10. Outbound Git Mirrors
 
-- **Any projected commit can be the base, not only the head.** The base is
-  the nearest first-parent ancestor of the pushed commit that belongs to the
-  projected history, and the pushed commits above it must form one linear
-  chain.
-- **The base decides the changeset's native base commit.**
-  - A push on top of the projected head uses the current native head.
-  - A push on an older projected commit keeps that commit's native base.
-    Changeset validation then rejects overlapping changes made since then at
-    submit ("path base conflict") instead of silently overwriting them, and
-    disjoint changes land.
-- **A slice with no history accepts a root commit,** diffed against the empty
-  tree. `git push <url> HEAD:refs/changes/new` can therefore seed a new slice.
-- **Pushes based on something outside the projected history** (another epoch,
-  an unrelated repository) still fail with `NEEDS_REBASE`.
+For continuous backup and read-only mirroring of a slice to an external Git
+remote (such as GitHub), Gitslice provides per-slice outbound mirrors
+configured via `gs slice mirror`. Outbound mirrors reuse the slice's
+projection, optionally strip a single root folder to mirror at repository root,
+push commits and tags without force-pushing, and omit Go's `<folder>/vX.Y.Z`
+tag copies. See [35_git_mirrors.md](35_git_mirrors.md).
 
-### 8.2 Anonymous Reads
+## 11. Known Limits & Future Work
 
-A request without credentials may clone or fetch a public slice. Pushes always
-need credentials, and credentials that are present but invalid are rejected.
-Anonymous callers get the same 401 challenge for missing and private slices.
-
-## 9. Changeset Refs
-
-Changeset patchsets can be addressed with refs:
-
-```text
-refs/changes/{account}/{slice}/{changeset_number}/{patchset_number}
-```
-
-These refs make it possible to integrate with Git tooling, CI systems, and
-review systems without making changesets ordinary branches.
-
-`refs/changes/new` can be supported as a Git push alias that asks the server to
-allocate a new changeset id and per-slice changeset number. Push status,
-validation messages, and review URLs should report the resulting shareable
-handle such as `acme/payment@42`, not the raw `cs_...` id.
-
-## 10. Validation Rules For Git Push
-
-Git-originated writes must go through the same native validation as CLI or API
-writes.
-
-Validation includes:
-
-- authoring slice containment
-- read and write authorization
-- covering slice resolution
-- path base predicate recording
-- submit requirement resolution
-- required approvals
-- required checks
-- conflict detection against latest target ref
-
-The Git gateway should not create native commits directly for normal users. It
-creates or updates changesets and patchsets.
-
-## 11. CI And Tooling Compatibility
-
-The Git layer should support common ecosystem expectations:
-
-- refs suitable for CI checkout
-- stable synthetic commit ids for the same projection inputs
-- fetchable changeset patchset refs
-- partial clone for large trees
-
-CI should run against projected Git commits but report status back to the native
-changeset and patchset objects.
-
-### 11.1 Large Blob Handling
-
-Git LFS support is a confirmed non-goal. Native Gitslice storage stores blobs
-and immutable tree nodes in the filesystem object store, with authoritative
-commit roots, blob metadata, and reachability metadata in PostgreSQL. The Git
-gateway projects those native blobs as ordinary Git blob objects for
-clone/fetch/push. This avoids unnecessary architecture complexity such as
-pointer rewriting and binary blob redirection.
-
-## 12. Non-Goals
-
-The Git compatibility layer should not:
-
-- define the native storage model
-- make every slice an independent Git repository internally
-- allow Git pushes to bypass the changeset merge path or submit validation
-- create cross-slice changesets from one Git push
-- expose paths outside the authorized slice projection
-- use Git object ids as native commit, tree, or blob ids
-- provide external VCS-specific interop behavior in the MVP
+- **Persistent disk tier for >10 GB slices**: on Cloud Run, the bare-repo cache lives in container memory (`tmpfs`), and nothing evicts hydrated packs when space runs short. Full clones of slices larger than `coverMaxBytes` (512 MiB) or multi-GB slices require moving the Git tier to a stateful host with an SSD (keeping the R2 pack mirror as the durable source for fast rebuilds).
+- **In-memory push cap**: incoming `git-receive-pack` payloads are currently buffered in memory up to 128 MiB rather than streamed to disk.
+- **State file parsing**: `gitslice_projection.json` is parsed per request rather than kept in an in-memory cache or compact binary index.
+- **Blob ID backfill runner**: `GITSLICE_GIT_BLOB_BACKFILL=1` only advances while Cloud Run has request CPU; a dedicated Cloud Run Job should run it to completion on legacy datasets.
+- **Commit-graph & direct pack serving**: writing Git `commit-graph` files for fast negotiation on 50k+ commit slices, or serving packs directly from native storage without a bare repository, remain future optimizations.
+- **Fetchable changeset refs**: exposing `refs/changes/<id>/<patchset>` for direct `git fetch` of open patchsets by CI tools.

@@ -36,7 +36,7 @@ secret
   id            sec_…
   account       the account that owns it; every path is inside /<account>
   name          ^[A-Z_][A-Z0-9_]*$, the environment variable name; never changes
-  value         sealed with secretbox (enc:v1); returned only by the reveal calls, to account admins
+  value         sealed with secretbox (`enc:v2:` GCM AAD; reads `enc:v1:` too); returned only by the reveal calls, to account admins
   paths         1 to 50 canonical folders, such as /acme or /acme/services/billing
   created_by / updated_by / created_at / updated_at
 ```
@@ -70,7 +70,7 @@ secret
 | Masking a check's output | The same folder as the check |
 | `gs secret env` | The folder that holds the template, or `--path` |
 | `RevealSliceSecrets` (older CLIs) | The slice's included paths (see Compatibility) |
-| Automations | The folder of the `automations.yaml` (sealed behind Gate by default in `worker` and `http-gate` `bash` actions; design/34 & design/37) |
+| Automations | The folder of the `automations.yaml` (sealed behind Gate by default in `worker` and `http-gate` `bash` actions; [34_automations.md](34_automations.md)) |
 
 A check therefore gets the same secrets whichever slice's change ran it. Before,
 it got the secrets of the changeset's slice.
@@ -101,9 +101,11 @@ This is wider than a slice scope was: a writer of a slice that includes only
 admins still decide all of it, because only they create slices, change their
 included paths and choose their CI daemons. The web form, `gs help secrets`,
 the Secrets doc and `SecretScope`'s proto comment say this next to the path
-picker. Approval rules for `.gitslice/` folders, so that only approved people
-decide which code receives a secret, are a follow-up (they matter even more
-for triggers).
+picker. Edits under `.gitslice/` require account-admin approval at submit time
+(see [34_automations.md](34_automations.md)), and unapproved draft patchsets
+touching `.gitslice/` or authored by non-writers withhold CI secrets until an
+eligible reviewer allows them (`AllowPatchsetSecrets` / `gs check allow`, see
+[17_continuous_integration.md](17_continuous_integration.md)).
 
 ## Storage
 
@@ -143,8 +145,10 @@ Lookups:
 
 Writes lock the account's row (`select … for update`), so the conflict check
 and the per-account limit see every other write to the account; a unique-index
-violation from a race is still reported as `ErrConflict`. The code is in
-`internal/postgres/secrets.go`, mirrored by `internal/storage/memory/secrets.go`.
+violation from a race is still reported as `ErrConflict`. The code is split
+across `internal/postgres/secrets.go` (CRUD and compatibility slice methods)
+and `internal/postgres/secrets_paths.go` (path-scoped queries, AAD sealing,
+and account locking), mirrored by `internal/storage/memory/secrets.go`.
 Path rules live in one place, `storage.NormalizeSecretPaths` and
 `storage.SecretAppliesAt`.
 
@@ -152,9 +156,13 @@ Path rules live in one place, `storage.NormalizeSecretPaths` and
 retiring or renaming a slice changes no secret. A secret on a folder that no
 slice includes any more is kept; its owners can rescope or delete it.
 
-**Encryption.** Values use `secretbox` with `GITSLICE_SECRETS_KEY`, as before.
-Possible hardening, not done: `enc:v2`, which would bind a sealed value to its
-secret id through GCM associated data.
+**Encryption.** Values use `internal/secretbox/secretbox.go` with
+`GITSLICE_SECRETS_KEY`. Writes use **`enc:v2:`** (`Box.SealWithAAD`), binding
+the AES-256-GCM ciphertext to associated data built from the secret's account,
+name, and sorted paths (`secretAAD`: `gitslice.secret.v2\0<account>\0<name>\0<paths...>`),
+preventing ciphertext transplantation across rows or scopes. Reads
+(`Box.OpenWithAAD`) verify `enc:v2:` AAD and remain backward-compatible with
+pre-AAD `enc:v1:` envelopes and unprefixed legacy plaintext.
 
 **Interfaces** (`storage.SliceStore`, which holds the secrets box):
 
@@ -243,8 +251,8 @@ slice's paths" below means its included paths.
 ```bash
 gs secret ls [--account <account>] [--json]
 gs secret create <NAME> [--account <account>] (--path <folder>... | --slice <slice>...) < value
-gs secret update <secret-id> [--value] [--path <folder>... | --add-path <folder>... | --remove-path <folder>... | --slice <slice>...]
-gs secret rm <secret-id>
+gs secret update <secret-id|NAME> [--account <account>] [--value] [--path <folder>... | --add-path <folder>... | --remove-path <folder>... | --slice <slice>...]
+gs secret rm <secret-id|NAME> [--account <account>]
 gs secret env <template> [--path <folder> | --slice <slice>] -o <file> [--force]
 gs slice secret set|rm|ls <slice> ...
 ```
@@ -364,10 +372,22 @@ Both ends replace secret values with `***` in a check's log and summary
 
 ## Follow-ups
 
-- Drop `secrets.all_slices` and `secret_slices` once rollback past this change
-  is no longer needed.
-- Approval rules for `.gitslice/` folders (who may change which code receives
-  a secret).
-- Triggers (`triggers.yaml`), which will use the same folder lookup.
-- Secrets for agent runtimes (design/16), at the slice's included paths.
-- An audit log of secret changes, `enc:v2` and key rotation.
+Completed:
+
+- **`.gitslice/` approval & draft secret gating** — shipped: `.gitslice/` edits
+  require account-admin approval at submit (`service/automation_submit.go`),
+  and unapproved draft patchsets touching `.gitslice/` or authored by
+  non-writers withhold CI secrets until allowed via `AllowPatchsetSecrets` /
+  `gs check allow` (`service/check_secrets.go`, migration `0055`).
+- **Automations (`automations.yaml`)** — shipped: folder-scoped automations
+  read secrets at their defining folder (`34_automations.md`).
+- **`enc:v2:` GCM AAD** — shipped (`internal/secretbox/secretbox.go`,
+  `SealWithAAD`/`OpenWithAAD`, `secretAAD`).
+
+Remaining:
+
+- Drop `secrets.all_slices` and `secret_slices` once rollback past migration
+  `0047` is no longer needed.
+- Secrets for agent runtimes (`design/16_bring_your_own_agent.md`), at the
+  slice's included paths.
+- An audit log of secret changes and key rotation.

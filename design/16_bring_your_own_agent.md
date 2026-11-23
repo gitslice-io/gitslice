@@ -3,44 +3,66 @@
 ## Goal
 
 Let a user run their own coding agent on their own machine and drive it from the
-Gitslice web UI. The user runs `gs agent start` in an empty directory; that
-process becomes a long-lived **agent daemon**. From the **Agents** tab of a slice
-detail page the user can open one or more **conversations** with that daemon.
-Each conversation runs the agent (initially the `codex` CLI) inside its own
-`gs` workspace sub-directory bound to the slice. Conversation traffic is streamed
+Gitslice web UI (or use the same daemon as a checks-only CI runner). The user
+runs `gs agent start` in an empty directory (or `gs agent start --ci` for
+checks-only in any directory); that process becomes a long-lived **agent
+daemon** (`internal/agentd/`). From the **Agents** view of a slice, the user can
+open one or more **conversations** with that daemon. Each conversation runs the
+agent (initially Codex via `codex app-server` JSON-RPC) inside its own `gs`
+workspace sub-directory bound to the slice. Conversation traffic is streamed
 between the browser and the daemon, relayed by the central Gitslice server.
+
+For agents that connect directly to Gitslice as an MCP tool server rather than
+through the BYOA daemon relay, see `gs mcp` (`internal/mcpserver/`).
 
 ## Why a relay
 
-The daemon runs on the user's laptop, behind NAT, with no inbound connectivity.
-It therefore cannot be a server the browser dials. Instead the daemon holds a
-single persistent **outbound bidirectional gRPC stream** to the central server,
-and the server acts as a **hub** that routes messages between browser and daemon,
-keyed by conversation id.
+The daemon runs on the user's laptop or build host, behind NAT, with no inbound
+connectivity. It therefore cannot be a server the browser dials. Instead the
+daemon holds a single persistent **outbound bidirectional gRPC stream** to the
+central server, and the server acts as a **hub** that routes messages between
+browser and daemon, keyed by conversation id.
 
+```text
+Browser ── unary SendAgentMessage ─▶ Server ── ServerMessage (bidi) ─▶ Daemon ─▶ codex app-server
+Browser ◀── StreamConversation (SSE) ─ Server ◀── DaemonMessage (bidi) ─ Daemon ◀─ codex app-server
 ```
-Browser ── unary SendAgentMessage ─▶ Server ── ServerMessage (bidi) ─▶ Daemon ─▶ codex
-Browser ◀── StreamConversation (SSE) ─ Server ◀── DaemonMessage (bidi) ─ Daemon ◀─ codex
-```
 
-All conversations for one daemon multiplex over that daemon's single `Connect`
-stream, tagged by `conversation_id`.
+All conversations (and CI check runs) for one daemon multiplex over that
+daemon's single `Connect` stream, tagged by `conversation_id` / run id.
 
-## Decisions (v1)
+## Decisions
 
-- **Daemon scope: account-wide.** A daemon belongs to the subject that started
-  it. Each *conversation* binds to exactly one slice (preserving the
-  one-workspace-one-slice rule). The same daemon can serve conversations for any
-  slice the subject can write.
+- **Daemon scope: account-wide (optionally slice-restricted).** A daemon belongs
+  to the subject that started it. Each *conversation* binds to exactly one slice
+  (preserving the one-workspace-one-slice rule). `--slice <account>/<slice>`
+  (repeatable) limits conversations on that daemon to specific slices.
+- **Conversation roles (`reader`, `contributor`, `writer`).** Each conversation
+  is started with a `role` (default `contributor`), validated against the
+  caller's authority on the slice. The daemon mints a scoped child API key for
+  that conversation matching its single slice and role (see "Per-conversation
+  scoped keys" below).
+- **Public-slice conversation reads.** Conversations on public slices (including
+  transcripts linked from changeset patchsets) are readable without
+  authentication via `GetConversation`, `ListConversations`, and
+  `GetConversationEvents`.
 - **Web receive transport: server-streaming RPC via ConnectRPC**
   (`StreamConversation`), consumed in the browser through the generated
   Protobuf-ES service descriptor and Connect web transport. Web send is a unary
   RPC.
-- **Daemon auth: the saved `gs` user token** (standard `authorization: Bearer`
-  metadata), same as every other CLI command. A dedicated long-lived daemon
-  token is future work (see below).
-- **Agent runtime: `codex`** behind a small `Runtime` interface so other
-  runtimes can be added later.
+- **Daemon auth & per-conversation keys.** The daemon authenticates with its
+  saved `gs` credential (ideally a scoped `gsk_` API key limited to the daemon's
+  slices; `gs agent doctor` warns when running on a full interactive sign-in).
+  For each conversation, `internal/agentd/daemon_keys.go` mints a **12-hour
+  per-conversation scoped child key** restricted to that conversation's slice
+  and role.
+- **Agent runtime: `codex app-server` JSON-RPC** (`internal/agentd/codex_rpc.go`,
+  `runtime.go`) behind a small `Runtime` interface so other runtimes can be
+  added later.
+- **In-process workspace operations (`HostCallbacks`).** Rather than shelling
+  out to `gs` subprocesses for workspace init and turn capture, `agentd.Daemon`
+  invokes in-process `HostCallbacks` (`WorkspaceInit`, `CaptureChangeset`,
+  `Dial`, `ObjectCache`, `FetchCheckBatch`, `CheckTreeWriter`) wired by the CLI.
 - **Durability: every conversation event is persisted** to Postgres with a
   per-conversation monotonic `seq`. History reloads from the DB; a reconnecting
   web stream replays from `after_seq` then tails live.
@@ -57,26 +79,32 @@ the existing client-sequenced ack/resend buffer as well.
 
 ### Proto: `AgentService` (`proto/core/v1/agent.proto`)
 
-Daemon side (long-lived bidi):
+Daemon side:
 
 - `rpc Connect(stream DaemonMessage) returns (stream ServerMessage)`
-
   First `DaemonMessage` must be `RegisterDaemon{name, runtime, version}`; server
   replies `DaemonRegistered{daemon_id}`. Thereafter the daemon sends `Heartbeat`,
-  `AgentEvent` (streamed codex output for a conversation), and
+  `AgentEvent` (streamed runtime output for a conversation), and
   `ConversationStarted` (workspace ready). The server sends `StartConversation`,
-  `DeliverUserMessage`, `CancelConversation`, and `Ping`.
+  `DeliverUserMessage`, `CancelConversation`, `CloseWorkspace`,
+  `ReconcileWorkspaces`, and `Ping`.
+- `rpc StandbyPoll(StandbyPollRequest) returns (StandbyPollResponse)`
+  Used by detached `--ci` daemons to stay registered/online without holding an
+  open `Connect` stream so the server and database can scale to zero.
 
 Web side (unary + one server-stream, surfaced through ConnectRPC):
 
 - `rpc ListDaemons(ListDaemonsRequest) returns (ListDaemonsResponse)`
+- `rpc RenameDaemon(RenameDaemonRequest) returns (Daemon)`
 - `rpc CreateConversation(CreateConversationRequest) returns (Conversation)`
 - `rpc ListConversations(ListConversationsRequest) returns (ListConversationsResponse)`
 - `rpc GetConversation(GetConversationRequest) returns (Conversation)`
+- `rpc GetConversationEvents(GetConversationEventsRequest) returns (GetConversationEventsResponse)`
+- `rpc CloseConversation(CloseConversationRequest) returns (Conversation)`
 - `rpc SendAgentMessage(SendAgentMessageRequest) returns (SendAgentMessageResponse)`
 - `rpc StreamConversation(StreamConversationRequest) returns (stream ConversationEvent)`
 
-### Server hub (`service/agent.go`, `service/agent_hub.go`)
+### Server hub (`service/agent.go`, `service/agent_connect.go`, `service/agent_hub.go`, `service/agent_standby.go`)
 
 In-memory registry:
 
@@ -88,10 +116,12 @@ Flow:
 
 1. Daemon `Connect` → authenticate subject → upsert `agent_daemons` row
    (status `online`) → register `daemonConn` in the hub. On stream end, mark
-   `offline` and drop the entry.
-2. Web `CreateConversation{daemon_id, slice}` → authz (subject owns daemon &
-   can write slice) → insert `agent_conversations` row → if daemon online, push
-   `StartConversation` over its stream.
+   `offline` and drop the entry (unless the daemon detached cleanly into
+   `StandbyPoll`).
+2. Web `CreateConversation{daemon_id, slice, role}` → authz (subject owns daemon
+   & holds at least the requested `role` on the slice) → insert
+   `agent_conversations` row → if daemon online, push `StartConversation` over
+   its stream.
 3. Web `SendAgentMessage{conversation_id, text}` → persist a `user` event →
    push `DeliverUserMessage` to the daemon.
 4. Daemon `AgentEvent` → persist event (assign `seq`, preserving `item_id` when
@@ -104,40 +134,103 @@ Flow:
 The hub keeps no agent output of its own; it is a stateless relay plus the
 Postgres log. The daemon is the only place agent code runs.
 
-### Data model (`internal/postgres/migrations/0014_agents.sql`)
+### StandbyPoll & Cloudflare Doorbell (`service/doorbell.go`, `internal/agentd/doorbell.go`, `internal/agentd/daemon_standby.go`)
 
-- `agent_daemons(id pk, subject_id, account, name, runtime, version, status,
-  last_seen_at, created_at)`
+A checks-only daemon (`gs agent start --ci`) can detach from `Connect` after
+`--detach-after` (default `agentd.DefaultDetachAfter`, env
+`GITSLICE_AGENT_DETACH_AFTER`; `0` disables detaching) so an idle Cloud Run
+server and database can scale to zero:
+
+- When idle, the daemon closes `Connect` cleanly and enters `StandbyPoll`.
+- `StandbyPollResponse` returns a signed `doorbell_url` / token (3-hour token
+  lifetime, HMAC-signed with a shared secret) for the Cloudflare Doorbell Worker
+  (`doorbell/`, see [17_continuous_integration.md](17_continuous_integration.md)).
+- The daemon holds a lightweight WebSocket open to the Doorbell Worker
+  (`internal/agentd/doorbell.go`) and only issues a safety `StandbyPoll` once
+  per hour (`doorbellSafetyPoll`, with a 3-minute `doorbellStandbyGrace` window
+  for online status).
+- When a check run is queued for that daemon, the server rings the Doorbell
+  Worker (`service/doorbell.go`), waking the daemon to reconnect `Connect` and
+  claim the work immediately. Because Postgres remains the durable queue, a lost
+  ring only delays pickup until the next safety poll.
+
+### Data model (`internal/postgres/migrations/0014_agents.sql` + subsequent migrations)
+
+- `agent_daemons(id pk, subject_id, account, name, label, runtime, version,
+  status, last_seen_at, created_at)`
 - `agent_conversations(id pk, daemon_id fk, subject_id, slice_id, account,
-  slice_name, title, status, workspace_subdir, next_seq, created_at,
+  slice_name, role, title, status, workspace_subdir, next_seq, created_at,
   updated_at)`
 - `agent_conversation_events(id pk, conversation_id fk, seq, role, type, text,
-  data_json, item_id, created_at, unique(conversation_id, seq))`
+  data_json, item_id, client_seq, created_at, unique(conversation_id, seq))`
+- `daemon_slice_exposures(daemon_id, slice_id, exposed_by)` (migration `0038`)
 
-### CLI: `gs agent` (`internal/cli/agent.go`)
+### Daemon package (`internal/agentd/`) & CLI (`internal/cli/agent*.go`)
 
-- `gs agent start [--name N] [--runtime codex]` — must be run in an empty dir;
-  authenticate with saved creds, open `Connect`, register, then service
-  `StartConversation` / `DeliverUserMessage` commands. Each conversation gets a
-  sub-directory `./conversations/<conversation_id>/`, hydrated as a `gs`
-  workspace bound to the conversation's slice, where `codex exec` runs. Codex
-  stdout/events are streamed back as `AgentEvent`s.
-- `gs agent status` / `gs agent stop` — local management. `status` lists the
-  daemons you registered and those of agents you co-own (see "Naming and seeing
-  daemons").
-- `gs agent rename <daemon> <name>` — see "Naming and seeing daemons".
+The daemon implementation lives in `internal/agentd/` (extracted from
+`internal/cli/agent.go`), separating daemon runtime, check execution, standby
+polling, doorbell, key management, doctor diagnostics, and service installation
+from CLI command wiring:
 
-A `Runtime` interface abstracts the agent process; `codexRuntime` is the first
-implementation (wrapping `codex exec`, reusing the patterns in CLAUDE.md).
+- `daemon.go`, `daemon_turns.go`, `daemon_events.go`, `daemon_workspaces.go`,
+  `daemon_watch.go`: core daemon loop, `HostCallbacks`, workspace hydration,
+  turn serialization, and event buffering.
+- `codex_rpc.go`, `runtime.go`, `instructions.go`, `protocol.go`: `Runtime`
+  interface and `codex app-server` JSON-RPC client (`thread/start`,
+  `thread/resume`, streaming turns).
+- `daemon_keys.go`: 12-hour per-conversation scoped child key minting,
+  refresh, revocation, and isolated `run-homes/<conversation_id>/` environment
+  construction (`HOME`, `XDG_DATA_HOME`, `GS_TOKEN`).
+- `daemon_standby.go`, `doorbell.go`: detached `--ci` standby polling and
+  Cloudflare Doorbell WebSocket listener.
+- `checks*.go`, `daemon_checks*.go`: CI check materialization, streaming logs,
+  and outbox reporting.
+- `doctor.go`, `install.go`: environment/isolation/disk diagnostics and
+  OS service installation (`systemd` / `launchd`).
+
+CLI commands (`gs agent`):
+
+- `gs agent start [--name N] [--runtime codex] [--slice account/slice]... [--ci] [--detach-after D] [--lazy] [--idle-timeout D]` — starts the daemon. In
+  agent mode, must be run in an empty directory; each conversation gets
+  `./conversations/<conversation_id>/` (eager checkout or `--lazy` FUSE mount,
+  falling back to eager if FUSE is unavailable). In `--ci` mode, runs checks
+  only with no agent runtime in any directory.
+- `gs agent create <name> [--slice account/slice] [--role reader|contributor|writer|admin] [--display-name N]` — creates a delegated agent owned and controlled
+  by the signed-in user (see [12_account_auth.md](12_account_auth.md)).
+- `gs agent status [--slice account/slice]` / `gs agent stop` — inspect or stop
+  daemons.
+- `gs agent rename <daemon> [new-name] [--clear]` — set or clear the daemon's
+  display name (`agent_daemons.label`).
+- `gs agent expose <daemon> <slice>` / `unexpose <daemon> <slice>` — manage
+  slice CI exposure.
+- `gs agent doctor [--ci]` — checks auth, runtime availability, disk space, and
+  agent isolation (warning when running on a full interactive sign-in instead of
+  a scoped daemon key).
+- `gs agent install [--ci] [--name N] [--slice account/slice]... [--print]` /
+  `gs agent uninstall [NAME]` — install or remove a background OS service.
+
+### Per-conversation scoped keys (`internal/agentd/daemon_keys.go`)
+
+When a conversation starts (or before a turn if the current child key is near
+expiry), the daemon mints a **12-hour child API key** scoped to:
+
+- `slice_ids = [conversation.slice_id]`
+- `max_role = conversation.role` (`reader` | `contributor` | `writer`)
+- `daemon_id` and `conversation_id` metadata for audit attribution
+
+The child key is passed to the coding agent process as `GS_TOKEN`, with `HOME`
+and `XDG_DATA_HOME` pointed at an isolated `run-homes/<conversation_id>/`
+directory containing no saved `config.json`. Closing a conversation revokes its
+child key.
 
 ### Web: Agents page (`web/src/routes/SliceAgentsPage.tsx` + components)
 
-Agents is its own per-slice route, `/slices/$account/$slice/agents`, a peer of
-Changesets and Settings in the slice header (not a sub-tab of the file browser).
-It lists the subject's online daemons and the slice's conversations, with a chat
-panel. Sends via `SendAgentMessage`; receives via `StreamConversation` (fetch +
-ReadableStream); loads history from `GetConversation` / `ListConversations`. The
-reusable chat UI lives in `web/src/components/slices/AgentsTab.tsx`.
+Agents is a per-slice route, `/slices/$account/$slice/agents` (and
+`/slices/$account/$slice/agents/$conversationId`), currently feature-gated by
+`conversationsEnabled` (`web/src/lib/features.ts`). When enabled, it lists the
+subject's online daemons and the slice's conversations with a streaming chat
+panel (`AgentsTab.tsx`, `AgentConversation.tsx`). Public slices allow
+unauthenticated read-only viewing of conversations.
 
 ## Naming and seeing daemons
 
@@ -148,19 +241,17 @@ identity, so renaming cannot change it. Instead a daemon has a **display name**
 (`agent_daemons.label`), set by `RenameDaemon` and shown wherever the daemon is
 named: `gs agent status`, the web app, a slice's CI daemon (`Slice.ci_daemon_name`)
 and the check runs it ran (`CheckRun.daemon_name`). Both are joined in when the
-slice or run is read, so a rename shows everywhere at once and to people who cannot
-list the daemon. Clearing the display name shows the registered one again.
+slice or run is read, so a rename shows everywhere at once and to people who
+cannot list the daemon. Clearing the display name shows the registered one again.
 
 `ListDaemons` returns the daemons the caller registered (`mine`) and those
 registered under accounts the caller owns or administers. That is how a person
-who has claimed an agent (design/20) sees the agent's daemons: they used to see
-only daemons registered under their own identity, so an agent's CI daemon was
-invisible to its owner, in the CI daemon picker too. Seeing a daemon grants
-three things: renaming it (also allowed to the identity that registered it),
-choosing it as a slice's CI daemon, and seeing which readable slices use it.
-It does **not** grant conversations on it: `CreateConversation` still needs the
-caller to have registered the daemon, so the web's conversation pickers offer
-only `mine` daemons.
+who has claimed an agent ([12_account_auth.md](12_account_auth.md)) sees the
+agent's daemons, including in the CI daemon picker. Seeing a daemon grants
+renaming it, choosing it as a slice's CI daemon, and seeing which readable
+slices use it. It does **not** grant conversations on it: `CreateConversation`
+still needs the caller to have registered the daemon, so conversation pickers
+offer only `mine` daemons.
 
 Display names are 1 to 64 characters without control characters, and unique
 among an account's daemons, compared without regard to case, against both
@@ -168,53 +259,17 @@ display names and registered names (`AlreadyExists` otherwise). Anyone who may
 not manage a daemon gets `NotFound`, so ids reveal nothing.
 
 A daemon runs the checks of every slice that names it, with that slice's
-secrets, so its owner decides which slices it serves. Two rules follow.
+secrets, so its owner decides which slices it serves:
 
-**Exposure.** A daemon's owner (the identity that registered it, or an owner or
-admin of its account) *exposes* it to chosen slices: `gs agent expose <daemon>
-<slice>` or the Agent daemons section of the account page, and `unexpose` to
-withdraw. The owner must be able to read the slice they name. Exposures are
-stored per slice (`daemon_slice_exposures`, by slice id, so renames do not
-matter).
-
-**Choosing.** `SetSliceCIDaemon` needs the caller to own or administer the
-slice's account (as before) and one of: they manage the daemon (they registered
-it, or own or administer its account), or its owner exposed it to this slice.
-Anyone else gets `NotFound`, as for an id that does not exist. Clearing the
-daemon, or saving the one the slice already has, needs nothing more. A daemon
-the caller manages is exposed to the slice by choosing it, so the invariant
-"a slice names only daemons exposed to it" holds. `ListDaemons` with `for_slice`
-returns, besides the caller's own, the daemons exposed to that slice (only to
-people who own or administer its account): the choices in slice settings and
-`gs agent status --slice`.
-
-**Withdrawing.** Dispatch checks the exposure each time (a new patchset, a rerun,
-and when a daemon reconnects and its queued runs are re-sent). A slice whose
-daemon is no longer exposed keeps naming it, but its checks error with a message
-that says why, and the daemon never receives the slice's secrets. Required checks
-then block submit until the slice names another daemon or the owner exposes it
-again.
-
-Until 2026-10-18 nothing checked who could name a daemon: anyone who owned a
-slice could run checks on any daemon whose id they had seen (a public slice shows
-its CI daemon id). Slices that named a daemon when exposure was introduced (migration
-0038) were treated as having it exposed, without an audit of whose they were.
-
-Conversations are a separate matter: `CreateConversation` still needs the caller to
-have registered the daemon, whatever it is exposed to.
-
-## Phasing
-
-1. **Foundation (server) — DONE.** proto + generated stubs, migration,
-   `AgentStore` (interface + memory + postgres), hub service, server/gateway
-   wiring, rpc test with an in-test echo daemon.
-2. **CLI daemon — DONE.** `gs agent start/status/stop` + codex runtime.
-3. **Web Agents tab — DONE.** chat UI with streaming.
-4. **Changeset integration + polish — DONE.** Conversation↔patchset linkage
-   (below) plus deterministic per-turn auto-capture: after each agent turn the
-   daemon runs `gs cs capture`, which snapshots the workspace edits and records
-   them as a conversation-linked patchset (creating the changeset on first use,
-   adding a patchset thereafter, and skipping turns with no edits).
+- **Exposure (`daemon_slice_exposures`).** A daemon's owner exposes it to chosen
+  slices (`gs agent expose <daemon> <slice>` or the account page) and withdraws
+  with `unexpose`. The owner must be able to read the slice.
+- **Choosing.** `SetSliceCIDaemon` requires the caller to own or administer the
+  slice's account and either manage the daemon or have it exposed to the slice.
+  Choosing a managed daemon automatically exposes it to that slice.
+- **Withdrawing.** Dispatch re-checks exposure on every new patchset, rerun, and
+  reconnect; a withdrawn daemon never receives secrets and required checks fail
+  until re-exposed or reassigned.
 
 ## Conversations linked to patchsets
 
@@ -226,133 +281,75 @@ the exact exchange behind each revision.
   `patchsets.authoring_conversation_seq` (migration `0015`). Patchset N's
   exchange is the events with `prev_cutoff < seq <= authoring_conversation_seq`,
   where `prev_cutoff` is the previous patchset's seq for the *same* conversation.
-- **Write path:** the agent workspace is stamped with the conversation id at
-  hydration (`gs workspace init --agent-conversation <id>`, written to
-  `WorkspaceConfig.ConversationID`). `gs cs update` forwards it as
-  `UpdateChangesetRequest.conversation_id`; the server validates the conversation
-  belongs to the changeset's slice and records the link with the conversation's
-  current `LatestEventSeq` as the cutoff (computed server-side, so the CLI never
-  tracks seqs).
+- **Write path:** the agent workspace is stamped with the conversation id during
+  in-process `HostCallbacks.WorkspaceInit` (`WorkspaceConfig.ConversationID`).
+  `UpdateChangesetRequest.conversation_id` forwards it; the server validates the
+  conversation belongs to the changeset's slice and records the link with the
+  conversation's current `LatestEventSeq` as the cutoff.
 - **Read path:** `AgentService.GetConversationEvents(conversation_id, after_seq,
   before_seq)` returns the bounded slice. CLI: `gs cs conversation [changeset]
   [--patchset N]`. Web: an "Agent conversation" panel on the changeset detail
   page shows the messages behind the selected patchset.
-- **Auto-capture:** the daemon calls the hidden `gs cs capture` after each turn.
-  It snapshots the workspace edits, no-ops when there are none, creates the
-  changeset on first use (or adds a patchset), and forwards
-  `WorkspaceConfig.ConversationID` so the patchset is linked. A status event
-  echoes the captured patchset back into the conversation.
+- **Auto-capture:** after each turn, the daemon invokes
+  `HostCallbacks.CaptureChangeset` in-process (the equivalent of `gs cs capture`).
+  It snapshots workspace edits, no-ops when there are none, creates the changeset
+  on first use (or adds a patchset), and echoes the captured patchset back into
+  the conversation as a status event.
 
 ## Conversation lifecycle (close / resume)
 
 A conversation has a durable lifecycle **status** and an orthogonal live
-**reachability**. Keeping them separate is the whole point of this section.
+**reachability**:
 
 - **Status (`agent_conversations.status`): `active` | `inactive`.** The DB is the
   source of truth. A conversation is born `active` and only becomes `inactive`
-  when the user explicitly closes it. `inactive` is terminal for the workspace:
-  the on-disk dir is deleted (the Postgres transcript is kept). We collapse the
-  older `closed` value into `inactive`, and `error` is **not** a status — runtime
-  failures are surfaced as `error` *events*, leaving the conversation `active`.
-- **Reachability (`Conversation.daemon_online`): a read-time annotation**, set by
-  the server from the live hub, true when the conversation's daemon currently
-  holds a `Connect` stream. This drives "show but disable the composer when the
-  agent is offline". It is **not** persisted and **not** derived from status: an
-  `active` conversation whose daemon is offline is a normal, valid state.
+  when explicitly closed. `inactive` is terminal for the workspace: the on-disk
+  dir is deleted (the Postgres transcript is kept). Runtime failures are surfaced
+  as `error` events, leaving the conversation `active`.
+- **Reachability (`Conversation.daemon_online`):** a read-time annotation set
+  from the live hub, true when the daemon currently holds a `Connect` stream.
 
-Do **not** infer status from what the agent currently has on disk. The agent
-routinely starts in a **fresh, empty workspace dir**; continuity comes from the
-server replaying `StartConversation` for every `active` conversation on
-(re)connect (`replayDaemonConversations`), i.e. the DB re-hydrates the agent —
-never the reverse. Deriving `active` from disk presence would flip every
-conversation to `inactive` on any fresh-dir restart or daemon-offline window.
+Do **not** infer status from what the agent currently has on disk. Continuity
+comes from the server replaying `StartConversation` for every `active`
+conversation on (re)connect (`replayDaemonConversations`).
 
 ### Close / delete flow
 
-1. **Web `CloseConversation(conversation_id)`** (new unary RPC) → authz → `Agents.
-   SetConversationStatus(id, "inactive")`. Persisted immediately, regardless of
-   whether the daemon is reachable.
-2. **If the daemon is online**, the hub pushes a server→daemon
-   `CloseWorkspace{conversation_id, delete_workspace}` `ServerMessage`. The daemon
-   handler `cancelRun()`s any in-flight turn, `closeSession()`s the codex process,
-   drops the conversation from its in-memory map, and removes the workspace:
-   `os.RemoveAll(conv.workdir)` when `delete_workspace` (default), or moves it to
-   `conversations/.archived/<id>/` when archiving.
-3. **If the daemon is offline**, the push is lost; the dir is reaped **lazily and
-   deterministically** via reconciliation. Right after the `StartConversation`
-   replay on (re)register, the server sends one `ReconcileWorkspaces{active_
-   conversation_ids}` carrying the full active set for that daemon
-   (`replayDaemonConversations`). The daemon (`handleReconcileWorkspaces`) removes
-   the workspace of any conversation it holds locally that is **not** in the set.
-   It only reaps *ready* conversations, so a conversation mid-hydration — which is
-   either an active (re)start already in the set, or in progress — is left alone.
-   This needs no grace window: the active set is an explicit snapshot, not a
-   timing guess.
+1. `CloseConversation(conversation_id)` persists `status = "inactive"` immediately.
+2. If the daemon is online, the hub pushes `CloseWorkspace{conversation_id, delete_workspace}`.
+   The daemon cancels any in-flight turn, closes the `codex app-server` session,
+   revokes the conversation's child key, drops the conversation from memory, and
+   removes (or archives to `conversations/.archived/<id>/`) the workspace.
+3. If the daemon is offline, right after `StartConversation` replay on reconnect
+   the server sends `ReconcileWorkspaces{active_conversation_ids}` so the daemon
+   deterministically reaps any ready local workspace not in the active set.
 
-### Re-hydration when the workspace is missing
+### Re-hydration & two-history resume semantics
 
-When the server sends `StartConversation` for an `active` conversation whose dir
-is gone, `handleStartConversation` self-heals **only if the daemon has no ready
-in-memory state** for it: `createConversation` yields a fresh, not-ready conv and
-`hydrateWorkspace` rebuilds the dir via `gs workspace init`. But if the daemon
-already holds the conv as `ready` (e.g. the dir was deleted out from under a
-running daemon), the `isReady()` short-circuit **skips hydration** and codex is
-later launched with `cmd.Dir` pointing at a missing directory, which fails with
-no auto-repair. **Fixed:** `handleStartConversation` now short-circuits only when
-the conv is ready in memory *and* `workspaceDirExists(conv.workdir)`; a ready conv
-whose dir vanished falls through to `hydrateWorkspace` and is rebuilt.
-
-### Resume semantics — two histories, only one is preserved for the agent
-
-There are two distinct "histories", and resume must not conflate them:
-
-1. **The user-visible transcript** — `agent_conversation_events` in Postgres.
-   Source of truth for the web UI (`StreamConversation` replay). Always survives;
-   **never fed to codex.**
-2. **Codex's own session context** — resumed *only* via `codexThreadID`
-   (persisted in the workspace's `.agent-meta.json`). `OpenSession` →
-   `openThread` issues `thread/resume {threadId}`.
-
-`openThread` **silently falls back to `thread/start` — a fresh thread with zero
-history — whenever resume fails**: the id aged out, `.agent-meta.json` was lost
-(deleted/archived dir, fresh-dir restart), or codex's machine-local thread store
-is gone. The workspace *files* are rebuilt by re-hydration, but the agent's
-conversational memory is not, producing a silent divergence: the user sees the
-full transcript while the agent starts cold.
-
-**Fixed:** on a cold `thread/start` fallback (id absent or resume failed),
-`openThread` seeds the new thread from the persisted transcript. The daemon
-fetches the conversation's `agent_conversation_events` (`fetchConversationTranscript`
-→ `GetConversationEvents`), renders user/agent messages + tool calls into a
-bounded block (`renderTranscript`), and the runtime appends it to
-`developerInstructions` for the fresh thread only. The fetch happens lazily on the
-cold path — a successful `thread/resume` pays no cost — and any fetch error is
-non-fatal (start cold rather than fail the turn). Resume continuity now rides on
-the durable Postgres log, not on whether `.agent-meta.json` survived.
+- If a `ready` conversation's directory vanished from disk,
+  `handleStartConversation` checks `workspaceDirExists(conv.workdir)` and falls
+  through to re-hydrate it automatically.
+- **Two histories:** the Postgres transcript (`agent_conversation_events`) is
+  the source of truth for the UI, while Codex's session context resumes via
+  `codexThreadID` stored in `.agent-meta.json` (`thread/resume {threadId}`).
+  Whenever `thread/resume` fails or no thread ID exists, `openThread` falls back
+  to `thread/start` and lazily fetches the persisted transcript via
+  `GetConversationEvents`, rendering a bounded summary into
+  `developerInstructions` so conversational continuity survives fresh-dir
+  restarts.
 
 ## Implementation notes
 
-- **Shutdown can't `GracefulStop` the gRPC server.** gRPC is multiplexed over
-  the same HTTP listener via `grpcServer.ServeHTTP` (`server/server.go`,
-  `NewCombinedGRPCGatewayHandler`). That `serverHandlerTransport` does not
-  implement `Drain()`, so `grpcServer.GracefulStop()` panics whenever a server
-  stream is still open at shutdown — and a daemon's `Connect` stream always is.
-  Shutdown therefore bounds the HTTP drain (`serverShutdownTimeout`) and then
-  calls `grpcServer.Stop()`; the combined HTTP server has already drained
-  in-flight requests gracefully by that point. See the 2026-06-21 execution-log
-  entry.
-- The hub holds no durable state. Live `publish` to web subscribers is
-  best-effort/non-blocking; correctness comes from the persisted event log plus
-  `after_seq` replay on (re)subscribe.
-- Runtime token deltas (`message_delta`, `reasoning_delta`) are part of that
-  persisted log. The daemon still marks them as `ephemeral` to signal coalescing
-  behavior to clients, but the server assigns a normal conversation seq so
+- **Shutdown cannot `GracefulStop` the gRPC server.** gRPC is multiplexed over
+  the HTTP listener via `grpcServer.ServeHTTP`, whose `serverHandlerTransport`
+  does not implement `Drain()`. Shutdown bounds the HTTP drain
+  (`serverShutdownTimeout`) and then calls `grpcServer.Stop()`.
+- Runtime token deltas (`message_delta`, `reasoning_delta`) are persisted with
+  normal conversation seqs (marked `ephemeral` for client coalescing) so
   reasoning/thinking output survives reloads and patchset conversation ranges.
 
 ## Future work
 
-- Dedicated long-lived **daemon service token** decoupled from the interactive
-  session token.
-- Multiple runtimes (Claude Code, etc.) behind the `Runtime` interface.
+- Additional runtimes (Claude Code, etc.) behind the `Runtime` interface.
 - Daemon-initiated changeset submit surfaced directly in the conversation.
 - Back-pressure on slow web subscribers.

@@ -77,14 +77,16 @@ The design source of truth is under `design/`, especially:
 - `design/04_cli_design.md`
 - `design/05_git_compatibility.md`
 - `design/07_conflict_resolution.md`
-- `design/08_mvp_implementation.md`
-- `design/09_execution_plan.md`
-- `design/10_execution_log.md`
 - `design/11_web_interface_design.md`
+- `design/12_account_auth.md`
 - `design/16_bring_your_own_agent.md`
 - `design/17_continuous_integration.md`
 - `design/21_self_hosting.md`
-- `design/24_webhooks.md` (removed; see design/34)
+- `design/30_lazy_workspaces.md`
+- `design/33_secrets.md`
+- `design/34_automations.md`
+- `design/36_multi_agent_collaboration.md`
+- `docs/execution_log.md`
 
 ## Source Of Truth
 
@@ -134,7 +136,7 @@ nothing.
   request wakes the loops; never rely on a loop running while idle.
 - Clients must not poll the server. Wait on something that costs nothing
   while idle and is told when there is work (the CI doorbell,
-  design/32_ci_dispatch_on_cloudflare.md, or a trigger), and keep
+  design/17_continuous_integration.md, or an automation), and keep
   any safety-net poll rare (an hour, not seconds).
 - The same holds for our own services around the server (Workers, Durable
   Object alarms, daemons, dashboards): no fixed-interval calls to the API.
@@ -166,7 +168,7 @@ protoc --grpc-gateway_out=. --grpc-gateway_opt=paths=source_relative --grpc-gate
 ## Logging Rule
 
 Append important implementation decisions, tradeoffs, test findings, and
-surprising behavior to `design/10_execution_log.md`.
+surprising behavior to `docs/execution_log.md`.
 
 When updating the log:
 

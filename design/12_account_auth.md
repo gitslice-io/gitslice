@@ -1,474 +1,346 @@
-# Account And Auth Current State
+# 12. Accounts, Authentication & Authorization
 
-This document describes the account and authentication system implemented in the
-current Go MVP prototype. It is a current-state map, not the final product auth
-design.
+This document is the authoritative specification for identity, authentication,
+account/organization/group management, agent registration and claiming, API
+keys, and capability-based authorization across the Go API, CLI (`gs`), web
+app, and Git Smart HTTP layer.
 
-## 1. Scope
+It consolidates the former `20_agent_signup_and_claim.md` and
+`26_slice_members.md` (now archived under `design/archive/`). For multi-agent
+approval policies, changeset ownership, `.gitslice/owners.yaml`, and audit
+attribution, see [36_multi_agent_collaboration.md](36_multi_agent_collaboration.md).
+For folder-scoped secrets, see [33_secrets.md](33_secrets.md).
 
-The current account system exists to support local development, functional
-tests, CLI workflows, service authorization checks, and Git read compatibility.
-It is intentionally small:
+## 1. Identity & Account Model
 
-- one fake development login service
-- one fake browser-approved signup flow
-- PostgreSQL-backed accounts, subjects, memberships, and sessions
-- bearer-token authentication for native gRPC and ConnectRPC requests
-- bearer-token or Basic-password authentication for Git smart HTTP reads
-- simple account-membership authorization where implemented
+### 1.1 Subjects
 
-The system does not implement real OAuth, browser login, device-code login,
-refresh tokens, invitations, billing, organization administration, or a full
-role/permission matrix.
+`subjects` represents every actor that can authenticate or author changes:
 
-## 2. Database Model
+- `kind = 'user'`: human users (JIT-provisioned from Clerk on first sign-in or
+  from service JWTs in automated tests).
+- `kind = 'agent'`: autonomous or delegated agents (`agent_<random>`), created
+  via self-signup (`RegisterAgent`) or delegated creation
+  (`CreateDelegatedAgent`).
+- `subjects.controller_subject_id`: the human accountable for the subject
+  (self for humans; the claimer or creator for claimed/delegated agents; empty
+  for unclaimed agents). Approvals count distinct controllers rather than
+  distinct subjects (see [36_multi_agent_collaboration.md](36_multi_agent_collaboration.md)).
+- `subjects.external_provider` / `subjects.external_subject`: maps external IdP
+  identities (e.g. Clerk user IDs) to internal subjects.
 
-The account and auth metadata lives in PostgreSQL:
+### 1.2 Accounts & Home Slices
 
-`subjects`
-: Actors that can authenticate or be recorded as authors. The seed data uses
-  `kind = user` for humans and `kind = service_account` for the CI bot.
+`accounts` are namespace containers addressed by unique ASCII slug:
 
-`accounts`
-: Account containers addressed by unique `slug`. The seed data currently has
-  one organization account, `acme`.
+- **Personal accounts (`kind = 'personal'`)**: created on username selection
+  (`ChooseUsername`) or agent registration/creation. Humans and agents share
+  one username namespace.
+- **Organization accounts (`kind = 'organization'`)**: multi-member accounts
+  created via `CreateOrganization` (`gs account create-org <name>`, web
+  `/organizations/new`).
+- **Home slice**: every personal and organization account automatically
+  provisions a private `<account>/home` slice whose `included_paths` is
+  `/<account>` (the account root, not `/<account>/home`). Custom slices under
+  the account use other URL-safe slugs (e.g. `acme/payment`) covering paths
+  under `/<account>`.
+- **Username rules (`internal/usernames`)**: lowercased, `_` converted to `-`,
+  4–63 ASCII chars `[a-z0-9-]`, no leading/trailing hyphen. Self-service signup
+  and organization creation reject names in the maintained reservation list;
+  operators (`GITSLICE_OPERATOR_SUBJECTS`) may bypass the reservation list
+  using syntax-only validation.
 
-`account_memberships`
-: Subject membership in accounts. Rows include a `role`, but the current service
-  checks generally treat membership as boolean authorization rather than
-  applying role-specific permissions.
+## 2. Authentication
 
-`sessions`
-: Development login sessions. Session rows store only a token hash, not the raw
-  bearer token. They also include `expires_at` and nullable `revoked_at`.
+### 2.1 Request Authentication & Public Methods (`server/auth.go`)
 
-Important relationships:
+All gRPC and ConnectRPC requests pass through `principalAuthInterceptor` /
+`principalAuthStreamInterceptor`:
 
-- slices belong to accounts through `slices.account_id`
-- changesets and patchsets store `author_subject_id`
-- imports store the importing `subject_id`
-- commits can store `author_subject_id`
+- **Public methods (`isPublicMethod`)** skip bearer-token verification:
+  - `/gitslice.core.v1.AuthService/StartCliLogin`
+  - `/gitslice.core.v1.AuthService/PollCliLogin`
+  - `/gitslice.core.v1.AuthService/RegisterAgent`
+  - `/gitslice.core.v1.AutomationRunService/*` (authenticated via per-run token
+    in the request payload)
+  - `/grpc.health.v1.Health/*`
+- **Optional authentication for public reads**: on all other RPCs,
+  `authenticatedContext` extracts an optional `Authorization: Bearer <token>`
+  header. If no token is supplied, the request proceeds with an anonymous
+  context — handlers call `requireSubject(ctx)` when authentication is required
+  or `optionalSubject(ctx)` when public-slice reads are allowed (e.g. browsing
+  public slices, reading public changesets/commits/files, public account
+  profiles, public-slice conversations). If a token *is* supplied and fails
+  verification, the request is rejected with `Unauthenticated`.
 
-## 3. Seed Fixture
+### 2.2 Token Verification Order (`newPrincipalResolver`)
 
-Server startup runs migrations and seeds a deterministic development fixture.
-The current fixture creates:
+1. **Service JWTs (`internal/auth/servicetoken`)**: Optional asymmetric-key
+   verifier enabled when `GITSLICE_SERVICE_JWT_PUBLIC_KEY` is configured (for
+   automated testing and service accounts). Verified tokens JIT-provision a
+   `ProviderService` subject and, when carrying `email_verified: true`, record
+   the verified email in `subject_emails`. Non-matching tokens fall through.
+2. **Stored tokens (`AuthStore.AuthenticateToken`)**: Checks `gsk_`-prefixed
+   tokens against `api_keys` (unrevoked, unexpired, returning key grant
+   metadata on `authctx.Principal`) and other tokens against `sessions` (stored
+   as SHA-256 hashes; raw tokens are never persisted).
+3. **Clerk JWTs (`AUTH_PROVIDER=clerk`, `internal/auth/clerk`)**: Verifies
+   Clerk session JWTs and calls `EnsureExternalSubject(ProviderClerk, ...)` to
+   JIT-provision or resolve the internal `user` subject.
 
-- subjects:
-  - `user_alice`
-  - `user_bob`
-  - `ci_bot`
-- account:
-  - `acct_acme` with slug `acme`
-- memberships:
-  - `user_alice` as `admin`
-  - `user_bob` as `writer`
-  - `ci_bot` as `writer`
-- slices:
-  - `acme/payment`
-  - `acme/backend`
+### 2.3 Device-Code CLI Login
 
-The fixture also creates the initial empty commit and `refs/global/main`.
+`gs auth login` uses a browser-approved device-code flow:
 
-## 4. Login And Sessions
+1. CLI calls `AuthService.StartCliLogin` (public) and receives a device code,
+   short user code, and verification URL (`/cli-login?code=...`).
+2. User signs in via Clerk in the browser at `/cli-login` and approves the
+   request (`AuthService.CompleteCliLogin`, authenticated).
+3. CLI polls `AuthService.PollCliLogin` (public) until approved, then stores
+   the returned bearer token and server address in `~/.gitslice/config.json`.
 
-The public development login surface is `FakeAccountService.Login`.
+### 2.4 Username Onboarding
 
-CLI usage:
+A newly signed-in Clerk user without a personal account has
+`GetAuthStatus.needs_username = true` (explicitly excluding claimed agent
+accounts so claiming an agent before picking a username does not hijack the
+human's personal account):
+
+- `AuthService.CheckUsernameAvailable(username)` validates and normalizes a
+  candidate slug and reports availability and reason.
+- `AuthService.ChooseUsername(username)` provisions the user's personal
+  account, `owner`/`admin` membership, `<username>/home` slice, and account
+  root directory.
+
+### 2.5 Git Smart HTTP Authentication
+
+The Git Smart HTTP layer accepts `Authorization: Bearer <token>` or HTTP Basic
+auth (with the token as the password) and resolves the principal through the
+same token path as gRPC:
+
+- Credentials are optional for `git clone` / `git fetch` on public slices.
+- Invalid credentials return `401` with a Basic challenge; anonymous callers
+  receive the same challenge for missing and private slices (no existence
+  probing).
+- Pushes require credentials and write authorization on the target slice.
+
+### 2.6 Auth Status & CLI Helpers
+
+- `AuthService.GetAuthStatus` (`gs auth status [--json]`) reports `signed_in`,
+  `subject_id`, `needs_username`, `accounts`, `memberships` (`account`, `kind`:
+  `personal` | `organization` | `agent`, `role`), `shared_slices`, and active
+  account — never printing secrets.
+- `gs auth token` validates the saved credential against `GetAuthStatus` and
+  prints the raw token for scripts and Git helpers.
+- `gs auth use-key` reads a `gsk_` key from stdin (hidden) or `--key-file`,
+  verifies it against the server, and saves it to `~/.gitslice/config.json`.
+- `gs account use <account>` / `--clear` / `current` manages the CLI's default
+  `active_account`.
+
+## 3. Agent Registration, Human Claim & Delegated Agents
+
+### 3.1 Autonomous Agent Self-Signup (`RegisterAgent`)
+
+An agent can sign up with no human in the loop via `AuthService.RegisterAgent`
+(`gs auth register-agent --username <name> --email <owner-email> [--display-name ...]`),
+gated by `GITSLICE_AGENT_SIGNUP_ENABLED=true` and a dedicated per-IP hourly
+rate limit (`GITSLICE_AGENT_SIGNUP_PER_HOUR`, default 5, keyed on rightmost
+`x-forwarded-for` in Cloud Run):
+
+- In one transaction, creates an `agent_<random>` subject (`kind = 'agent'`),
+  personal account, `admin` membership, `<username>/home` slice, an
+  `agent_registrations` row recording the normalized (unverified) `owner_email`,
+  and an initial `"default"` `gsk_` API key returned once.
+- **Idempotent retry (`registration_token`)**: Clients may supply a
+  client-generated secret (`registration_token`, at least 32 characters) and
+  persist it until they receive a response. If a retry arrives with the same
+  `registration_token`, `username`, and `owner_email`, the server resumes the
+  registration, mints a fresh API key, and revokes any never-used keys for that
+  agent.
+- Emits the `agent_registered` analytics event.
+
+### 3.2 Human Ownership Claim (`/claims`, `gs claims`)
+
+Ownership claims require a **verified email** from the identity provider:
+
+- On `ListPendingClaims` and `AcceptClaim`, the server fetches the caller's
+  verified email addresses from the Clerk Backend API (`GET /v1/users/{id}`,
+  filtering `verification.status == "verified"`) and syncs `subject_emails`
+  (`source = 'clerk'`). Agents have no verified emails and can never claim.
+- `ListPendingClaims` returns unclaimed `agent_registrations` matching any of
+  the caller's verified emails, along with `verified_emails` so `/claims` and
+  `gs claims list` can explain email mismatches without revealing other users'
+  agents.
+- `AcceptClaim(agent_subject_id)` (`gs claims accept <id>`, web `/claims`)
+  grants the human an `owner` membership on the agent's personal account,
+  sets `subjects.controller_subject_id` to the human, and stamps `claimed_at` /
+  `claimed_by_subject_id`. The agent keeps its `admin` membership
+  (co-ownership). Emits `agent_claimed`.
+- `AuthService.ListOwnedAgents` returns claimed/created agents with
+  `last_active_at` (derived from `api_keys.last_used_at`, throttled to at most
+  one update per minute).
+- Human owners can manage an owned agent's API keys and remove the agent; an
+  agent can never remove or demote a human `owner`.
+
+### 3.3 Delegated Agents (`CreateDelegatedAgent`, `gs agent create`)
+
+A signed-in human can create an agent directly under their control without an
+email claim flow:
 
 ```bash
-gs auth login --server 127.0.0.1:50051 --dev-user alice
+gs agent create release-bot --slice acme/payment --role writer
 ```
 
-Implementation behavior:
+`AuthService.CreateDelegatedAgent` creates the `agent_<random>` subject with
+`controller_subject_id` set to the caller, provisions its personal account with
+the caller as `owner`, optionally adds the agent to a target slice with the
+requested role (checked against the caller's own authority and refused when
+called with a restricted API key), and returns the agent's initial `gsk_` API
+key.
 
-- the dev user is normalized to a subject id such as `user_alice`
-- login fails if that subject is not present in `subjects`
-- a random `devtok...` bearer token is generated
-- a random `sess...` session id is generated
-- only `token_hash(token)` is stored in PostgreSQL
-- sessions expire after 24 hours
-- the CLI stores the raw token in `~/.gitslice/config.json`
+## 4. Scoped & Expiring API Keys (`gsk_`)
 
-`gs auth logout` clears the saved token and subject id from local CLI config.
-It does not currently revoke the server-side session. The schema supports
-revocation through `sessions.revoked_at`, but no user-facing revoke flow exists.
+Both humans and agents can create and manage `gsk_`-prefixed API keys via
+`ListAPIKeys`, `CreateAPIKey`, and `RevokeAPIKey` (`gs auth keys list|create|revoke`):
 
-## 5. Browser-Approved Signup
+- Stored in `api_keys` (SHA-256 `token_hash` only; plaintext shown once;
+  revocation is immediate with no token cache; up to 20 active keys per agent).
+- **Scoping & delegation columns** (migration `0056_scoped_api_keys.sql`):
+  - `slice_ids text[]`: `NULL` = unrestricted across all slices the subject can
+    reach; non-null = restricted to the listed slice IDs (and refused on
+    account-level admin actions).
+  - `max_role text`: optional upper bound (`reader` | `contributor` | `writer`).
+    Effective authority is `min(subject_role, max_role)`.
+  - `expires_at timestamptz`: optional expiry (`--expires 7d`, etc.).
+  - `parent_key_id text`: links child keys (e.g. 12h per-conversation keys
+    minted by `gs agent` daemons) to their parent. A child key can never exceed
+    its parent's slices, role, or expiry; revoking a parent cascades to its
+    children.
+  - `purpose`, `daemon_id`, `conversation_id`: recorded for audit attribution
+    on patchsets, approvals, submits, and tags.
+- A human `owner` of an agent's personal account may list, create, and revoke
+  keys for that agent (`--agent <name>`); unauthorized callers receive
+  `NotFound` to prevent account enumeration.
 
-The current signup surface is a fake browser approval flow. It does not contact
-a real identity provider.
+## 5. Organizations, Members, Invitations, Groups, Profiles & Avatars
 
-CLI usage:
+### 5.1 Organizations & Invitations
 
-```bash
-gs auth signup --username nico
-```
+- **Creation**: Any signed-in user with a username can call `CreateOrganization`
+  (`gs account create-org <name>`, up to 20 orgs per creator). Operators can
+  claim reserved names and specify initial owners.
+- **Memberships (`account_memberships`)**:
+  - `ListAccountMembers`: members and operators (returns `NotFound` to
+    outsiders).
+  - `SetAccountMember`: owners/admins change an existing member's role
+    (operators may also add directly). Only owners/operators may grant or modify
+    `owner`; the account row is locked to guarantee at least one `owner` always
+    remains. Personal accounts reject membership mutations.
+  - `RemoveAccountMember`: owners/admins/operators remove a member (or member
+    leaves).
+- **Invitations (`account_invitations`)**: Owners and admins invite users by
+  username and role (`InviteAccountMember`, `gs account invite`). Invitees
+  accept or decline via `RespondToInvitation` (`gs account invitations`,
+  `accept`, `decline`, or the web Home card). Owners/admins inspect and cancel
+  pending invitations via `ListAccountInvitations` and
+  `CancelAccountInvitation`.
 
-Implementation behavior:
+### 5.2 Account Groups (`@account/group`)
 
-1. the CLI starts a temporary localhost callback listener
-2. the CLI opens or prints a URL under the static web UI at `/signup`
-3. the web page asks the user to approve signup for the requested username
-4. the web page calls `FakeAccountService.ApproveSignup` through the generated
-   HTTP API
-5. approval creates or reuses a user subject and personal account
-6. approval creates or reuses the personal account's default `home` slice
-7. approval creates a 24-hour bearer-token session
-8. the web page redirects to the returned CLI callback URL with the token and
-   subject id
-9. the CLI validates the callback state and stores the token in
-   `~/.gitslice/config.json`
+Accounts can define named groups of subjects (humans and agents) managed via
+`AuthService`:
 
-The signup web page is intentionally simple. It exists to exercise the device
-flow shape without a production identity provider. Callback URLs must point to a
-loopback host so the gRPC signup service does not issue callback redirects that
-send bearer tokens to arbitrary remote origins.
+- `CreateGroup`, `GetGroup`, `ListGroups`, `DeleteGroup`, `AddGroupMember`,
+  `RemoveGroupMember`.
+- Groups are referenced as `@<account>/<group>` in slice membership grants
+  (`SetSliceMember`) and in `.gitslice/owners.yaml` path-ownership rules.
 
-Username normalization:
+### 5.3 Profiles & Avatars
 
-- usernames are lowercased
-- underscores are converted to hyphens for the account slug
-- normalized usernames must be between 4 and 63 ASCII characters
-- normalized usernames may contain only lower-case letters, numbers, and
-  hyphens, and may not start or end with a hyphen
-- self-service signup rejects names in the maintained reservation list in
-  `internal/usernames`; the list covers Gitslice/system identities, well-known
-  brands and platforms, and well-known public figures
-- the user subject id is `user_<username>` with hyphens converted to underscores
-- the personal account id is `acct_<username>` with hyphens converted to
-  underscores
-- the personal account slug is the normalized username
-- the signed-up subject is added as `admin` on that personal account
-- the default slice is `<username>/home`
+- **Profiles**: `GetAccountProfile` (public) and `UpdateAccountProfile`
+  (`gs account set-profile`) manage display name (max 64 chars), description
+  (max 280 chars), and website (`http`/`https` URL).
+- **Avatars**: `AuthService.SetAccountAvatar` stores an uploaded account avatar
+  image (or clears it when empty; restricted to account owners/admins). Avatars
+  are served publicly at `GET /avatars/{account}.png` (optional `?v=<version>`
+  for immutable edge caching, rate-limited by IP in `server/avatar_image.go`
+  and edge-cached by the web Worker).
 
-Existing organization slugs, such as `acme`, cannot be claimed through this fake
-signup flow.
+## 6. Capability-Based Authorization (`internal/authz`)
 
-## 5.1 Home Slice and Slice Slugs
+All slice and account access checks flow through `internal/authz.Authorizer`.
 
-Every signed-up personal account owns a default home slice:
+### 6.1 Actions (8 Named Capabilities)
 
-```text
-nico/home
-```
+`internal/authz/authz.go` defines 8 named capabilities (plus legacy aliases
+`ActionWrite` and `ActionAdmin` kept for compatibility):
 
-The slice slug is always `home`. The included path is the user's account root:
-
-```text
-nico/home -> /nico
-```
-
-This is deliberate. The home slice represents the user's personal source root,
-not a nested `/nico/home` folder. Existing changeset validation then limits files
-created through `nico/home` to `/nico`.
-
-Outside a workspace, `gs shell` resolves the signed-in user's `home` slice when
-it exists and labels the shell with that slice. The empty account-root folder is
-visible from slice metadata, so a newly signed-up user can run `gs shell` and
-see `nic/` from `ls` before creating any files.
-
-`gs fs` and mutating `gs shell` commands use the same personal home slice as
-their authoring slice. Paths must resolve under the home slice included path,
-for example `/nico`. Client-side checks reject absolute paths outside that root
-before submit, and the changeset service revalidates the same path containment
-against the `nico/home` slice definition.
-
-Custom personal slices may use other URL-safe slugs such as `tools`,
-`dotfiles`, or `blog`, but their included paths must stay under `/nico`.
-Organization slices use the same `<account>/<slice-slug>` identity shape, such
-as `acme/payment`, and may include paths under their owning account root.
-
-## 6. Auth Status And Token
-
-The current authenticated status surface is `AuthService.GetAuthStatus`.
-
-CLI usage:
-
-```bash
-gs auth status
-gs auth status --json
-gs auth token
-```
-
-`gs auth status` reads the local server address and bearer token from
-`~/.gitslice/config.json`, then calls `AuthService.GetAuthStatus`. A saved token
-is reported as signed in only if the server accepts it. Missing local config,
-incomplete local config, or an unauthenticated server response are reported as
-signed out without printing the token.
-
-JSON output exposes only non-secret fields:
-
-```json
-{
-  "signed_in": true,
-  "server_addr": "127.0.0.1:50051",
-  "subject_id": "user_alice",
-  "accounts": ["alice", "acme-corp"],
-  "memberships": [
-    {"account": "alice", "kind": "personal", "role": "admin"},
-    {"account": "acme-corp", "kind": "organization", "role": "writer"}
-  ],
-  "shared_slices": [{"slice": "bob:project", "role": "writer"}]
-}
-```
-
-`memberships` are the accounts with what each is and the subject's role in it;
-`shared_slices` are the slices shared with it from accounts it is not in
-(design/26_slice_members.md), so one call answers what it can reach.
-
-`gs auth token` is the explicit secret-bearing CLI command for scripts and
-Git-compatible flows that need the bearer token. It reads
-`~/.gitslice/config.json`, validates the saved token with
-`AuthService.GetAuthStatus`, and prints the raw token only if the server accepts
-it. The non-secret `gs auth status` command remains the preferred inspection
-surface for humans and diagnostics.
-
-## 7. Native Request Authentication
-
-The gRPC server installs unary and stream auth interceptors.
-
-Public methods:
-
-- `FakeAccountService.Login`
-- `FakeAccountService.ApproveSignup`
-- gRPC health checks
-
-All other native methods require metadata:
-
-```text
-authorization: Bearer <token>
-```
-
-The interceptor:
-
-1. extracts a bearer token from request metadata
-2. looks up an unrevoked, unexpired session by token hash
-3. loads the session subject
-4. attaches `subject_id` to the request context
-
-Service handlers call `requireSubject(ctx)` to read that authenticated subject.
-If metadata is missing, malformed, expired, revoked, or unknown, the request
-fails as unauthenticated.
-
-The ConnectRPC HTTP middleware accepts the `Authorization` HTTP header, so
-browser callers use the same bearer token path.
-
-## 8. Git HTTP Authentication
-
-The Git smart HTTP compatibility layer authenticates independently from the gRPC
-interceptor because it is a plain HTTP handler.
-
-Accepted credentials:
-
-- `Authorization: Bearer <token>`
-- Basic auth where the password is the token
-
-The Git handler resolves the subject by token hash through the same
-`AuthStore.SubjectForToken` path used by gRPC authentication.
-
-- **Credentials are optional for clone and fetch.** A request without them
-  reads as anonymous, which slice authorization admits only for public
-  slices.
-- **Credentials that are present but invalid** return `401` with a Basic
-  challenge, as does any push without credentials.
-- **Anonymous callers cannot probe for private slices:** they get the same
-  challenge for a missing slice as for a private one.
-- **Pushes** to `refs/changes/new` or `refs/changes/<changeset>` create or
-  update changesets after write authorization
-  (`05_git_compatibility.md` §8).
-
-## 9. Authorization Today
-
-Authorization is currently account-membership based and incomplete by design.
-
-Implemented membership checks include:
-
-- resolving and listing slices by account
-- workspace state and workspace diff validation
-- changeset create, list, get, diff, update, submit, and abandon through the
-  changeset's authoring slice account
-- repository import into an authoring slice
-- Git projection and push rejection paths
-
-Current broad authenticated-only surfaces include:
-
-- repository read APIs such as ref, commit, path, directory, and file reads
-- blob status and upload APIs
-- some slice lookup and definition update paths
-- workspace hydration and operation recording helpers
-
-The practical implication is that the MVP proves authentication and selected
-account boundaries, but it is not a complete access-control system. Repository
-read authorization and role-specific write authorization need tightening before
-the model is suitable for production use.
-
-Short commit id resolution is a repository read surface. When added, it must be
-scoped before uniqueness is decided: the server should search only commits
-visible through the caller's target ref, account memberships, path filter, and
-slice projection. Ambiguity and not-found errors must not reveal candidate ids
-or commit existence outside that visible scope. Possession of a full native
-commit id is not authorization to read that commit's metadata or changed paths.
-
-## 9.1 Organization Accounts (2026-10)
-
-An organization is an account (`accounts.kind = 'organization'`) that belongs
-to its members rather than to one subject. It has a private `home` slice
-covering `/<slug>` and an account root directory, like a personal account.
-
-**Creation by operators.** (Since 9.3 anyone with a username may also create
-an organization, without the operator powers below.) An operator's subject id is listed in
-`GITSLICE_OPERATOR_SUBJECTS`, separated by commas, semicolons or spaces. In
-production that is the `_OPERATOR_SUBJECTS` Cloud Build substitution.
-Operators may use names reserved for self-service sign-up, such as
-`gitslice`, because organization slugs are checked with
-`usernames.NormalizeSyntax` rather than `Normalize`. The initial owners
-default to the caller.
-
-```text
-gs account create-org gitslice [--owner <username>]...
-```
-
-**Membership** is managed through `AuthService` RPCs and `gs account`:
-
-| RPC | Who may call it | Effect |
+| Action | Minimum Tier | Purpose |
 |---|---|---|
-| `ListAccountMembers` | members, operators | lists members, owners first; for anyone else the account does not exist (NotFound) |
-| `SetAccountMember` | owners, admins, operators | makes a role a member's only role; only operators add a non-member (others invite, 9.3) |
-| `RemoveAccountMember` | owners, admins, operators | removes every membership of the member |
+| `read` (`ActionRead`) | 1 (`reader`) | Read files, check out, clone, blame, list history |
+| `propose` (`ActionPropose`) | 2 (`contributor`) | Create changesets and push patchsets to owned changesets |
+| `submit` (`ActionSubmit`) | 3 (`writer`/`member`) | Submit owned changesets, Git push |
+| `review` (`ActionReview`) | 3 (`writer`/`member`) | Approve changesets, comment |
+| `tag` (`ActionTag`) | 3 (`writer`/`member`) | Create/manage slice tags |
+| `use_secrets` (`ActionUseSecrets`) | 3 (`writer`/`member`) | Run checks with folder secrets; allow contributor patchsets to use secrets |
+| `manage_members` (`ActionManageMembers`) | 4 (`admin`) | Manage slice members (users, agents, `@account/group`) |
+| `act_on_any_changeset` (`ActionActOnAnyChangeset`) | 4 (`admin`) | Push to, edit, submit, or abandon changesets owned by others |
 
-Rules:
+### 6.2 Role Tiers (6 Account Roles & 4 Slice Roles)
 
-- Only owners or operators grant, revoke or change the `owner` role.
-- An organization always keeps at least one owner. The account row is locked
-  during membership changes so concurrent requests cannot both remove the
-  last owner.
-- Personal accounts reject membership changes (FailedPrecondition). Their
-  memberships come from sign-up and agent claims.
-- Users are named by username: the slug of their personal account, which for
-  agents is the agent's own account (`SubjectIDForUsername`).
+| Tier | Account Roles (`account_memberships`) | Slice Roles (`slice_members` / group grants) |
+|---|---|---|
+| 5 | `owner` | — |
+| 4 | `admin` | `admin` |
+| 3 | `writer`, `member` | `writer` |
+| 2 | `contributor` | `contributor` |
+| 1 | `reader` | `reader` |
 
-Authorization is unchanged. Slices under an organization authorize through
-`AccountRole`: owner, admin, writer and member can write; reader can only
-read.
+### 6.3 Evaluation Rules
 
-## 9.2 Accounts In The Web App (2026-10)
+1. **API key grant cap**: If the caller authenticated with a scoped `gsk_` key,
+   `slice_ids` must include the target slice (and any slice-scoped key is
+   refused on `AuthorizeAccount`), and `max_role` caps the effective role via
+   `minRole(role, grant.MaxRole)`.
+2. **Public slice reads**: `ActionRead` on a slice with `visibility == "public"`
+   succeeds even for anonymous callers (still subject to any key `slice_ids`
+   grant when authenticated with a scoped key).
+3. **Higher of account role and slice role**: For a slice, `EffectiveRole`
+   takes the higher tier of the caller's account role and their highest slice
+   role — where `SliceRole` itself takes the higher of direct `slice_members`
+   grants and `@account/group` grants (`SliceGroupRole`).
+4. **Archived slices**: `Authorize` refuses all non-read actions on an archived
+   slice with `FailedPrecondition`; operations that must work on archived slices
+   (such as unarchiving) explicitly call `AuthorizeAllowArchived`.
+5. **Delegated controller authorization (`AuthorizeDelegated`)**: A human
+   controller acting on their agent's changeset falls back to the agent's slice
+   role when the human lacks direct access, while still enforcing the human's
+   own key grant as an upper bound.
+6. **Account-owner-only slice settings (`authorizeSliceOwner`)**: Slice
+   definition edits (included paths, visibility, required approvals/checks),
+   description, `merge_on_submit`, CI daemon pool, Git mirrors, rename, archive,
+   and delete/retire remain restricted to the **account's** `owner` and `admin`
+   roles — never granted to slice-only admins.
+7. **Slice-admin member management**: Slice `admin`s (including external users
+   and `@account/group` slice admins) can manage slice members via
+   `ListSliceMembers`, `SetSliceMember`, `RemoveSliceMember` (`gs slice share`,
+   `members`, `unshare`, `leave`) and the Slice Members panel in
+   `/slices/$account/$slice/settings`.
+8. **Path-based reads (`ensurePathRead`)**: Reads by repository path outside a
+   specific slice succeed for account members or any signed-in user who has
+   read access (public or shared) to a slice covering that path via
+   `CoveringIDsByPath`.
+9. **Folder-scoped secrets**: Secrets belong to an account and are scoped to
+   folder prefixes under `/<account>/...` (managed at
+   `/accounts/$account/secrets` and `gs slice secret` by account owners/admins;
+   see [33_secrets.md](33_secrets.md)). Contributors' checks run
+   without secrets unless a writer explicitly allows that patchset.
 
-The web app works in one account at a time, as GitHub does: the viewer's
-personal account, an organization they belong to, or an agent they claimed.
+## 11. Agent Web Sessions (`gs auth web-login`)
 
-- **Auth status** returns `memberships` next to `accounts`, in the same order:
-  each account's kind (`personal`, `organization`, or `agent` for a claimed
-  agent's personal account) and the caller's role in it.
-- **Switcher.** The top bar's account menu lists those memberships, grouped by
-  kind with the role. The choice is the *active account*, remembered in the
-  browser (`localStorage`, `gitslice.activeAccount`); one the viewer has left
-  falls back to their personal account. Home lists only the active account's
-  slices: agents and organizations are a switch away, each with its own list.
-  Claimed agents, with their activity, are listed on your own account page. New
-  conversations start on its slices, and "New slice" creates there.
-- **Account pages** (`/accounts/<account>`): avatar, kind and the viewer's
-  role; the slices the viewer may read (`ListSlices`: every slice for members,
-  public ones for anyone else, with `account_kind`); for an organization's
-  members, its people. Owners and admins add people by username, change roles
-  and remove people there, through the RPCs in 9.1. Slice breadcrumbs link the
-  owner to this page. Your own personal page also lists the organizations you
-  belong to and the agents you have claimed, each with your role, plus a "New
-  organization" link. Others do not see your memberships.
-- **Role-aware UI.** The slice page offers editing to roles that can write
-  (owner, admin, writer, member) and Settings to owners and admins; "New
-  slice" offers the accounts the viewer owns or administers. The server still
-  decides; the UI only stops offering what it would refuse. A role an older
-  server did not report is given the benefit of the doubt.
+Alongside Clerk browser sign-in for human accounts, the production web app (`web/`) supports agent sign-in backed by short-lived, revocable child API keys (`purpose = "web"`):
 
-## 9.3 Self-Service Organizations, Invitations And Profiles (2026-10)
-
-- **Anyone can create an organization.** A signed-in user with a username
-  calls `CreateOrganization` (web: "New organization" in the account menu,
-  `/organizations/new`; CLI: `gs account create-org <name>`). They are its only
-  owner. Names reserved for sign-up are refused, and a user may have created at
-  most 20 organizations (`accounts.created_by_subject_id`). Operators keep the
-  old powers: reserved names and naming other owners.
-- **Invitations.** Owners and admins invite people by username with a role
-  (`InviteAccountMember`, `gs account invite`); only owners invite owners. The
-  invitation (`account_invitations`) becomes a membership only when the invitee
-  accepts it (`RespondToInvitation`; web: the card on Home and the badge in the
-  account menu; CLI: `gs account invitations`, `accept`, `decline`). Owners and
-  admins see and cancel pending ones (`ListAccountInvitations`,
-  `CancelAccountInvitation`). Inviting again replaces the role.
-  `SetAccountMember` now only changes the role of existing members; adding a
-  non-member directly is left to operators, for server automation such as
-  `ops/selfhost/phase1.sh`.
-- **Profiles.** Each account has a display name (64 characters), description
-  (280) and website (an http or https URL), public through `GetAccountProfile`
-  and shown on its account page. An organization's owners and admins edit it,
-  as does a person their own (`UpdateAccountProfile`, `gs account set-profile`).
-  There is no avatar image; pages draw initials.
-- **CLI active account.** `gs account use <account>` stores `active_account` in
-  `~/.gitslice/config.json`; commands that default an account (`gs slice list`)
-  use it while the user still belongs to it. `gs account use --clear` goes back
-  to the personal account, `gs account current` shows which applies, and
-  `gs auth status` reports it.
-- **Home follows the active account** for conversations too; agent claims and
-  owned agents appear only in the personal context.
-- **Slice members (2026-10).** A slice's admins can give a person or agent a
-  role on that one slice without adding them to the account; see
-  [26_slice_members.md](26_slice_members.md).
-
-## 10. Subject Propagation And Audit Fields
-
-Authenticated subject ids flow through service methods and are stored on
-user-visible writes:
-
-- changesets store `author_subject_id`
-- patchsets store `author_subject_id`
-- published commits store the changeset author's subject id
-- Git imports store the importing `subject_id`
-
-The server does not trust local CLI state for the subject id. The subject comes
-from the validated bearer token on each server request.
-
-## 11. Current Invariants
-
-- Raw bearer tokens are never stored in PostgreSQL.
-- Native service methods are authenticated by default unless explicitly listed
-  as public.
-- The CLI token is global user config, not workspace metadata.
-- Signup approval only redirects tokens to loopback callback URLs.
-- Workspaces still bind to exactly one slice; auth does not change that model.
-- Account membership is the current coarse authorization boundary where checks
-  are implemented.
-- Git compatibility is an authenticated projection layer, not the source of
-  truth for identity or authorization.
-
-## 12. Known Gaps
-
-- no production identity provider
-- no refresh-token lifecycle
-- no server-side session revocation command
-- no organization avatars or invitation expiry
-- incomplete path/read authorization on repository and blob APIs
-- no implemented auth-aware short commit id resolver yet
-- no per-slice or per-path ACLs
-- no audit event stream beyond persisted author fields
-
-## 13. Agent Web Sessions (Production Web App)
-
-Alongside Clerk browser sign-in for human accounts, the production web app
-(`web/`) supports agent sign-in backed by short-lived, revocable child API keys
-(`purpose = "web"`):
-
-- The Go API server already resolves `gsk_` API keys via
-  `AuthStore.AuthenticateToken` before Clerk JWT verification
-  (`server/auth.go`).
-- Agents sign in either via the **Agent API key** tab on `/login` or a
-  fragment-based handoff URL from `gs auth web-login`
-  (`/agent-login#key=...`).
-- The web Worker exchanges pasted long-lived keys into a 24-hour child key
-  (`AuthService.CreateApiKey`) and stores the session in an `HttpOnly; SameSite=Lax`
-  `gs_agent_session` cookie used for SSR (`web/src/api/serverApi.ts`) and
-  on-demand in-memory bearer token hydration (`POST /auth/agent/token`).
-- Signing out (`POST /auth/agent/logout`) revokes the managed web child key via
-  `AuthService.RevokeApiKey` and clears the cookie.
-- Full design and security invariants live in `design/20_agent_signup_and_claim.md`.
-
+- The Go API server resolves `gsk_` API keys via `AuthStore.AuthenticateToken` before Clerk JWT verification (`server/auth.go`).
+- Agents sign in either via the **Agent API key** tab on `/login` or a fragment-based handoff URL from `gs auth web-login` (`/agent-login#key=...`).
+- The web Worker exchanges pasted long-lived keys into a 24-hour child key (`AuthService.CreateApiKey`) and stores the session in an `HttpOnly; SameSite=Lax` `gs_agent_session` cookie used for SSR (`web/src/api/serverApi.ts`) and on-demand in-memory bearer token hydration (`POST /auth/agent/token`).
+- Signing out (`POST /auth/agent/logout`) revokes the managed web child key via `AuthService.RevokeApiKey` and clears the cookie.

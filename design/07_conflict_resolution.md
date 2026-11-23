@@ -1,14 +1,16 @@
 # Gitslice Conflict Resolution And Batched Submit Design
 
 This document defines how Gitslice detects conflicts, tracks per-path base
-predicates, and batches independent changesets while preserving correctness.
+predicates, batches independent changesets, restacks dependent changesets,
+and applies merge-on-submit and `.gitslice/merge.yaml` rules.
 
 Related documents:
 
 - [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md): system model and submit overview
 - [02_storage.md](02_storage.md): commit publication, CAS, and storage transactions
 - [03_core_api.md](03_core_api.md): patchset and submit proto shapes
-- [06_indexing.md](06_indexing.md): changed-path and freshness indexes
+- [06_indexing.md](06_indexing.md): changed-path and materialized-head indexes
+- [15_stacked_changesets.md](15_stacked_changesets.md): dependent changesets workflow
 
 ## 1. Goals
 
@@ -18,9 +20,9 @@ The conflict model should:
 - keep one accepted target ref linear and easy to audit
 - support batching multiple ready changesets into one target-ref update
 - make every conflict reason explicit and reproducible
-- keep semantic correctness delegated to required checks and dependency indexes
+- keep semantic correctness delegated to required checks
 
-The model must not introduce cross-slice changesets or atomic multi-slice
+The model does not introduce cross-slice changesets or atomic multi-slice
 submission. Each changeset has exactly one authoring slice, and the server
 rejects any patchset whose edits are outside that slice.
 
@@ -28,43 +30,43 @@ rejects any patchset whose edits are outside that slice.
 
 A patchset records the base predicate for every path it depends on.
 
-For each relevant path, store a path base predicate:
+For each relevant path, store a `PathBase` predicate:
 
 ```text
 path
 base_commit_id
-check_kind
+check (check_kind)
 exists
 entry_kind
 mode
+blob_id
 content_hash
 tree_id
 symlink_target
 entry_fingerprint
 ```
 
-At submit time, the server reads the current target-ref head and verifies:
+At submit time, the server reads the current accepted path state and verifies:
 
 ```text
 current path state satisfies patchset base predicate(path)
 ```
 
-For a modified file, the predicate is usually an exact entry fingerprint match.
-For a created file, the predicate is usually "destination is still missing" and
-"parent is still a directory." This avoids false conflicts between independent
-creates in the same directory while still catching parent deletes or
-file/directory replacement.
+For a modified file, the predicate is an exact entry fingerprint match. For a
+created file, the predicate is "destination is still missing" and "parent is
+still a directory." This avoids false conflicts between independent creates in
+the same directory while still catching parent deletes or file/directory
+replacement.
 
 If every predicate holds, the patchset can be applied without a user-visible
 rebase for those paths.
 
-The changeset-level `base_commit` is still useful for review and audit, but it
-is not the only conflict predicate. The correctness predicate is path-level
-freshness expressed as base predicates.
+The changeset-level `base_commit_id` is still useful for review and audit, but
+the correctness predicate is path-level freshness expressed as base predicates.
 
 ## 3. Read Sets And Write Sets
 
-Each patchset stores two sets.
+Each patchset stores two sets:
 
 ```text
 write_set
@@ -75,27 +77,19 @@ read_set
   predicates.
 ```
 
-For the MVP, the read set should include at least:
+Currently, the read set includes:
 
 - every path in the write set
 - old and new paths for renames
 - parent directories for creates, deletes, and renames
 
-Submit freshness should also record non-path inputs:
+Submit freshness also checks non-path inputs:
 
-- the authoring slice definition hash
-- the active path-lock-set hash for locks intersecting the write set
+- the authoring slice definition hash (`source_slice_definition_hash`)
 
-Later, read sets can expand from build/test dependency analysis:
-
-- generated file inputs
-- build manifests
-- API/schema files consumed by changed code
-- language-specific dependency graph entries
-
-Write sets must be compared with path-prefix semantics. A delete of
-`/acme/lib` conflicts with a modify under `/acme/lib/a.go`, even though the
-exact strings differ.
+Write sets are compared with path-prefix semantics. A delete of `/acme/lib`
+conflicts with a modify under `/acme/lib/a.go`, even though the exact strings
+differ.
 
 ## 4. Conflict Classes
 
@@ -136,7 +130,7 @@ The entry still exists, but its mode, entry kind, or symlink target changed.
 Requirement refresh:
 
 ```text
-The authoring slice definition, submit settings, or active path locks changed.
+The authoring slice definition or submit settings changed.
 ```
 
 Semantic conflict:
@@ -147,7 +141,7 @@ accepted state is behaviorally invalid.
 ```
 
 Semantic conflicts are not solved by the storage layer. They are surfaced
-through required checks and, later, dependency-aware read sets.
+through required checks.
 
 ## 5. Submit Admission With Path-Head CAS
 
@@ -156,12 +150,12 @@ publication. Admission uses a durable `path_heads` table that represents the
 latest accepted logical state for each touched path. This can be ahead of
 `refs/global/main` while accepted changes are waiting for batch publication.
 
-For one changeset, submit admission should run:
+For one changeset, submit admission runs:
 
 ```text
 1. Load the current target-ref head H for audit and fallback path-head
    initialization.
-2. Load the current patchset.
+2. Load the current patchset (rejecting patchsets with unresolved conflicts).
 3. Recompute changed paths, read set, write set, coverage, and submit requirements.
 4. Verify authoring slice containment and permissions.
 5. Verify approvals and required checks are fresh for the current patchset.
@@ -170,13 +164,14 @@ For one changeset, submit admission should run:
 7. Verify every path-head row satisfies the patchset's recorded base predicate.
 8. Update `path_heads` to the post-patch fingerprints for the write set.
 9. Append a durable `pending_publish` row.
-10. Mark the changeset `pending_publish`.
+10. Mark the changeset `pending_publish` and clear `submit_blocked_reason` /
+    `submit_blocked_code`.
 11. Commit the admission transaction.
 ```
 
-If step 7 fails, the changeset becomes `NeedsRebase`,
-`MergeConflict`, or `NeedsRequirementRefresh` depending on the failing
-predicate.
+If admission fails (steps 2, 4, 5, or 7), the changeset remains `open` and the
+server records the structured blocker in `changesets.submit_blocked_reason` and
+`changesets.submit_blocked_code` (see §11).
 
 `path_heads` stores tombstones for accepted deletes. That distinction matters:
 absence of a row means the path has not been initialized in the path-head
@@ -185,8 +180,8 @@ definitely missing. This prevents a stale update from passing just because the
 delete has not yet been published to the root/ref.
 
 After admission, the change is accepted but not yet visible through root-based
-reads, Git projection, or `refs/global/main`. Clients that need the existing
-synchronous UX may wait until the publisher marks the changeset `submitted`.
+reads, Git projection, or `refs/global/main`. Clients that need synchronous UX
+(`gs submit` default) wait until the publisher marks the changeset `submitted`.
 
 ## 6. Batched Async Publish
 
@@ -198,22 +193,17 @@ slices, but the batch is not a user-visible cross-slice changeset. Each
 changeset keeps its own authoring slice, approvals, checks, commit, and audit
 record.
 
-A publish worker can group pending changesets that share a `target_ref` when:
+A publish worker groups pending changesets that share a `target_ref` when:
 
-- every candidate already passed admission, review, approval, and required
-  checks
+- every candidate already passed admission, review, approval, and required checks
 - every candidate still has a durable `pending_publish` row in `pending` state
-- candidates can be ordered deterministically from their admission sequence
+- candidates are ordered deterministically from their admission sequence
 
 Normal same-path conflicts have already been rejected by path-head CAS. The
 publisher still verifies operational invariants such as pending-row status,
-target-ref identity, and target-ref CAS. It does not need to rediscover ordinary
-same-path conflicts unless the system intentionally supports multiple admission
-sources that bypass `path_heads`.
+target-ref identity, and target-ref CAS.
 
-The worker then enters the target-ref sequencer once for the batch.
-
-Inside the sequencer:
+Inside the target-ref sequencer:
 
 ```text
 1. Reload and lock current target-ref head H.
@@ -226,55 +216,41 @@ Inside the sequencer:
    transaction.
 5. Mark each included changeset `submitted` with its corresponding commit id.
 6. Mark each included `pending_publish` row `published`.
-7. Emit indexing and projection invalidation events.
+7. Write `commit_published` outbox rows (see design/06_indexing.md).
 ```
 
 The target ref moves once, but each changeset still gets its own commit and
 audit record. This preserves review traceability while reducing target-ref CAS
 pressure.
 
-Admission sequence is the MVP order. Later dependency-aware read sets can add a
-topological ordering layer, but it must preserve the invariant that accepted
-path-head state is the source of truth for write conflicts.
-
 ## 7. Why Disjoint Writes Are Not Enough
 
-Two changesets can write different files and still conflict semantically.
-
-Examples:
+Two changesets can write different files and still conflict semantically:
 
 - one changes a public API and another changes a caller
 - one changes a build manifest and another changes a generated file
 - one changes a schema and another changes a migration
 
-For the MVP, required checks catch these cases. As dependency indexes mature,
-Gitslice can add dependency-derived paths to each patchset's read set. That
-turns some semantic conflicts into deterministic freshness checks.
+Currently, required checks catch these cases.
 
-## 7.1 Approval Preservation Across Rebases
+### 7.1 Approval Preservation Across Rebases (Unbuilt / Future Work)
 
-When a rebase creates a new patchset, existing approvals are not automatically
-invalidated. If the new patchset's write-set diff is semantically identical to
-the previously approved patchset's diff (same paths, same content hashes, same
-operations), the system auto-forwards approvals to the new patchset.
+Approvals are currently bound to a specific `patchset_id`. Creating a new
+patchset via `gs sync`, `gs modify`, restack, or merge-on-submit does **not**
+auto-forward existing approvals, so slices that require approvals need fresh
+approval on the new patchset (matching §7.4).
 
-This prevents unnecessary re-review cycles when target refs move frequently but
-the changeset's actual changes are unaffected.
+Automatic approval forwarding for semantically identical rebase diffs (same
+paths, content hashes, operations, and unchanged submit requirements/slice
+definition) remains unbuilt future work.
 
-Approvals are invalidated only when:
-
-- the file content diff changes (new paths added, content modified)
-- submit requirements change (definition hash or path lock set hash)
-- the authoring slice definition changes
-
-## 7.2 Workspace Sync And Rebase Patchsets
+### 7.2 Workspace Sync And Rebase Patchsets
 
 `gs sync` rebases the current workspace and its associated draft changeset onto
-the latest accepted target-ref head. It must be allowed to update the workspace
-even when conflicts exist, because the user needs the latest remote context in
-order to resolve those conflicts.
+the latest accepted target-ref head. It updates the workspace even when
+conflicts exist, so the user has the latest remote context to resolve them.
 
-The sync operation compares three states:
+Sync compares three states:
 
 ```text
 B: the workspace base snapshot before sync
@@ -285,21 +261,15 @@ R: the latest remote slice projection
 The merge result is written back to the workspace. Non-conflicting remote
 updates are applied, non-conflicting local edits are preserved, and conflicting
 paths are materialized as explicit local conflicts. The workspace conflict
-record must include enough information to reproduce the decision:
+record (`.gs/conflicts.json`) records:
 
-- old base commit `B`
-- new base commit `R`
-- path
-- conflict class
-- local fingerprint or tombstone
-- remote fingerprint or tombstone
-- base fingerprint or tombstone when available
-- any side-variant blob ids needed for inspection or recovery
+- old base commit `B` and new base commit `R`
+- path and conflict class
+- local, remote, and base fingerprints/content hashes
 
 If a draft changeset is associated with the workspace, sync creates a new
-patchset on that changeset. This patchset represents a rebase attempt onto the
-new base, not a plain snapshot of the remote tree. It records the cleanly
-rebased edits plus conflict metadata. For example:
+patchset on that changeset recording the cleanly rebased edits plus conflict
+metadata:
 
 ```text
 v1: user patchset on base A
@@ -309,97 +279,80 @@ v4: user-resolved patchset on base B
 ```
 
 Patchset review diffs use each patchset's nearest base as the canonical old
-side. In the example above, `v1` and `v2` diff against base `A`, while the sync
-patchset `v3` and resolved patchset `v4` diff against base `B`. This keeps the
-sync patchset focused on the local overlay after rebasing. It does not need to
-carry all remote-only changes from `A` to `B`, and the MVP does not require a
-complete arbitrary diff between any two materialized snapshots across a base
-transition.
+side (`v1`/`v2` diff against `A`; `v3`/`v4` diff against `B`).
 
 A patchset with unresolved sync conflicts is not submittable. Submit admission
-must reject it before path-head CAS and report the unresolved paths. After the
-user edits the workspace and runs `gs cs update`, the CLI validates that the
-conflict markers or side metadata have been resolved, creates the next patchset,
-and clears the conflict state.
+rejects it before path-head CAS and reports the unresolved paths. After the
+user edits the workspace and runs `gs modify`, the CLI validates that conflict
+markers or side metadata have been resolved, creates the next patchset, and
+clears `.gs/conflicts.json`.
 
-This keeps conflict resolution auditable without introducing Git's hidden
-interrupted-operation state. The durable changeset history shows both the rebase
-attempt and the user-authored resolution.
+### 7.3 Restacking A Dependency Tree
 
-## 7.3 Restacking A Dependency Tree
-
-`gs sync` of a workspace whose draft lives in a dependency tree (`gs
-create`) restacks the tree on the server (`ChangesetStackService.Restack`):
-each changeset gets a patchset on the new head (a root) or on its parent's new
-patchset. A patchset's edits are whole files, so they cannot be replayed as
-they are: a file the new base changed since the patchset's own base would be
-overwritten with the patchset's copy, and submitting it would silently revert
-the upstream change (it did, until 2026-10-15). Restack therefore compares
-each edited path's recorded base (`PathBase.entry_fingerprint`) with the new
-base:
+`gs sync` of a workspace whose draft lives in a dependency tree (`gs create`)
+restacks the tree on the server (`ChangesetStackService.Restack`): each
+changeset gets a patchset on the new head (a root) or on its parent's new
+patchset. Because a patchset's edits are whole files, restack compares each
+edited path's recorded base (`PathBase.entry_fingerprint`) with the new base:
 
 - unchanged upstream: the edit is replayed;
-- a text file both sides changed: a three-way line merge
-  (`diffutil.Merge3`, base, the patchset's version, the new base's). A clean
-  merge becomes the edit. Overlapping changes are written with conflict
-  markers (`<<<<<<< changeset`, `=======`, `>>>>>>> upstream`) and the path
-  is a conflict;
+- a text file both sides changed: a three-way line merge (`diffutil.Merge3`,
+  base, the patchset's version, the new base's). A clean merge becomes the
+  edit; overlapping changes fall back to `.gitslice/merge.yaml` (§7.5) if a
+  rule matches, otherwise are written with conflict markers
+  (`<<<<<<< changeset`, `=======`, `>>>>>>> upstream`) and recorded as a conflict;
 - anything else both sides changed (binary or over 4 MiB, deleted on one side,
-  added on both, a move): a conflict that keeps the patchset's version.
+  added on both, a move): a conflict that keeps the patchset's version (unless
+  a merge rule resolves it).
 
-Conflicts make the new patchset a `conflict` patchset: it keeps every edit,
-so the workspace shows the markers, and it cannot be submitted (`unresolved
-patchset conflicts`) until a new patchset (`gs modify`) replaces it. A
-patchset's unresolved conflicts are carried through later restacks. `gs sync`
-lists the conflicted paths.
+Conflicts make the new patchset a `conflict` patchset: it keeps every edit so
+the workspace shows the markers, and it cannot be submitted (`unresolved
+patchset conflicts`) until a new patchset (`gs modify`) replaces it. Unresolved
+conflicts are carried through later restacks, and `gs sync` lists the
+conflicted paths and exits with code `3`.
 
-## 7.4 Merge On Submit
+### 7.4 Merge On Submit
 
-A changeset whose base went stale is refused at submit (`path base conflict,
-refresh or rebase the changeset`): its author syncs, which merges upstream in,
-and submits again. On a busy slice, agents bounce on this. A slice with
-`merge_on_submit` (a slice setting outside the definition, so no new definition
-version: `gs slice update --merge-on-submit on|off`, or Settings in the web
-app; owners and admins) lets the server do that merge at submit instead:
+A changeset whose base went stale is refused at submit (`stale_path_base`:
+`path base conflict, refresh or rebase the changeset`): its author syncs, which
+merges upstream in, and submits again. On a busy slice, agents bounce on this.
+A slice with `merge_on_submit` (a slice setting outside the definition, so no
+new definition version: `gs slice update --merge-on-submit on|off`, or Settings
+in the web app; owners and admins) lets the server do that merge at submit
+instead:
 
 - The submit is tried as always. Only the stale-base refusal triggers a merge;
   a missing approval or check does not.
 - The current patchset is taken onto the latest head of the target ref by the
-  restack merge (section 7.3, `rebaseEdits`): unchanged-upstream edits are
-  replayed, text files both sides changed are merged line by line.
+  restack merge (§7.3, `rebaseEdits`, honoring `.gitslice/merge.yaml` rules in
+  §7.5): unchanged-upstream edits are replayed, and text files both sides
+  changed are merged line by line.
 - Any conflict refuses the submit with the paths (up to five, then a count) and
   makes no patchset: overlapping changes need the author, in a workspace where
   they can be tested (`gs sync`).
-- A clean merge becomes a new patchset of kind `submit_merge`, made as any
-  patchset is (UpdateChangeset), so the slice's CI daemon runs the required
-  checks on it. Approvals belong to patchsets and section 7.1's forwarding is
-  not built, so a slice that requires approvals needs them again; the merged
-  code is not what was approved.
-- The merge is then submitted. Its checks have usually not reported, so the
-  usual answer is a pending check, said after "the server merged the changeset
-  onto the latest base as patchset N, which runs CI again". `gs submit` waits
-  for checks and submits again as it always does; a submit that still names
-  the patchset it started with is taken to mean the server's merge of it.
+- A clean merge becomes a new patchset of kind `submit_merge`, created via
+  `UpdateChangeset`, so the slice's CI daemon runs the required checks on it.
+  Because approvals belong to patchsets and §7.1 approval forwarding is not
+  built, a slice that requires approvals needs them again — the merged code is
+  not what was approved.
+- The merge is then submitted. Its checks have usually not reported yet, so the
+  usual answer is a pending check, reported after `"the server merged the
+  changeset onto the latest base as patchset N, which runs CI again"`.
+  `gs submit` waits for checks and submits again as usual; a submit that still
+  names the patchset it started with is taken to mean the server's merge of it.
 - Only a changeset that depends on no other (a plain changeset or the root of
-  a dependency tree) is merged; dependents follow their root by restack, as
-  when it moves any other way. A patchset with unresolved conflicts is not.
+  a dependency tree) is merged; dependents follow their root by restack. A
+  patchset with unresolved conflicts is never auto-merged.
 
 What lands includes upstream's changes, so the workspace's files are not the
-new base: `gs submit` says the server merged the changeset and leaves the
-workspace's base as it was, for `gs sync` to bring the merge in (a three-way
-merge whose upstream side already holds the workspace's changes, so it is
-clean).
+new base: `gs submit` notes that the server merged the changeset and leaves the
+workspace's base as it was, for `gs sync` to bring the merge in cleanly.
 
-Lockfiles and generated files (`go.sum`, `package-lock.json`) often conflict
-here while being trivially resolvable; per-slice merge rules for them are a
-follow-up.
-
-## 7.5 Merge rules for lockfiles and generated files
+### 7.5 Merge Rules For Lockfiles And Generated Files
 
 Some files merge badly line by line but have an obvious resolution: `go.sum`
-is a set of lines, a lockfile or generated file should be the newest one
-(and regenerated if that matters). A folder can say so in
-`.gitslice/merge.yaml`:
+is a set of lines, and a lockfile or generated file should take the newest
+version. A folder can configure this in `.gitslice/merge.yaml`:
 
 ```yaml
 version: 1
@@ -413,24 +366,24 @@ rules:
 ```
 
 - Patterns are doublestar globs relative to the folder holding `.gitslice`.
-  The nearest `merge.yaml` above a path decides, and in it the first rule
-  that matches.
+  The nearest `merge.yaml` above a path decides, and in it the first matching
+  rule wins.
 - Rules apply only where a line merge would leave conflict markers, both on
   the server (restacking a dependency tree, merge on submit) and in `gs sync`.
 - They are read from the new base, which has landed: a change cannot set the
   rules of its own merge.
 - `regenerate:<check>` (take the newest, then rebuild the file with a check)
   is not supported: nothing writes a check's output back into a change yet.
-  Use `newest` and a check that fails when the file is stale.
+  Use `newest` with a check that fails when the file is stale.
 
 Code: `internal/mergerules`; `service/restack_merge.go` (server);
-`internal/cli/sync_merge_rules.go` (gs sync).
+`internal/cli/sync_merge_rules.go` (`gs sync`).
 
 ## 8. Interaction With Overlapping Slices
 
 Overlapping slices do not duplicate files. They project the same global path.
 
-If slice X and slice Y both include `/acme/lib/a.go`, then a submit from slice X
+If slice X and slice Y both include `/acme/lib/a.go`, a submit from slice X
 that changes `/acme/lib/a.go` updates the accepted global target ref. Slice Y
 sees the new content the next time it syncs or fetches its projection.
 
@@ -447,63 +400,51 @@ projection invalidation, and conflict reporting only.
 
 ## 9. Index Support
 
-Indexes accelerate candidate discovery but do not decide correctness.
-
-Useful indexes:
-
-- changed-path index
-- path history index
-- open changeset write-set index
-- patchset read-set predicate index
-- submit requirement freshness index
-- dependency-derived read-set index later
-
-Submit must always revalidate from source-of-truth state or from indexes proven
-fresh for the exact target-ref head, slice definition hash, path lock state, and
-canonical patchset identity.
+Indexes accelerate lookups but do not decide submit correctness. Submit
+admission always verifies `path_heads` rows and the latest authoritative slice
+definition. `current_path_entities` (gated by `ref_materialized_heads`) can
+accelerate initial path-base construction when fresh, falling back to tree
+reads otherwise.
 
 ## 10. Storage Requirements
 
-Storage must support publishing either:
-
-- one commit and one target-ref CAS update
-- a commit chain and one target-ref CAS update
-
-For a batched submit, the metadata transaction must be all-or-nothing:
+Storage supports publishing either one commit or a commit chain with a single
+target-ref CAS update. For a batched submit, the metadata transaction is
+all-or-nothing:
 
 ```text
 verify ref still points at H
 write C1, C2, C3 metadata
 move target_ref from H to C3
-write outbox events
+write commit_published outbox rows
 commit transaction
 ```
 
 If the CAS compare fails, none of the commits in the batch become reachable
 through the target ref.
 
-## 11. User-Facing States
+## 11. User-Facing Blocked States (`submit_blocked_reason` & `submit_blocked_code`)
 
-Recommended submit failure states:
+A changeset's lifecycle `status` stays one of `open`, `pending_publish`,
+`submitted`, or `abandoned`. When submit admission is refused, the changeset
+remains `open` and records a human-readable `submit_blocked_reason` (exposed on
+`Changeset.submit_blocked_reason` in `proto/core/v1/changeset.proto`) alongside
+a structured `submit_blocked_code` in PostgreSQL (`0062_submit_blocked_code.sql`):
 
-```text
-NeedsRebase
-: The patch can likely be replayed against the new head.
+| `submit_blocked_code` | Meaning |
+|---|---|
+| `stale_path_base` | One or more touched paths changed on the target ref since the patchset's base (`path base conflict`). User runs `gs sync` (or slice uses `merge_on_submit`). |
+| `requirements_changed` | Authoring slice definition or submit settings changed since the patchset was created, or paths are outside the latest slice definition. |
+| `approvals_missing` | Required approvals, required human approvals, path owners, or `.gitslice` approval rules are not yet satisfied on the current patchset. |
+| `checks_missing` | One or more required checks have no passing result on the current patchset. |
+| `blocked_on_parent` | Dependent changeset cannot submit before its base changeset (`BlockedOnBaseChangeset`). |
 
-MergeConflict
-: A touched path changed in a way that requires user resolution.
+When a patchset has unresolved sync/restack conflicts, submit admission also
+refuses before path-head CAS (`unresolved patchset conflicts`) until `gs modify`
+replaces the patchset.
 
-NeedsRequirementRefresh
-: Slice submit settings, active path locks, or authorization inputs changed.
+## 12. Future Work
 
-Failed
-: Required checks failed or an invariant was violated.
-```
-
-The CLI should show the path-level reason where possible:
-
-```text
-/acme/lib/a.go changed since patchset 3
-expected content hash: h1
-current content hash:  h2
-```
+- **Path locks (`path_locks`)**: explicit administrative path-lock records and `source_path_lock_set_hash` validation during submit admission (the proto fields exist as placeholders, but path-lock enforcement is not yet built).
+- **Dependency-derived read sets**: expanding patchset read sets from build/test dependency graphs (generated file inputs, build manifests, API/schema consumers) to turn semantic conflicts into deterministic freshness checks.
+- **Approval forwarding across clean rebases**: §7.1 auto-forwarding when a rebase patchset has an identical diff and unchanged submit requirements.

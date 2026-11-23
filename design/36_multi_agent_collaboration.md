@@ -10,73 +10,73 @@ overwriting each other's work, and without one person's agents approving
 each other's changes. A person should be able to tell, for any change, which
 agent made it, on whose behalf, and with which credential.
 
-## How access works today
+## Background: prior access model
 
-Subjects are people (`kind = user`) and agents (`kind = agent`, design/20).
-An agent has its own personal account and home slice, and the person who
-claims it becomes a co-owner of that account.
+Before this design shipped, subjects were people (`kind = user`) and agents
+(`kind = agent`, design/12). An agent had its own personal account and home
+slice, and the person who claimed it became a co-owner of that account.
 
-Access to a slice is the higher of two roles (`internal/authz`):
+Access to a slice was the higher of two roles (`internal/authz`):
 
 | Where | Roles | Grants |
 |---|---|---|
-| Account membership (design/12, /20) | owner, admin, member, writer, reader | the whole account |
-| Slice member (design/26) | admin, writer, reader | one slice |
+| Account membership (design/12) | owner, admin, member, writer, reader | the whole account |
+| Slice member (design/12) | admin, writer, reader | one slice |
 
-They collapse into three actions: `read`, `write`, `admin`.
+They collapsed into three actions: `read`, `write`, `admin`.
 
 - **read**: read files, check out, clone.
-- **write**: everything that changes code:
+- **write**: everything that changed code:
   - create changesets, push new patchsets **to any changeset**, edit any
     changeset's title, and submit **any** changeset;
   - approve, report check results, tag, and push with Git;
   - run checks with the account's secrets.
-- **admin** (slice): members and webhooks.
+- **admin** (slice): members and settings.
 - **Kept for the account's owners and admins**: the slice's definition,
-  CI daemon, secrets and deletion; a change under `.gitslice/` needs one of
+  CI daemon, secrets and deletion; a change under `.gitslice/` needed one of
   them as author or approver (design/34).
 
 Credentials:
 
-- Sessions (from a browser sign-in) and API keys (`gsk_`, design/20) both
-  carry the **full authority of their subject**. There are no per-key scopes,
-  no expiry by default, and no key that is limited to a slice.
-- A `gs agent` daemon authenticates with the saved `gs` login of the person
-  who started it (design/16). The coding agents it runs don't get `GS_TOKEN`,
-  but they keep `HOME`, so on that machine they can use the saved login, with
-  all of that person's authority, on every account the person belongs to.
+- Sessions (from a browser sign-in) and API keys (`gsk_`, design/12) both
+  carried the **full authority of their subject**. There were no per-key scopes,
+  no expiry by default, and no key limited to a slice.
+- A `gs agent` daemon authenticated with the saved `gs` login of the person
+  who started it (design/16). The coding agents it ran didn't get `GS_TOKEN`,
+  but they kept `HOME`, so on that machine they could use the saved login, with
+  all of that person's authority, on every account the person belonged to.
 
 Approvals:
 
-- `required_approvals` counts distinct subjects other than the changeset's
+- `required_approvals` counted distinct subjects other than the changeset's
   and patchset's authors (`storage.FilterApprovalSubjects`).
 
-## Problems for multi-agent work
+## Problems addressed for multi-agent work
 
-1. **`writer` is all or nothing.** An agent that should only propose
-   changes can also submit them, approve others, tag releases, push with
-   Git, and run code with the account's secrets. There's no role for an
+1. **`writer` was all or nothing.** An agent that should only propose
+   changes could also submit them, approve others, tag releases, push with
+   Git, and run code with the account's secrets. There was no role for an
    untrusted or experimental agent between `reader` and `writer`.
-2. **Changesets have no owner.** Any writer can push a patchset onto, submit
+2. **Changesets had no owner.** Any writer could push a patchset onto, submit
    or abandon another agent's changeset. Two agents working on related tasks
-   can overwrite each other's work by accident.
-3. **Approvals can be gamed by one person's agents.** Agent A writes, agent
-   B approves: two subjects, so a `required_approvals: 1` slice lets one
-   person land unreviewed code by running two agents. Nothing records that
-   both act for the same person, and no rule can ask for a person's review.
-4. **Credentials are too broad.** A key or daemon login grants everything
-   its subject can do, everywhere, with no expiry. A compromised or
-   misbehaving agent in one slice can act on every slice of every account
-   its owner belongs to.
-5. **No ownership inside a slice.** A slice is one path set with one set of
-   writers. The only finer rule is the `.gitslice/` approval. Agents that own
-   different areas (the API, the web app, the infra) can't be required to
+   could overwrite each other's work by accident.
+3. **Approvals could be gamed by one person's agents.** Agent A wrote, agent
+   B approved: two subjects, so a `required_approvals: 1` slice let one
+   person land unreviewed code by running two agents. Nothing recorded that
+   both acted for the same person, and no rule could ask for a person's review.
+4. **Credentials were too broad.** A key or daemon login granted everything
+   its subject could do, everywhere, with no expiry. A compromised or
+   misbehaving agent in one slice could act on every slice of every account
+   its owner belonged to.
+5. **No ownership inside a slice.** A slice was one path set with one set of
+   writers. The only finer rule was the `.gitslice/` approval. Agents that owned
+   different areas (the API, the web app, the infra) couldn't be required to
    review changes to their area.
-6. **No coordination.** Agents learn that they edited the same files only at
+6. **No coordination.** Agents learned that they edited the same files only at
    submit time, through a conflict.
-7. **Audit is per subject only.** A patchset records its author subject, not
+7. **Audit was per subject only.** A patchset recorded its author subject, not
    which key, daemon or conversation produced it, nor the person the agent
-   works for.
+   worked for.
 
 ## Design
 
@@ -171,10 +171,12 @@ subject's role and the grant:
 
 ```sql
 alter table api_keys
-  add column slice_ids text[],        -- null: every slice the subject can reach
-  add column max_role text,           -- reader | contributor | writer
-  add column parent_key_id text,      -- set for keys minted from another key
-  add column purpose text;            -- e.g. "daemon my-ci", "conversation cv_..."
+  add column slice_ids text[],              -- null: every slice the subject can reach
+  add column max_role text,                 -- reader | contributor | writer
+  add column parent_key_id text,            -- set for keys minted from another key
+  add column purpose text not null default '',         -- e.g. "daemon my-ci", "conversation cv_..."
+  add column daemon_id text not null default '',       -- set for daemon-minted keys
+  add column conversation_id text not null default ''; -- set for per-conversation child keys
 ```
 
 - `gs auth keys create --slice acme/payment --role contributor --expires 7d`.
@@ -183,14 +185,16 @@ alter table api_keys
   `gs agent create release-bot --slice acme/payment --role writer`. The agent
   is added to the slice with that role, and the person gets its first key.
   This is the "agents acting on behalf of an existing human account"
-  non-goal of design/20.
+  case that was originally out of scope when agent signup shipped.
 - **Daemon and conversation keys.** A `gs agent` daemon gets its own key,
-  limited to the slices it's exposed to. For each conversation or check run
-  it mints a child key that expires with the run (at most 12 h), names that
-  one slice, and has the role the conversation was started with (default
-  `contributor`). That key goes into the agent's environment as `GS_TOKEN`,
-  and `HOME` points at a run folder with no saved login. The agent can then
-  touch only its own slice, with only its role, for only as long as the run.
+  limited to the slices it's exposed to. For each **conversation** (note:
+  per-check-run child keys are not implemented; child keys are minted for
+  conversations only) it mints a child key that expires with the run (at most
+  12 h), names that one slice, and has the role the conversation was started
+  with (default `contributor`). That key goes into the agent's environment as
+  `GS_TOKEN`, and `HOME` points at a run folder with no saved login. The agent
+  can then touch only its own slice, with only its role, for only as long as
+  the run.
   **Limit:** the agent still runs as the daemon's OS user, so it can read
   the daemon's own saved login by its path (`~/.gitslice/config.json`); a
   separate `HOME` only stops it being used by default. That login should be

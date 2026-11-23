@@ -1,17 +1,26 @@
 # Gitslice Product Overview
 
-Gitslice is a source graph platform for teams that need one coherent codebase
-without forcing every workflow through one physical Git repository.
+Gitslice is a source graph platform for teams and AI coding agents that need one
+coherent codebase without forcing every workflow through one physical Git
+repository.
 
-The product should feel familiar to Git users, but it should make large-scale
-work easier by treating slices, virtual workspaces, changesets, and submit
-validation as first-class product concepts.
+The product feels familiar to Git users, while treating slices, virtual
+workspaces, changesets, folder-level policy/CI/automation configs, and
+server-side submit validation as first-class concepts.
 
-The MVP should be a CLI-first product. The first complete user experience should
-be `gs`: authentication, workspace setup, slice hydration, local edit capture,
-changeset creation, and submit from the command line. Web UI, IDE
-plugins, and richer dashboards can build on the same backend later, but they
-should not be required for the initial product to be usable.
+Gitslice ships as a cohesive multi-surface platform backed by one core server:
+
+- **Native CLI (`gs`)**: authentication, full and lazy FUSE workspaces, local
+  edit capture, stacked changesets, submit, and an embedded MCP server
+  (`gs mcp`) for coding agents.
+- **Web App (`web/`)**: TanStack Start SSR interface on Cloudflare Workers for
+  browsing slices, reviewing changesets, inspecting blame/history, managing
+  approvals/checks/automations/secrets, and chatting with BYO agent daemons.
+- **Git Compatibility Gateway (`/git/`)**: Git Smart HTTP clone, fetch,
+  push-to-changeset, and outbound Git mirrors.
+- **CI & Automations**: BYO agent/CI daemon pools with a Cloudflare doorbell
+  and hosted container runners, plus folder-scoped `.gitslice/` configs for
+  owners, checks, merge strategies, and Worker/Container automations.
 
 ## 1. Product Thesis
 
@@ -20,12 +29,12 @@ operational rather than conceptual:
 
 - Git repositories get too large.
 - Teams need different visibility and write policies.
-- CI and submit rules differ by code area or team.
+- CI, ownership, and submit rules differ by code area or team.
 - Developers and agents need only a small working set.
 - Cross-repository refactors are hard to review and land safely.
 
-Gitslice should provide one native global source graph with repository-like
-slices at the boundary. Users work in small, understandable projections, while
+Gitslice provides one native global source graph with repository-like slices at
+the boundary. Users and agents work in small, understandable projections, while
 the system keeps paths, history, policy, indexing, and submit validation
 consistent.
 
@@ -36,29 +45,30 @@ Primary users:
 - engineers working in large multi-team codebases
 - platform teams that own build, CI, policy, and source infrastructure
 - organizations that want monorepo-style consistency without one giant Git repo
-- AI coding agents that need scoped, policy-aware workspaces
+- AI coding agents that need scoped, policy-aware workspaces and MCP tools
 
 Secondary users:
 
-- open-source maintainers who want repository-like public slices
+- open-source maintainers who want repository-like public slices and Git mirrors
 - CI systems and code review tools that need Git-compatible checkouts
-- migration teams moving from many Git repositories toward one source graph
+- migration teams moving from existing Git repositories toward one source graph
 
 ## 3. Product Principles
 
-Gitslice product behavior should follow these principles:
+Gitslice product behavior follows these principles:
 
 - Native source graph first; Git compatibility at the boundary.
-- The MVP is CLI-first; `gs` should be the first complete product surface.
 - Slices are product views, not storage shards.
 - Changesets are the review and submission unit.
-- A changeset has exactly one authoring slice.
-- Cross-slice changesets are not supported.
-- Submit requirements are explicit slice settings and are enforced server-side.
-- Workspaces hydrate only what the user or agent needs.
+- A changeset has exactly one authoring slice; cross-slice changesets are not
+  supported.
+- Submit requirements are enforced server-side from slice definitions and
+  in-tree `.gitslice/` folder configs.
+- Workspaces hydrate only what the user or agent needs (eagerly or lazily via
+  FUSE).
 - Caches and watchers improve performance, but server validation decides
   correctness.
-- Git users should be productive without learning the native internals.
+- Git users can be productive without learning the native internals.
 
 ## 4. Account And Auth Model
 
@@ -69,154 +79,93 @@ source-path root belongs to exactly one account:
 /{account}/...
 ```
 
-An account can represent:
+An account represents:
 
-- a user account, such as `/nicholas`
+- a personal user account, such as `/nicholas`
 - an organization account, such as `/acme`
-- a service-owned account, if the product later needs managed system code
 
-Account kind is metadata. It is not encoded in the path. Gitslice should not use
+Account kind is metadata, not encoded in the path. Gitslice does not use
 `/users` or `/orgs` prefixes. Because paths are rooted directly under account
-slugs, the account service must maintain a globally unique slug registry.
+slugs, the auth service maintains a globally unique slug registry.
 
 ### 4.1 Identity Types
 
-Gitslice should support these identities:
+Gitslice supports:
 
-- human users
-- organization groups or teams
-- service accounts for CI and automation
-- agent identities for AI coding agents
-- short-lived sessions created by the CLI or Git gateway
+- human users (authenticated via Clerk / OIDC in web and browser-assisted CLI
+  login)
+- organization groups (`@account/group`) for slice membership and approver gates
+- agent identities (self-registered via `gs auth register-agent` and claimable
+  by a human, or created as delegated agents)
+- scoped API keys (`AuthService.CreateApiKey`) for CI, scripts, and automation
+- per-run bearer tokens for isolated automation executions (`AutomationRunService`)
 
-Every authenticated request has:
+Authorization uses stable `subject_id` and `principal` metadata rather than
+display names or email addresses.
 
-```text
-subject_id
-subject_type
-session_id
-account_memberships[]
-scopes[]
-issued_at
-expires_at
-```
+### 4.2 CLI And Agent Authentication
 
-The subject may be a human, service account, or agent. Authorization should not
-depend on a display name or email address.
-
-### 4.2 CLI Authentication
-
-The MVP authentication flow should be optimized for the CLI:
-
-```text
-gs auth login
-  -> browser or device-code login
-  -> exchange identity-provider session for Gitslice refresh token
-  -> store refresh token in the OS credential store where available
-  -> mint short-lived access tokens for API calls
-```
-
-The CLI should expose:
+Human CLI login uses a browser-backed polling flow:
 
 ```bash
-gs auth login
-gs auth status
-gs auth logout
-gs auth token
+gs auth login           # browser-backed CLI login
+gs auth status          # show active subject, accounts, and server
+gs auth logout          # clear local credentials
+gs auth register-agent  # register an agent identity (claimable by a human)
 ```
 
-Access tokens should be short-lived. Refresh tokens should be revocable per
-device/session. The CLI should never store long-lived tokens in workspace files.
+Long-lived credentials are stored outside workspace directories (in the user's
+CLI config/credential store). Agents and CI can also authenticate with scoped
+API keys or delegated agent credentials.
 
 ### 4.3 Account Memberships And Roles
 
 Users can belong to multiple accounts. A request against a slice resolves:
 
 ```text
-authenticated subject
-  -> account memberships
-  -> slice visibility
-  -> slice roles
-  -> submit requirements
+authenticated principal
+  -> account memberships & account groups
+  -> slice visibility & slice roles
+  -> submit requirements (slice definition + .gitslice/ folder configs)
 ```
 
-Core account roles:
+Account roles:
 
-- owner: manages account settings, billing, admins, and destructive operations
-- admin: manages slices, teams, service accounts, and policy overrides
-- member: can see account-visible resources
-- guest: limited access to explicitly shared slices
+- `owner`: manages account settings, organizations, members, groups, and
+  destructive operations
+- `admin`: manages slices, members, invitations, CI daemon pools, and secrets
+- `member`: can access account-visible resources
 
-Slice roles:
+Slice roles (assigned directly or via `@account/group`):
 
-- owner: manages slice definition, visibility, and roles
-- admin: manages slice settings and reviewers
-- writer: can create changesets from the slice
-- reader: can read the slice
-
-Submit settings can add required approvals and checks, but they do not grant
-read access by themselves.
+- `owner`: manages slice lifecycle, visibility, members, and all settings
+- `admin`: manages slice definition, submit settings, members, CI daemons, and
+  Git mirrors
+- `writer`: can create, modify, and submit changesets from the slice
+- `reader`: can read the slice and view changesets
 
 ### 4.4 Authorization Rules
 
-Authentication answers who the caller is. Authorization answers what that caller
-can do.
-
 Read authorization:
 
-- public slices can be read without authentication, subject to publicability
-  policy
-- account-visible slices can be read by account members
-- private slices require explicit slice reader access
+- `public` slices can be read without authentication
+- `account` slices can be read by members of the owning account
+- `private` slices require explicit slice reader (or higher) access
 - overlapping slices can expose the same path to different audiences; access is
   evaluated through the slice being read
 
 Write authorization:
 
-- a user must have writer access on the authoring slice
+- a caller must have `writer` (or higher) access on the authoring slice
 - every changed path must be included by the authoring slice
-- the user must have read access to every changed path
-- submit must pass slice submit requirements, required checks, and any active
-  path locks
-
-Admin authorization:
-
-- account admins can manage account-level settings, teams, service accounts,
-  and override policy according to account rules
-- slice owners/admins can manage slice definitions, submit settings, and role
-  assignments
-- weakening submit settings requires the same administrative review flow as
-  other protected slice-definition changes
+- submit must pass slice submit settings, folder-level `.gitslice/owners.yaml`
+  and `.gitslice/checks.yaml` requirements, and path-head freshness checks
 
 ### 4.5 Git Authentication
 
-Git clone/fetch/push should authenticate through the Git gateway, then map the
-caller to the same account, slice, and policy model used by the CLI.
-
-Supported MVP options:
-
-- HTTPS Git credentials backed by Gitslice access tokens
-- generated Git credentials from `gs auth login`
-- service-account tokens for CI checkout
-
-SSH keys can be added later, but they should map to the same subject and session
-model. Git authentication must not bypass changesets or submit validation.
-
-### 4.6 Agent And Service Account Auth
-
-Agents and CI should use explicit service or agent identities rather than
-borrowing a human user's long-lived token.
-
-Agent/service credentials should be:
-
-- scoped to accounts, slices, and operations
-- revocable without deleting the owning user or account
-- auditable in changeset, patchset, and submit logs
-- optionally bound to an external workload identity provider
-
-For the MVP, agent identities can use service-account tokens with clear audit
-metadata. Later, agents can get richer delegation rules such as "act on behalf
-of user X for slice Y until time Z."
+Git clone/fetch/push authenticates through the `/git/` Smart HTTP gateway using
+the same bearer/basic token resolution as the native API. Git authentication
+never bypasses changesets or submit validation.
 
 ## 5. Core Product Objects
 
@@ -226,180 +175,195 @@ Account
 
 Slice
 : A repository-like view over one account's source graph. A slice owns
-  visibility, roles, included paths, and Git URL identity.
+  visibility, roles, included paths, submit settings, CI daemon pool bindings,
+  Git mirror configuration, and Git URL identity.
 
 Workspace
-: A local working area bound to exactly one slice. It hydrates files for that
-  slice on demand.
+: A local working area bound to exactly one slice. Workspaces support eager
+  sparse hydration (`gs init`) or lazy on-demand FUSE hydration
+  (`gs init --lazy`).
 
 Changeset
 : The unit of review and submission. It contains immutable patchsets, review
-  state, authorization requirements, submit requirements, and submit status.
+  state, collaborator/handoff metadata, submit requirements, and submit status.
   User-facing surfaces identify changesets by a shareable handle of the form
-  `account/slice@number`, for example `acme/payment@42`; raw storage ids are
-  internal/debug identifiers.
+  `account/slice@number` (for example `acme/payment@42`). Multiple dependent
+  changesets can be organized into a **Changeset Stack**.
 
 Patchset
-: An immutable version of a changeset's proposed file edits. User-facing
-  patchset references are patchset numbers within a changeset; a standalone
-  exact-version reference appends the number to the changeset handle, for
-  example `acme/payment@42.2`.
+: An immutable version of a changeset's proposed file edits. Referenced as
+  `<changeset-handle>.<patchset-number>`, for example `acme/payment@42.2`.
 
-Submit settings
-: Slice-level settings that define required approvals and checks for changes
-  authored from that slice. Target-ref sequencers serialize final ref updates.
+Submit settings & `.gitslice/` configs
+: Slice-level submit settings (`SliceDefinition` and `merge_on_submit`) combined
+  with hierarchical in-tree `.gitslice/` folder configs (`owners.yaml`,
+  `checks.yaml`, `automations.yaml`, `merge.yaml`) govern approvals, CI checks,
+  auto-merge strategies, and event-driven automations.
 
-Git projection
-: A Git-compatible repository view generated from a slice. It supports clone,
-  fetch, CI checkout, and push-to-changeset workflows without making Git storage
-  the source of truth.
+Git projection & mirrors
+: A Git-compatible repository view generated from a slice for clone, fetch, and
+  push-to-changeset workflows, plus optional automated outbound mirroring to
+  external Git remotes.
 
-## 6. MVP Product Shape
+## 6. Primary Workflows
 
-The MVP should be usable end-to-end from the CLI before any web UI is required.
+### 6.1 Native CLI Workflow
 
-CLI-first means:
-
-- onboarding starts with `gs auth login`
-- a user can create or select a workspace from the CLI
-- slice discovery and hydration work from the CLI
-- local edits become changesets from the CLI
-- submit status, authorization failures, check state, and conflicts are visible
-  from the CLI
-- path lookup is available from the CLI
-- Git compatibility exists for clone/fetch/push workflows, but `gs` remains the
-  primary product surface
-
-Minimum CLI journey:
-
-```text
+```bash
 gs auth login
-gs workspace init acme/payment
+gs init acme/payment            # or: gs init --lazy acme/payment
+# edit files
 gs status
-gs cs create
-gs cs submit
-gs cs status
+gs diff
+gs create -m "Add payment retry"
+# iterate after review
+gs modify
+gs sync
+gs submit
 ```
 
-Web and IDE surfaces should be treated as later clients of the same account,
-auth, changeset, submit, and storage APIs.
+The CLI snapshots local edits into a changeset patchset, uploads missing blobs,
+and submits through server-side validation and asynchronous batched commit
+publication.
 
-## 7. Primary Workflows
+### 6.2 Agent & MCP Workflow
 
-### 7.1 Native CLI Workflow
+Coding agents can work through the same native workspace and changeset flow:
 
-```text
-gs workspace init acme/payment
-edit files
-gs status
-gs cs create
-gs cs submit
-```
+- `gs auth register-agent` registers a dedicated agent identity.
+- `gs mcp` exposes workspace, diff, changeset, stack, check, and path-intent
+  operations over the Model Context Protocol.
+- BYO agent daemons (`AgentService.Connect`) let users converse with local or
+  hosted agents directly from the web UI on slice/changeset context.
+- Multi-agent collaboration uses explicit collaborators, handoffs, and advisory
+  path intents (`CreatePathIntent` / `ListPathIntents`).
 
-The user works in a sparse workspace bound to one slice. The CLI snapshots local
-edits into a changeset patchset for that slice, uploads missing blobs, and
-submits through server-side submit and conflict validation. To work on another
-slice, the user creates a separate workspace.
+### 6.3 Git Compatibility Workflow
 
-### 7.2 Git Compatibility Workflow
-
-```text
-git clone https://gitslice.io/git/acme/payment.git
-edit files
-git commit
+```bash
+git clone https://api.gitslice.io/git/acme/payment.git
+# edit files
+git commit -m "Add payment retry"
 git push origin HEAD:refs/changes/new
 ```
 
-The Git gateway converts the pushed Git diff into a native changeset and
-patchset. Direct writes to protected accepted refs are rejected or translated
-into changeset workflows.
+The Git gateway translates the pushed diff into a native changeset and patchset.
+Direct pushes to protected accepted refs are rejected or routed through
+changeset creation.
 
-### 7.3 Submit Settings Workflow
+### 6.4 Submit Settings And `.gitslice/` Folder Configs
+
+Slice-level submit settings live on the versioned `SliceDefinition` (and slice
+metadata for `merge_on_submit`):
 
 ```yaml
-submit:
-  required_approvals:
-    - team: payment-owners
-  required_checks:
-    - payment-ci
+# SliceDefinition fields
+required_approvals: 1
+required_human_approvals: 1
+approvers: "@acme/payment-owners"
+required_checks:
+  - unit-tests
+# Slice flag
+merge_on_submit: true
 ```
 
-Teams express submit requirements as part of slice definitions. Submit-setting
-changes are reviewed through changesets or an equivalent administrative flow.
-Weakening submit requirements requires the same protected slice-administration
-path as changing included paths, roles, or visibility.
+In addition to slice-level settings, teams can place declarative configuration
+files inside `.gitslice/` directories anywhere in the source tree. The server
+walks ancestor directories from each changed path up to the account root
+(`internal/gitslicecfg`):
 
-### 7.4 Submit Workflow
+- **`.gitslice/owners.yaml`**: path-scoped code owners and approval rules for
+  files under that subtree.
+- **`.gitslice/checks.yaml`**: declarative CI check definitions (commands,
+  required flags, secret bindings, triggers) dispatched to slice/account CI
+  daemon pools or Cloudflare-hosted runners.
+- **`.gitslice/automations.yaml`**: event-driven and manual automations
+  (JavaScript Dynamic Workers, bash containers, HTTP targets, and reusable
+  pipelines).
+- **`.gitslice/merge.yaml`**: per-path merge strategies used during server-side
+  merge-on-submit and restack operations.
+
+### 6.5 Submit Workflow
 
 ```text
 changeset
-  -> resolve changed paths
-  -> resolve covering slices
-  -> resolve submit requirements
-  -> run checks
-  -> target-ref landing sequencer
-  -> CAS ref update
+  -> resolve changed paths & authoring slice containment
+  -> resolve slice submit settings + .gitslice/owners.yaml + .gitslice/checks.yaml
+  -> verify approvals & required checks
+  -> optional server-side merge_on_submit if path bases drifted
+  -> durable path-head CAS + enqueue pending_publish row
+  -> async target-ref publisher (3-stage batched tree build & CAS ref update)
+  -> outbox -> derived indexes, blame warmer, automations, Git mirrors
 ```
 
-The product should prefer clear blocked states over implicit best-effort submit.
-If submit requirements, checks, indexes, or ref freshness are stale, submit
-should block or retry rather than land under uncertain requirements.
+Submit prefers explicit blocked states (`stale_path_base`,
+`requirements_changed`, `approvals_missing`, `checks_missing`,
+`blocked_on_parent`) over implicit best-effort landing.
 
-## 8. Product Scope
+## 7. Shipped Production Stack
 
-MVP scope:
+Gitslice runs as a production cloud-native system:
 
-- account-rooted global paths
-- CLI-first onboarding and daily workflow
-- account, membership, session, and token management for CLI/API/Git access
-- slice creation and projection
-- sparse native workspaces
-- native `gs` changeset flow
-- slice-level submit settings
-- per-target-ref landing sequencer
-- Git clone/fetch from slice URLs
-- Git push into changesets
-- PostgreSQL metadata storage and prototype filesystem-based object storage
-- derived indexes for path coverage and history
-- per-path conflict detection and safe batched target-ref updates
-- correctness-first storage lifecycle and GC
+- **Core server**: Single Go binary (`cmd/gitslice-server`) serving gRPC,
+  ConnectRPC HTTP, `/git/` Smart HTTP, `/avatars/`, `/og/`, and
+  `/automation-archive` on Cloud Run with scale-to-zero idle gating.
+- **Storage**: PostgreSQL (Neon) for transactional metadata and derived indexes,
+  plus Cloudflare R2 (`GITSLICE_REQUIRE_R2=1`) for immutable blobs and tree
+  nodes, backed by a 256 MiB in-process object cache and an LRU decoded
+  tree-node cache.
+- **Web app**: TanStack Start SSR application deployed on Cloudflare Workers
+  (`web/`).
+- **CI & Automations**: BYO daemon pools, Cloudflare `doorbell/` Worker with
+  hibernating WebSockets and container runners, and `trigger-dispatch/`
+  Cloudflare Dynamic Workers + `BashRunner` Durable Object containers (`gs-exec`).
+- **Workspaces & Agents**: Native `gs` CLI, lazy FUSE workspaces (`gs init --lazy`
+  + `gs mountd`), `gs mcp`, BYO agent daemons, scoped secrets, and outbound Git
+  mirrors.
 
-Later scope:
+## 8. Product Non-Goals
 
-- richer branch support
-- advanced query language
-- richer migration tooling from existing Git repositories
-- advanced large-file transfer optimizations if native blob storage plus partial
-  clone is not enough
-- IDE integrations
-- hosted review UI
-- organization analytics and policy dashboards
+Gitslice intentionally does not:
 
-## 9. Product Non-Goals
-
-The product should not:
-
-- expose cross-slice changesets
-- auto-link multiple changesets into one product-level submission
-- provide atomic multi-slice submission
+- expose cross-slice changesets or atomic multi-slice submission
 - bind multiple slices into one workspace
 - use `/users` or `/orgs` path prefixes
-- support per-directory policy files
-- include code search in the MVP
-- add a separate submit scheduling abstraction in the MVP
-- make Git sparse checkout a core workflow
-- make Git object ids the native object ids
+- remap canonical global paths to custom mount aliases inside slices
+- make Git object ids the native storage ids
 - make client-side file watchers authoritative for correctness
 - require users to understand internal storage objects for normal workflows
 
-## 10. Document Map
+## 9. Document Map
 
-- [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md): architecture and system model
-- [02_storage.md](02_storage.md): storage stack, Postgres schema, filesystem object layout, refs, hashing, GC, and replication
-- [03_core_api.md](03_core_api.md): gRPC services, proto messages, and gateway behavior
-- [04_cli_design.md](04_cli_design.md): native `gs` CLI and workspace behavior
-- [05_git_compatibility.md](05_git_compatibility.md): Git gateway, projections, and push behavior
-- [06_indexing.md](06_indexing.md): derived indexes, events, freshness, and rebuilds
-- [07_conflict_resolution.md](07_conflict_resolution.md): per-path conflict detection and batched submit
-- [08_mvp_implementation.md](08_mvp_implementation.md): Go MVP implementation shape and test harness
-- [09_execution_plan.md](09_execution_plan.md): implementation phases and workflow validation
+Living design documents in `design/`:
+
+- [00_product.md](00_product.md): product overview, users, workflows, and scope
+- [01_gitslice_architecture_design.md](01_gitslice_architecture_design.md): system architecture, binaries, edge services, and invariants
+- [02_storage.md](02_storage.md): content-addressed object model, PostgreSQL schema, R2 + caches, and 3-stage publish
+- [03_core_api.md](03_core_api.md): gRPC and ConnectRPC API specification across all 13 services
+- [04_cli_design.md](04_cli_design.md): native `gs` CLI, workspace layout, and `gs mcp`
+- [05_git_compatibility.md](05_git_compatibility.md): Git Smart HTTP gateway, projections, and push-to-changeset
+- [06_indexing.md](06_indexing.md): derived indexes, transactional outbox, freshness, and rebuilds
+- [07_conflict_resolution.md](07_conflict_resolution.md): per-path conflict detection, `merge_on_submit`, `.gitslice/merge.yaml`, and batched submit
+- [11_web_interface_design.md](11_web_interface_design.md): TanStack Start web app architecture and UI workflows
+- [12_account_auth.md](12_account_auth.md): accounts, Clerk auth, CLI login, agent registration/claim, groups, and API keys
+- [13_file_identity_and_move_history.md](13_file_identity_and_move_history.md): stable file/directory identity and move-following history
+- [15_stacked_changesets.md](15_stacked_changesets.md): changeset stacks, restacking, and ordered stack submission
+- [16_bring_your_own_agent.md](16_bring_your_own_agent.md): BYO agent daemons, conversations, and live streaming
+- [17_continuous_integration.md](17_continuous_integration.md): `.gitslice/checks.yaml`, CI daemon pools, Cloudflare doorbell, and container runners
+- [18_analytics.md](18_analytics.md): product analytics and telemetry
+- [21_self_hosting.md](21_self_hosting.md): self-hosting, deployment topology, and configuration
+- [22_agents_on_artifacts.md](22_agents_on_artifacts.md): Cloudflare Artifacts agent prototype (`agents/`)
+- [25_feedback.md](25_feedback.md): in-product feedback collection and triage
+- [27_blame.md](27_blame.md): file blame snapshots and background blame warming
+- [28_benchmarks.md](28_benchmarks.md): performance benchmarks and latency modeling
+- [29_slice_lifecycle.md](29_slice_lifecycle.md): slice rename, aliases, archive, and retirement
+- [30_lazy_workspaces.md](30_lazy_workspaces.md): lazy FUSE workspaces (`gs init --lazy`, `gs mountd`)
+- [33_secrets.md](33_secrets.md): encrypted secrets, slice/path scoping, and patchset secret allowances
+- [34_automations.md](34_automations.md): `.gitslice/automations.yaml`, Dynamic Workers, `BashRunner` containers, and pipelines
+- [35_git_mirrors.md](35_git_mirrors.md): outbound Git mirror synchronization
+- [36_multi_agent_collaboration.md](36_multi_agent_collaboration.md): collaborators, handoffs, and advisory path intents
+
+Historical and operational references:
+
+- [`design/archive/`](archive/): superseded design drafts and historical phase plans
+- [`docs/execution_log.md`](../docs/execution_log.md): chronological implementation and operational log

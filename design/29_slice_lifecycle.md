@@ -12,7 +12,7 @@ slice that has history.
 admin on the slice's account. The home slice cannot be renamed.
 
 - The slice id, definition, members, secrets, tags and changesets are
-  untouched. The two tables that repeat the slice's name next to its id
+  untouched. The three tables that repeat the slice's name next to its id
   (`changesets`, `changeset_stacks`, `git_imports`) are updated in the same
   transaction.
 - The old name becomes a row in `slice_aliases(account_id, slug, slice_id)`.
@@ -40,11 +40,25 @@ archived.
 
 - Hidden from listings (`ListSlices`, public and shared lists) unless
   `include_archived` / `gs slice list --archived`.
-- Read-only: `authz.Authorize` refuses `ActionWrite` on an archived slice
-  (`FailedPrecondition`: "archived and read-only"). Reads, history and admin
-  actions such as unarchive are unaffected.
+- Read-only: `authz.Authorize` refuses **all non-read actions** (not just
+  writes, but also slice-admin actions) on an archived slice
+  (`FailedPrecondition`: "archived and read-only"). Reads and history are
+  unaffected. Operations that must still work on an archived slice (such as
+  unarchiving in `SetSliceArchived`) opt in via `AuthorizeAllowArchived`.
 - The name stays reserved and the slice keeps covering its paths, so its
   required checks still apply to changes to those paths from other slices.
+
+## Description and Merge-on-Submit
+
+`service/slice_lifecycle.go` also hosts two slice-level setting RPCs, both
+requiring account owner/admin (`authorizeSliceOwner`) and refused on archived
+slices:
+
+- `SliceService.SetSliceDescription` — sets or clears a slice's description
+  (trimmed, valid UTF-8, no control characters except `\n`/`\t`, up to 500
+  runes).
+- `SliceService.SetSliceMergeOnSubmit` — enables or disables automatic merging
+  of stale changesets on submit (see `design/07_changeset_merging.md`).
 
 ## Delete a slice that has changesets
 
@@ -56,15 +70,16 @@ is now retired (`slices.deleted_at`) when:
    archived, or holds no files at the head of `refs/global/main`.
 
 Retiring keeps the slice row, so its changesets, its name and its id stay
-valid; the slice no longer resolves, lists or covers paths, and its secrets are
-deleted. A changeset of a retired slice is still readable (the changeset and
-stack read paths look the slice up as it was), so "history stays on the path"
-holds. The account's home slice covers every path under the account, so in
-practice the second condition holds for any slice inside an account; it guards
-the unusual cases.
+valid; the slice no longer resolves, lists or covers paths. Secrets are
+account-scoped by folder path (design/33) rather than owned by a slice, so
+retiring a slice does not delete secrets. A changeset of a retired slice is
+still readable (the changeset and stack read paths look the slice up as it
+was), so "history stays on the path" holds. The account's home slice covers
+every path under the account, so in practice the second condition holds for any
+slice inside an account; it guards the unusual cases.
 
 ## Not done
 
 - A retired slice cannot be restored, and its name cannot be reused.
-- Webhook payloads and Git tags already sent keep the name they had.
+- Git tags already created keep the name they had.
 - Renaming an account is a separate problem.
