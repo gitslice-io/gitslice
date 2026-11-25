@@ -132,8 +132,10 @@ describe("SlicesList on Home", () => {
     expect(screen.queryByText("agent")).not.toBeInTheDocument();
 
     // The home slice is featured in the Monorepo card above Slices (Views),
-    // matching AccountPage.
-    expect(screen.getByRole("region", { name: "Monorepo" })).toBeInTheDocument();
+    // matching AccountPage, and stacks vertically on mobile viewports.
+    const monorepo = screen.getByRole("region", { name: "Monorepo" });
+    expect(monorepo).toBeInTheDocument();
+    expect(monorepo.firstElementChild).toHaveClass("flex-col", "lg:flex-row");
     expect(screen.getByRole("link", { name: "Browse /nic" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Changesets" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Folder policy" })).toBeInTheDocument();

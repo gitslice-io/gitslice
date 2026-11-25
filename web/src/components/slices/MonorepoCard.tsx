@@ -26,7 +26,7 @@ export function MonorepoCard({ account, homeSlice, className }: MonorepoCardProp
         className
       )}
     >
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">Monorepo</h2>
@@ -40,7 +40,7 @@ export function MonorepoCard({ account, homeSlice, className }: MonorepoCardProp
             path owners, and secrets live on folders inside it.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
           <Link
             className={buttonClassName({ size: "md", variant: "primary" })}
             params={homeRouteParams}
