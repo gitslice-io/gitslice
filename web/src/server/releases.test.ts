@@ -70,8 +70,11 @@ describe("releaseResponse", () => {
     const html = await page!.text();
     expect(html).toContain('name="viewport"');
     expect(html).toContain('name="color-scheme"');
+    expect(html).toContain('localStorage.getItem("gitslice-theme")');
+    expect(html).toContain('src="/brand/gitslice-mark-96.png"');
     expect(html).toContain('href="/releases/download/v0.4.2/gs_linux_amd64.tar.gz"');
     expect(html).toContain("checksums.txt");
+    expect(html).toContain('aria-label="Footer"');
     expect((await serve("/releases/latest", stored, "HEAD"))?.headers.get("Location")).toBe("/releases/tag/v0.4.2");
   });
 
