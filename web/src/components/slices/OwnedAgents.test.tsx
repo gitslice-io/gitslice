@@ -130,5 +130,13 @@ describe("SlicesList on Home", () => {
     expect(listSlices).toHaveBeenCalledWith(expect.objectContaining({ account: "nic" }));
     expect(listOwnedAgents).not.toHaveBeenCalled();
     expect(screen.queryByText("agent")).not.toBeInTheDocument();
+
+    // The home slice is featured in the Monorepo card above Slices (Views),
+    // matching AccountPage.
+    expect(screen.getByRole("region", { name: "Monorepo" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Browse /nic" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Changesets" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Folder policy" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Slices (Views)" })).toBeInTheDocument();
   });
 });

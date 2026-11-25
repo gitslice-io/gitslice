@@ -4,10 +4,12 @@ import { Link, useSearch } from "@tanstack/react-router";
 import type { Slice } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { shortHash } from "../../lib/objectId";
+import { isHomeSlice } from "../../lib/sliceOrder";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
 import { canAdmin, kindLabel, membershipFor } from "../../lib/accounts";
 import { slicesListKey } from "../../queries/slices";
 import { useSelection } from "../../state/selection";
+import { MonorepoCard } from "./MonorepoCard";
 import {
   SliceLoadingBlock,
   SliceNotice,
@@ -40,58 +42,74 @@ export function SlicesList() {
     queryFn: () => listAllSlices(api, effectiveAccount)
   });
   const slices = slicesQuery.data ?? [];
+  const homeSlice = slices.find((slice) => isHomeSlice(slice));
+  const viewSlices = homeSlice ? slices.filter((slice) => slice !== homeSlice) : slices;
 
   return (
-    <section>
-      <div className="flex items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-            {isPersonalContext ? "Slices" : `Slices in ${effectiveAccount}`}
-          </h2>
-          <p className="text-sm leading-6 text-slate-600 dark:text-zinc-400">
-            {isPersonalContext
-              ? "Slices in your account. Switch to an agent or organization from the top bar to see its slices."
-              : `Slices of the ${kindLabel(activeMembership?.kind ?? "").toLowerCase()} ${effectiveAccount}. Switch accounts from the top bar.`}
-          </p>
-        </div>
-        {canAdmin(activeMembership) ? (
-          <Link
-            className="shrink-0 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-zinc-300 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98]"
-            search={{ account: effectiveAccount }}
-            to="/slices/new"
-          >
-            New slice
-          </Link>
-        ) : null}
-      </div>
+    <div className="grid gap-8">
+      {homeSlice && effectiveAccount ? (
+        <MonorepoCard account={effectiveAccount} homeSlice={homeSlice} />
+      ) : null}
 
-      <div className="mt-4">
-        {selection.isLoading ? (
-          <SliceLoadingBlock />
-        ) : selection.error ? (
-          <SliceNotice title="Could not load your home account" tone="error">
-            {getErrorMessage(selection.error)}
-          </SliceNotice>
-        ) : !effectiveAccount ? (
-          <SliceNotice title="Select an account">
-            Your signed-in session did not return a home account.
-          </SliceNotice>
-        ) : slicesQuery.isLoading ? (
-          <SliceLoadingBlock />
-        ) : slicesQuery.isError ? (
-          <SliceNotice title="Could not load slices" tone="error">
-            {getErrorMessage(slicesQuery.error)}
-          </SliceNotice>
-        ) : slices.length === 0 ? (
-          <SliceNotice title="No slices returned">
-            The server did not return any slices for this account.
-          </SliceNotice>
-        ) : (
-          <>
-            {/* Mobile: a compact stacked list — a 5-column table collapses to a
-                sparse two-column layout on narrow screens, so render rows. */}
-            <ul className="divide-y divide-slate-200 dark:divide-zinc-800 overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50 md:hidden">
-              {slices.map((slice) => {
+      <section>
+        <div className="flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
+              {isPersonalContext
+                ? homeSlice
+                  ? "Slices (Views)"
+                  : "Slices"
+                : `Slices in ${effectiveAccount}`}
+            </h2>
+            <p className="text-sm leading-6 text-slate-600 dark:text-zinc-400">
+              {isPersonalContext
+                ? "Slices in your account. Switch to an agent or organization from the top bar to see its slices."
+                : `Slices of the ${kindLabel(activeMembership?.kind ?? "").toLowerCase()} ${effectiveAccount}. Switch accounts from the top bar.`}
+            </p>
+          </div>
+          {canAdmin(activeMembership) ? (
+            <Link
+              className="shrink-0 rounded-md border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-2.5 py-1 text-xs font-medium text-slate-700 dark:text-zinc-300 transition hover:border-slate-300 dark:hover:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-950 hover:text-zinc-950 dark:hover:text-zinc-50 active:scale-[0.98]"
+              search={{ account: effectiveAccount }}
+              to="/slices/new"
+            >
+              New slice
+            </Link>
+          ) : null}
+        </div>
+
+        <div className="mt-4">
+          {selection.isLoading ? (
+            <SliceLoadingBlock />
+          ) : selection.error ? (
+            <SliceNotice title="Could not load your home account" tone="error">
+              {getErrorMessage(selection.error)}
+            </SliceNotice>
+          ) : !effectiveAccount ? (
+            <SliceNotice title="Select an account">
+              Your signed-in session did not return a home account.
+            </SliceNotice>
+          ) : slicesQuery.isLoading ? (
+            <SliceLoadingBlock />
+          ) : slicesQuery.isError ? (
+            <SliceNotice title="Could not load slices" tone="error">
+              {getErrorMessage(slicesQuery.error)}
+            </SliceNotice>
+          ) : slices.length === 0 ? (
+            <SliceNotice title="No slices returned">
+              The server did not return any slices for this account.
+            </SliceNotice>
+          ) : viewSlices.length === 0 ? (
+            <SliceNotice title="No additional slice views yet">
+              Browse everything in <span className="font-mono">/{effectiveAccount}</span> above, or create a slice view to scope
+              checkouts, share specific folders, or mirror a folder to Git.
+            </SliceNotice>
+          ) : (
+            <>
+              {/* Mobile: a compact stacked list — a 5-column table collapses to a
+                  sparse two-column layout on narrow screens, so render rows. */}
+              <ul className="divide-y divide-slate-200 dark:divide-zinc-800 overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50 md:hidden">
+                {viewSlices.map((slice) => {
                 const sliceId = slice.id ?? "";
                 const routeParams = toSliceRouteParams(slice.ref);
                 const name = formatHomeSliceName(slice);
@@ -140,7 +158,7 @@ export function SlicesList() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-200 dark:divide-zinc-800">
-                    {slices.map((slice) => {
+                    {viewSlices.map((slice) => {
                       const paths = slice.definition?.includedPaths ?? [];
                       const sliceId = slice.id ?? "";
                       const routeParams = toSliceRouteParams(slice.ref);
@@ -196,10 +214,11 @@ export function SlicesList() {
                 </table>
               </div>
             </div>
-          </>
-        )}
-      </div>
-    </section>
+            </>
+          )}
+        </div>
+      </section>
+    </div>
   );
 }
 
