@@ -3,7 +3,6 @@ import { Link } from "@tanstack/react-router";
 import {
   CONTACT_EMAIL,
   GITHUB_MIRROR_URL,
-  SiteFooterLinks,
   SitePageHeader,
   SiteSection
 } from "./site/SitePageChrome";
@@ -86,8 +85,6 @@ export function TermsPage() {
           .
         </p>
       </SiteSection>
-
-      <SiteFooterLinks />
     </article>
   );
 }

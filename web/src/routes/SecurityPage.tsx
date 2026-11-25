@@ -4,7 +4,6 @@ import {
   GITHUB_MIRROR_URL,
   RELEASES_URL,
   SECURITY_EMAIL,
-  SiteFooterLinks,
   SitePageHeader,
   SiteSection
 } from "./site/SitePageChrome";
@@ -140,8 +139,6 @@ export function SecurityPage() {
           <li>Please avoid testing against other users&apos; private slices or running denial-of-service traffic against production.</li>
         </ul>
       </SiteSection>
-
-      <SiteFooterLinks />
     </article>
   );
 }

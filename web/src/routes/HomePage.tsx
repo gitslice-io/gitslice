@@ -1,4 +1,4 @@
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import { accountHomeIsProfile } from "../lib/accounts";
@@ -52,6 +52,9 @@ export function HomePage() {
     return null;
   }
 
+  const quickActionClass =
+    "rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 hover:text-zinc-950 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:border-zinc-700 dark:hover:bg-zinc-800 dark:hover:text-zinc-50";
+
   return (
     <section className="mx-auto w-full max-w-[100rem]">
       <PageHeader
@@ -64,6 +67,26 @@ export function HomePage() {
             >
               New conversation
             </button>
+          ) : personal && activeAccount ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Link
+                className={quickActionClass}
+                params={{ account: activeAccount }}
+                to="/accounts/$account/secrets"
+              >
+                Secrets
+              </Link>
+              <Link
+                className={quickActionClass}
+                params={{ account: activeAccount }}
+                to="/accounts/$account"
+              >
+                Account &amp; runners
+              </Link>
+              <Link className={quickActionClass} to="/organizations/new">
+                New organization
+              </Link>
+            </div>
           ) : undefined
         }
         title={

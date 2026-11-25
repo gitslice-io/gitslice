@@ -5,7 +5,6 @@ import {
   GITHUB_ISSUES_URL,
   GITHUB_MIRROR_URL,
   SECURITY_EMAIL,
-  SiteFooterLinks,
   SitePageHeader,
   SiteSection
 } from "./site/SitePageChrome";
@@ -110,8 +109,6 @@ export function AboutPage() {
           </li>
         </ul>
       </SiteSection>
-
-      <SiteFooterLinks />
     </article>
   );
 }

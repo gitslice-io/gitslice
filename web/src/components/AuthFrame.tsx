@@ -63,37 +63,62 @@ export function AuthFrame({
   children
 }: AuthFrameProps) {
   return (
-    <main className="grid min-h-[100dvh] place-items-center bg-slate-50 p-4 text-zinc-900 transition-colors duration-200 dark:bg-zinc-950 dark:text-zinc-100 sm:p-6">
-      <section
-        className={cn(
-          "w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50 transition-colors duration-200 dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-black/20 sm:p-6",
-          reserve && reservedFrameHeight[reserve]
-        )}
-      >
-        <div className="flex items-center justify-between gap-4">
-          <a
-            className="flex items-center gap-2 text-xs font-semibold uppercase tracking-normal text-slate-500 transition hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50"
-            href="/"
-          >
-            <BrandMark className="size-5" />
-            {eyebrow}
+    <div className="flex min-h-[100dvh] flex-col bg-slate-50 text-zinc-900 transition-colors duration-200 dark:bg-zinc-950 dark:text-zinc-100">
+      <main className="grid flex-1 place-items-center p-4 sm:p-6">
+        <section
+          className={cn(
+            "w-full max-w-md overflow-hidden rounded-lg border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/50 transition-colors duration-200 dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-black/20 sm:p-6",
+            reserve && reservedFrameHeight[reserve]
+          )}
+        >
+          <div className="flex items-center justify-between gap-4">
+            <a
+              className="flex items-center gap-2 text-xs font-semibold uppercase tracking-normal text-slate-500 transition hover:text-zinc-950 dark:text-zinc-400 dark:hover:text-zinc-50"
+              href="/"
+            >
+              <BrandMark className="size-5" />
+              {eyebrow}
+            </a>
+            <ThemeToggle />
+          </div>
+          {/* The sign-in and sign-up cards carry their own h1 ("Sign in to
+              Gitslice"), so theirs stays the page's only one. */}
+          {titleIsHeading ? (
+            <h1 className="mt-2 text-xl font-semibold tracking-normal sm:text-2xl">
+              {title}
+            </h1>
+          ) : (
+            <p className="mt-2 text-xl font-semibold tracking-normal sm:text-2xl">
+              {title}
+            </p>
+          )}
+          <div className={reserve ? `mt-6 ${reservedHeight[reserve]}` : "mt-6"}>{children}</div>
+          {reserve ? <AgentSignupNote /> : null}
+        </section>
+      </main>
+      <footer className="px-4 pb-6 pt-2 text-center text-xs text-slate-500 dark:text-zinc-400">
+        <nav
+          aria-label="Footer"
+          className="inline-flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5"
+        >
+          <span>© 2026 Gitslice</span>
+          <a className="transition hover:text-zinc-950 dark:hover:text-zinc-100" href="/doc">
+            Docs
           </a>
-          <ThemeToggle />
-        </div>
-        {/* The sign-in and sign-up cards carry their own h1 ("Sign in to
-            Gitslice"), so theirs stays the page's only one. */}
-        {titleIsHeading ? (
-          <h1 className="mt-2 text-xl font-semibold tracking-normal sm:text-2xl">
-            {title}
-          </h1>
-        ) : (
-          <p className="mt-2 text-xl font-semibold tracking-normal sm:text-2xl">
-            {title}
-          </p>
-        )}
-        <div className={reserve ? `mt-6 ${reservedHeight[reserve]}` : "mt-6"}>{children}</div>
-        {reserve ? <AgentSignupNote /> : null}
-      </section>
-    </main>
+          <a className="transition hover:text-zinc-950 dark:hover:text-zinc-100" href="/security">
+            Security
+          </a>
+          <a className="transition hover:text-zinc-950 dark:hover:text-zinc-100" href="/status">
+            Status
+          </a>
+          <a className="transition hover:text-zinc-950 dark:hover:text-zinc-100" href="/privacy">
+            Privacy
+          </a>
+          <a className="transition hover:text-zinc-950 dark:hover:text-zinc-100" href="/terms">
+            Terms
+          </a>
+        </nav>
+      </footer>
+    </div>
   );
 }

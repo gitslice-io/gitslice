@@ -3,7 +3,6 @@ import { useCallback, useEffect, useState } from "react";
 import {
   CONTACT_EMAIL,
   GITHUB_ISSUES_URL,
-  SiteFooterLinks,
   SitePageHeader,
   SiteSection
 } from "./site/SitePageChrome";
@@ -210,8 +209,6 @@ export function StatusPage() {
           .
         </p>
       </SiteSection>
-
-      <SiteFooterLinks />
     </article>
   );
 }

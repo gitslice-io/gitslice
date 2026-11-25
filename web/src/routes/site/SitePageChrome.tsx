@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
 
 export const GITHUB_MIRROR_URL = "https://github.com/gitslice-io/gitslice";
 export const RELEASES_URL = "/releases";
@@ -64,38 +63,5 @@ export function SiteSection({
         {children}
       </div>
     </section>
-  );
-}
-
-export function SiteFooterLinks() {
-  const linkClass =
-    "text-xs font-medium text-slate-600 underline-offset-4 transition hover:text-zinc-950 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100";
-  return (
-    <nav
-      aria-label="Trust and legal"
-      className="mt-10 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-slate-200 pt-6 dark:border-zinc-800"
-    >
-      <Link className={linkClass} to="/security">
-        Security
-      </Link>
-      <Link className={linkClass} to="/pricing">
-        Pricing
-      </Link>
-      <Link className={linkClass} to="/status">
-        Status
-      </Link>
-      <Link className={linkClass} to="/changelog">
-        Changelog
-      </Link>
-      <Link className={linkClass} to="/about">
-        About
-      </Link>
-      <Link className={linkClass} to="/privacy">
-        Privacy
-      </Link>
-      <Link className={linkClass} to="/terms">
-        Terms
-      </Link>
-    </nav>
   );
 }

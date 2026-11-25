@@ -31,8 +31,12 @@ describe("AuthFrame", () => {
     expect(screen.getByRole("link", { name: "llms.txt" })).toHaveAttribute("href", "/llms.txt");
   });
 
-  it("leaves the note off frames without a card", () => {
+  it("leaves the note off frames without a card and renders legal/status footer links", () => {
     render(<AuthFrame title="Authorizing CLI">body</AuthFrame>);
     expect(screen.queryByText("gs auth register-agent")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Security" })).toHaveAttribute("href", "/security");
+    expect(screen.getByRole("link", { name: "Status" })).toHaveAttribute("href", "/status");
+    expect(screen.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/privacy");
+    expect(screen.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/terms");
   });
 });

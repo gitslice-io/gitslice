@@ -2,7 +2,6 @@ import { Link } from "@tanstack/react-router";
 
 import {
   RELEASES_URL,
-  SiteFooterLinks,
   SitePageHeader
 } from "./site/SitePageChrome";
 import type { DocSection } from "./doc/docData";
@@ -174,8 +173,6 @@ export function ChangelogPage() {
           </li>
         ))}
       </ol>
-
-      <SiteFooterLinks />
     </article>
   );
 }

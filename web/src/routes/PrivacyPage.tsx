@@ -2,7 +2,6 @@ import { Link } from "@tanstack/react-router";
 
 import {
   CONTACT_EMAIL,
-  SiteFooterLinks,
   SitePageHeader,
   SiteSection
 } from "./site/SitePageChrome";
@@ -91,8 +90,6 @@ export function PrivacyPage() {
           .
         </p>
       </SiteSection>
-
-      <SiteFooterLinks />
     </article>
   );
 }
