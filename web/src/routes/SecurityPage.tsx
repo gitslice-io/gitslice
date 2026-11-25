@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 
 import {
   GITHUB_MIRROR_URL,
+  RELEASES_URL,
   SECURITY_EMAIL,
   SiteFooterLinks,
   SitePageHeader,
@@ -75,8 +76,15 @@ export function SecurityPage() {
           >
             https://gitslice.io/install.sh
           </a>{" "}
-          downloads prebuilt <code className="font-mono text-xs">gs</code> binaries and verifies
-          SHA-256 checksums before installation. You can also build directly from source with Go:
+          downloads prebuilt <code className="font-mono text-xs">gs</code> binaries from{" "}
+          <a
+            className="font-mono text-xs font-medium text-sky-700 underline underline-offset-4 dark:text-sky-300"
+            href={RELEASES_URL}
+          >
+            gitslice.io/releases
+          </a>{" "}
+          and verifies SHA-256 checksums before installation. You can also build directly from
+          source with Go:
         </p>
         <pre
           aria-label="Build gs CLI from source"

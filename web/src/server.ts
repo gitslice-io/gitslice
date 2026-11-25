@@ -9,6 +9,7 @@ import { apiSliceLookup, goImportResponse, sliceGoImportResponse } from "./serve
 import { servePage, type PageCacheStore } from "./server/pageCache";
 import { releaseResponse, type ReleaseBucket } from "./server/releases";
 import { socialImageResponse } from "./server/socialImage";
+import { handleStatusRequest } from "./server/statusHandler";
 
 export default createServerEntry({
   async fetch(request) {
@@ -39,6 +40,15 @@ export default createServerEntry({
     const llmsAlias = llmsAliasResponse(request);
     if (llmsAlias) {
       return llmsAlias;
+    }
+
+    // Same-origin live health probe (`/api/status`) for the Status page.
+    const statusResponse = await handleStatusRequest(
+      request,
+      import.meta.env.VITE_API_BASE_URL ?? ""
+    );
+    if (statusResponse) {
+      return statusResponse;
     }
 
     // `go get` discovery for gitslice.io import paths and stable release

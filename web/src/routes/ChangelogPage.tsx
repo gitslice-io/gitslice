@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
 
 import {
-  GITHUB_RELEASES_URL,
+  RELEASES_URL,
   SiteFooterLinks,
   SitePageHeader
 } from "./site/SitePageChrome";
@@ -112,14 +112,12 @@ export function ChangelogPage() {
       />
 
       <div className="mt-6 flex flex-wrap items-center gap-4 text-xs text-slate-600 dark:text-zinc-400">
-        <span>Looking for downloadable CLI release binaries?</span>
+        <span>Looking for downloadable CLI release binaries and SHA-256 checksums?</span>
         <a
           className="font-medium text-sky-700 underline underline-offset-4 dark:text-sky-300"
-          href={GITHUB_RELEASES_URL}
-          rel="noopener noreferrer"
-          target="_blank"
+          href={RELEASES_URL}
         >
-          View CLI releases on GitHub →
+          Browse Gitslice CLI releases →
         </a>
       </div>
 

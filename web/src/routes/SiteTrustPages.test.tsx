@@ -64,26 +64,37 @@ describe("Institutional trust & legal pages", () => {
     expect(screen.getByText(/Will free accounts lose access/)).toBeInTheDocument();
   });
 
-  it("renders ChangelogPage with dated milestones and release link", () => {
+  it("renders ChangelogPage with dated milestones and native Gitslice releases link", () => {
     render(<ChangelogPage />);
     expect(screen.getByRole("heading", { level: 1, name: "What we've shipped" })).toBeInTheDocument();
     expect(screen.getByText("Reusable automation templates & multi-step pipelines")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /View CLI releases on GitHub/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /Browse Gitslice CLI releases/i })).toHaveAttribute(
       "href",
-      "https://github.com/gitslice-io/gitslice/releases"
+      "/releases"
     );
   });
 
-  it("renders StatusPage and probes api.gitslice.io/readyz", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: true, status: 200 })
-    );
+  it("renders StatusPage and probes same-origin /api/status", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        overall: "operational",
+        checkedAt: "2026-11-25T03:30:00.000Z",
+        api: { status: "operational", latencyMs: 42, httpStatus: 200 }
+      })
+    });
+    vi.stubGlobal("fetch", fetchMock);
     render(<StatusPage />);
     expect(screen.getByRole("heading", { level: 1, name: "Gitslice Status" })).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText("All core systems operational")).toBeInTheDocument();
     });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/status",
+      expect.objectContaining({ method: "GET", cache: "no-store" })
+    );
+    expect(screen.getByText(/42 ms/)).toBeInTheDocument();
   });
 
   it("renders AboutPage, PrivacyPage, and TermsPage with clear headings", () => {

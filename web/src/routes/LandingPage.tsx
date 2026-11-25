@@ -19,7 +19,7 @@ import {
   CONTACT_EMAIL,
   GITHUB_ISSUES_URL,
   GITHUB_MIRROR_URL,
-  GITHUB_RELEASES_URL,
+  RELEASES_URL,
   SECURITY_EMAIL
 } from "./site/SitePageChrome";
 
@@ -235,9 +235,7 @@ export function LandingPage() {
                   {" · "}
                   <a
                     className="font-medium text-zinc-800 underline decoration-slate-300 underline-offset-4 hover:decoration-zinc-800 dark:text-zinc-200 dark:decoration-zinc-600 dark:hover:decoration-zinc-200"
-                    href={GITHUB_RELEASES_URL}
-                    rel="noopener noreferrer"
-                    target="_blank"
+                    href={RELEASES_URL}
                   >
                     releases
                   </a>
@@ -375,6 +373,11 @@ export function LandingPage() {
                   <li>
                     <a className={footerLinkClass} href="/llms.txt">
                       llms.txt
+                    </a>
+                  </li>
+                  <li>
+                    <a className={footerLinkClass} href={RELEASES_URL}>
+                      CLI Releases
                     </a>
                   </li>
                   <li>

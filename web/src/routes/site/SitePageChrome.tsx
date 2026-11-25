@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 
 export const GITHUB_MIRROR_URL = "https://github.com/gitslice-io/gitslice";
-export const GITHUB_RELEASES_URL = "https://github.com/gitslice-io/gitslice/releases";
+export const RELEASES_URL = "/releases";
 export const GITHUB_ISSUES_URL = "https://github.com/gitslice-io/gitslice/issues";
 export const CONTACT_EMAIL = "contact@gitslice.io";
 export const SECURITY_EMAIL = "security@gitslice.io";
