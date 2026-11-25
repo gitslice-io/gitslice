@@ -17,7 +17,7 @@ import { ThemeToggle } from "./ThemeToggle";
 const allNavItems = [
   { label: "Home", to: "/", section: "slices" },
   { label: "Conversations", to: "/conversations", section: "conversations" },
-  { label: "Doc", to: "/doc", section: "doc" },
+  { label: "Docs", to: "/doc", section: "doc" },
   { label: "Blog", to: "/blogs", section: "blog" }
 ] as const;
 

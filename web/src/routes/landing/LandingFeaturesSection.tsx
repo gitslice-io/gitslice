@@ -97,8 +97,8 @@ export function LandingFeaturesSection() {
               One system, from the edit to the merge.
             </h2>
             <p className="mt-3 text-pretty text-base leading-7 text-slate-600 dark:text-zinc-400">
-              Source, review, CI checks, secrets, triggers, and Git mirrors share one graph — so
-              nothing drifts between disconnected tools.
+              Source, review, CI checks, encrypted secrets, folder automations, and Git mirrors
+              share one graph — so nothing drifts between disconnected tools.
             </p>
           </div>
           <Link

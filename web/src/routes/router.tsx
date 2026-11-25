@@ -33,11 +33,13 @@ import { parseSliceSearch } from "./stackPageUtils";
 // a visitor reading a slice does not download the docs, the blog, the diff
 // viewer or the settings forms.
 const lazyPages = {
+  AboutPage: lazyRouteComponent(() => import("./AboutPage"), "AboutPage"),
   AccountPage: lazyRouteComponent(() => import("./AccountPage"), "AccountPage"),
   AccountSecretsPage: lazyRouteComponent(() => import("./AccountSecretsPage"), "AccountSecretsPage"),
   AgentLoginPage: lazyRouteComponent(() => import("./AgentLoginPage"), "AgentLoginPage"),
   BlogListPage: lazyRouteComponent(() => import("./BlogListPage"), "BlogListPage"),
   BlogPostPage: lazyRouteComponent(() => import("./BlogPostPage"), "BlogPostPage"),
+  ChangelogPage: lazyRouteComponent(() => import("./ChangelogPage"), "ChangelogPage"),
   ChangesetDetailPage: lazyRouteComponent(() => import("./ChangesetDetailPage"), "ChangesetDetailPage"),
   ChangesetsPage: lazyRouteComponent(() => import("./ChangesetsPage"), "ChangesetsPage"),
   ClaimsPage: lazyRouteComponent(() => import("./ClaimsPage"), "ClaimsPage"),
@@ -48,11 +50,16 @@ const lazyPages = {
   IndexPage: lazyRouteComponent(() => import("./IndexPage"), "IndexPage"),
   LoginPage: lazyRouteComponent(() => import("./LoginPage"), "LoginPage"),
   NewOrganizationPage: lazyRouteComponent(() => import("./NewOrganizationPage"), "NewOrganizationPage"),
+  PricingPage: lazyRouteComponent(() => import("./PricingPage"), "PricingPage"),
+  PrivacyPage: lazyRouteComponent(() => import("./PrivacyPage"), "PrivacyPage"),
+  SecurityPage: lazyRouteComponent(() => import("./SecurityPage"), "SecurityPage"),
   SignupPage: lazyRouteComponent(() => import("./SignupPage"), "SignupPage"),
   SliceAgentsPage: lazyRouteComponent(() => import("./SliceAgentsPage"), "SliceAgentsPage"),
   SliceCreatePage: lazyRouteComponent(() => import("./SliceCreatePage"), "SliceCreatePage"),
   SliceDetailPage: lazyRouteComponent(() => import("./SliceDetailPage"), "SliceDetailPage"),
-  SliceSettingsPage: lazyRouteComponent(() => import("./SliceSettingsPage"), "SliceSettingsPage")
+  SliceSettingsPage: lazyRouteComponent(() => import("./SliceSettingsPage"), "SliceSettingsPage"),
+  StatusPage: lazyRouteComponent(() => import("./StatusPage"), "StatusPage"),
+  TermsPage: lazyRouteComponent(() => import("./TermsPage"), "TermsPage")
 };
 
 const loginRoute = createRoute({ getParentRoute: () => rootRoute, path: "/login", component: lazyPages.LoginPage });
@@ -91,6 +98,48 @@ const conversationsRoute = createRoute({
 const docRoute = createRoute({ getParentRoute: () => publicAppRoute, path: "doc", component: lazyPages.DocPage });
 const docSectionRoute = createRoute({ getParentRoute: () => publicAppRoute, path: "doc/$section", component: lazyPages.DocPage });
 const blogsRoute = createRoute({ getParentRoute: () => publicAppRoute, path: "blogs", component: lazyPages.BlogListPage });
+const securityRoute = createRoute({
+  getParentRoute: () => publicAppRoute,
+  path: "security",
+  head: () => staticPageHead("Security", "How Gitslice protects source code, encrypted folder secrets, CI runners, and agent workflows.", "/security"),
+  component: lazyPages.SecurityPage
+});
+const pricingRoute = createRoute({
+  getParentRoute: () => publicAppRoute,
+  path: "pricing",
+  head: () => staticPageHead("Pricing", "Transparent plans for individuals, teams, open source, and self-hosted deployments.", "/pricing"),
+  component: lazyPages.PricingPage
+});
+const changelogRoute = createRoute({
+  getParentRoute: () => publicAppRoute,
+  path: "changelog",
+  head: () => staticPageHead("Changelog", "Recent releases, performance improvements, and platform updates shipped on Gitslice.", "/changelog"),
+  component: lazyPages.ChangelogPage
+});
+const statusRoute = createRoute({
+  getParentRoute: () => publicAppRoute,
+  path: "status",
+  head: () => staticPageHead("Status", "Live health check and service status for Gitslice.", "/status"),
+  component: lazyPages.StatusPage
+});
+const aboutRoute = createRoute({
+  getParentRoute: () => publicAppRoute,
+  path: "about",
+  head: () => staticPageHead("About", "About Gitslice — Git-compatible source infrastructure built for parallel teams and agents.", "/about"),
+  component: lazyPages.AboutPage
+});
+const privacyRoute = createRoute({
+  getParentRoute: () => publicAppRoute,
+  path: "privacy",
+  head: () => staticPageHead("Privacy Policy", "Gitslice Privacy Policy.", "/privacy"),
+  component: lazyPages.PrivacyPage
+});
+const termsRoute = createRoute({
+  getParentRoute: () => publicAppRoute,
+  path: "terms",
+  head: () => staticPageHead("Terms of Service", "Gitslice Terms of Service.", "/terms"),
+  component: lazyPages.TermsPage
+});
 const blogPostRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "blogs/$slug",
@@ -214,6 +263,20 @@ const changesetShortRoute = createRoute({
   component: lazyPages.ChangesetDetailPage
 });
 
+function staticPageHead(title: string, description: string, path: string) {
+  const url = `https://gitslice.io${path}`;
+  return {
+    meta: [
+      { title: `${title} · Gitslice` },
+      { name: "description", content: description },
+      { property: "og:title", content: `${title} · Gitslice` },
+      { property: "og:description", content: description },
+      { property: "og:url", content: url }
+    ],
+    links: [{ rel: "canonical", href: url }]
+  };
+}
+
 function blogPostHead(slug: string) {
   const post = getPostMeta(slug);
   if (!post) {
@@ -240,7 +303,11 @@ function blogPostHead(slug: string) {
 const routeTree = rootRoute.addChildren([
   indexRoute, loginRoute, loginFlowRoute, agentLoginRoute, signupRoute, signupFlowRoute, cliLoginRoute,
   appRoute.addChildren([claimsRoute, conversationsRoute, slicesRoute, sliceCreateRoute, organizationCreateRoute, sliceSettingsRoute, accountSecretsRoute]),
-  publicAppRoute.addChildren([docRoute, docSectionRoute, blogsRoute, blogPostRoute, accountRoute, sliceDetailRoute, sliceAgentsRoute, sliceAgentConversationRoute, changesetsRoute, changesetShortRoute])
+  publicAppRoute.addChildren([
+    docRoute, docSectionRoute, blogsRoute, blogPostRoute,
+    securityRoute, pricingRoute, changelogRoute, statusRoute, aboutRoute, privacyRoute, termsRoute,
+    accountRoute, sliceDetailRoute, sliceAgentsRoute, sliceAgentConversationRoute, changesetsRoute, changesetShortRoute
+  ])
 ]);
 
 export function getRouter() {

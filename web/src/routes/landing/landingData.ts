@@ -43,12 +43,12 @@ export const features: Array<{
     docLabel: "Lazy workspaces"
   },
   {
-    title: "Checks the server enforces",
+    title: "Folder automations & pipelines",
     description:
-      "Commit folder-scoped checks, triggers, and encrypted secrets next to your code. CI runs on your own Docker or Podman daemons, contributor patchsets run secretless until allowed, and submit blocks until required checks pass.",
+      "Commit folder-scoped checks, encrypted secrets, reusable on:[call] templates, and multi-step pipelines beside your code. Let teammates and agents run audited ops runbooks without ever holding raw credentials.",
     icon: "check",
-    doc: "checks",
-    docLabel: "CI checks & triggers"
+    doc: "automations",
+    docLabel: "Automations & pipelines"
   },
   {
     title: "Built for agents",

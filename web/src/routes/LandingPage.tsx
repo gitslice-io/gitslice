@@ -11,17 +11,24 @@ import {
   LandingBenchmarksSection,
   LandingCtaSection,
   LandingFeaturesSection,
-  LandingPillarsSection
+  LandingPillarsSection,
+  LandingProductPreviewSection,
+  LandingTrustStrip
 } from "./LandingSections";
-
-const contactEmail = "contact@gitslice.io";
+import {
+  CONTACT_EMAIL,
+  GITHUB_ISSUES_URL,
+  GITHUB_MIRROR_URL,
+  GITHUB_RELEASES_URL,
+  SECURITY_EMAIL
+} from "./site/SitePageChrome";
 
 const navLinkClass =
   "rounded-full px-2.5 py-2 text-sm font-medium text-slate-600 outline-none transition hover:bg-slate-200/70 hover:text-zinc-950 active:-translate-y-px focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-300 dark:hover:bg-white/[0.06] dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950 sm:px-3.5";
 
 // Padding and an equal negative margin: a 32px target in a line of text.
 const footerLinkClass =
-  "-my-1.5 inline-block rounded-md py-1.5 text-slate-600 outline-none transition hover:text-zinc-950 focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-400 dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950";
+  "-my-1 inline-block rounded-md py-1 text-sm text-slate-600 outline-none transition hover:text-zinc-950 focus-visible:ring-2 focus-visible:ring-sky-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-50 dark:text-zinc-400 dark:hover:text-white dark:focus-visible:ring-sky-400 dark:focus-visible:ring-offset-zinc-950";
 
 export function LandingPage() {
   const installId = useId();
@@ -37,6 +44,13 @@ export function LandingPage() {
 
   return (
     <div className="relative min-h-[100dvh] overflow-x-clip bg-slate-50 font-sans text-zinc-900 transition-colors duration-200 dark:bg-zinc-950 dark:text-zinc-100">
+      <a
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-zinc-950 focus:px-3.5 focus:py-2 focus:text-sm focus:font-semibold focus:text-white focus:outline-none focus:ring-2 focus:ring-sky-500 dark:focus:bg-white dark:focus:text-zinc-950"
+        href="#main-content"
+      >
+        Skip to main content
+      </a>
+
       <div
         aria-hidden="true"
         className="landing-grid pointer-events-none absolute inset-0 opacity-60 dark:opacity-35"
@@ -66,13 +80,14 @@ export function LandingPage() {
             <Link className={`hidden sm:inline-flex ${navLinkClass}`} to="/doc">
               Docs
             </Link>
-            <Link
-              className={`hidden min-[420px]:inline-flex ${navLinkClass}`}
-              hash="agent-signup"
-              params={{ section: "agents" }}
-              to="/doc/$section"
-            >
-              For agents
+            <Link className={`hidden md:inline-flex ${navLinkClass}`} to="/pricing">
+              Pricing
+            </Link>
+            <Link className={`hidden lg:inline-flex ${navLinkClass}`} to="/security">
+              Security
+            </Link>
+            <Link className={`hidden sm:inline-flex ${navLinkClass}`} to="/blogs">
+              Blog
             </Link>
             <Link
               className={`hidden md:inline-flex ${navLinkClass}`}
@@ -80,9 +95,6 @@ export function LandingPage() {
               to="/slices/$account/$slice"
             >
               Source
-            </Link>
-            <Link className={`hidden sm:inline-flex ${navLinkClass}`} to="/blogs">
-              Blog
             </Link>
             <Link className={navLinkClass} reloadDocument to="/login">
               Sign in
@@ -99,14 +111,18 @@ export function LandingPage() {
       </header>
 
       <main className="relative">
-        <section className="mx-auto grid w-full max-w-7xl grid-cols-1 items-center gap-12 px-4 pb-20 pt-14 sm:px-6 sm:pb-24 sm:pt-20 lg:grid-cols-[minmax(0,1.02fr)_minmax(26rem,0.98fr)] lg:gap-14 lg:px-8 lg:pb-28 lg:pt-24">
+        <section className="mx-auto grid w-full max-w-7xl grid-cols-1 items-center gap-12 px-4 pb-16 pt-14 sm:px-6 sm:pb-20 sm:pt-20 lg:grid-cols-[minmax(0,1.02fr)_minmax(26rem,0.98fr)] lg:gap-14 lg:px-8 lg:pb-20 lg:pt-24">
           <div className="min-w-0">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-slate-200/90 bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-600 shadow-sm dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400" />
-              Source infrastructure for fleets of agents
+              Source infrastructure for teams &amp; fleets of agents
             </div>
 
-            <h1 className="max-w-2xl text-balance text-4xl font-semibold leading-[1.03] tracking-[-0.045em] text-zinc-950 dark:text-white sm:text-5xl md:text-[3.5rem]">
+            <h1
+              className="max-w-2xl text-balance text-4xl font-semibold leading-[1.03] tracking-[-0.045em] text-zinc-950 outline-none dark:text-white sm:text-5xl md:text-[3.5rem]"
+              id="main-content"
+              tabIndex={-1}
+            >
               Many agents. One codebase. Land in parallel.
             </h1>
 
@@ -207,9 +223,30 @@ export function LandingPage() {
                 </span>
               </div>
 
-              <div className="mt-3.5 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-slate-500 dark:text-zinc-400">
+              <div className="mt-3.5 flex flex-wrap items-center gap-x-3.5 gap-y-1.5 text-xs text-slate-500 dark:text-zinc-400">
                 <span>
-                  Agent? Sign up via{" "}
+                  SHA-256 verified:{" "}
+                  <a
+                    className="font-medium text-zinc-800 underline decoration-slate-300 underline-offset-4 hover:decoration-zinc-800 dark:text-zinc-200 dark:decoration-zinc-600 dark:hover:decoration-zinc-200"
+                    href="/install.sh"
+                  >
+                    inspect install.sh
+                  </a>
+                  {" · "}
+                  <a
+                    className="font-medium text-zinc-800 underline decoration-slate-300 underline-offset-4 hover:decoration-zinc-800 dark:text-zinc-200 dark:decoration-zinc-600 dark:hover:decoration-zinc-200"
+                    href={GITHUB_RELEASES_URL}
+                    rel="noopener noreferrer"
+                    target="_blank"
+                  >
+                    releases
+                  </a>
+                </span>
+                <span aria-hidden="true" className="hidden text-slate-300 dark:text-zinc-700 sm:inline">
+                  ·
+                </span>
+                <span>
+                  Agent?{" "}
                   <code className="rounded bg-slate-200/70 px-1 py-0.5 font-mono text-[11px] text-zinc-800 dark:bg-white/[0.08] dark:text-zinc-200">
                     gs auth register-agent
                   </code>{" "}
@@ -241,46 +278,208 @@ export function LandingPage() {
           <LandingHeroTerminal />
         </section>
 
+        <LandingTrustStrip />
         <LandingPillarsSection />
+        <LandingProductPreviewSection />
         <LandingArchitectureSection />
         <LandingBenchmarksSection />
         <LandingFeaturesSection />
         <LandingCtaSection />
       </main>
 
-      <footer className="relative border-t border-slate-200/90 dark:border-white/10">
-        <div className="mx-auto flex min-h-20 w-full max-w-7xl flex-col items-start justify-between gap-4 px-4 py-6 text-sm text-zinc-500 min-[420px]:flex-row min-[420px]:items-center sm:px-6 lg:px-8">
-          <div className="flex items-center gap-2.5">
-            <BrandMark className="h-5 w-5 opacity-80" />
-            <span>© 2026 Gitslice · Built on Gitslice</span>
-          </div>
-          <nav
-            aria-label="Footer"
-            className="flex flex-wrap items-center gap-x-5 gap-y-2"
-          >
-            <Link className={footerLinkClass} to="/doc">
-              Docs
-            </Link>
-            <Link
-              className={footerLinkClass}
-              params={LANDING_SOURCE_SLICE}
-              to="/slices/$account/$slice"
+      <footer className="relative border-t border-slate-200/90 bg-white/60 dark:border-white/10 dark:bg-zinc-950/80">
+        <div className="mx-auto w-full max-w-7xl px-4 py-12 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,2fr)]">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2.5">
+                <BrandMark className="h-6 w-6" />
+                <span className="text-sm font-semibold tracking-tight text-zinc-950 dark:text-white">
+                  Gitslice
+                </span>
+              </div>
+              <p className="mt-3 max-w-xs text-sm leading-6 text-slate-600 dark:text-zinc-400">
+                Git-compatible source infrastructure for engineering teams and coding agents
+                working in parallel.
+              </p>
+              <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
+                <Link
+                  className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-medium text-emerald-800 transition hover:bg-emerald-100 dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/70"
+                  to="/status"
+                >
+                  <span aria-hidden="true" className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                  System Status
+                </Link>
+                <span className="font-mono text-slate-500 dark:text-zinc-400">Apache 2.0</span>
+              </div>
+            </div>
+
+            <nav
+              aria-label="Footer"
+              className="grid grid-cols-2 gap-8 sm:grid-cols-4"
             >
-              Source
-            </Link>
-            <Link className={footerLinkClass} to="/blogs">
-              Blog
-            </Link>
-            <a className={footerLinkClass} href="/llms.txt">
-              llms.txt
-            </a>
-            <a className={footerLinkClass} href={`mailto:${contactEmail}`}>
-              {contactEmail}
-            </a>
-            <Link className={footerLinkClass} reloadDocument to="/login">
-              Sign in
-            </Link>
-          </nav>
+              <div>
+                <h2 className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-zinc-950 dark:text-zinc-100">
+                  Product
+                </h2>
+                <ul className="mt-3.5 space-y-2.5">
+                  <li>
+                    <Link
+                      className={footerLinkClass}
+                      params={{ section: "automations" }}
+                      to="/doc/$section"
+                    >
+                      Automations
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      className={footerLinkClass}
+                      params={{ section: "mirrors" }}
+                      to="/doc/$section"
+                    >
+                      Git Mirrors
+                    </Link>
+                  </li>
+                  <li>
+                    <Link className={footerLinkClass} to="/pricing">
+                      Pricing
+                    </Link>
+                  </li>
+                  <li>
+                    <Link className={footerLinkClass} to="/changelog">
+                      Changelog
+                    </Link>
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <h2 className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-zinc-950 dark:text-zinc-100">
+                  Developers
+                </h2>
+                <ul className="mt-3.5 space-y-2.5">
+                  <li>
+                    <Link className={footerLinkClass} to="/doc">
+                      Docs
+                    </Link>
+                  </li>
+                  <li>
+                    <Link
+                      className={footerLinkClass}
+                      params={{ section: "cli" }}
+                      to="/doc/$section"
+                    >
+                      CLI Reference
+                    </Link>
+                  </li>
+                  <li>
+                    <a className={footerLinkClass} href="/llms.txt">
+                      llms.txt
+                    </a>
+                  </li>
+                  <li>
+                    <Link className={footerLinkClass} to="/status">
+                      Status
+                    </Link>
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <h2 className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-zinc-950 dark:text-zinc-100">
+                  Open Source
+                </h2>
+                <ul className="mt-3.5 space-y-2.5">
+                  <li>
+                    <Link
+                      className={footerLinkClass}
+                      params={LANDING_SOURCE_SLICE}
+                      to="/slices/$account/$slice"
+                    >
+                      Source
+                    </Link>
+                  </li>
+                  <li>
+                    <a
+                      className={footerLinkClass}
+                      href={GITHUB_MIRROR_URL}
+                      rel="noopener noreferrer"
+                      target="_blank"
+                    >
+                      GitHub Mirror
+                    </a>
+                  </li>
+                  <li>
+                    <a
+                      className={footerLinkClass}
+                      href={GITHUB_ISSUES_URL}
+                      rel="noopener noreferrer"
+                      target="_blank"
+                    >
+                      Issues
+                    </a>
+                  </li>
+                  <li>
+                    <Link className={footerLinkClass} to="/blogs">
+                      Blog
+                    </Link>
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <h2 className="font-mono text-xs font-semibold uppercase tracking-[0.14em] text-zinc-950 dark:text-zinc-100">
+                  Company &amp; Legal
+                </h2>
+                <ul className="mt-3.5 space-y-2.5">
+                  <li>
+                    <Link className={footerLinkClass} to="/about">
+                      About
+                    </Link>
+                  </li>
+                  <li>
+                    <Link className={footerLinkClass} to="/security">
+                      Security
+                    </Link>
+                  </li>
+                  <li>
+                    <Link className={footerLinkClass} to="/privacy">
+                      Privacy
+                    </Link>
+                  </li>
+                  <li>
+                    <Link className={footerLinkClass} to="/terms">
+                      Terms
+                    </Link>
+                  </li>
+                  <li>
+                    <a className={footerLinkClass} href={`mailto:${CONTACT_EMAIL}`}>
+                      {CONTACT_EMAIL}
+                    </a>
+                  </li>
+                </ul>
+              </div>
+            </nav>
+          </div>
+
+          <div className="mt-10 flex flex-col items-start justify-between gap-3 border-t border-slate-200/80 pt-6 text-xs text-slate-500 dark:border-white/10 dark:text-zinc-400 sm:flex-row sm:items-center">
+            <p>© 2026 Gitslice · Built &amp; operated on Gitslice</p>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
+              <a
+                className="transition hover:text-zinc-950 dark:hover:text-zinc-100"
+                href={`mailto:${SECURITY_EMAIL}`}
+              >
+                {SECURITY_EMAIL}
+              </a>
+              <Link
+                className="transition hover:text-zinc-950 dark:hover:text-zinc-100"
+                reloadDocument
+                to="/login"
+              >
+                Sign in
+              </Link>
+            </div>
+          </div>
         </div>
       </footer>
     </div>

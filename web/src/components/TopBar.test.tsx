@@ -37,7 +37,7 @@ describe("TopBar", () => {
     auth.current = { isLoaded: true, isSignedIn: true };
     render(<TopBar />);
     expect(screen.queryByRole("link", { name: "Blog" })).not.toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Doc" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Docs" })).toBeInTheDocument();
   });
 
   it("has no Conversations entry while conversations are not offered", () => {
@@ -56,7 +56,7 @@ describe("TopBar", () => {
     // On "/", Home is the current page: its label is visible at every width.
     expect(screen.getByText("Home")).not.toHaveClass("sr-only");
     // The others show only their icon below sm, but are still named.
-    expect(screen.getByText("Doc")).toHaveClass("sr-only", "sm:not-sr-only");
+    expect(screen.getByText("Docs")).toHaveClass("sr-only", "sm:not-sr-only");
     expect(screen.getByText("Blog")).toHaveClass("sr-only", "sm:not-sr-only");
   });
 

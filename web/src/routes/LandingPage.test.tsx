@@ -37,24 +37,55 @@ afterEach(() => {
 });
 
 describe("LandingPage", () => {
-  it("links to the source and gives a contact email", () => {
+  it("links to the source, GitHub mirror, trust pages, and contact email", () => {
     render(<LandingPage />);
     expect(screen.getByRole("link", { name: "gitslice/gitslice" })).toHaveAttribute(
       "href",
       "/slices/gitslice/gitslice"
     );
-    expect(screen.queryByRole("link", { name: /github/i })).not.toBeInTheDocument();
     const footer = within(screen.getByRole("navigation", { name: "Footer" }));
     expect(footer.getByRole("link", { name: "Source" })).toHaveAttribute("href", "/slices/gitslice/gitslice");
+    expect(footer.getByRole("link", { name: "GitHub Mirror" })).toHaveAttribute(
+      "href",
+      "https://github.com/gitslice-io/gitslice"
+    );
     expect(footer.getByRole("link", { name: "Blog" })).toHaveAttribute("href", "/blogs");
     expect(footer.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "/doc");
+    expect(footer.getByRole("link", { name: "Security" })).toHaveAttribute("href", "/security");
+    expect(footer.getByRole("link", { name: "Pricing" })).toHaveAttribute("href", "/pricing");
+    expect(footer.getByRole("link", { name: "Changelog" })).toHaveAttribute("href", "/changelog");
+    expect(footer.getByRole("link", { name: "Status" })).toHaveAttribute("href", "/status");
+    expect(footer.getByRole("link", { name: "About" })).toHaveAttribute("href", "/about");
+    expect(footer.getByRole("link", { name: "Privacy" })).toHaveAttribute("href", "/privacy");
+    expect(footer.getByRole("link", { name: "Terms" })).toHaveAttribute("href", "/terms");
     const header = within(screen.getByRole("navigation", { name: "Landing page" }));
     expect(header.getByRole("link", { name: "Blog" })).toHaveAttribute("href", "/blogs");
     expect(header.getByRole("link", { name: "Docs" })).toHaveAttribute("href", "/doc");
+    expect(header.getByRole("link", { name: "Pricing" })).toHaveAttribute("href", "/pricing");
+    expect(header.getByRole("link", { name: "Security" })).toHaveAttribute("href", "/security");
     expect(footer.getByRole("link", { name: "contact@gitslice.io" })).toHaveAttribute(
       "href",
       "mailto:contact@gitslice.io"
     );
+  });
+
+  it("switches product interface preview tabs with keyboard and click", () => {
+    render(<LandingPage />);
+    const tablist = screen.getByRole("tablist", { name: "Product interface views" });
+    const reviewTab = within(tablist).getByRole("tab", { name: "Changeset & Server Gates" });
+    const autoTab = within(tablist).getByRole("tab", { name: "Folder Policy & Pipelines" });
+    const mirrorTab = within(tablist).getByRole("tab", { name: "Zero-Lock-In Git Mirror" });
+
+    expect(reviewTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel", { name: "Changeset & Server Gates" })).toBeVisible();
+
+    fireEvent.keyDown(reviewTab, { key: "ArrowRight" });
+    expect(autoTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel", { name: "Folder Policy & Pipelines" })).toBeVisible();
+
+    fireEvent.click(mirrorTab);
+    expect(mirrorTab).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel", { name: "Zero-Lock-In Git Mirror" })).toBeVisible();
   });
 
   it("leads with landing in parallel, not with slices", () => {
