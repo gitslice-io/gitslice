@@ -56,6 +56,8 @@ export function PageHeader({
     };
   }, []);
 
+  const hasActions = Boolean(primaryAction) || Boolean(actions && actions.length > 0);
+
   return (
     <header
       className={cn(
@@ -68,12 +70,14 @@ export function PageHeader({
         {breadcrumb}
         {title ? <div className="mt-1 min-w-0">{title}</div> : null}
       </div>
-      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:shrink-0">
-        {primaryAction}
-        {actions && actions.length > 0 ? (
-          <ActionMenu items={actions} label={menuLabel} />
-        ) : null}
-      </div>
+      {hasActions ? (
+        <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:shrink-0">
+          {primaryAction}
+          {actions && actions.length > 0 ? (
+            <ActionMenu items={actions} label={menuLabel} />
+          ) : null}
+        </div>
+      ) : null}
     </header>
   );
 }

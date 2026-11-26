@@ -100,7 +100,7 @@ export function SlicesList() {
             </SliceNotice>
           ) : viewSlices.length === 0 ? (
             <SliceNotice title="No additional slice views yet">
-              Browse everything in <span className="font-mono">/{effectiveAccount}</span> above, or create a slice view to scope
+              Browse everything in <span className="whitespace-nowrap font-mono">/{effectiveAccount}</span> above, or create a slice view to scope
               checkouts, share specific folders, or mirror a folder to Git.
             </SliceNotice>
           ) : (

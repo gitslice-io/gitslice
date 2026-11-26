@@ -36,27 +36,27 @@ export function MonorepoCard({ account, homeSlice, className }: MonorepoCardProp
             <VisibilityBadge visibility={homeSlice.definition?.visibility} />
           </div>
           <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-600 dark:text-zinc-400">
-            One unified source tree for everything in <span className="font-mono">/{account}</span>. Checks, automations,
+            One unified source tree for everything in <span className="whitespace-nowrap font-mono">/{account}</span>. Checks, automations,
             path owners, and secrets live on folders inside it.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 lg:shrink-0">
+        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center lg:shrink-0">
           <Link
-            className={buttonClassName({ size: "md", variant: "primary" })}
+            className={cn(buttonClassName({ size: "md", variant: "primary" }), "col-span-2 justify-center sm:col-span-1")}
             params={homeRouteParams}
             to="/slices/$account/$slice"
           >
             Browse /{account}
           </Link>
           <Link
-            className={buttonClassName({ size: "md", variant: "secondary" })}
+            className={cn(buttonClassName({ size: "md", variant: "secondary" }), "justify-center")}
             search={{ slice: `${account}:${homeRouteParams.slice}` }}
             to="/changesets"
           >
             Changesets
           </Link>
           <Link
-            className={buttonClassName({ size: "md", variant: "secondary" })}
+            className={cn(buttonClassName({ size: "md", variant: "secondary" }), "justify-center")}
             params={homeRouteParams}
             search={{ policy: true }}
             to="/slices/$account/$slice"

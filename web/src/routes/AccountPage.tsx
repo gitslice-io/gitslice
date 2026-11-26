@@ -8,7 +8,6 @@ import { useApi } from "../api/useApi";
 import { useAppAuth } from "../auth/AppAuthProvider";
 import { rememberAvatarVersion } from "../components/AccountAvatar";
 import { Breadcrumb } from "../components/Breadcrumb";
-import { PageHeader } from "../components/PageHeader";
 import { AccountCIDaemonPanel } from "../components/slices/AccountCIDaemonPanel";
 import { AccountPeople } from "../components/slices/AccountPeople";
 import { AgentDaemons } from "../components/slices/AgentDaemons";
@@ -163,10 +162,10 @@ export function AccountPage() {
         <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
           {homeSlice ? "Slices (Views)" : "Slices"}
         </h2>
-        <label className="flex items-center gap-2 text-xs text-slate-500 dark:text-zinc-400">
+        <label className="flex shrink-0 items-center gap-1.5 text-xs text-slate-500 dark:text-zinc-400">
           Sort
           <select
-            className="h-8 rounded-md border border-slate-300 bg-white px-2 text-sm text-zinc-950 outline-none focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-zinc-700"
+            className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs font-medium text-zinc-950 outline-none focus:border-zinc-500 focus:ring-2 focus:ring-zinc-200 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50 dark:focus:ring-zinc-700"
             onChange={(event) => {
               if (isSliceSort(event.target.value)) {
                 setSort(event.target.value);
@@ -184,11 +183,19 @@ export function AccountPage() {
         </label>
       </div>
       <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-        {membership?.kind === "personal"
-          ? `Focused views, checkouts, access boundaries, and Git mirrors over /${account}. Others see only the public ones.`
-          : membership
-            ? `Slices of ${account}, which you belong to — focused views, access boundaries, and Git mirrors over /${account}. Others see only the public ones.`
-            : `Public slices owned by ${account}.`}
+        {membership?.kind === "personal" ? (
+          <>
+            Focused views, checkouts, access boundaries, and Git mirrors over{" "}
+            <span className="whitespace-nowrap font-mono">/{account}</span>. Others see only the public ones.
+          </>
+        ) : membership ? (
+          <>
+            Slices of {account}, which you belong to — focused views, access boundaries, and Git mirrors over{" "}
+            <span className="whitespace-nowrap font-mono">/{account}</span>. Others see only the public ones.
+          </>
+        ) : (
+          `Public slices owned by ${account}.`
+        )}
       </p>
       {slicesQuery.isPending ? (
         <SliceLoadingBlock />
@@ -202,7 +209,7 @@ export function AccountPage() {
         </SliceNotice>
       ) : viewSlices.length === 0 ? (
         <SliceNotice title="No additional slice views yet">
-          Browse everything in <span className="font-mono">/{account}</span> above, or create a slice view to scope checkouts,
+          Browse everything in <span className="whitespace-nowrap font-mono">/{account}</span> above, or create a slice view to scope checkouts,
           share specific folders, or mirror a folder to Git.
         </SliceNotice>
       ) : (
@@ -271,7 +278,7 @@ export function AccountPage() {
 
   return (
     <section className="mx-auto w-full max-w-[100rem]">
-      <PageHeader breadcrumb={<Breadcrumb items={[{ label: "Home", to: "/" }, { label: `@${account}` }]} />} />
+      <Breadcrumb items={[{ label: "Home", to: "/" }, { label: `@${account}` }]} />
       {notFound ? (
         <div className="mt-4">
           <SliceNotice title="No such account">There is no account named {account}.</SliceNotice>

@@ -20,7 +20,7 @@ export function AppShell({ banner, children }: { banner?: ReactNode; children?: 
       <TopBar />
       {banner}
       <main
-        className="flex-1 px-2 py-6 outline-none sm:px-4 md:px-8 md:py-8"
+        className="flex-1 px-4 py-4 outline-none sm:px-6 sm:py-6 md:px-8 md:py-8"
         id="app-main"
         tabIndex={-1}
       >
