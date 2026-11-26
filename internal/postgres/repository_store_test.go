@@ -409,3 +409,61 @@ func requireMaterializedHead(t *testing.T, ctx context.Context, store *DB, wantC
 		t.Fatalf("materialized head = %s, want %s", gotCommitID, wantCommitID)
 	}
 }
+
+func TestTreeAuthorizationLookups(t *testing.T) {
+	ctx, store := newPostgresTestStore(t)
+	base := getTestRef(t, ctx, store)
+	baseTreeID, err := store.Repository().RootTreeForCommit(ctx, base.CommitId)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	blobID, contentHash := upsertTestBlob(t, ctx, store, "# Design\n")
+	ps := createDraftPatchsetWithEdits(t, ctx, store, base.CommitId, []*corev1.FileEdit{{
+		Op:          "upsert",
+		Path:        "/acme/payment/design.md",
+		BlobId:      blobID,
+		ContentHash: contentHash,
+		Mode:        0o100644,
+	}})
+
+	published, err := store.Repository().HasCommitWithRootTree(ctx, baseTreeID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !published {
+		t.Fatalf("HasCommitWithRootTree(%s) = false, want true", baseTreeID)
+	}
+
+	draftPublished, err := store.Repository().HasCommitWithRootTree(ctx, ps.ResultTreeId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if draftPublished {
+		t.Fatalf("HasCommitWithRootTree(%s) = true, want false for draft tree", ps.ResultTreeId)
+	}
+
+	slices, err := store.Changesets().AuthoringSlicesForTree(ctx, ps.ResultTreeId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(slices) != 1 || slices[0].GetAccount() != "acme" || slices[0].GetSlice() != "payment" {
+		t.Fatalf("AuthoringSlicesForTree(%s) = %+v, want [acme/payment]", ps.ResultTreeId, slices)
+	}
+
+	baseSlices, err := store.Changesets().AuthoringSlicesForTree(ctx, ps.BaseTreeId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(baseSlices) != 1 || baseSlices[0].GetAccount() != "acme" || baseSlices[0].GetSlice() != "payment" {
+		t.Fatalf("AuthoringSlicesForTree(%s) = %+v, want [acme/payment]", ps.BaseTreeId, baseSlices)
+	}
+
+	none, err := store.Changesets().AuthoringSlicesForTree(ctx, "sha256:missing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("AuthoringSlicesForTree(missing) = %+v, want empty", none)
+	}
+}

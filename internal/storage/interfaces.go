@@ -75,6 +75,7 @@ type ChangesetStore interface {
 	Get(ctx context.Context, changesetID string) (*corev1.Changeset, error)
 	List(ctx context.Context, filter ChangesetListFilter) ([]*corev1.Changeset, string, error)
 	PatchsetsByConversation(ctx context.Context, conversationID string) ([]*corev1.Patchset, error)
+	AuthoringSlicesForTree(ctx context.Context, rootTreeID string) ([]*corev1.SliceRef, error)
 	AddPatchset(ctx context.Context, changesetID, expectedCurrentPatchsetID string, patchset *corev1.Patchset) (*corev1.Patchset, error)
 	Approve(ctx context.Context, changesetID, subjectID string) (*corev1.ApproveChangesetResponse, error)
 	ApprovalSubjects(ctx context.Context, changesetID, patchsetID string) ([]string, error)
@@ -102,6 +103,7 @@ type DerivedIndexStore interface {
 type RepositoryStore interface {
 	GetRef(ctx context.Context, name string) (*corev1.Ref, error)
 	RootTreeForCommit(ctx context.Context, commitID string) (string, error)
+	HasCommitWithRootTree(ctx context.Context, rootTreeID string) (bool, error)
 	GetFileAtTree(ctx context.Context, rootTreeID, p string) (*FileEntry, error)
 	GetEntryAtTree(ctx context.Context, rootTreeID, p string) (*TreeEntry, error)
 	ListDirectoryAtTree(ctx context.Context, rootTreeID, p string) ([]TreeEntry, error)

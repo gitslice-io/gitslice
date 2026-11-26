@@ -32,6 +32,20 @@ func (s *RepositoryStore) RootTreeForCommit(ctx context.Context, commitID string
 	return commit.RootTreeId, nil
 }
 
+func (s *RepositoryStore) HasCommitWithRootTree(ctx context.Context, rootTreeID string) (bool, error) {
+	if rootTreeID == "" {
+		return false, nil
+	}
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	for _, commit := range s.b.commits {
+		if commit != nil && strings.TrimSpace(commit.GetRootTreeId()) == rootTreeID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func (s *RepositoryStore) GetFileAtTree(ctx context.Context, rootTreeID, p string) (*storage.FileEntry, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()

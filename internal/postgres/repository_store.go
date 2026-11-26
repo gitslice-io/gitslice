@@ -122,6 +122,17 @@ func (s *RepositoryStore) RootTreeForCommit(ctx context.Context, commitID string
 	return s.rootTreeIDForCommit(ctx, commitID)
 }
 
+func (s *RepositoryStore) HasCommitWithRootTree(ctx context.Context, rootTreeID string) (bool, error) {
+	if rootTreeID == "" {
+		return false, nil
+	}
+	var exists bool
+	err := s.db.QueryRowContext(ctx, `
+		select exists(select 1 from commits where root_tree_id = $1)
+	`, rootTreeID).Scan(&exists)
+	return exists, err
+}
+
 func (s *RepositoryStore) GetFileAtTree(ctx context.Context, rootTreeID, p string) (*FileEntry, error) {
 	return s.getFileFromTree(ctx, rootTreeID, p)
 }

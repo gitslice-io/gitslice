@@ -234,6 +234,40 @@ func (s *ChangesetStore) PatchsetsByConversation(ctx context.Context, conversati
 	`, conversationID)
 }
 
+// AuthoringSlicesForTree returns the distinct authoring slices of changesets
+// whose patchsets reference rootTreeID as a result_tree_id or base_tree_id.
+func (s *ChangesetStore) AuthoringSlicesForTree(ctx context.Context, rootTreeID string) ([]*corev1.SliceRef, error) {
+	if rootTreeID == "" {
+		return nil, nil
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		select c.authoring_account, c.authoring_slice
+		from patchsets p
+		join changesets c on c.id = p.changeset_id
+		where p.result_tree_id = $1
+		union
+		select c.authoring_account, c.authoring_slice
+		from patchsets p
+		join changesets c on c.id = p.changeset_id
+		where p.base_tree_id = $1
+	`, rootTreeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []*corev1.SliceRef
+	for rows.Next() {
+		var account, slice string
+		if err := rows.Scan(&account, &slice); err != nil {
+			return nil, err
+		}
+		if account != "" && slice != "" {
+			out = append(out, &corev1.SliceRef{Account: account, Slice: slice})
+		}
+	}
+	return out, rows.Err()
+}
+
 func getPatchsetTx(ctx context.Context, tx *sql.Tx, patchsetID string) (*corev1.Patchset, error) {
 	return getPatchset(ctx, tx, patchsetID)
 }

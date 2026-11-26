@@ -259,8 +259,8 @@ func (s *RepositoryService) cachePublishedRootTree(rootTreeID string) {
 }
 
 // ensureAuthorizedRootTree verifies that a caller-supplied root_tree_id belongs
-// either to a published commit on DefaultTargetRef or to a changeset whose
-// authoring slice the caller is authorized to read.
+// either to a published commit or to a changeset whose authoring slice the
+// caller is authorized to read.
 func (s *RepositoryService) ensureAuthorizedRootTree(ctx context.Context, subjectID, rootTreeID string) error {
 	rootTreeID = strings.TrimSpace(rootTreeID)
 	if rootTreeID == "" {
@@ -270,86 +270,29 @@ func (s *RepositoryService) ensureAuthorizedRootTree(ctx context.Context, subjec
 		return nil
 	}
 	if s.Repository != nil {
-		if head, err := s.Repository.GetRef(ctx, storage.DefaultTargetRef); err == nil && head.GetCommitId() != "" {
-			if headTree, err := s.Repository.RootTreeForCommit(ctx, head.GetCommitId()); err == nil && headTree != "" {
-				s.cachePublishedRootTree(headTree)
-				if headTree == rootTreeID {
-					return nil
-				}
-			}
+		published, err := s.Repository.HasCommitWithRootTree(ctx, rootTreeID)
+		if err != nil {
+			return grpcError(err)
 		}
-		token := ""
-		for {
-			page, err := s.Repository.ListCommitPage(ctx, storage.DefaultTargetRef, 200, token)
-			if err != nil {
-				break
-			}
-			for _, commit := range page.Commits {
-				if commit == nil {
-					continue
-				}
-				treeID := strings.TrimSpace(commit.GetRootTreeId())
-				if treeID == "" && commit.GetId() != "" {
-					if loaded, err := s.Repository.RootTreeForCommit(ctx, commit.GetId()); err == nil {
-						treeID = strings.TrimSpace(loaded)
-					}
-				}
-				if treeID != "" {
-					s.cachePublishedRootTree(treeID)
-					if treeID == rootTreeID {
-						return nil
-					}
-				}
-			}
-			if page.NextPageToken == "" {
-				break
-			}
-			token = page.NextPageToken
+		if published {
+			s.cachePublishedRootTree(rootTreeID)
+			return nil
 		}
 	}
 	if s.Changesets != nil {
-		matchedChangeset := false
-		var firstAuthErr error
-		token := ""
-		for {
-			list, nextToken, err := s.Changesets.List(ctx, storage.ChangesetListFilter{
-				Limit:     200,
-				PageToken: token,
-				Summary:   false,
-			})
-			if err != nil {
-				return grpcError(err)
-			}
-			for _, cs := range list {
-				if cs == nil {
-					continue
-				}
-				hasTree := false
-				for _, ps := range cs.GetPatchsets() {
-					if ps != nil && (strings.TrimSpace(ps.GetResultTreeId()) == rootTreeID || strings.TrimSpace(ps.GetBaseTreeId()) == rootTreeID) {
-						hasTree = true
-						break
-					}
-				}
-				if !hasTree {
-					continue
-				}
-				matchedChangeset = true
-				if cs.GetAuthoringSlice() == nil {
-					continue
-				}
-				if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, cs.GetAuthoringSlice(), authz.ActionRead); err == nil {
+		slices, err := s.Changesets.AuthoringSlicesForTree(ctx, rootTreeID)
+		if err != nil {
+			return grpcError(err)
+		}
+		if len(slices) > 0 {
+			var firstAuthErr error
+			for _, sliceRef := range slices {
+				if _, err := resolveAuthorizedSlice(ctx, s.Auth, s.Slices, subjectID, sliceRef, authz.ActionRead); err == nil {
 					return nil
 				} else if firstAuthErr == nil {
 					firstAuthErr = err
 				}
 			}
-			if nextToken == "" {
-				break
-			}
-			token = nextToken
-		}
-		if matchedChangeset {
 			if firstAuthErr != nil {
 				return firstAuthErr
 			}

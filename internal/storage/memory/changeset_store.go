@@ -160,6 +160,38 @@ func (s *ChangesetStore) PatchsetsByConversation(ctx context.Context, conversati
 	return out, nil
 }
 
+func (s *ChangesetStore) AuthoringSlicesForTree(ctx context.Context, rootTreeID string) ([]*corev1.SliceRef, error) {
+	if rootTreeID == "" {
+		return nil, nil
+	}
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	seen := map[string]struct{}{}
+	var out []*corev1.SliceRef
+	for _, cs := range s.b.changesets {
+		if cs == nil || cs.GetAuthoringSlice() == nil {
+			continue
+		}
+		hasTree := false
+		for _, ps := range cs.GetPatchsets() {
+			if ps != nil && (strings.TrimSpace(ps.GetResultTreeId()) == rootTreeID || strings.TrimSpace(ps.GetBaseTreeId()) == rootTreeID) {
+				hasTree = true
+				break
+			}
+		}
+		if !hasTree {
+			continue
+		}
+		key := sliceRefKey(cs.GetAuthoringSlice())
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, cloneSliceRef(cs.GetAuthoringSlice()))
+	}
+	return out, nil
+}
+
 func (s *ChangesetStore) AddPatchset(ctx context.Context, changesetID, expectedCurrentPatchsetID string, patchset *corev1.Patchset) (*corev1.Patchset, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()

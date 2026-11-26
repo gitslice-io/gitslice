@@ -339,4 +339,73 @@ func TestRepositoryRefEmptyCommitAndRootTreeAuthorization(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("ReadFile with authorized changeset RootTreeId failed: %v", err)
 	}
+
+	// Anonymous viewer CAN read a draft changeset's ResultTreeId authored in a public slice.
+	_, pubPS := createStandaloneChangesetWithPatchsetForSlice(t, alice, handlers, pubSlice, ref.CommitId, "public draft", "/acme/docs/draft.md", "# Draft\n")
+	if got, err := handlers.Repository.ReadFile(context.Background(), &corev1.ReadFileRequest{
+		RootTreeId: pubPS.ResultTreeId,
+		Path:       "/acme/docs/draft.md",
+		Slice:      pubSlice,
+	}); err != nil {
+		t.Fatalf("anonymous ReadFile with public draft RootTreeId failed: %v", err)
+	} else if string(got.GetData()) != "# Draft\n" {
+		t.Fatalf("anonymous ReadFile data = %q, want %q", string(got.GetData()), "# Draft\n")
+	}
+}
+
+type failScanRepositoryStore struct {
+	storage.RepositoryStore
+	t *testing.T
+}
+
+func (s failScanRepositoryStore) ListCommitPage(ctx context.Context, refName string, limit int, pageToken string) (*storage.CommitListPage, error) {
+	s.t.Helper()
+	s.t.Fatal("ListCommitPage should not be called during root_tree_id authorization")
+	return nil, nil
+}
+
+type failScanChangesetStore struct {
+	storage.ChangesetStore
+	t *testing.T
+}
+
+func (s failScanChangesetStore) List(ctx context.Context, filter storage.ChangesetListFilter) ([]*corev1.Changeset, string, error) {
+	s.t.Helper()
+	s.t.Fatal("Changesets.List should not be called during root_tree_id authorization")
+	return nil, "", nil
+}
+
+func TestReadFileDraftRootTreeUsesDirectLookupsWithoutScanning(t *testing.T) {
+	mem, handlers := newSliceMemberHandlers(t)
+	alice := subjectCtx("user_alice")
+	pubSlice := &corev1.SliceRef{Account: "acme", Slice: "docs"}
+
+	ref, err := handlers.Repository.GetRef(alice, &corev1.GetRefRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ps := createStandaloneChangesetWithPatchsetForSlice(t, alice, handlers, pubSlice, ref.CommitId, "add doc", "/acme/docs/new.md", "hello\n")
+
+	handlers.Repository.Repository = failScanRepositoryStore{RepositoryStore: mem.Repository, t: t}
+	handlers.Repository.Changesets = failScanChangesetStore{ChangesetStore: mem.Changesets, t: t}
+
+	got, err := handlers.Repository.ReadFile(context.Background(), &corev1.ReadFileRequest{
+		RootTreeId: ps.ResultTreeId,
+		Path:       "/acme/docs/new.md",
+		Slice:      pubSlice,
+	})
+	if err != nil {
+		t.Fatalf("ReadFile on draft ResultTreeId failed: %v", err)
+	}
+	if string(got.GetData()) != "hello\n" {
+		t.Fatalf("ReadFile data = %q, want %q", string(got.GetData()), "hello\n")
+	}
+
+	if _, err := handlers.Repository.ReadFile(context.Background(), &corev1.ReadFileRequest{
+		RootTreeId: "sha256:does-not-exist",
+		Path:       "/acme/docs/new.md",
+		Slice:      pubSlice,
+	}); status.Code(err) != codes.NotFound {
+		t.Fatalf("ReadFile on unknown RootTreeId = %v, want NotFound", err)
+	}
 }
