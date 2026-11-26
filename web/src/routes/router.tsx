@@ -22,6 +22,7 @@ import { loadSliceDetail } from "./loaders/sliceDetailLoader";
 import { AccountNotFound, ChangesetNotFound, PageNotFound, SliceNotFound } from "./NotFoundPage";
 import { createQueryClient, rootRoute, stripUndefined } from "./root";
 import {
+  validateAccountSearch,
   validateChangesetDetailSearch,
   validateChangesetsSearch,
   validateSliceCreateSearch,
@@ -160,6 +161,7 @@ const accountSecretsRoute = createRoute({ getParentRoute: () => appRoute, path: 
 const accountRoute = createRoute({
   getParentRoute: () => publicAppRoute,
   path: "accounts/$account",
+  validateSearch: validateAccountSearch,
   loader: async ({ context, params }) => {
     if (!import.meta.env.SSR) return;
     try {

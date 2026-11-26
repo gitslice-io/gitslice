@@ -74,7 +74,7 @@ describe("home, account, and organization route pages", () => {
     expectHealthy(consoleError);
   });
 
-  it("offers no conversations on Home while they are not offered", async () => {
+  it("offers no conversations on Home while they are not offered and shows a single Manage account link", async () => {
     authMock.current = { isLoaded: true, isSignedIn: true };
     const api = makeSlicePagesApi();
     api.listConversations = vi.fn().mockResolvedValue({
@@ -86,6 +86,8 @@ describe("home, account, and organization route pages", () => {
     expect(screen.queryByRole("button", { name: "New conversation" })).toBeNull();
     expect(screen.queryByText("Personal chat")).toBeNull();
     expect(api.listConversations).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "Manage account" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Account & runners" })).not.toBeInTheDocument();
   });
 
   it("sends Home in an organization's context to its profile page", () => {
@@ -248,7 +250,7 @@ describe("home, account, and organization route pages", () => {
     await waitFor(() => expect(container.querySelector('img[src="/avatars/nic.png?v=none"]')).not.toBeNull());
   });
 
-  it("lists your organizations and agents on your own page", async () => {
+  it("lists your organizations on Overview and your agents and CI runners in their tabs on your own page", async () => {
     authMock.current = { isLoaded: true, isSignedIn: true };
     selectionMock.current = {
       ...selectionMock.current,
@@ -266,6 +268,10 @@ describe("home, account, and organization route pages", () => {
     api.listOwnedAgents = vi.fn().mockResolvedValue({
       agents: [{ account: "heibot", agentDisplayName: "hei", agentSubjectId: "agent_1", claimedAt: "2026-09-30T02:01:48Z" }]
     });
+    api.getAccountCIDaemons = vi.fn().mockResolvedValue({ account: "nic", daemonIds: [], daemonNames: [] });
+    api.listDaemons = vi.fn().mockResolvedValue({
+      daemons: [{ id: "d1", account: "nic", name: "mac-ci", runtime: "ci", version: "0.4.34", status: "online", mine: true }]
+    });
     apiMock.current = api;
     renderSliceRoute(<AccountPage />);
 
@@ -273,9 +279,29 @@ describe("home, account, and organization route pages", () => {
     expect(within(orgs).getByRole("link", { name: /gitslice/ })).toBeInTheDocument();
     expect(within(orgs).getByText("owner")).toBeInTheDocument();
     expect(within(orgs).getByRole("link", { name: "New organization" })).toBeInTheDocument();
-    // The agent cards moved here from Home.
+    // Agents and CI runners stay tucked in their dedicated tabs instead of crowding Overview.
+    expect(screen.queryByRole("region", { name: "Your agents" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Registered CI runners" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Agents" }));
+    expect(routerMock.navigate).toHaveBeenCalledWith({
+      params: { account: "nic" },
+      replace: true,
+      search: { tab: "agents" },
+      to: "/accounts/$account"
+    });
     const agents = await screen.findByRole("region", { name: "Your agents" });
     expect(within(agents).getByText("hei")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "CI Runners" }));
+    expect(routerMock.navigate).toHaveBeenCalledWith({
+      params: { account: "nic" },
+      replace: true,
+      search: { tab: "runners" },
+      to: "/accounts/$account"
+    });
+    expect(await screen.findByRole("region", { name: "Default CI runner pool" })).toBeInTheDocument();
+    expect(await screen.findByText("mac-ci")).toBeInTheDocument();
   });
 
   it("does not offer to edit someone else's profile", async () => {
@@ -478,6 +504,7 @@ describe("home, account, and organization route pages", () => {
     apiMock.current = api;
     renderSliceRoute(<AccountPage />);
 
+    fireEvent.click(await screen.findByRole("tab", { name: "People" }));
     const people = await screen.findByRole("region", { name: "People" });
     expect(await within(people).findByText("gitslice-mirror")).toBeInTheDocument();
     expect(screen.getByText(/Organization · you are an owner/)).toBeInTheDocument();
@@ -516,11 +543,13 @@ describe("home, account, and organization route pages", () => {
     apiMock.current = api;
     renderSliceRoute(<AccountPage />);
 
+    fireEvent.click(await screen.findByRole("tab", { name: "People" }));
     const people = await screen.findByRole("region", { name: "People" });
     expect(await within(people).findByText("boss")).toBeInTheDocument();
     expect(within(people).queryByRole("button", { name: "Remove" })).not.toBeInTheDocument();
     expect(within(people).queryByPlaceholderText("username")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "New slice" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "CI Runners" })).not.toBeInTheDocument();
   });
 
   it("says when an account has no public slices", async () => {

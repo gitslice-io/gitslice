@@ -23,11 +23,11 @@ function parseSliceInput(input: string): SliceRef | null {
   return match ? { account: match[1], slice: match[2] } : null;
 }
 
-// AgentDaemons is the "Agent daemons" section of your own account page: the
-// daemons you started with gs agent start and those of agents you co-own, with
-// their status, last seen time, and the slices that use each one for CI. Each
-// can be renamed, and the new name shows in slice settings and on check runs.
-// Errors resolve to no section rather than a misleading empty one.
+// AgentDaemons lists the registered CI runners you started with
+// `gs agent start --ci --name <name>` (and those of agents you co-own), with
+// status, assignments, and an on-demand Manage panel for renaming and sharing
+// a runner with specific slices. Errors resolve to no section rather than a
+// misleading empty one.
 export function AgentDaemons() {
   const api = useApi();
   const { isLoaded, isSignedIn } = useAppAuth();
@@ -43,28 +43,27 @@ export function AgentDaemons() {
   const daemons = query.data ?? [];
 
   return (
-    <section aria-labelledby="agent-daemons-heading">
+    <section aria-labelledby="ci-runners-heading">
       <h2
         className="text-sm font-semibold text-zinc-950 dark:text-zinc-50"
-        id="agent-daemons-heading"
+        id="ci-runners-heading"
       >
-        Agent daemons
+        Registered CI runners
       </h2>
       <p className="text-sm leading-6 text-slate-600 dark:text-zinc-400">
-        Machines running <code className="font-mono text-xs">gs agent start</code>, yours and
-        those of agents you co-own. They run agent conversations and CI checks.
+        Machines running <code className="font-mono text-xs">gs agent start --ci --name &lt;name&gt;</code>, yours
+        and those of agents you co-own.
       </p>
       <div className="mt-3">
         {daemons.length === 0 ? (
-          <div className="rounded-md border border-dashed border-slate-300 p-4 text-sm leading-6 text-slate-600 dark:border-zinc-700 dark:text-zinc-400">
-            No daemons yet. On a machine with the agent runtime, run{" "}
-            <code className="font-mono text-xs">gs agent start --name &lt;name&gt;</code> and it
-            appears here.
+          <div className="rounded-lg border border-dashed border-slate-300 p-4 text-sm leading-6 text-slate-600 dark:border-zinc-700 dark:text-zinc-400">
+            No CI runners registered yet. On a machine that should run checks and folder automations, run{" "}
+            <code className="font-mono text-xs">gs agent start --ci --name &lt;name&gt;</code> and it appears here.
           </div>
         ) : (
-          <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <ul className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-black/50">
             {daemons.map((daemon) => (
-              <DaemonCard daemon={daemon} key={daemon.id ?? daemon.name} />
+              <RunnerRow daemon={daemon} key={daemon.id ?? daemon.name} />
             ))}
           </ul>
         )}
@@ -73,15 +72,14 @@ export function AgentDaemons() {
   );
 }
 
-function DaemonCard({ daemon }: { daemon: AgentDaemon }) {
+function RunnerRow({ daemon }: { daemon: AgentDaemon }) {
   const api = useApi();
   const queryClient = useQueryClient();
-  const [editing, setEditing] = useState(false);
+  const [managing, setManaging] = useState(false);
   const [name, setName] = useState("");
   const shown = daemonName(daemon);
   const renamed = Boolean(daemon.displayName) && daemon.displayName !== daemon.name;
   const online = daemon.status === "online";
-  const runtime = daemon.runtime?.toLowerCase() === "ci" ? "checks only" : daemon.runtime;
   const ciSlices = daemon.ciSlices ?? [];
   const ciAccounts = daemon.ciAccounts ?? [];
   const exposedTo = daemon.exposedTo ?? [];
@@ -111,8 +109,6 @@ function DaemonCard({ daemon }: { daemon: AgentDaemon }) {
     mutationFn: (displayName: string) =>
       api.renameDaemon({ daemonId: daemon.id, displayName }),
     onSuccess: async () => {
-      setEditing(false);
-      // The name shows in the pickers, slice settings and check runs too.
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: agentDaemonsKey }),
         queryClient.invalidateQueries({ queryKey: sliceRefKeyPrefix }),
@@ -121,59 +117,90 @@ function DaemonCard({ daemon }: { daemon: AgentDaemon }) {
     }
   });
 
-  function startEditing() {
-    rename.reset();
-    setName(daemon.displayName || daemon.name || "");
-    setEditing(true);
+  function toggleManage() {
+    if (!managing) {
+      rename.reset();
+      expose.reset();
+      unexpose.reset();
+      setName(daemon.displayName || daemon.name || "");
+    }
+    setManaging((open) => !open);
   }
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  function submitRename(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const next = name.trim();
     if (!next || next === shown) {
-      setEditing(false);
       return;
     }
     rename.mutate(next);
   }
 
+  const metaParts: string[] = [];
+  if (daemon.version) {
+    metaParts.push(`v${daemon.version.replace(/^v/, "")}`);
+  }
+  if (daemon.account) {
+    metaParts.push(`@${daemon.account}`);
+  }
+  if (renamed) {
+    metaParts.push(`starts as ${daemon.name}`);
+  }
+  metaParts.push(
+    online
+      ? "connected"
+      : daemon.lastSeenAt
+        ? `last seen ${formatRelativeTime(daemon.lastSeenAt)}`
+        : "never seen"
+  );
+  if (daemon.mine === false) {
+    metaParts.push("co-owned");
+  }
+
   return (
-    <li className="rounded-md border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <div className="flex items-center justify-between gap-2">
-        <p className="min-w-0 truncate text-sm font-medium text-zinc-950 dark:text-zinc-50" title={shown}>
-          {shown}
-        </p>
-        <span
-          className={
-            online
-              ? "inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-              : "inline-flex shrink-0 items-center gap-1.5 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-zinc-800 dark:text-zinc-400"
-          }
-        >
+    <li className="px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <p className="truncate text-sm font-medium text-zinc-950 dark:text-zinc-50" title={shown}>
+            {shown}
+          </p>
           <span
-            aria-hidden="true"
-            className={online ? "h-1.5 w-1.5 rounded-full bg-emerald-500" : "h-1.5 w-1.5 rounded-full bg-slate-400"}
-          />
-          {online ? "online" : "offline"}
-        </span>
+            className={
+              online
+                ? "inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                : "inline-flex shrink-0 items-center gap-1.5 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-600 dark:bg-zinc-800 dark:text-zinc-400"
+            }
+          >
+            <span
+              aria-hidden="true"
+              className={online ? "h-1.5 w-1.5 rounded-full bg-emerald-500" : "h-1.5 w-1.5 rounded-full bg-slate-400"}
+            />
+            {online ? "online" : "offline"}
+          </span>
+        </div>
+        <Button
+          aria-expanded={managing}
+          aria-label={`Manage ${shown}`}
+          onClick={toggleManage}
+          size="xs"
+          variant="secondary"
+        >
+          {managing ? "Done" : "Manage"}
+        </Button>
       </div>
-      <p className="mt-1 truncate text-xs text-slate-500 dark:text-zinc-400">
-        {[runtime, daemon.version].filter(Boolean).join(" ") || "runtime unknown"}
-        {daemon.account ? ` · ${daemon.account}` : ""}
-        {renamed ? ` · starts as ${daemon.name}` : ""}
+
+      <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+        {metaParts.join(" · ")}
       </p>
-      <p className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">
-        {online ? "connected" : daemon.lastSeenAt ? `last seen ${formatRelativeTime(daemon.lastSeenAt)}` : "never seen"}
-        {daemon.mine === false ? " · an agent you co-own" : ""}
-      </p>
-      <p className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">
+
+      <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
         {ciAccounts.length === 0 && ciSlices.length === 0 ? (
-          "Not a CI daemon of any account or slice"
+          "Not assigned to an account or slice"
         ) : (
           <>
             {ciAccounts.length > 0 ? (
               <>
-                Account CI runner for{" "}
+                Default runner for{" "}
                 {ciAccounts.map((acct, index) => (
                   <span key={acct}>
                     {index > 0 ? ", " : ""}
@@ -191,7 +218,7 @@ function DaemonCard({ daemon }: { daemon: AgentDaemon }) {
             ) : null}
             {ciSlices.length > 0 ? (
               <>
-                CI daemon of{" "}
+                Assigned to{" "}
                 {ciSlices.map((ref, index) => {
                   const params = toSliceRouteParams(ref);
                   const label = `${ref.account}/${ref.slice}`;
@@ -216,122 +243,119 @@ function DaemonCard({ daemon }: { daemon: AgentDaemon }) {
             ) : null}
           </>
         )}
+        {manageable && !managing && exposedTo.length > 0 ? (
+          <>
+            {" · "}Shared with {exposedTo.length} {exposedTo.length === 1 ? "slice" : "slices"}
+          </>
+        ) : null}
       </p>
 
-      {manageable ? (
-        <div className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
-          <p>
-            {exposedTo.length === 0
-              ? "Not exposed to any slice: nobody can choose it as a CI daemon."
-              : "Exposed to (their owners can choose it as a CI daemon):"}
-          </p>
-          {exposedTo.length > 0 ? (
-            <ul className="mt-1 flex flex-wrap gap-1.5">
-              {exposedTo.map((ref) => {
-                const label = `${ref.account}/${ref.slice}`;
-                return (
-                  <li
-                    className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 dark:bg-zinc-800"
-                    key={label}
-                  >
-                    {label}
-                    <button
-                      aria-label={`Stop exposing ${shown} to ${label}`}
-                      className="text-slate-500 hover:text-zinc-950 disabled:opacity-60 dark:text-zinc-400 dark:hover:text-zinc-50"
-                      disabled={unexpose.isPending}
-                      onClick={() => unexpose.mutate(ref)}
-                      type="button"
-                    >
-                      ×
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          ) : null}
-          <form
-            className="mt-1.5 flex items-center gap-1.5"
-            onSubmit={(event) => {
-              event.preventDefault();
-              if (exposeRef) {
-                expose.mutate(exposeRef);
-              }
-            }}
-          >
-            <Input
-              aria-label={`Expose ${shown} to a slice`}
-              className="flex-1"
-              onChange={(event) => setExposeInput(event.target.value)}
-              placeholder="account/slice"
-              size="sm"
-              value={exposeInput}
-            />
-            <Button
-              disabled={!exposeRef || expose.isPending}
-              size="xs"
-              type="submit"
-            >
-              Expose
-            </Button>
+      {managing ? (
+        <div className="mt-3 grid gap-4 border-t border-slate-200 pt-3 dark:border-zinc-800 sm:grid-cols-2">
+          <form className="grid content-start gap-2" onSubmit={submitRename}>
+            <label className="grid gap-1 text-xs font-medium text-zinc-800 dark:text-zinc-200">
+              Display name
+              <Input
+                className="h-8 px-2"
+                maxLength={MAX_NAME_LENGTH}
+                onChange={(event) => setName(event.target.value)}
+                value={name}
+              />
+            </label>
+            {rename.error ? (
+              <p className="text-xs text-rose-700 dark:text-rose-300" role="alert">
+                {getErrorMessage(rename.error)}
+              </p>
+            ) : null}
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                disabled={rename.isPending || !name.trim() || name.trim() === shown}
+                size="xs"
+                type="submit"
+                variant="primary"
+              >
+                {rename.isPending ? "Saving…" : "Save name"}
+              </Button>
+              {renamed ? (
+                <Button
+                  className="underline underline-offset-2"
+                  disabled={rename.isPending}
+                  onClick={() => rename.mutate("")}
+                  size="xs"
+                  variant="ghost"
+                >
+                  Use {daemon.name}
+                </Button>
+              ) : null}
+            </div>
           </form>
-          {expose.error || unexpose.error ? (
-            <p className="mt-1 text-rose-700 dark:text-rose-300" role="alert">
-              {getErrorMessage(expose.error ?? unexpose.error)}
-            </p>
+
+          {manageable ? (
+            <div className="grid content-start gap-2 text-xs text-slate-600 dark:text-zinc-400">
+              <p className="font-medium text-zinc-800 dark:text-zinc-200">Share with slices</p>
+              <p>
+                {exposedTo.length === 0
+                  ? "Not shared with any slice yet. Share it so a slice owner can choose it as a CI runner."
+                  : "Shared with (their owners can choose this runner for CI):"}
+              </p>
+              {exposedTo.length > 0 ? (
+                <ul className="flex flex-wrap gap-1.5">
+                  {exposedTo.map((ref) => {
+                    const label = `${ref.account}/${ref.slice}`;
+                    return (
+                      <li
+                        className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200"
+                        key={label}
+                      >
+                        {label}
+                        <button
+                          aria-label={`Stop sharing ${shown} with ${label}`}
+                          className="text-slate-500 hover:text-zinc-950 disabled:opacity-60 dark:text-zinc-400 dark:hover:text-zinc-50"
+                          disabled={unexpose.isPending}
+                          onClick={() => unexpose.mutate(ref)}
+                          type="button"
+                        >
+                          ×
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+              <form
+                className="flex items-center gap-1.5"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  if (exposeRef) {
+                    expose.mutate(exposeRef);
+                  }
+                }}
+              >
+                <Input
+                  aria-label={`Share ${shown} with a slice`}
+                  className="flex-1"
+                  onChange={(event) => setExposeInput(event.target.value)}
+                  placeholder="account/slice"
+                  size="sm"
+                  value={exposeInput}
+                />
+                <Button
+                  disabled={!exposeRef || expose.isPending}
+                  size="xs"
+                  type="submit"
+                >
+                  Share
+                </Button>
+              </form>
+              {expose.error || unexpose.error ? (
+                <p className="text-rose-700 dark:text-rose-300" role="alert">
+                  {getErrorMessage(expose.error ?? unexpose.error)}
+                </p>
+              ) : null}
+            </div>
           ) : null}
         </div>
       ) : null}
-
-      {editing ? (
-        <form className="mt-2 grid gap-2" onSubmit={submit}>
-          <label className="grid gap-1 text-xs font-medium text-zinc-800 dark:text-zinc-200">
-            Name
-            <Input
-              autoFocus
-              className="h-8 px-2"
-              maxLength={MAX_NAME_LENGTH}
-              onChange={(event) => setName(event.target.value)}
-              value={name}
-            />
-          </label>
-          {rename.error ? (
-            <p className="text-xs text-rose-700 dark:text-rose-300" role="alert">
-              {getErrorMessage(rename.error)}
-            </p>
-          ) : null}
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              disabled={rename.isPending || !name.trim()}
-              type="submit"
-              variant="primary"
-            >
-              {rename.isPending ? "Saving…" : "Save"}
-            </Button>
-            <Button onClick={() => setEditing(false)}>
-              Cancel
-            </Button>
-            {renamed ? (
-              <Button
-                className="underline underline-offset-2"
-                disabled={rename.isPending}
-                onClick={() => rename.mutate("")}
-                size="xs"
-                variant="ghost"
-              >
-                Use {daemon.name}
-              </Button>
-            ) : null}
-          </div>
-        </form>
-      ) : (
-        <Button
-          aria-label={`Rename ${shown}`}
-          className="mt-2"
-          onClick={startEditing}
-        >
-          Rename
-        </Button>
-      )}
     </li>
   );
 }

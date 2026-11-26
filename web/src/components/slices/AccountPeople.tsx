@@ -26,7 +26,15 @@ const ROLE_HELP: Record<string, string> = {
 // (who join when they accept), change roles and remove people; the server
 // enforces who may do what (admins cannot make or remove owners, and the last
 // owner stays).
-export function AccountPeople({ account, membership }: { account: string; membership: Membership }) {
+export function AccountPeople({
+  account,
+  className = "mt-10",
+  membership
+}: {
+  account: string;
+  className?: string;
+  membership: Membership;
+}) {
   const api = useApi();
   const queryClient = useQueryClient();
   const manage = canAdmin(membership);
@@ -93,7 +101,7 @@ export function AccountPeople({ account, membership }: { account: string; member
   const invitations = invitationsQuery.data ?? [];
 
   return (
-    <section aria-label="People" className="mt-10">
+    <section aria-label="People" className={className || undefined}>
       <h2 className="mb-2 text-sm font-semibold text-zinc-950 dark:text-zinc-50">People</h2>
       <p className="mb-4 text-sm leading-6 text-slate-600 dark:text-zinc-400">
         {manage

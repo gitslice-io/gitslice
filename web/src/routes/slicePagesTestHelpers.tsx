@@ -148,6 +148,8 @@ export function makeSlicePagesApi() {
     readFile: vi.fn().mockResolvedValue({ data: btoa("hi\n") }),
     listConversations: vi.fn().mockResolvedValue({ conversations: [] }),
     listDaemons: vi.fn().mockResolvedValue({ daemons: [] }),
+    getAccountCIDaemons: vi.fn().mockResolvedValue({ account: "nic", daemonIds: [], daemonNames: [] }),
+    setAccountCIDaemon: vi.fn().mockResolvedValue({ account: "nic", daemonIds: [], daemonNames: [] }),
     listCommits: vi.fn().mockResolvedValue({ commits: [] }),
     listChangesets: vi.fn().mockResolvedValue({ changesets: [] }),
     setSliceCIDaemon: vi.fn().mockResolvedValue(slice),

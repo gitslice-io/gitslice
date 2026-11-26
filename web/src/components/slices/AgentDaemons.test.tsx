@@ -30,7 +30,7 @@ const ownCi = {
   id: "agent_own",
   account: "nic",
   name: "laptop-ci",
-  runtime: "codex",
+  runtime: "ci",
   version: "0.4.8",
   status: "online",
   mine: true,
@@ -41,7 +41,7 @@ const botCi = {
   account: "grok-bot",
   name: "grok-bot-ci",
   displayName: "Main CI",
-  runtime: "codex",
+  runtime: "ci",
   status: "offline",
   lastSeenAt: new Date(Date.now() - 3 * 3600 * 1000).toISOString(),
   mine: false,
@@ -54,40 +54,35 @@ describe("AgentDaemons", () => {
     apiMock.current = {};
   });
 
-  it("lists the daemons with their names, status and the slices that use them", async () => {
+  it("lists registered CI runners with their names, status, and assigned slices without deprecated conversation copy", async () => {
     apiMock.current = { listDaemons: vi.fn().mockResolvedValue({ daemons: [ownCi, botCi] }) };
     renderDaemons();
 
     expect(await screen.findByText("laptop-ci")).toBeInTheDocument();
     expect(screen.getByText("online")).toBeInTheDocument();
     expect(screen.getByText("nic/app")).toBeInTheDocument();
-    // A renamed daemon shows its new name and says what it registers as.
+    expect(screen.getByText(/v0\.4\.8/)).toBeInTheDocument();
+    // Deprecated conversation / checks-only runtime copy is gone.
+    expect(screen.queryByText(/agent conversations/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/checks only/i)).not.toBeInTheDocument();
+    // A renamed runner shows its new name and what it registers as.
     expect(screen.getByText("Main CI")).toBeInTheDocument();
     expect(screen.getByText(/starts as grok-bot-ci/)).toBeInTheDocument();
     expect(screen.getByText("offline")).toBeInTheDocument();
-    expect(screen.getByText(/an agent you co-own/)).toBeInTheDocument();
+    expect(screen.getByText(/co-owned/)).toBeInTheDocument();
     expect(screen.getByText(/last seen/)).toBeInTheDocument();
+    // Management forms stay tucked away until Manage is clicked.
+    expect(screen.queryByLabelText("Display name")).not.toBeInTheDocument();
   });
 
-  it("labels CI-only daemons as checks only", async () => {
-    apiMock.current = {
-      listDaemons: vi.fn().mockResolvedValue({
-        daemons: [{ ...ownCi, runtime: "ci" }]
-      })
-    };
-    renderDaemons();
-
-    expect(await screen.findByText(/checks only 0\.4\.8/)).toBeInTheDocument();
-    expect(screen.queryByText(/codex 0\.4\.8/)).not.toBeInTheDocument();
-  });
-
-  it("says how to start a daemon when there are none", async () => {
+  it("says how to start a CI runner when there are none", async () => {
     apiMock.current = { listDaemons: vi.fn().mockResolvedValue({ daemons: [] }) };
     renderDaemons();
-    expect(await screen.findByText(/No daemons yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/No CI runners registered yet/)).toBeInTheDocument();
+    expect(screen.getAllByText(/gs agent start --ci --name <name>/).length).toBeGreaterThanOrEqual(1);
   });
 
-  it("renames a daemon and clears its name", async () => {
+  it("renames a runner and clears its name via the Manage panel", async () => {
     const renameDaemon = vi.fn().mockResolvedValue({ ...ownCi, displayName: "Laptop" });
     apiMock.current = {
       listDaemons: vi.fn().mockResolvedValue({ daemons: [ownCi, botCi] }),
@@ -95,15 +90,15 @@ describe("AgentDaemons", () => {
     };
     renderDaemons();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Rename laptop-ci" }));
-    const input = screen.getByLabelText("Name");
+    fireEvent.click(await screen.findByRole("button", { name: "Manage laptop-ci" }));
+    const input = screen.getByLabelText("Display name");
     expect(input).toHaveValue("laptop-ci");
     fireEvent.change(input, { target: { value: "  Laptop  " } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save name" }));
     await waitFor(() => expect(renameDaemon).toHaveBeenCalledWith({ daemonId: "agent_own", displayName: "Laptop" }));
 
-    // A renamed daemon can go back to the name it registers with.
-    fireEvent.click(await screen.findByRole("button", { name: "Rename Main CI" }));
+    // A renamed runner can go back to the name it registers with.
+    fireEvent.click(screen.getByRole("button", { name: "Manage Main CI" }));
     fireEvent.click(screen.getByRole("button", { name: "Use grok-bot-ci" }));
     await waitFor(() => expect(renameDaemon).toHaveBeenCalledWith({ daemonId: "agent_bot", displayName: "" }));
   });
@@ -115,13 +110,13 @@ describe("AgentDaemons", () => {
     };
     renderDaemons();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Rename laptop-ci" }));
-    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Laptop" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Manage laptop-ci" }));
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Laptop" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save name" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("already shown as Laptop");
   });
 
-  it("exposes a daemon to a slice and withdraws it", async () => {
+  it("shares a runner with a slice and stops sharing via the Manage panel", async () => {
     const exposeDaemon = vi.fn().mockResolvedValue({ ...ownCi });
     const unexposeDaemon = vi.fn().mockResolvedValue({ ...ownCi });
     apiMock.current = {
@@ -133,29 +128,33 @@ describe("AgentDaemons", () => {
     };
     renderDaemons();
 
-    expect(await screen.findByText(/Exposed to \(their owners can choose it/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Stop exposing laptop-ci to nic/app" }));
+    expect(await screen.findByText(/Shared with 1 slice/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Manage laptop-ci" }));
+
+    expect(screen.getByText(/Shared with \(their owners can choose this runner for CI\)/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Stop sharing laptop-ci with nic/app" }));
     await waitFor(() =>
       expect(unexposeDaemon).toHaveBeenCalledWith({ daemonId: "agent_own", slice: { account: "nic", slice: "app" } })
     );
 
-    const input = screen.getByLabelText("Expose laptop-ci to a slice");
-    const expose = screen.getByRole("button", { name: "Expose" });
-    expect(expose).toBeDisabled();
+    const input = screen.getByLabelText("Share laptop-ci with a slice");
+    const share = screen.getByRole("button", { name: "Share" });
+    expect(share).toBeDisabled();
     fireEvent.change(input, { target: { value: "gitslice:gitslice" } });
-    fireEvent.click(expose);
+    fireEvent.click(share);
     await waitFor(() =>
       expect(exposeDaemon).toHaveBeenCalledWith({ daemonId: "agent_own", slice: { account: "gitslice", slice: "gitslice" } })
     );
   });
 
-  it("says when a daemon is exposed to no slice", async () => {
+  it("says when a runner is shared with no slice inside Manage", async () => {
     apiMock.current = { listDaemons: vi.fn().mockResolvedValue({ daemons: [{ ...ownCi, manageable: true, exposedTo: [] }] }) };
     renderDaemons();
-    expect(await screen.findByText(/Not exposed to any slice/)).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Manage laptop-ci" }));
+    expect(screen.getByText(/Not shared with any slice yet/)).toBeInTheDocument();
   });
 
-  it("renders nothing when the daemons cannot be listed", async () => {
+  it("renders nothing when the runners cannot be listed", async () => {
     apiMock.current = { listDaemons: vi.fn().mockRejectedValue(new Error("unavailable")) };
     const { container } = renderDaemons();
     await waitFor(() => expect(apiMock.current.listDaemons).toHaveBeenCalled());

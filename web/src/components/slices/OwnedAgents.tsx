@@ -1,11 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { useState } from "react";
 
 import type { OwnedAgent } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { useAppAuth } from "../../auth/AppAuthProvider";
 import { formatRelativeTime } from "../../lib/time";
 import { ownedAgentsQuery } from "../../queries/auth";
+import { Button } from "../ui/Button";
 import { ConnectAgentPanel } from "./ConnectAgentPanel";
 
 // useOwnedAgents returns the self-registered agents whose accounts the
@@ -31,6 +33,7 @@ export function useOwnedAgents() {
 // agents you co-own after claiming them, with when each last used its API key.
 // (Home lists only the active account; the top bar switches to an agent.)
 export function OwnedAgents() {
+  const [connectOpen, setConnectOpen] = useState(false);
   const { agents, enabled, isError, isLoading } = useOwnedAgents();
   // On error, render nothing rather than a misleading "No agents yet".
   if (!enabled || isLoading || isError) {
@@ -39,7 +42,7 @@ export function OwnedAgents() {
 
   return (
     <section aria-labelledby="owned-agents-heading">
-      <div className="flex items-end justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <h2
             className="text-sm font-semibold text-zinc-950 dark:text-zinc-50"
@@ -52,12 +55,26 @@ export function OwnedAgents() {
             invite token and that you co-own.
           </p>
         </div>
+        <Button
+          aria-expanded={connectOpen}
+          onClick={() => setConnectOpen((open) => !open)}
+          size="sm"
+          variant={connectOpen ? "secondary" : "primary"}
+        >
+          {connectOpen ? "Hide join token" : "Connect agent"}
+        </Button>
       </div>
 
-      <div className="mt-3">
+      {connectOpen ? (
+        <div className="mt-4">
+          <ConnectAgentPanel />
+        </div>
+      ) : null}
+
+      <div className="mt-4">
         {agents.length === 0 ? (
-          <div className="rounded-md border border-dashed border-slate-300 p-4 text-sm leading-6 text-slate-600 dark:border-zinc-700 dark:text-zinc-400">
-            No agents yet. Generate a single-use join token below, or point an
+          <div className="rounded-lg border border-dashed border-slate-300 p-4 text-sm leading-6 text-slate-600 dark:border-zinc-700 dark:text-zinc-400">
+            No agents yet. Click &ldquo;Connect agent&rdquo; to mint a single-use join token, or point an
             agent at{" "}
             <a
               className="font-medium text-zinc-950 underline underline-offset-2 dark:text-zinc-50"
@@ -74,10 +91,6 @@ export function OwnedAgents() {
             ))}
           </ul>
         )}
-      </div>
-
-      <div className="mt-4">
-        <ConnectAgentPanel />
       </div>
     </section>
   );

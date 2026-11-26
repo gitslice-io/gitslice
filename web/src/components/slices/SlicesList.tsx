@@ -3,7 +3,6 @@ import { Link, useSearch } from "@tanstack/react-router";
 
 import type { Slice } from "../../api/types";
 import { useApi } from "../../api/useApi";
-import { shortHash } from "../../lib/objectId";
 import { isHomeSlice } from "../../lib/sliceOrder";
 import { toSliceRouteParams } from "../../lib/sliceRoutes";
 import { canAdmin, kindLabel, membershipFor } from "../../lib/accounts";
@@ -105,14 +104,27 @@ export function SlicesList() {
               checkouts, share specific folders, or mirror a folder to Git.
             </SliceNotice>
           ) : (
-            <>
-              {/* Mobile: a compact stacked list — a 5-column table collapses to a
-                  sparse two-column layout on narrow screens, so render rows. */}
-              <ul className="divide-y divide-slate-200 dark:divide-zinc-800 overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50 md:hidden">
-                {viewSlices.map((slice) => {
+            <ul className="divide-y divide-slate-200 overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm shadow-slate-200/50 dark:divide-zinc-800 dark:border-zinc-800 dark:bg-zinc-900 dark:shadow-black/50">
+              {viewSlices.map((slice) => {
                 const sliceId = slice.id ?? "";
                 const routeParams = toSliceRouteParams(slice.ref);
                 const name = formatHomeSliceName(slice);
+                const paths = slice.definition?.includedPaths ?? [];
+                const body = (
+                  <>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-medium text-zinc-950 dark:text-zinc-50">
+                        {name}
+                      </span>
+                      {paths.length > 0 ? (
+                        <span className="mt-0.5 block truncate font-mono text-xs text-slate-500 dark:text-zinc-400">
+                          {formatPathPreview(paths)}
+                        </span>
+                      ) : null}
+                    </span>
+                    <VisibilityBadge visibility={slice.definition?.visibility} />
+                  </>
+                );
 
                 return (
                   <li key={sliceId || name}>
@@ -122,99 +134,15 @@ export function SlicesList() {
                         params={routeParams}
                         to="/slices/$account/$slice"
                       >
-                        <span className="min-w-0 truncate font-medium text-zinc-950 dark:text-zinc-50">
-                          {name}
-                        </span>
-                        <VisibilityBadge
-                          visibility={slice.definition?.visibility}
-                        />
+                        {body}
                       </Link>
                     ) : (
-                      <div className="flex items-center justify-between gap-3 px-4 py-3">
-                        <span className="min-w-0 truncate font-medium text-zinc-950 dark:text-zinc-50">
-                          {name}
-                        </span>
-                        <VisibilityBadge
-                          visibility={slice.definition?.visibility}
-                        />
-                      </div>
+                      <div className="flex items-center justify-between gap-3 px-4 py-3">{body}</div>
                     )}
                   </li>
                 );
               })}
             </ul>
-
-            {/* Desktop: the full detail table. */}
-            <div className="hidden overflow-hidden rounded-lg border border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-sm shadow-slate-200/50 dark:shadow-black/50 md:block">
-              <div className="overflow-x-auto">
-                <table className="min-w-full divide-y divide-slate-200 dark:divide-zinc-800 text-left text-sm">
-                  <thead className="bg-slate-50 dark:bg-zinc-950 text-xs font-semibold uppercase tracking-normal text-slate-500 dark:text-zinc-400">
-                    <tr>
-                      <th className="px-4 py-3">Slice</th>
-                      <th className="px-4 py-3">Visibility</th>
-                      <th className="px-4 py-3">Included paths</th>
-                      <th className="hidden px-4 py-3 xl:table-cell">Version</th>
-                      <th className="hidden px-4 py-3 xl:table-cell">Definition hash</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-200 dark:divide-zinc-800">
-                    {viewSlices.map((slice) => {
-                      const paths = slice.definition?.includedPaths ?? [];
-                      const sliceId = slice.id ?? "";
-                      const routeParams = toSliceRouteParams(slice.ref);
-                      const name = formatHomeSliceName(slice);
-
-                      return (
-                        <tr
-                          className="align-top transition hover:bg-slate-50 dark:hover:bg-zinc-950"
-                          key={sliceId || name}
-                        >
-                          <td className="px-4 py-3 font-medium text-zinc-950 dark:text-zinc-50">
-                            {routeParams ? (
-                              <Link
-                                className="break-words underline decoration-slate-300 underline-offset-4 hover:decoration-slate-700"
-                                params={routeParams}
-                                to="/slices/$account/$slice"
-                              >
-                                {name}
-                              </Link>
-                            ) : (
-                              name
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            <VisibilityBadge
-                              visibility={slice.definition?.visibility}
-                            />
-                          </td>
-                          <td className="px-4 py-3 text-slate-700 dark:text-zinc-300">
-                            <span className="font-medium text-zinc-950 dark:text-zinc-50">
-                              {paths.length}
-                            </span>{" "}
-                            <span className="font-mono text-xs text-slate-600 dark:text-zinc-400">
-                              {formatPathPreview(paths)}
-                            </span>
-                          </td>
-                          <td className="hidden px-4 py-3 font-mono text-xs text-slate-700 dark:text-zinc-300 xl:table-cell">
-                            {slice.definition?.version ?? "unknown"}
-                          </td>
-                          <td className="hidden whitespace-nowrap px-4 py-3 font-mono text-xs text-slate-700 dark:text-zinc-300 xl:table-cell">
-                            {slice.definitionHash ? (
-                              <span title={slice.definitionHash}>
-                                {shortHash(slice.definitionHash)}
-                              </span>
-                            ) : (
-                              "none"
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-            </>
           )}
         </div>
       </section>

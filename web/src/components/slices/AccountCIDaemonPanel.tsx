@@ -15,10 +15,12 @@ const selectClass =
 
 export function AccountCIDaemonPanel({
   account,
-  canEdit
+  canEdit,
+  className = "mt-10"
 }: {
   account: string;
   canEdit: boolean;
+  className?: string;
 }) {
   const api = useApi();
   const queryClient = useQueryClient();
@@ -77,15 +79,15 @@ export function AccountCIDaemonPanel({
   }
 
   return (
-    <section aria-label="CI runners" className="mt-10">
+    <section aria-label="Default CI runner pool" className={className || undefined}>
       <SlicePanel>
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(16rem,24rem)] lg:items-start">
           <div className="min-w-0">
             <h2 className="text-sm font-semibold text-zinc-950 dark:text-zinc-50">
-              CI runners
+              Default CI runner pool
             </h2>
             <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-zinc-400">
-              Default runner pool for <span className="font-mono">/{account}</span>. Folder triggers
+              Default runner pool for <span className="font-mono">/{account}</span>. Folder automations
               and <span className="font-mono">.gitslice/checks.yaml</span> across every slice run on
               the first online runner here unless a slice sets its own override.
             </p>
@@ -172,7 +174,7 @@ export function AccountCIDaemonPanel({
                     }}
                     value=""
                   >
-                    <option value="">Choose a daemon</option>
+                    <option value="">Choose a runner</option>
                     {backups.map((daemon) => (
                       <option key={daemon.id} value={daemon.id}>
                         {daemonLabel(daemon, daemon.id ?? "")}
@@ -183,11 +185,11 @@ export function AccountCIDaemonPanel({
               ) : null}
 
               {allDaemonsQuery.isPending ? (
-                <p className="text-xs text-slate-500 dark:text-zinc-400">Loading daemons…</p>
+                <p className="text-xs text-slate-500 dark:text-zinc-400">Loading runners…</p>
               ) : onlineDaemons.length === 0 ? (
                 <p className="text-xs leading-5 text-slate-500 dark:text-zinc-400">
-                  No online manageable daemons found. Start one with{" "}
-                  <code className="font-mono">gs agent start</code>.
+                  No online CI runners found. Start one with{" "}
+                  <code className="font-mono">gs agent start --ci --name &lt;name&gt;</code>.
                 </p>
               ) : null}
 
@@ -213,6 +215,8 @@ function daemonLabel(daemon: AgentDaemon | undefined, fallback: string) {
     return fallback;
   }
   const name = daemonName(daemon, fallback);
-  const runtime = [daemon.runtime, daemon.version].filter(Boolean).join(" ");
+  const runtime = [daemon.runtime?.toLowerCase() === "ci" ? "" : daemon.runtime, daemon.version]
+    .filter(Boolean)
+    .join(" ");
   return runtime ? `${name} - ${runtime}` : name;
 }

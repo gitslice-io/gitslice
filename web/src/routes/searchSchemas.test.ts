@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  validateAccountSearch,
   validateChangesetDetailSearch,
   validateChangesetsSearch,
   validateSliceCreateSearch,
@@ -70,5 +71,16 @@ describe("validateSliceCreateSearch", () => {
   it("keeps the account asked for", () => {
     expect(validateSliceCreateSearch({ account: " acme " })).toEqual({ account: "acme" });
     expect(validateSliceCreateSearch({ account: 1 })).toEqual({});
+  });
+});
+
+describe("validateAccountSearch", () => {
+  it("keeps known non-default tabs and drops overview or unknown values", () => {
+    expect(validateAccountSearch({ tab: "agents" })).toEqual({ tab: "agents" });
+    expect(validateAccountSearch({ tab: "runners" })).toEqual({ tab: "runners" });
+    expect(validateAccountSearch({ tab: "people" })).toEqual({ tab: "people" });
+    expect(validateAccountSearch({ tab: "overview" })).toEqual({});
+    expect(validateAccountSearch({ tab: "unknown" })).toEqual({});
+    expect(validateAccountSearch({ tab: 1 })).toEqual({});
   });
 });

@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -71,14 +71,22 @@ describe("OwnedAgents", () => {
     authMock.current = { isLoaded: true, isSignedIn: true };
   });
 
-  it("lists owned agents", async () => {
+  it("lists owned agents and collapses the connect-agent panel until toggled", async () => {
     apiMock.current = {
+      listAgentInvites: vi.fn().mockResolvedValue({ invites: [] }),
       listOwnedAgents: vi.fn().mockResolvedValue({ agents: [heibot] })
     };
     renderWithQuery(<OwnedAgents />);
     expect(await screen.findByText("hei")).toBeInTheDocument();
     expect(screen.getByText("heibot/home")).toBeInTheDocument();
     expect(screen.getByText(/never active/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Generate join token" })).not.toBeInTheDocument();
+
+    const toggle = screen.getByRole("button", { name: "Connect agent" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "Hide join token" })).toHaveAttribute("aria-expanded", "true");
+    expect(await screen.findByRole("button", { name: "Generate join token" })).toBeInTheDocument();
   });
 
   it("shows how to get an agent when there are none", async () => {

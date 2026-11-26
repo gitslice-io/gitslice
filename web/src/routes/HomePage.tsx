@@ -68,25 +68,13 @@ export function HomePage() {
               New conversation
             </button>
           ) : personal && activeAccount ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <Link
-                className={quickActionClass}
-                params={{ account: activeAccount }}
-                to="/accounts/$account/secrets"
-              >
-                Secrets
-              </Link>
-              <Link
-                className={quickActionClass}
-                params={{ account: activeAccount }}
-                to="/accounts/$account"
-              >
-                Account &amp; runners
-              </Link>
-              <Link className={quickActionClass} to="/organizations/new">
-                New organization
-              </Link>
-            </div>
+            <Link
+              className={quickActionClass}
+              params={{ account: activeAccount }}
+              to="/accounts/$account"
+            >
+              Manage account
+            </Link>
           ) : undefined
         }
         title={

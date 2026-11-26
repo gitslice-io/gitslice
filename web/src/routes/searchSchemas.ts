@@ -134,3 +134,18 @@ export function validateSliceCreateSearch(search: Record<string, unknown>): Slic
   const account = text(search.account);
   return account ? { account } : {};
 }
+
+export type AccountTab = "overview" | "agents" | "runners" | "people";
+
+export interface AccountSearch {
+  // The active tab on an account page; overview is the default and stays out of the address.
+  tab?: Exclude<AccountTab, "overview">;
+}
+
+export function validateAccountSearch(search: Record<string, unknown>): AccountSearch {
+  const raw = text(search.tab);
+  if (raw === "agents" || raw === "runners" || raw === "people") {
+    return { tab: raw };
+  }
+  return {};
+}
