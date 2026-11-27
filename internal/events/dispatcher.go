@@ -41,6 +41,9 @@ type Options struct {
 	Automations Automations
 	// Mirrors, when set, queues and pushes slice Git mirrors.
 	Mirrors Mirrors
+	// Gate pauses timer-driven polls while the server is idle.
+	// Defaults to activity.Default when nil.
+	Gate *activity.Gate
 }
 
 // Mirrors queues Git mirror pushes for recorded events and runs due ones.
@@ -149,7 +152,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-prune.C:
-			if activity.Default.Wait(ctx) != nil {
+			if d.gate().Wait(ctx) != nil {
 				return
 			}
 			if err := d.stores.Events.PruneEvents(ctx, time.Now().Add(-historyKeep)); err != nil && ctx.Err() == nil {
@@ -159,7 +162,7 @@ func (d *Dispatcher) Run(ctx context.Context) {
 		case <-ticker.C:
 			// Retries wait for the server to be in use (internal/activity): an
 			// idle server leaves the database alone.
-			if activity.Default.Wait(ctx) != nil {
+			if d.gate().Wait(ctx) != nil {
 				return
 			}
 		case <-d.nudge:
@@ -168,17 +171,28 @@ func (d *Dispatcher) Run(ctx context.Context) {
 	}
 }
 
+func (d *Dispatcher) gate() *activity.Gate {
+	if d.opts.Gate != nil {
+		return d.opts.Gate
+	}
+	return activity.Default
+}
+
 func (d *Dispatcher) waitActiveOrNudge(ctx context.Context) bool {
 	waitCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	active := make(chan error, 1)
 	go func() {
-		active <- activity.Default.Wait(waitCtx)
+		active <- d.gate().Wait(waitCtx)
 	}()
 	select {
 	case <-ctx.Done():
+		cancel()
+		<-active
 		return false
 	case <-d.nudge:
+		cancel()
+		<-active
 		return true
 	case err := <-active:
 		return err == nil

@@ -6,39 +6,35 @@ import (
 	"testing"
 	"time"
 
+	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/storage"
 )
 
-func TestNextDelay(t *testing.T) {
-	const (
-		base = 25 * time.Millisecond
-		max  = 200 * time.Millisecond
-	)
+func TestWorkerSetGateBlocksWhileIdleAndWakes(t *testing.T) {
+	store := newFakeDerivedIndexStore()
+	worker := New(store, 1, 5*time.Millisecond, 20*time.Millisecond)
+	gate := activity.NewIdle(time.Minute)
+	worker.SetGate(gate)
 
-	tests := []struct {
-		name        string
-		current     time.Duration
-		maxInterval time.Duration
-		outcome     pollOutcome
-		want        time.Duration
-	}{
-		{name: "empty doubles", current: base, maxInterval: max, outcome: pollEmpty, want: 50 * time.Millisecond},
-		{name: "empty doubles again", current: 50 * time.Millisecond, maxInterval: max, outcome: pollEmpty, want: 100 * time.Millisecond},
-		{name: "empty clamps to cap", current: 150 * time.Millisecond, maxInterval: max, outcome: pollEmpty, want: max},
-		{name: "empty stays at cap", current: max, maxInterval: max, outcome: pollEmpty, want: max},
-		{name: "work resets to base", current: max, maxInterval: max, outcome: pollProcessed, want: base},
-		{name: "error uses fixed retry", current: base, maxInterval: max, outcome: pollError, want: time.Second},
-		{name: "cap below base disables backoff", current: base, maxInterval: time.Millisecond, outcome: pollEmpty, want: base},
-		{name: "non-positive cap uses default", current: 40 * time.Second, maxInterval: 0, outcome: pollEmpty, want: defaultMaxInterval},
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		worker.Run(ctx)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	time.Sleep(40 * time.Millisecond)
+	if calls, _ := store.counts(); calls != 0 {
+		t.Fatalf("ProcessOutbox called %d times while custom gate is idle, want 0", calls)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := nextDelay(tt.current, base, tt.maxInterval, tt.outcome); got != tt.want {
-				t.Fatalf("nextDelay(%s, %s, %s, %d) = %s, want %s", tt.current, base, tt.maxInterval, tt.outcome, got, tt.want)
-			}
-		})
-	}
+	end := gate.Begin()
+	end()
+	waitForProcessCall(t, store.calls, time.Second)
 }
 
 func TestWorkerEmptyPollsBackOff(t *testing.T) {

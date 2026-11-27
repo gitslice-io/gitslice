@@ -139,6 +139,54 @@ func TestRunWaitsForActivity(t *testing.T) {
 	}
 }
 
+// Run honors a custom injected Gate independent of activity.Default.
+func TestRunUsesInjectedGate(t *testing.T) {
+	// Ensure global Default gate is awake so this test proves the custom gate is used.
+	endDefault := activity.Default.Begin()
+	endDefault()
+
+	gate := activity.NewIdle(time.Minute)
+	mem := memory.New()
+	store := &countingEvents{EventStore: mem.Events}
+	d := NewDispatcher(Stores{
+		Events:     store,
+		Slices:     mem.Slices,
+		Changesets: mem.Changesets,
+		Checks:     mem.Checks,
+		Auth:       mem.Auth,
+	}, Options{
+		WebBaseURL:  "https://gitslice.test",
+		Automations: &fakeAutomations{},
+		Mirrors:     &fakeMirrors{},
+		Gate:        gate,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		d.Run(ctx)
+	}()
+	time.Sleep(40 * time.Millisecond)
+	if got := store.claims.Load(); got != 0 {
+		cancel()
+		<-done
+		t.Fatalf("ClaimEvents while injected gate is idle = %d, want 0", got)
+	}
+
+	end := gate.Begin()
+	end()
+	deadline := time.Now().Add(2 * time.Second)
+	for store.claims.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	<-done
+	if store.claims.Load() == 0 {
+		t.Fatal("Run did not drain after injected gate woke")
+	}
+}
+
 type countingChangesets struct {
 	storage.ChangesetStore
 	gets atomic.Int32
