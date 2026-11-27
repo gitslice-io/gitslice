@@ -2,17 +2,23 @@ package server
 
 import (
 	"encoding/base64"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // baseValidConfig returns a Config that passes Validate() so individual tests can
-// mutate just the object-store fields they care about.
+// mutate just the fields they care about.
 func baseValidConfig() Config {
 	return Config{
-		GRPCAddr:        "127.0.0.1:50051",
-		DatabaseURL:     "postgres://localhost/db",
-		ObjectStoreType: "r2",
+		Network: NetworkConfig{
+			GRPCAddr: "127.0.0.1:50051",
+		},
+		Storage: StorageConfig{
+			DatabaseURL:     "postgres://localhost/db",
+			ObjectStoreType: "r2",
+		},
 	}
 }
 
@@ -34,9 +40,9 @@ func TestValidateRequireR2(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := baseValidConfig()
-			cfg.RequireR2 = tt.requireR2
-			cfg.ObjectStoreType = tt.storeType
-			cfg.ObjectStoreRoot = tt.storeRoot
+			cfg.Storage.RequireR2 = tt.requireR2
+			cfg.Storage.ObjectStoreType = tt.storeType
+			cfg.Storage.ObjectStoreRoot = tt.storeRoot
 			err := cfg.Validate()
 			if tt.wantErr {
 				if err == nil {
@@ -56,12 +62,12 @@ func TestValidateRequireR2(t *testing.T) {
 
 func TestConfigFromEnvReadsRequireR2(t *testing.T) {
 	t.Setenv("GITSLICE_REQUIRE_R2", "1")
-	if !ConfigFromEnv().RequireR2 {
-		t.Fatal("ConfigFromEnv() RequireR2 = false, want true when GITSLICE_REQUIRE_R2=1")
+	if !ConfigFromEnv().Storage.RequireR2 {
+		t.Fatal("ConfigFromEnv() Storage.RequireR2 = false, want true when GITSLICE_REQUIRE_R2=1")
 	}
 	t.Setenv("GITSLICE_REQUIRE_R2", "0")
-	if ConfigFromEnv().RequireR2 {
-		t.Fatal("ConfigFromEnv() RequireR2 = true, want false when GITSLICE_REQUIRE_R2=0")
+	if ConfigFromEnv().Storage.RequireR2 {
+		t.Fatal("ConfigFromEnv() Storage.RequireR2 = true, want false when GITSLICE_REQUIRE_R2=0")
 	}
 }
 
@@ -79,8 +85,8 @@ func TestValidateRequireMetricsToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := baseValidConfig()
-			cfg.RequireMetricsToken = tt.requireToken
-			cfg.MetricsToken = tt.token
+			cfg.Integrations.RequireMetricsToken = tt.requireToken
+			cfg.Integrations.MetricsToken = tt.token
 			err := cfg.Validate()
 			if tt.wantErr {
 				if err == nil {
@@ -113,8 +119,8 @@ func TestValidateRequireStrictCORS(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := baseValidConfig()
-			cfg.RequireStrictCORS = tt.requireStrict
-			cfg.HTTPAllowedOrigin = tt.allowedOrigin
+			cfg.Network.RequireStrictCORS = tt.requireStrict
+			cfg.Network.HTTPAllowedOrigin = tt.allowedOrigin
 			err := cfg.Validate()
 			if tt.wantErr {
 				if err == nil {
@@ -136,21 +142,21 @@ func TestConfigFromEnvReadsProductionHardeningConfig(t *testing.T) {
 	t.Setenv("GITSLICE_REQUIRE_METRICS_TOKEN", "1")
 	t.Setenv("GITSLICE_REQUIRE_STRICT_CORS", "1")
 	cfg := ConfigFromEnv()
-	if !cfg.RequireMetricsToken {
-		t.Fatal("ConfigFromEnv() RequireMetricsToken = false, want true")
+	if !cfg.Integrations.RequireMetricsToken {
+		t.Fatal("ConfigFromEnv() Integrations.RequireMetricsToken = false, want true")
 	}
-	if !cfg.RequireStrictCORS {
-		t.Fatal("ConfigFromEnv() RequireStrictCORS = false, want true")
+	if !cfg.Network.RequireStrictCORS {
+		t.Fatal("ConfigFromEnv() Network.RequireStrictCORS = false, want true")
 	}
 
 	t.Setenv("GITSLICE_REQUIRE_METRICS_TOKEN", "0")
 	t.Setenv("GITSLICE_REQUIRE_STRICT_CORS", "0")
 	cfg = ConfigFromEnv()
-	if cfg.RequireMetricsToken {
-		t.Fatal("ConfigFromEnv() RequireMetricsToken = true, want false when GITSLICE_REQUIRE_METRICS_TOKEN=0")
+	if cfg.Integrations.RequireMetricsToken {
+		t.Fatal("ConfigFromEnv() Integrations.RequireMetricsToken = true, want false when GITSLICE_REQUIRE_METRICS_TOKEN=0")
 	}
-	if cfg.RequireStrictCORS {
-		t.Fatal("ConfigFromEnv() RequireStrictCORS = true, want false when GITSLICE_REQUIRE_STRICT_CORS=0")
+	if cfg.Network.RequireStrictCORS {
+		t.Fatal("ConfigFromEnv() Network.RequireStrictCORS = true, want false when GITSLICE_REQUIRE_STRICT_CORS=0")
 	}
 }
 
@@ -173,8 +179,8 @@ func TestValidateRequireSecretsKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := baseValidConfig()
-			cfg.RequireSecretsKey = tt.requireKey
-			cfg.SecretsKey = tt.key
+			cfg.Storage.RequireSecretsKey = tt.requireKey
+			cfg.Storage.SecretsKey = tt.key
 			err := cfg.Validate()
 			if tt.wantErr {
 				if err == nil {
@@ -197,38 +203,56 @@ func TestConfigFromEnvReadsSecretsKeyConfig(t *testing.T) {
 	t.Setenv("GITSLICE_SECRETS_KEY", key)
 	t.Setenv("GITSLICE_REQUIRE_SECRETS_KEY", "1")
 	cfg := ConfigFromEnv()
-	if cfg.SecretsKey != key {
-		t.Fatalf("ConfigFromEnv() SecretsKey = %q, want configured key", cfg.SecretsKey)
+	if cfg.Storage.SecretsKey != key {
+		t.Fatalf("ConfigFromEnv() Storage.SecretsKey = %q, want configured key", cfg.Storage.SecretsKey)
 	}
-	if !cfg.RequireSecretsKey {
-		t.Fatal("ConfigFromEnv() RequireSecretsKey = false, want true")
+	if !cfg.Storage.RequireSecretsKey {
+		t.Fatal("ConfigFromEnv() Storage.RequireSecretsKey = false, want true")
 	}
 
 	t.Setenv("GITSLICE_REQUIRE_SECRETS_KEY", "0")
-	if ConfigFromEnv().RequireSecretsKey {
-		t.Fatal("ConfigFromEnv() RequireSecretsKey = true, want false when GITSLICE_REQUIRE_SECRETS_KEY=0")
+	if ConfigFromEnv().Storage.RequireSecretsKey {
+		t.Fatal("ConfigFromEnv() Storage.RequireSecretsKey = true, want false when GITSLICE_REQUIRE_SECRETS_KEY=0")
 	}
 }
 
 func TestTrustedProxyCIDRsConfigAndValidation(t *testing.T) {
 	t.Setenv("GITSLICE_TRUSTED_PROXIES", " 10.0.0.0/8 , 198.51.100.10 , 2001:db8::/32 ")
 	cfg := ConfigFromEnv()
-	if len(cfg.TrustedProxyCIDRs) != 3 {
-		t.Fatalf("TrustedProxyCIDRs = %#v, want 3 entries", cfg.TrustedProxyCIDRs)
+	if len(cfg.RateLimit.TrustedProxyCIDRs) != 3 {
+		t.Fatalf("RateLimit.TrustedProxyCIDRs = %#v, want 3 entries", cfg.RateLimit.TrustedProxyCIDRs)
 	}
 
 	validCfg := baseValidConfig()
-	validCfg.TrustedProxyCIDRs = cfg.TrustedProxyCIDRs
+	validCfg.RateLimit.TrustedProxyCIDRs = cfg.RateLimit.TrustedProxyCIDRs
 	if err := validCfg.Validate(); err != nil {
 		t.Fatalf("Validate() with valid TrustedProxyCIDRs = %v, want nil", err)
 	}
 
 	for _, bad := range []string{"not-a-cidr", "10.0.0.0/99"} {
 		badCfg := baseValidConfig()
-		badCfg.TrustedProxyCIDRs = []string{bad}
+		badCfg.RateLimit.TrustedProxyCIDRs = []string{bad}
 		err := badCfg.Validate()
 		if err == nil || !strings.Contains(err.Error(), "GITSLICE_TRUSTED_PROXIES") {
 			t.Fatalf("Validate(%q) error = %v, want GITSLICE_TRUSTED_PROXIES error", bad, err)
 		}
+	}
+}
+
+func TestConfigApplyDefaultsAndCIRunnerDaemonsSplitList(t *testing.T) {
+	var cfg Config
+	cfg.ApplyDefaults()
+	if cfg.Workers.PublishBatchSize != 128 || cfg.Workers.PublishInterval != defaultPublishInterval || cfg.Workers.PublishBackoffMax != defaultPublishMaxInterval {
+		t.Fatalf("publish defaults = %+v", cfg.Workers)
+	}
+	if cfg.Workers.IndexBatchSize != 128 || cfg.Workers.IndexInterval != defaultPublishInterval || cfg.Workers.IndexBackoffMax != 60*time.Second {
+		t.Fatalf("index defaults = %+v", cfg.Workers)
+	}
+
+	t.Setenv("GITSLICE_CI_RUNNER_DAEMONS", " runner-a ; runner-b, runner-c \t runner-d ")
+	got := ConfigFromEnv().Integrations.CIRunnerDaemons
+	want := []string{"runner-a", "runner-b", "runner-c", "runner-d"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("CIRunnerDaemons = %#v, want %#v", got, want)
 	}
 }

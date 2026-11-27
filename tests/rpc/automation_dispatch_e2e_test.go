@@ -36,8 +36,8 @@ func TestRPCTriggerDispatchE2E(t *testing.T) {
 	const secret = "e2e-dispatch-secret"
 
 	ts := startRPCServerWith(t, func(cfg *server.Config) {
-		cfg.TriggerDispatchURL = dispatchURL
-		cfg.TriggerDispatchSecret = secret
+		cfg.Integrations.TriggerDispatchURL = dispatchURL
+		cfg.Integrations.TriggerDispatchSecret = secret
 	})
 	port := dispatchAddr[strings.LastIndex(dispatchAddr, ":")+1:]
 	wrangler := exec.Command("npx", "wrangler", "dev", "--port", port, "--ip", "127.0.0.1",

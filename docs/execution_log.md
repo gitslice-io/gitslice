@@ -9785,3 +9785,45 @@ The automations file change waited for the server deploy: the server parses
 automations strictly, so an older server would have rejected
 `concurrency_group` and with it every automation in the file.
 
+
+## 2026-11-26 — Server code structure refactor
+
+**Why**
+- `server/` had accumulated non-wiring HTTP handlers, duplicated gRPC/Connect auth and rate-limit middleware, hand-rolled LRU/backoff loops, a flat 55-field `Config`, dead `subjectResolver` compatibility shims, global `activity.Default` coupling, and post-hoc field mutations across service construction.
+- `service/` bundled heavy non-RPC subsystems (Git CLI/clone-cache/import mechanics, blame walk/index/warmer, doorbell client, Git mirror runner) alongside RPC handlers and accepted the full 50-method `storage.AuthStore` where only role lookups were needed.
+
+**What changed**
+- **Shared runtime primitives & idle-gate injection (`internal/lru`, `internal/bgloop`, `internal/indexworker`, `internal/events`):**
+  - Added generic thread-safe bounded `internal/lru.Cache[K, V]` with per-entry TTL, `singleflight.Group` coalescing (honoring `ctx.Done()` via `DoChan`), optional `WithNow`/`WithClone`, and cacheability control.
+  - Added `internal/bgloop.Runner` unifying nudged exponential-backoff polling, depth sampling, panic recovery, and `activity.Gate` idle gating; refactored `internal/indexworker` and `server/publisher.go` onto it.
+  - Added injectable `Gate *activity.Gate` to `internal/indexworker` (`SetGate`) and `internal/events` (`events.Options.Gate`).
+- **Domain HTTP handlers moved out of `server/` (`internal/avatar`, `internal/socialcard`, `internal/mcpserver`):**
+  - Moved `/avatars/` (`avatar.NewHandler`), `/og/` (`socialcard.NewHandler`, backed by `internal/lru`), and `/mcp` (`mcpserver.NewHostedHTTPHandler` using narrow proto interfaces so `cmd/gs` never links the server storage stack) out of `server/` and deleted `server/{avatar_image,social_image,mcp_http}.go`.
+  - Fixed `/mcp` resource URL generation to receive `cfg.webBaseURL()` instead of a hardcoded empty string.
+- **Service decomposition & narrowed interfaces (`service/`, `internal/doorbell`, `internal/gitmirror`, `internal/gitimport`, `internal/blame`):**
+  - Extracted `internal/doorbell` (`Client`), `internal/gitmirror` (`Runner` + `service.GitMirrorPusher`), `internal/gitimport` (`cli.go`, `clone_cache.go`, `snapshots.go`, `resilience.go`), and `internal/blame` (`engine.go`, `index.go`, `walk.go`, `warmer.go`).
+  - Added `service.Options`, `service.NewWithOptions`, `(*Handlers).Workers(WorkerOptions)`, and standalone worker constructors accepting `*activity.Gate`.
+  - Narrowed `service/authorization.go` and service struct auth dependencies to `storage.RoleLookupStore` and `subjectUsernameStore`.
+- **Server wiring & `App` lifecycle (`server/`, `cmd/gitslice-server`, test harnesses):**
+  - Grouped `server.Config` into `Network`, `Storage`, `Auth`, `Workers`, `RateLimit`, and `Integrations` with `ApplyDefaults()`, `gitCacheRoot()`, and `splitList` for `CIRunnerDaemons`.
+  - Unified gRPC and Connect auth/rate-limit policy in transport-agnostic `server/rpc_guard.go` and shared `clientIP` resolution in `server/ratelimit.go`; removed unused `subjectResolver` / `NewGRPCServer` / `NewConnectHandler` / `cachedSubjectResolver` shims.
+  - Extracted `openInfra` (shared by `Run` and `Migrate`), `workerGroup`, `server/grpc.go`, and `App` (`buildApp` -> `StartWorkers` -> `Serve` -> `Shutdown` -> `Close`) with a per-`App` idle `*activity.Gate` (zero `activity.Default` references in `server/`), wiring `gitMirrors.SetPusher` before workers start and draining `workerGroup.Wait()` before `db.Close()`.
+  - Adopted `internal/lru` in `server/subject_cache.go`, `internal/bgloop` in `server/publisher.go`, and `service.NewWithOptions` + `handlers.Workers` in `server/server.go`.
+
+**Verification**
+```bash
+gofmt -l .
+go vet ./...
+go generate ./server/...   # zero diff on server/connect_adapters_gen.go
+go build ./cmd/...
+CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/gs
+CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build -o /dev/null ./cmd/gs
+go test -c -o /dev/null ./tests/cli
+go test -c -o /dev/null ./tests/rpc
+go test -c -o /dev/null -tags load ./tests/load
+go test -v -count=1 ./internal/cli -run TestCmdGSBinaryDoesNotLinkServerStorageStack
+go test -count=1 ./...
+go test -race -count=1 ./...
+go test -race -count=1 ./server/... ./service/... ./internal/lru/... ./internal/bgloop/... ./internal/indexworker/... ./internal/events/... ./internal/avatar/... ./internal/socialcard/... ./internal/mcpserver/... ./internal/doorbell/... ./internal/gitmirror/... ./internal/gitimport/... ./internal/blame/... ./cmd/...
+```
+All checks passed with zero formatting diffs, zero `go vet` diagnostics, zero `go generate` drift, zero race failures, and all touched/added non-generated `.go` files under 600 LOC (max non-test: `server/server.go` at 546 LOC; max test: `server/ratelimit_test.go` at 586 LOC). Live-PG e2e tests in `tests/cli` and `tests/rpc` compiled cleanly and skipped automatically without `GITSLICE_TEST_DATABASE_URL`.

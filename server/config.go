@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -17,47 +18,50 @@ import (
 )
 
 type Config struct {
+	Network      NetworkConfig
+	Storage      StorageConfig
+	Auth         AuthConfig
+	Workers      WorkersConfig
+	RateLimit    RateLimitConfig
+	Integrations IntegrationsConfig
+}
+
+type NetworkConfig struct {
 	GRPCAddr          string
 	HTTPAddr          string
 	HTTPAllowedOrigin string
 	RequireStrictCORS bool
 	GitHTTPAddr       string
-	GitCacheRoot      string
-	// GitBlobBackfill turns on the background job that computes Git blob ids
-	// for files uploaded before ids were recorded. It reads every such file
-	// once, so it is off until asked for.
-	GitBlobBackfill          bool
-	DatabaseURL              string
-	ObjectStoreType          string
-	ObjectStoreRoot          string
-	RequireR2                bool
-	SecretsKey               string
-	RequireSecretsKey        bool
-	ObjectCacheBytes         int64
-	ObjectStoreLatency       time.Duration
-	R2                       r2.Config
-	AuthProvider             string
-	Clerk                    clerk.Config
-	ServiceToken             servicetoken.Config
-	RunMigrations            bool
-	PublishBatchSize         int
-	PublishInterval          time.Duration
-	PublishBackoffMax        time.Duration
-	IndexBatchSize           int
-	IndexInterval            time.Duration
-	IndexBackoffMax          time.Duration
-	DisableAsyncPublisher    bool
-	DisableIndexWorker       bool
-	DisableBlameWarmer       bool
-	RateLimitDisabled        bool
-	RateLimitPerSubjectRPS   float64
-	RateLimitPerSubjectBurst int
-	RateLimitHTTPPerIPRPS    float64
-	RateLimitHTTPPerIPBurst  int
-	// TrustedProxyCIDRs lists proxy IPs/CIDRs permitted to supply
-	// X-Forwarded-For (GITSLICE_TRUSTED_PROXIES). When empty, loopback,
-	// private, and link-local proxy peers are trusted.
-	TrustedProxyCIDRs []string
+	// WebBaseURL is the web app's origin, for links in trigger payloads and MCP
+	// responses (GITSLICE_WEB_BASE_URL; defaults to the first allowed CORS origin).
+	WebBaseURL string
+	// SelfURL is the server's own URL that bypasses the CDN
+	// (GITSLICE_SELF_URL, the Cloud Run service URL): the server asks itself
+	// to build Git covers and push mirrors there, in a request of their own.
+	SelfURL string
+	// OutboundAllowPrivateTargets lets outbound requests use http and private
+	// or loopback addresses. It is only for tests and local development.
+	OutboundAllowPrivateTargets bool
+}
+
+type StorageConfig struct {
+	DatabaseURL        string
+	RunMigrations      bool
+	ObjectStoreType    string
+	ObjectStoreRoot    string
+	RequireR2          bool
+	ObjectCacheBytes   int64
+	ObjectStoreLatency time.Duration
+	R2                 r2.Config
+	GitCacheRoot       string
+	SecretsKey         string
+	RequireSecretsKey  bool
+}
+
+type AuthConfig struct {
+	Provider     string
+	Clerk        clerk.Config
+	ServiceToken servicetoken.Config
 	// AgentSignupEnabled turns on the unauthenticated AuthService/RegisterAgent
 	// RPC; AgentSignupPerHour caps registrations per client IP.
 	AgentSignupEnabled bool
@@ -69,18 +73,43 @@ type Config struct {
 	// FeedbackAccount is the account whose owners and admins read and answer
 	// feedback, with the operators (GITSLICE_FEEDBACK_ACCOUNT; default
 	// gitslice, "none" for operators only).
-	FeedbackAccount     string
+	FeedbackAccount string
+}
+
+type WorkersConfig struct {
+	PublishBatchSize      int
+	PublishInterval       time.Duration
+	PublishBackoffMax     time.Duration
+	IndexBatchSize        int
+	IndexInterval         time.Duration
+	IndexBackoffMax       time.Duration
+	DisableAsyncPublisher bool
+	DisableIndexWorker    bool
+	DisableBlameWarmer    bool
+	// GitBlobBackfill turns on the background job that computes Git blob ids
+	// for files uploaded before ids were recorded. It reads every such file
+	// once, so it is off until asked for.
+	GitBlobBackfill bool
+}
+
+type RateLimitConfig struct {
+	Disabled        bool
+	PerSubjectRPS   float64
+	PerSubjectBurst int
+	HTTPPerIPRPS    float64
+	HTTPPerIPBurst  int
+	// TrustedProxyCIDRs lists proxy IPs/CIDRs permitted to supply
+	// X-Forwarded-For (GITSLICE_TRUSTED_PROXIES). When empty, loopback,
+	// private, and link-local proxy peers are trusted.
+	TrustedProxyCIDRs []string
+}
+
+type IntegrationsConfig struct {
 	MetricsToken        string
 	RequireMetricsToken bool
 	PostHogAPIKey       string
 	PostHogHost         string
 	PostHogEnvironment  string
-	// WebBaseURL is the web app's origin, for links in trigger payloads
-	// (GITSLICE_WEB_BASE_URL; defaults to the first allowed CORS origin).
-	WebBaseURL string
-	// OutboundAllowPrivateTargets lets outbound requests use http and private
-	// or loopback addresses. It is only for tests and local development.
-	OutboundAllowPrivateTargets bool
 	// TriggerDispatchURL is the Cloudflare trigger dispatcher's origin
 	// (GITSLICE_TRIGGER_DISPATCH_URL), and TriggerDispatchSecret the key the
 	// server and the dispatcher share (GITSLICE_TRIGGER_DISPATCH_SECRET).
@@ -94,83 +123,118 @@ type Config struct {
 	// daemons poll every 30 s (design/32_ci_dispatch_on_cloudflare.md).
 	DoorbellURL    string
 	DoorbellSecret string
-	// SelfURL is the server's own URL that bypasses the CDN
-	// (GITSLICE_SELF_URL, the Cloud Run service URL): the server asks itself
-	// to build Git covers there, in a request of their own.
-	SelfURL string
 	// CIRunnerDaemons are the daemons the doorbell starts Cloudflare runners
-	// for when checks are queued (GITSLICE_CI_RUNNER_DAEMONS, comma
-	// separated): they count as reachable with no runner running.
+	// for when checks are queued (GITSLICE_CI_RUNNER_DAEMONS): they count as
+	// reachable with no runner running.
 	CIRunnerDaemons []string
 }
 
 func ConfigFromEnv() Config {
 	return Config{
-		GRPCAddr:              valueOrDefault(os.Getenv("GITSLICE_GRPC_ADDR"), "127.0.0.1:50051"),
-		HTTPAddr:              os.Getenv("GITSLICE_HTTP_ADDR"),
-		HTTPAllowedOrigin:     os.Getenv("GITSLICE_HTTP_ALLOWED_ORIGIN"),
-		RequireStrictCORS:     os.Getenv("GITSLICE_REQUIRE_STRICT_CORS") == "1",
-		GitHTTPAddr:           os.Getenv("GITSLICE_GIT_HTTP_ADDR"),
-		GitCacheRoot:          os.Getenv("GITSLICE_GIT_CACHE_ROOT"),
-		GitBlobBackfill:       os.Getenv("GITSLICE_GIT_BLOB_BACKFILL") == "1",
-		DatabaseURL:           os.Getenv("GITSLICE_DATABASE_URL"),
-		ObjectStoreType:       os.Getenv("OBJECT_STORE_TYPE"),
-		ObjectStoreRoot:       os.Getenv("GITSLICE_OBJECT_STORE_ROOT"),
-		RequireR2:             os.Getenv("GITSLICE_REQUIRE_R2") == "1",
-		SecretsKey:            os.Getenv("GITSLICE_SECRETS_KEY"),
-		RequireSecretsKey:     os.Getenv("GITSLICE_REQUIRE_SECRETS_KEY") == "1",
-		ObjectCacheBytes:      int64ValueOrDefault(os.Getenv("GITSLICE_OBJECT_CACHE_BYTES"), 256<<20),
-		ObjectStoreLatency:    millisecondsDuration(os.Getenv("GITSLICE_OBJECT_STORE_LATENCY_MS")),
-		R2:                    r2.ConfigFromEnv(),
-		AuthProvider:          os.Getenv("AUTH_PROVIDER"),
-		Clerk:                 clerk.ConfigFromEnv(),
-		ServiceToken:          servicetoken.ConfigFromEnv(),
-		RunMigrations:         os.Getenv("GITSLICE_RUN_MIGRATIONS") != "0",
-		PublishBatchSize:      intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_BATCH_SIZE"), 128),
-		PublishInterval:       time.Duration(intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_INTERVAL_MS"), 25)) * time.Millisecond,
-		PublishBackoffMax:     time.Duration(intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_BACKOFF_MAX_MS"), 60000)) * time.Millisecond,
-		IndexBatchSize:        intValueOrDefault(os.Getenv("GITSLICE_INDEX_BATCH_SIZE"), 128),
-		IndexInterval:         time.Duration(intValueOrDefault(os.Getenv("GITSLICE_INDEX_INTERVAL_MS"), 25)) * time.Millisecond,
-		IndexBackoffMax:       time.Duration(intValueOrDefault(os.Getenv("GITSLICE_INDEX_BACKOFF_MAX_MS"), 60000)) * time.Millisecond,
-		DisableAsyncPublisher: os.Getenv("GITSLICE_DISABLE_ASYNC_PUBLISHER") == "1",
-		DisableIndexWorker:    os.Getenv("GITSLICE_DISABLE_INDEX_WORKER") == "1",
-		DisableBlameWarmer:    os.Getenv("GITSLICE_DISABLE_BLAME_WARMER") == "1",
-		RateLimitDisabled:     os.Getenv("GITSLICE_RATELIMIT_DISABLED") == "1",
-		// Per-subject limits are an anti-abuse ceiling, not fairness throttling.
-		// They must sit well above a single authenticated user's legitimate bulk
-		// traffic (e.g. `gs import` uploads blobs concurrently, one unary/stream
-		// UploadBlob per blob), so the default is generous while still capping a
-		// runaway client from saturating the publish pipeline / object store.
-		RateLimitPerSubjectRPS:   floatValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_SUBJECT_RPS"), 500),
-		RateLimitPerSubjectBurst: intValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_SUBJECT_BURST"), 1000),
-		RateLimitHTTPPerIPRPS:    floatValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_HTTP_RPS"), 30),
-		RateLimitHTTPPerIPBurst:  intValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_HTTP_BURST"), 60),
-		TrustedProxyCIDRs:        splitList(os.Getenv("GITSLICE_TRUSTED_PROXIES")),
-		AgentSignupEnabled:       envEnabled(os.Getenv("GITSLICE_AGENT_SIGNUP_ENABLED")),
-		AgentSignupPerHour:       intValueOrDefault(os.Getenv("GITSLICE_AGENT_SIGNUP_PER_HOUR"), 5),
-		OperatorSubjects:         splitList(os.Getenv("GITSLICE_OPERATOR_SUBJECTS")),
-		FeedbackAccount:          feedbackAccount(os.Getenv("GITSLICE_FEEDBACK_ACCOUNT")),
-		MetricsToken:             os.Getenv("GITSLICE_METRICS_TOKEN"),
-		RequireMetricsToken:      os.Getenv("GITSLICE_REQUIRE_METRICS_TOKEN") == "1",
-		PostHogAPIKey:            os.Getenv("GITSLICE_POSTHOG_API_KEY"),
-		PostHogHost:              os.Getenv("GITSLICE_POSTHOG_HOST"),
-		PostHogEnvironment:       os.Getenv("GITSLICE_POSTHOG_ENV"),
-
-		WebBaseURL:                  os.Getenv("GITSLICE_WEB_BASE_URL"),
-		OutboundAllowPrivateTargets: outboundPrivateTargets(),
-
-		// Triggers (design/34_triggers.md).
-		TriggerDispatchURL:    os.Getenv("GITSLICE_TRIGGER_DISPATCH_URL"),
-		TriggerDispatchSecret: os.Getenv("GITSLICE_TRIGGER_DISPATCH_SECRET"),
-
-		// The CI doorbell (design/32_ci_dispatch_on_cloudflare.md).
-		DoorbellURL:    os.Getenv("GITSLICE_DOORBELL_URL"),
-		DoorbellSecret: os.Getenv("GITSLICE_DOORBELL_SECRET"),
-		SelfURL:        os.Getenv("GITSLICE_SELF_URL"),
-		CIRunnerDaemons: strings.FieldsFunc(os.Getenv("GITSLICE_CI_RUNNER_DAEMONS"), func(r rune) bool {
-			return r == ',' || r == ' '
-		}),
+		Network: NetworkConfig{
+			GRPCAddr:                    valueOrDefault(os.Getenv("GITSLICE_GRPC_ADDR"), "127.0.0.1:50051"),
+			HTTPAddr:                    os.Getenv("GITSLICE_HTTP_ADDR"),
+			HTTPAllowedOrigin:           os.Getenv("GITSLICE_HTTP_ALLOWED_ORIGIN"),
+			RequireStrictCORS:           os.Getenv("GITSLICE_REQUIRE_STRICT_CORS") == "1",
+			GitHTTPAddr:                 os.Getenv("GITSLICE_GIT_HTTP_ADDR"),
+			WebBaseURL:                  os.Getenv("GITSLICE_WEB_BASE_URL"),
+			SelfURL:                     os.Getenv("GITSLICE_SELF_URL"),
+			OutboundAllowPrivateTargets: outboundPrivateTargets(),
+		},
+		Storage: StorageConfig{
+			DatabaseURL:        os.Getenv("GITSLICE_DATABASE_URL"),
+			RunMigrations:      os.Getenv("GITSLICE_RUN_MIGRATIONS") != "0",
+			ObjectStoreType:    os.Getenv("OBJECT_STORE_TYPE"),
+			ObjectStoreRoot:    os.Getenv("GITSLICE_OBJECT_STORE_ROOT"),
+			RequireR2:          os.Getenv("GITSLICE_REQUIRE_R2") == "1",
+			ObjectCacheBytes:   int64ValueOrDefault(os.Getenv("GITSLICE_OBJECT_CACHE_BYTES"), 256<<20),
+			ObjectStoreLatency: millisecondsDuration(os.Getenv("GITSLICE_OBJECT_STORE_LATENCY_MS")),
+			R2:                 r2.ConfigFromEnv(),
+			GitCacheRoot:       os.Getenv("GITSLICE_GIT_CACHE_ROOT"),
+			SecretsKey:         os.Getenv("GITSLICE_SECRETS_KEY"),
+			RequireSecretsKey:  os.Getenv("GITSLICE_REQUIRE_SECRETS_KEY") == "1",
+		},
+		Auth: AuthConfig{
+			Provider:           os.Getenv("AUTH_PROVIDER"),
+			Clerk:              clerk.ConfigFromEnv(),
+			ServiceToken:       servicetoken.ConfigFromEnv(),
+			AgentSignupEnabled: envEnabled(os.Getenv("GITSLICE_AGENT_SIGNUP_ENABLED")),
+			AgentSignupPerHour: intValueOrDefault(os.Getenv("GITSLICE_AGENT_SIGNUP_PER_HOUR"), 5),
+			OperatorSubjects:   splitList(os.Getenv("GITSLICE_OPERATOR_SUBJECTS")),
+			FeedbackAccount:    feedbackAccount(os.Getenv("GITSLICE_FEEDBACK_ACCOUNT")),
+		},
+		Workers: WorkersConfig{
+			PublishBatchSize:      intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_BATCH_SIZE"), 128),
+			PublishInterval:       time.Duration(intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_INTERVAL_MS"), 25)) * time.Millisecond,
+			PublishBackoffMax:     time.Duration(intValueOrDefault(os.Getenv("GITSLICE_PUBLISH_BACKOFF_MAX_MS"), 60000)) * time.Millisecond,
+			IndexBatchSize:        intValueOrDefault(os.Getenv("GITSLICE_INDEX_BATCH_SIZE"), 128),
+			IndexInterval:         time.Duration(intValueOrDefault(os.Getenv("GITSLICE_INDEX_INTERVAL_MS"), 25)) * time.Millisecond,
+			IndexBackoffMax:       time.Duration(intValueOrDefault(os.Getenv("GITSLICE_INDEX_BACKOFF_MAX_MS"), 60000)) * time.Millisecond,
+			DisableAsyncPublisher: os.Getenv("GITSLICE_DISABLE_ASYNC_PUBLISHER") == "1",
+			DisableIndexWorker:    os.Getenv("GITSLICE_DISABLE_INDEX_WORKER") == "1",
+			DisableBlameWarmer:    os.Getenv("GITSLICE_DISABLE_BLAME_WARMER") == "1",
+			GitBlobBackfill:       os.Getenv("GITSLICE_GIT_BLOB_BACKFILL") == "1",
+		},
+		RateLimit: RateLimitConfig{
+			Disabled: os.Getenv("GITSLICE_RATELIMIT_DISABLED") == "1",
+			// Per-subject limits are an anti-abuse ceiling, not fairness throttling.
+			// They must sit well above a single authenticated user's legitimate bulk
+			// traffic (e.g. `gs import` uploads blobs concurrently, one unary/stream
+			// UploadBlob per blob), so the default is generous while still capping a
+			// runaway client from saturating the publish pipeline / object store.
+			PerSubjectRPS:     floatValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_SUBJECT_RPS"), 500),
+			PerSubjectBurst:   intValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_SUBJECT_BURST"), 1000),
+			HTTPPerIPRPS:      floatValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_HTTP_RPS"), 30),
+			HTTPPerIPBurst:    intValueOrDefault(os.Getenv("GITSLICE_RATELIMIT_HTTP_BURST"), 60),
+			TrustedProxyCIDRs: splitList(os.Getenv("GITSLICE_TRUSTED_PROXIES")),
+		},
+		Integrations: IntegrationsConfig{
+			MetricsToken:          os.Getenv("GITSLICE_METRICS_TOKEN"),
+			RequireMetricsToken:   os.Getenv("GITSLICE_REQUIRE_METRICS_TOKEN") == "1",
+			PostHogAPIKey:         os.Getenv("GITSLICE_POSTHOG_API_KEY"),
+			PostHogHost:           os.Getenv("GITSLICE_POSTHOG_HOST"),
+			PostHogEnvironment:    os.Getenv("GITSLICE_POSTHOG_ENV"),
+			TriggerDispatchURL:    os.Getenv("GITSLICE_TRIGGER_DISPATCH_URL"),
+			TriggerDispatchSecret: os.Getenv("GITSLICE_TRIGGER_DISPATCH_SECRET"),
+			DoorbellURL:           os.Getenv("GITSLICE_DOORBELL_URL"),
+			DoorbellSecret:        os.Getenv("GITSLICE_DOORBELL_SECRET"),
+			CIRunnerDaemons:       splitList(os.Getenv("GITSLICE_CI_RUNNER_DAEMONS")),
+		},
 	}
+}
+
+// ApplyDefaults fills in zero-valued worker intervals and batch sizes with
+// production defaults so programmatic callers (such as tests) do not have to
+// populate them by hand.
+func (c *Config) ApplyDefaults() {
+	if c.Workers.PublishBatchSize <= 0 {
+		c.Workers.PublishBatchSize = 128
+	}
+	if c.Workers.PublishInterval <= 0 {
+		c.Workers.PublishInterval = defaultPublishInterval
+	}
+	if c.Workers.PublishBackoffMax <= 0 {
+		c.Workers.PublishBackoffMax = defaultPublishMaxInterval
+	}
+	if c.Workers.IndexBatchSize <= 0 {
+		c.Workers.IndexBatchSize = 128
+	}
+	if c.Workers.IndexInterval <= 0 {
+		c.Workers.IndexInterval = defaultPublishInterval
+	}
+	if c.Workers.IndexBackoffMax <= 0 {
+		c.Workers.IndexBackoffMax = 60 * time.Second
+	}
+}
+
+func (c Config) gitCacheRoot() string {
+	if c.Storage.GitCacheRoot != "" {
+		return c.Storage.GitCacheRoot
+	}
+	if c.Storage.ObjectStoreRoot != "" {
+		return filepath.Join(c.Storage.ObjectStoreRoot, "git-cache")
+	}
+	return filepath.Join(os.TempDir(), "gitslice-git-cache")
 }
 
 func outboundPrivateTargets() bool {
@@ -184,23 +248,23 @@ func outboundPrivateTargets() bool {
 // internalKey signs the server's requests to itself. It is derived from the
 // secrets key, which every instance holds; nil without one.
 func (c Config) internalKey() []byte {
-	if c.SecretsKey == "" {
+	if c.Storage.SecretsKey == "" {
 		return nil
 	}
-	mac := hmac.New(sha256.New, []byte(c.SecretsKey))
+	mac := hmac.New(sha256.New, []byte(c.Storage.SecretsKey))
 	mac.Write([]byte("gitslice internal requests v1"))
 	return mac.Sum(nil)
 }
 
 func (c Config) usesR2() bool {
-	return c.ObjectStoreType == "r2"
+	return c.Storage.ObjectStoreType == "r2"
 }
 
 func (c Config) Validate() error {
-	if c.GRPCAddr == "" {
+	if c.Network.GRPCAddr == "" {
 		return fmt.Errorf("grpc address is required")
 	}
-	if c.DatabaseURL == "" {
+	if c.Storage.DatabaseURL == "" {
 		return fmt.Errorf("GITSLICE_DATABASE_URL is required")
 	}
 	// In production the object store must be durable R2. GITSLICE_REQUIRE_R2=1
@@ -208,14 +272,14 @@ func (c Config) Validate() error {
 	// route writes to the ephemeral filesystem store: those Puts "succeed" and
 	// then vanish on the next cold start, leaving Postgres refs pointing at tree
 	// objects that no longer exist (an "object not found" on read).
-	if c.RequireR2 && !c.usesR2() {
-		return fmt.Errorf("GITSLICE_REQUIRE_R2 is set but OBJECT_STORE_TYPE is %q, not \"r2\": refusing to start with a non-durable object store", c.ObjectStoreType)
+	if c.Storage.RequireR2 && !c.usesR2() {
+		return fmt.Errorf("GITSLICE_REQUIRE_R2 is set but OBJECT_STORE_TYPE is %q, not \"r2\": refusing to start with a non-durable object store", c.Storage.ObjectStoreType)
 	}
-	if c.RequireMetricsToken && strings.TrimSpace(c.MetricsToken) == "" {
+	if c.Integrations.RequireMetricsToken && strings.TrimSpace(c.Integrations.MetricsToken) == "" {
 		return fmt.Errorf("GITSLICE_REQUIRE_METRICS_TOKEN is set but GITSLICE_METRICS_TOKEN is empty")
 	}
-	if c.RequireStrictCORS {
-		for _, origin := range strings.Split(c.HTTPAllowedOrigin, ",") {
+	if c.Network.RequireStrictCORS {
+		for _, origin := range strings.Split(c.Network.HTTPAllowedOrigin, ",") {
 			if strings.TrimSpace(origin) == "*" {
 				return fmt.Errorf("GITSLICE_REQUIRE_STRICT_CORS is set but GITSLICE_HTTP_ALLOWED_ORIGIN contains a wildcard origin: refusing to start with a wildcard origin in strict mode")
 			}
@@ -224,11 +288,11 @@ func (c Config) Validate() error {
 	if _, err := c.secretsBox(); err != nil {
 		return err
 	}
-	if _, err := parseTrustedProxies(c.TrustedProxyCIDRs); err != nil {
+	if _, err := parseTrustedProxies(c.RateLimit.TrustedProxyCIDRs); err != nil {
 		return err
 	}
 	// The filesystem object store needs a root; R2 supplies its own location.
-	if !c.usesR2() && c.ObjectStoreRoot == "" {
+	if !c.usesR2() && c.Storage.ObjectStoreRoot == "" {
 		return fmt.Errorf("GITSLICE_OBJECT_STORE_ROOT is required")
 	}
 	return nil
@@ -237,10 +301,10 @@ func (c Config) Validate() error {
 // webBaseURL is where the web app lives: GITSLICE_WEB_BASE_URL, or the
 // first allowed CORS origin that is not a wildcard.
 func (c Config) webBaseURL() string {
-	if c.WebBaseURL != "" {
-		return strings.TrimRight(c.WebBaseURL, "/")
+	if c.Network.WebBaseURL != "" {
+		return strings.TrimRight(c.Network.WebBaseURL, "/")
 	}
-	for _, origin := range strings.Split(c.HTTPAllowedOrigin, ",") {
+	for _, origin := range strings.Split(c.Network.HTTPAllowedOrigin, ",") {
 		origin = strings.TrimSpace(origin)
 		if origin != "" && !strings.Contains(origin, "*") {
 			return strings.TrimRight(origin, "/")
@@ -250,13 +314,13 @@ func (c Config) webBaseURL() string {
 }
 
 func (c Config) secretsBox() (*secretbox.Box, error) {
-	if c.SecretsKey == "" {
-		if c.RequireSecretsKey {
+	if c.Storage.SecretsKey == "" {
+		if c.Storage.RequireSecretsKey {
 			return nil, fmt.Errorf("GITSLICE_REQUIRE_SECRETS_KEY is set but GITSLICE_SECRETS_KEY is empty")
 		}
 		return nil, nil
 	}
-	box, err := secretbox.New(c.SecretsKey)
+	box, err := secretbox.New(c.Storage.SecretsKey)
 	if err != nil {
 		return nil, fmt.Errorf("GITSLICE_SECRETS_KEY is invalid: %w", err)
 	}

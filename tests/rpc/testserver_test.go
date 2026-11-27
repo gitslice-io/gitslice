@@ -102,16 +102,24 @@ func (ts *testRPCServer) launch(t *testing.T) error {
 	ts.ctx, ts.cancel = context.WithCancel(context.Background())
 	ts.errCh = make(chan error, 1)
 	cfg := server.Config{
-		DisableBlameWarmer: true,
-		GRPCAddr:           ts.addr,
-		DatabaseURL:        databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
-		ObjectStoreRoot:    ts.objectRoot,
-		ServiceToken: servicetoken.Config{
-			PublicKeyPEM: ts.servicePub,
-			Issuer:       servicetoken.DefaultIssuer,
+		Network: server.NetworkConfig{
+			GRPCAddr: ts.addr,
 		},
-		RunMigrations:      true,
-		AgentSignupEnabled: true,
+		Storage: server.StorageConfig{
+			DatabaseURL:     databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
+			RunMigrations:   true,
+			ObjectStoreRoot: ts.objectRoot,
+		},
+		Auth: server.AuthConfig{
+			ServiceToken: servicetoken.Config{
+				PublicKeyPEM: ts.servicePub,
+				Issuer:       servicetoken.DefaultIssuer,
+			},
+			AgentSignupEnabled: true,
+		},
+		Workers: server.WorkersConfig{
+			DisableBlameWarmer: true,
+		},
 	}
 	if ts.configure != nil {
 		ts.configure(&cfg)

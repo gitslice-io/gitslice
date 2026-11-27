@@ -125,7 +125,7 @@ func TestGRPCAndConnectEnforcePrincipalKeyGrants(t *testing.T) {
 		Checks:     mem.Checks,
 	}, mem.Objects, nil)
 
-	grpcSrv := NewPrincipalGRPCServer(mem.Auth.AuthenticateToken, handlers, Config{RateLimitDisabled: true})
+	grpcSrv := NewPrincipalGRPCServer(mem.Auth.AuthenticateToken, handlers, Config{RateLimit: RateLimitConfig{Disabled: true}})
 	t.Cleanup(grpcSrv.Stop)
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

@@ -23,10 +23,15 @@ import (
 )
 
 func TestGRPCRateLimitUnaryUsesSubjectID(t *testing.T) {
-	interceptor := newServerLimiters(Config{
-		RateLimitPerSubjectRPS:   1,
-		RateLimitPerSubjectBurst: 1,
-	}).grpcSubjectUnaryInterceptor()
+	limiters := &serverLimiters{
+		subject: newGRPCRateLimiter(Config{
+			RateLimit: RateLimitConfig{
+				PerSubjectRPS:   1,
+				PerSubjectBurst: 1,
+			},
+		}),
+	}
+	interceptor := newRPCGuard(nil, limiters).grpcUnaryInterceptor()
 	info := &grpc.UnaryServerInfo{FullMethod: "/gitslice.core.v1.SliceService/GetSlice"}
 	calls := 0
 	handler := func(ctx context.Context, req any) (any, error) {
@@ -53,11 +58,13 @@ func TestGRPCRateLimitUnaryUsesSubjectID(t *testing.T) {
 func TestGRPCRateLimitUnaryFallsBackToPeerIP(t *testing.T) {
 	limiters := &serverLimiters{
 		subject: newGRPCRateLimiter(Config{
-			RateLimitPerSubjectRPS:   1,
-			RateLimitPerSubjectBurst: 1,
+			RateLimit: RateLimitConfig{
+				PerSubjectRPS:   1,
+				PerSubjectBurst: 1,
+			},
 		}),
 	}
-	interceptor := limiters.grpcSubjectUnaryInterceptor()
+	interceptor := newRPCGuard(nil, limiters).grpcUnaryInterceptor()
 	info := &grpc.UnaryServerInfo{FullMethod: "/gitslice.core.v1.AuthService/StartCliLogin"}
 	handler := func(ctx context.Context, req any) (any, error) {
 		return "ok", nil
@@ -73,10 +80,13 @@ func TestGRPCRateLimitUnaryFallsBackToPeerIP(t *testing.T) {
 }
 
 func TestGRPCRateLimitExemptsHealthChecks(t *testing.T) {
-	interceptor := newServerLimiters(Config{
-		RateLimitPerSubjectRPS:   1,
-		RateLimitPerSubjectBurst: 1,
-	}).grpcSubjectUnaryInterceptor()
+	limiters := newServerLimiters(Config{
+		RateLimit: RateLimitConfig{
+			PerSubjectRPS:   1,
+			PerSubjectBurst: 1,
+		},
+	})
+	interceptor := newRPCGuard(nil, limiters).grpcUnaryInterceptor()
 	info := &grpc.UnaryServerInfo{FullMethod: "/grpc.health.v1.Health/Check"}
 	handler := func(ctx context.Context, req any) (any, error) {
 		return "ok", nil
@@ -90,10 +100,15 @@ func TestGRPCRateLimitExemptsHealthChecks(t *testing.T) {
 }
 
 func TestGRPCRateLimitStreamRejectsOverLimit(t *testing.T) {
-	interceptor := newServerLimiters(Config{
-		RateLimitPerSubjectRPS:   1,
-		RateLimitPerSubjectBurst: 1,
-	}).grpcSubjectStreamInterceptor()
+	limiters := &serverLimiters{
+		subject: newGRPCRateLimiter(Config{
+			RateLimit: RateLimitConfig{
+				PerSubjectRPS:   1,
+				PerSubjectBurst: 1,
+			},
+		}),
+	}
+	interceptor := newRPCGuard(nil, limiters).grpcStreamInterceptor()
 	info := &grpc.StreamServerInfo{FullMethod: "/gitslice.core.v1.BlobService/UploadBlob"}
 	stream := &testServerStream{ctx: authctx.WithSubjectID(context.Background(), "alice")}
 	handler := func(srv any, stream grpc.ServerStream) error {
@@ -110,8 +125,10 @@ func TestGRPCRateLimitStreamRejectsOverLimit(t *testing.T) {
 
 func TestHTTPRateLimitUsesForwardedForRightmostHop(t *testing.T) {
 	handler := newServerLimiters(Config{
-		RateLimitHTTPPerIPRPS:   1,
-		RateLimitHTTPPerIPBurst: 1,
+		RateLimit: RateLimitConfig{
+			HTTPPerIPRPS:   1,
+			HTTPPerIPBurst: 1,
+		},
 	}).httpIPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -223,8 +240,10 @@ func TestHTTPClientIP(t *testing.T) {
 func TestUntrustedProxyIgnoresForwardedForAndTrustedProxyCIDRHonorsIt(t *testing.T) {
 	// Default: public peer 198.51.100.50 cannot spoof X-Forwarded-For on HTTP or gRPC.
 	untrusted := newServerLimiters(Config{
-		RateLimitHTTPPerIPRPS:   0.001,
-		RateLimitHTTPPerIPBurst: 1,
+		RateLimit: RateLimitConfig{
+			HTTPPerIPRPS:   0.001,
+			HTTPPerIPBurst: 1,
+		},
 	}).httpIPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -275,8 +294,10 @@ func TestUntrustedProxyIgnoresForwardedForAndTrustedProxyCIDRHonorsIt(t *testing
 
 func TestIPv6Subnet64Bucketing(t *testing.T) {
 	handler := newServerLimiters(Config{
-		RateLimitHTTPPerIPRPS:   0.001,
-		RateLimitHTTPPerIPBurst: 1,
+		RateLimit: RateLimitConfig{
+			HTTPPerIPRPS:   0.001,
+			HTTPPerIPBurst: 1,
+		},
 	}).httpIPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -321,17 +342,19 @@ func TestGRPCServerPreAuthIPRateLimitRunsBeforeSubjectResolver(t *testing.T) {
 	}, mem.Objects, nil)
 
 	resolveCalls := 0
-	resolve := func(ctx context.Context, token string) (string, error) {
+	resolve := func(ctx context.Context, token string) (*authctx.Principal, error) {
 		resolveCalls++
-		return "user_alice", nil
+		return userPrincipal("user_alice"), nil
 	}
 	// gRPC's pre-auth per-IP limit uses the per-subject rate (not the Git
 	// HTTP rate), so the subject rate is what this test makes tiny.
-	grpcSrv := NewGRPCServer(resolve, handlers, Config{
-		RateLimitHTTPPerIPRPS:    100,
-		RateLimitHTTPPerIPBurst:  100,
-		RateLimitPerSubjectRPS:   0.001,
-		RateLimitPerSubjectBurst: 1,
+	grpcSrv := NewPrincipalGRPCServer(resolve, handlers, Config{
+		RateLimit: RateLimitConfig{
+			HTTPPerIPRPS:    100,
+			HTTPPerIPBurst:  100,
+			PerSubjectRPS:   0.001,
+			PerSubjectBurst: 1,
+		},
 	})
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -370,12 +393,14 @@ func TestTriggerRunFailureRateLimiter(t *testing.T) {
 	// 1. Direct gRPC interceptor check: non-auth errors and successes do not trip the limiter,
 	// while triggerAuthFailBurst auth failures exhaust the bucket.
 	limiters := newServerLimiters(Config{
-		RateLimitHTTPPerIPRPS:    1000,
-		RateLimitHTTPPerIPBurst:  1000,
-		RateLimitPerSubjectRPS:   1000,
-		RateLimitPerSubjectBurst: 1000,
+		RateLimit: RateLimitConfig{
+			HTTPPerIPRPS:    1000,
+			HTTPPerIPBurst:  1000,
+			PerSubjectRPS:   1000,
+			PerSubjectBurst: 1000,
+		},
 	})
-	inter := limiters.triggerRunFailureUnaryInterceptor()
+	inter := newRPCGuard(nil, limiters).grpcUnaryInterceptor()
 	info := &grpc.UnaryServerInfo{FullMethod: "/gitslice.core.v1.AutomationRunService/StartRun"}
 	peerCtx := peer.NewContext(context.Background(), &peer.Peer{
 		Addr: &net.TCPAddr{IP: net.ParseIP("203.0.113.55"), Port: 9000},
@@ -431,14 +456,16 @@ func TestTriggerRunFailureRateLimiter(t *testing.T) {
 		Checks:      mem.Checks,
 	}, automations.Options{}))
 	httpLimiters := newServerLimiters(Config{
-		RateLimitHTTPPerIPRPS:    1000,
-		RateLimitHTTPPerIPBurst:  1000,
-		RateLimitPerSubjectRPS:   1000,
-		RateLimitPerSubjectBurst: 1000,
+		RateLimit: RateLimitConfig{
+			HTTPPerIPRPS:    1000,
+			HTTPPerIPBurst:  1000,
+			PerSubjectRPS:   1000,
+			PerSubjectBurst: 1000,
+		},
 	})
-	api := newConnectHandler(func(context.Context, string) (string, error) {
-		return "", nil
-	}, handlers, httpLimiters)
+	api := newPrincipalConnectHandler(func(context.Context, string) (*authctx.Principal, error) {
+		return nil, nil
+	}, handlers, httpLimiters, "")
 	srv := httptest.NewServer(newHTTPHandler(api, nil, "", Config{}, false, httpLimiters))
 	t.Cleanup(srv.Close)
 
@@ -461,9 +488,11 @@ func TestTriggerRunFailureRateLimiter(t *testing.T) {
 
 func TestHTTPRateLimitDisabledPassesThrough(t *testing.T) {
 	handler := newServerLimiters(Config{
-		RateLimitDisabled:       true,
-		RateLimitHTTPPerIPRPS:   1,
-		RateLimitHTTPPerIPBurst: 1,
+		RateLimit: RateLimitConfig{
+			Disabled:       true,
+			HTTPPerIPRPS:   1,
+			HTTPPerIPBurst: 1,
+		},
 	}).httpIPMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -525,12 +554,16 @@ func TestGRPCServerIgnoresGitHTTPPerIPLimit(t *testing.T) {
 		Agents:     mem.Agents,
 		Checks:     mem.Checks,
 	}, mem.Objects, nil)
-	resolve := func(ctx context.Context, token string) (string, error) { return "user_alice", nil }
-	grpcSrv := NewGRPCServer(resolve, handlers, Config{
-		RateLimitHTTPPerIPRPS:    0.001,
-		RateLimitHTTPPerIPBurst:  1,
-		RateLimitPerSubjectRPS:   100,
-		RateLimitPerSubjectBurst: 100,
+	resolve := func(ctx context.Context, token string) (*authctx.Principal, error) {
+		return userPrincipal("user_alice"), nil
+	}
+	grpcSrv := NewPrincipalGRPCServer(resolve, handlers, Config{
+		RateLimit: RateLimitConfig{
+			HTTPPerIPRPS:    0.001,
+			HTTPPerIPBurst:  1,
+			PerSubjectRPS:   100,
+			PerSubjectBurst: 100,
+		},
 	})
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

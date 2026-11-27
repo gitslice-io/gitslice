@@ -45,7 +45,9 @@ func startAgentSignupServerWithStores(t *testing.T, enabled bool, staticTokens m
 		}
 		return mem.Auth.AuthenticateToken(ctx, token)
 	}
-	grpcServer := server.NewPrincipalGRPCServer(resolve, handlers, server.Config{AgentSignupPerHour: 5})
+	grpcServer := server.NewPrincipalGRPCServer(resolve, handlers, server.Config{
+		Auth: server.AuthConfig{AgentSignupPerHour: 5},
+	})
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

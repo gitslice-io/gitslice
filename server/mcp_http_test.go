@@ -41,7 +41,9 @@ func TestHostedMCPEndpointEndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newPrincipalResolver: %v", err)
 	}
-	httpHandler := NewPrincipalConnectHandler(resolve, handlers)
+	httpHandler := NewPrincipalConnectHandler(resolve, handlers, Config{
+		Network: NetworkConfig{WebBaseURL: "https://web.gitslice.test"},
+	})
 
 	callMCP := func(body string, token string, query string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/mcp"+query, strings.NewReader(body))
@@ -108,6 +110,9 @@ func TestHostedMCPEndpointEndToEnd(t *testing.T) {
 	}
 	if createResp.Result.IsError {
 		t.Fatalf("create_changeset returned tool error: %s", createRec.Body.String())
+	}
+	if !strings.Contains(createRec.Body.String(), "https://web.gitslice.test/") {
+		t.Fatalf("create_changeset response did not use configured WebBaseURL: %s", createRec.Body.String())
 	}
 
 	// Publish pending changeset so read_file sees it at head.

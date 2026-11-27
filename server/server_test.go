@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,11 +28,19 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+func userPrincipal(subjectID string) *authctx.Principal {
+	return &authctx.Principal{
+		SubjectID:           subjectID,
+		SubjectKind:         "user",
+		ControllerSubjectID: subjectID,
+	}
+}
+
 func TestAuthInterceptorAllowsMissingBearerForServiceLevelAuth(t *testing.T) {
-	interceptor := authInterceptor(func(ctx context.Context, token string) (string, error) {
+	interceptor := newRPCGuard(func(ctx context.Context, token string) (*authctx.Principal, error) {
 		t.Fatalf("resolver called for missing bearer token %q", token)
-		return "", nil
-	})
+		return nil, nil
+	}, nil).grpcUnaryInterceptor()
 	called := false
 	_, err := interceptor(context.Background(), "request", &grpc.UnaryServerInfo{FullMethod: "/gitslice.core.v1.SliceService/GetSlice"}, func(ctx context.Context, req any) (any, error) {
 		called = true
@@ -50,10 +59,10 @@ func TestAuthInterceptorAllowsMissingBearerForServiceLevelAuth(t *testing.T) {
 
 func TestAuthInterceptorRejectsMalformedBearer(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "token nope"))
-	interceptor := authInterceptor(func(ctx context.Context, token string) (string, error) {
+	interceptor := newRPCGuard(func(ctx context.Context, token string) (*authctx.Principal, error) {
 		t.Fatalf("resolver called for malformed bearer token %q", token)
-		return "", nil
-	})
+		return nil, nil
+	}, nil).grpcUnaryInterceptor()
 	_, err := interceptor(ctx, "request", &grpc.UnaryServerInfo{FullMethod: "/gitslice.core.v1.SliceService/GetSlice"}, func(ctx context.Context, req any) (any, error) {
 		t.Fatal("handler called for malformed bearer token")
 		return nil, nil
@@ -65,12 +74,12 @@ func TestAuthInterceptorRejectsMalformedBearer(t *testing.T) {
 
 func TestAuthInterceptorAttachesResolvedSubject(t *testing.T) {
 	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("authorization", "Bearer token_123"))
-	interceptor := authInterceptor(func(ctx context.Context, token string) (string, error) {
+	interceptor := newRPCGuard(func(ctx context.Context, token string) (*authctx.Principal, error) {
 		if token != "token_123" {
 			t.Fatalf("resolver token = %q, want token_123", token)
 		}
-		return "user_alice", nil
-	})
+		return userPrincipal("user_alice"), nil
+	}, nil).grpcUnaryInterceptor()
 	_, err := interceptor(ctx, "request", &grpc.UnaryServerInfo{FullMethod: "/gitslice.core.v1.SliceService/GetSlice"}, func(ctx context.Context, req any) (any, error) {
 		subjectID, ok := authctx.SubjectID(ctx)
 		if !ok || subjectID != "user_alice" {
@@ -84,12 +93,12 @@ func TestAuthInterceptorAttachesResolvedSubject(t *testing.T) {
 }
 
 func TestConnectAuthMiddlewareAttachesResolvedSubject(t *testing.T) {
-	handler := connectAuthMiddleware(func(ctx context.Context, token string) (string, error) {
+	handler := newRPCGuard(func(ctx context.Context, token string) (*authctx.Principal, error) {
 		if token != "token_123" {
 			t.Fatalf("resolver token = %q, want token_123", token)
 		}
-		return "user_alice", nil
-	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		return userPrincipal("user_alice"), nil
+	}, nil).connectMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		subjectID, ok := authctx.SubjectID(r.Context())
 		if !ok || subjectID != "user_alice" {
 			t.Fatalf("subject = %q, %t; want user_alice, true", subjectID, ok)
@@ -109,10 +118,10 @@ func TestConnectAuthMiddlewareAttachesResolvedSubject(t *testing.T) {
 }
 
 func TestConnectAuthMiddlewareRejectsMalformedBearer(t *testing.T) {
-	handler := connectAuthMiddleware(func(ctx context.Context, token string) (string, error) {
+	handler := newRPCGuard(func(ctx context.Context, token string) (*authctx.Principal, error) {
 		t.Fatalf("resolver called for malformed bearer token %q", token)
-		return "", nil
-	})(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		return nil, nil
+	}, nil).connectMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("handler called for malformed bearer token")
 	}))
 
@@ -150,13 +159,13 @@ func TestConnectHTTPHandlerServesAPI(t *testing.T) {
 		Agents:     mem.Agents,
 		Checks:     mem.Checks,
 	}, mem.Objects, tracker)
-	resolve := func(ctx context.Context, token string) (string, error) {
+	resolve := func(ctx context.Context, token string) (*authctx.Principal, error) {
 		if token == "token_123" {
-			return "user_alice", nil
+			return userPrincipal("user_alice"), nil
 		}
-		return "", storage.ErrUnauthenticated
+		return nil, storage.ErrUnauthenticated
 	}
-	httpServer := httptest.NewServer(NewHTTPHandler(NewConnectHandler(resolve, handlers), nil, "http://web.test"))
+	httpServer := httptest.NewServer(NewHTTPHandler(NewPrincipalConnectHandler(resolve, handlers), nil, "http://web.test"))
 	t.Cleanup(httpServer.Close)
 
 	client := corev1connect.NewSliceServiceClient(httpServer.Client(), httpServer.URL)
@@ -197,13 +206,13 @@ func TestConnectServesSecrets(t *testing.T) {
 		Agents:     mem.Agents,
 		Checks:     mem.Checks,
 	}, mem.Objects, nil)
-	resolve := func(ctx context.Context, token string) (string, error) {
+	resolve := func(ctx context.Context, token string) (*authctx.Principal, error) {
 		if token == "token_123" {
-			return "user_alice", nil
+			return userPrincipal("user_alice"), nil
 		}
-		return "", storage.ErrUnauthenticated
+		return nil, storage.ErrUnauthenticated
 	}
-	httpServer := httptest.NewServer(NewHTTPHandler(NewConnectHandler(resolve, handlers), nil, "http://web.test"))
+	httpServer := httptest.NewServer(NewHTTPHandler(NewPrincipalConnectHandler(resolve, handlers), nil, "http://web.test"))
 	t.Cleanup(httpServer.Close)
 
 	client := corev1connect.NewSecretServiceClient(httpServer.Client(), httpServer.URL)
@@ -245,19 +254,20 @@ func TestCombinedServerHandlerTracksActivityInsideH2C(t *testing.T) {
 		Agents:     mem.Agents,
 		Checks:     mem.Checks,
 	}, mem.Objects, nil)
-	resolve := func(ctx context.Context, token string) (string, error) {
+	resolve := func(ctx context.Context, token string) (*authctx.Principal, error) {
 		if token == "token_123" {
-			return "user_alice", nil
+			return userPrincipal("user_alice"), nil
 		}
-		return "", storage.ErrUnauthenticated
+		return nil, storage.ErrUnauthenticated
 	}
 
 	gate := activity.NewIdle(40 * time.Millisecond)
-	limiters := newServerLimiters(Config{RateLimitDisabled: true})
-	grpcSrv := newGRPCServer(resolve, handlers, limiters)
+	disabledCfg := Config{RateLimit: RateLimitConfig{Disabled: true}}
+	limiters := newServerLimiters(disabledCfg)
+	grpcSrv := newPrincipalGRPCServer(resolve, handlers, limiters)
 	t.Cleanup(grpcSrv.Stop)
-	apiHandler := newConnectHandler(resolve, handlers, limiters)
-	gatewayMux := newHTTPHandler(apiHandler, nil, "*", Config{RateLimitDisabled: true}, true, limiters)
+	apiHandler := newPrincipalConnectHandler(resolve, handlers, limiters, "")
+	gatewayMux := newHTTPHandler(apiHandler, nil, "*", disabledCfg, true, limiters)
 
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -329,6 +339,22 @@ func TestCombinedServerHandlerTracksActivityInsideH2C(t *testing.T) {
 	time.Sleep(60 * time.Millisecond)
 	if gate.Awake() {
 		t.Fatal("gate stayed awake past idleAfter because h2c connection held inFlight; want idle")
+	}
+}
+
+func TestAppShutdownWaitsForWorkersBeforeReturning(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var exited atomic.Bool
+	app := &App{workerCancel: cancel}
+	app.workers.Go(func() {
+		<-ctx.Done()
+		time.Sleep(25 * time.Millisecond)
+		exited.Store(true)
+	})
+
+	app.Shutdown()
+	if !exited.Load() {
+		t.Fatal("App.Shutdown returned before background worker exited")
 	}
 }
 

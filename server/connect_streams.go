@@ -6,7 +6,6 @@ import (
 	"io"
 
 	"connectrpc.com/connect"
-	"gitslice.io/gitslice/internal/metrics"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -120,15 +119,14 @@ func (s connectBidiStream[Req, Resp]) Recv() (*Req, error) {
 }
 
 func connectTriggerRunFailureInterceptor(limiters *serverLimiters) connect.UnaryInterceptorFunc {
+	guard := newRPCGuard(nil, limiters)
 	return func(next connect.UnaryFunc) connect.UnaryFunc {
 		return func(ctx context.Context, req connect.AnyRequest) (connect.AnyResponse, error) {
 			resp, err := next(ctx, req)
-			if err != nil && limiters != nil && limiters.triggerFail != nil {
-				switch connectStatusCode(err) {
-				case codes.Unauthenticated, codes.PermissionDenied:
-					if ipKey, ok := clientIPKeyFromContext(ctx); ok && !limiters.triggerFail.Allow(ipKey) {
-						ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "http"})
-						return nil, connect.NewError(connect.CodeResourceExhausted, errors.New("trigger run authentication failure rate limit exceeded"))
+			if err != nil {
+				if ipKey, ok := clientIPKeyFromContext(ctx); ok {
+					if limitErr := guard.recordTriggerRunFailure("http", ipKey, connectStatusCode(err)); limitErr != nil {
+						return nil, connectError(limitErr)
 					}
 				}
 			}

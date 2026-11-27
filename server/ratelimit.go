@@ -10,36 +10,22 @@ import (
 	"strings"
 	"time"
 
-	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/metrics"
 	"gitslice.io/gitslice/internal/ratelimit"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
-	"google.golang.org/grpc/status"
 )
 
 const (
 	rateLimitBucketTTL = 10 * time.Minute
 
-	// agentSignupMethod and agentJoinInviteMethod are the unauthenticated agent
-	// registration RPCs. Both get a tighter per-IP limit on top of the general
-	// limiters because each call creates an account.
-	agentSignupMethod     = "/gitslice.core.v1.AuthService/RegisterAgent"
-	agentJoinInviteMethod = "/gitslice.core.v1.AuthService/JoinAgentInvite"
-
 	// agentSignupBucketTTL outlives the refill period so an idle IP's spent
 	// bucket is not forgotten before it would have refilled anyway.
 	agentSignupBucketTTL = 2 * time.Hour
 
-	// automationRunServicePrefix identifies unauthenticated-at-interceptor RPCs
-	// that carry a run token in the request body; failed token guesses get a
-	// dedicated strict per-IP budget.
-	automationRunServicePrefix = "/gitslice.core.v1.AutomationRunService/"
-	triggerAuthFailRPS         = 0.2
-	triggerAuthFailBurst       = 10
-	triggerAuthFailTTL         = 15 * time.Minute
+	triggerAuthFailRPS   = 0.2
+	triggerAuthFailBurst = 10
+	triggerAuthFailTTL   = 15 * time.Minute
 )
 
 var ratelimitRejectedTotal = metrics.NewCounter(
@@ -129,20 +115,20 @@ type serverLimiters struct {
 }
 
 func newServerLimiters(cfg Config) *serverLimiters {
-	proxies, err := parseTrustedProxies(cfg.TrustedProxyCIDRs)
+	proxies, err := parseTrustedProxies(cfg.RateLimit.TrustedProxyCIDRs)
 	if err != nil {
 		slog.Warn("ignoring invalid trusted proxy CIDRs in rate limiter; validate config before starting server", "error", err)
 	}
-	if cfg.RateLimitDisabled {
+	if cfg.RateLimit.Disabled {
 		return &serverLimiters{proxies: proxies}
 	}
 	var ipLimiter *ratelimit.Limiter
-	if cfg.RateLimitHTTPPerIPRPS > 0 {
-		ipLimiter = ratelimit.New(cfg.RateLimitHTTPPerIPRPS, serverRateLimitBurst(cfg.RateLimitHTTPPerIPBurst), rateLimitBucketTTL)
+	if cfg.RateLimit.HTTPPerIPRPS > 0 {
+		ipLimiter = ratelimit.New(cfg.RateLimit.HTTPPerIPRPS, serverRateLimitBurst(cfg.RateLimit.HTTPPerIPBurst), rateLimitBucketTTL)
 	}
 	var grpcIPLimiter *ratelimit.Limiter
-	if cfg.RateLimitPerSubjectRPS > 0 {
-		grpcIPLimiter = ratelimit.New(cfg.RateLimitPerSubjectRPS, serverRateLimitBurst(cfg.RateLimitPerSubjectBurst), rateLimitBucketTTL)
+	if cfg.RateLimit.PerSubjectRPS > 0 {
+		grpcIPLimiter = ratelimit.New(cfg.RateLimit.PerSubjectRPS, serverRateLimitBurst(cfg.RateLimit.PerSubjectBurst), rateLimitBucketTTL)
 	}
 	return &serverLimiters{
 		proxies:     proxies,
@@ -174,137 +160,6 @@ func (l *serverLimiters) httpIPMiddleware() func(http.Handler) http.Handler {
 	}
 }
 
-func (l *serverLimiters) grpcPreAuthUnaryInterceptor() grpc.UnaryServerInterceptor {
-	if l == nil || l.grpcIP == nil {
-		return func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-			return handler(ctx, req)
-		}
-	}
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if isHealthCheckMethod(info.FullMethod) || l.grpcIP.Allow(grpcPeerIPKeyWithProxies(ctx, l.proxies)) {
-			return handler(ctx, req)
-		}
-		ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "grpc"})
-		return nil, status.Error(codes.ResourceExhausted, "rate limit exceeded")
-	}
-}
-
-func (l *serverLimiters) grpcPreAuthStreamInterceptor() grpc.StreamServerInterceptor {
-	if l == nil || l.grpcIP == nil {
-		return func(srv any, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-			return handler(srv, stream)
-		}
-	}
-	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		if isHealthCheckMethod(info.FullMethod) || l.grpcIP.Allow(grpcPeerIPKeyWithProxies(stream.Context(), l.proxies)) {
-			return handler(srv, stream)
-		}
-		ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "grpc"})
-		return status.Error(codes.ResourceExhausted, "rate limit exceeded")
-	}
-}
-
-func (l *serverLimiters) grpcSubjectUnaryInterceptor() grpc.UnaryServerInterceptor {
-	if l == nil || l.subject == nil {
-		return func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-			return handler(ctx, req)
-		}
-	}
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if isHealthCheckMethod(info.FullMethod) {
-			return handler(ctx, req)
-		}
-		key, check := l.subjectOrFallbackKey(ctx)
-		if !check || l.subject.Allow(key) {
-			return handler(ctx, req)
-		}
-		ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "grpc"})
-		return nil, status.Error(codes.ResourceExhausted, "rate limit exceeded")
-	}
-}
-
-func (l *serverLimiters) grpcSubjectStreamInterceptor() grpc.StreamServerInterceptor {
-	if l == nil || l.subject == nil {
-		return func(srv any, stream grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-			return handler(srv, stream)
-		}
-	}
-	return func(srv any, stream grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
-		if isHealthCheckMethod(info.FullMethod) {
-			return handler(srv, stream)
-		}
-		key, check := l.subjectOrFallbackKey(stream.Context())
-		if !check || l.subject.Allow(key) {
-			return handler(srv, stream)
-		}
-		ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "grpc"})
-		return status.Error(codes.ResourceExhausted, "rate limit exceeded")
-	}
-}
-
-func (l *serverLimiters) subjectOrFallbackKey(ctx context.Context) (string, bool) {
-	if subjectID, ok := authctx.SubjectID(ctx); ok {
-		return "subject:" + subjectID, true
-	}
-	// When the pre-auth per-IP limiter is enabled, anonymous callers were
-	// already charged against l.grpcIP before auth; otherwise fall back to peer IP.
-	if l.grpcIP != nil {
-		return "", false
-	}
-	return grpcPeerIPKeyWithProxies(ctx, l.proxies), true
-}
-
-func (l *serverLimiters) agentSignupUnaryInterceptor() grpc.UnaryServerInterceptor {
-	if l == nil || l.signup == nil {
-		return func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-			return handler(ctx, req)
-		}
-	}
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if (info.FullMethod != agentSignupMethod && info.FullMethod != agentJoinInviteMethod) || l.signup.Allow(grpcPeerIPKeyWithProxies(ctx, l.proxies)) {
-			return handler(ctx, req)
-		}
-		ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "grpc"})
-		return nil, status.Error(codes.ResourceExhausted, "agent sign-up rate limit exceeded")
-	}
-}
-
-func (l *serverLimiters) triggerRunFailureUnaryInterceptor() grpc.UnaryServerInterceptor {
-	if l == nil || l.triggerFail == nil {
-		return func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-			return handler(ctx, req)
-		}
-	}
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		if !strings.HasPrefix(info.FullMethod, automationRunServicePrefix) {
-			return handler(ctx, req)
-		}
-		ipKey := grpcPeerIPKeyWithProxies(ctx, l.proxies)
-		if !l.triggerFail.Peek(ipKey) {
-			ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "grpc"})
-			return nil, status.Error(codes.ResourceExhausted, "trigger run authentication failure rate limit exceeded")
-		}
-		resp, err := handler(ctx, req)
-		if isAuthFailureError(err) && !l.triggerFail.Allow(ipKey) {
-			ratelimitRejectedTotal.Inc(metrics.Labels{"transport": "grpc"})
-			return nil, status.Error(codes.ResourceExhausted, "trigger run authentication failure rate limit exceeded")
-		}
-		return resp, err
-	}
-}
-
-func isAuthFailureError(err error) bool {
-	if err == nil {
-		return false
-	}
-	switch status.Code(err) {
-	case codes.Unauthenticated, codes.PermissionDenied:
-		return true
-	default:
-		return false
-	}
-}
-
 type clientIPContextKey struct{}
 
 func withClientIPKey(ctx context.Context, ipKey string) context.Context {
@@ -317,17 +172,17 @@ func clientIPKeyFromContext(ctx context.Context) (string, bool) {
 }
 
 func newGRPCRateLimiter(cfg Config) *ratelimit.Limiter {
-	if cfg.RateLimitDisabled || cfg.RateLimitPerSubjectRPS <= 0 {
+	if cfg.RateLimit.Disabled || cfg.RateLimit.PerSubjectRPS <= 0 {
 		return nil
 	}
-	return ratelimit.New(cfg.RateLimitPerSubjectRPS, serverRateLimitBurst(cfg.RateLimitPerSubjectBurst), rateLimitBucketTTL)
+	return ratelimit.New(cfg.RateLimit.PerSubjectRPS, serverRateLimitBurst(cfg.RateLimit.PerSubjectBurst), rateLimitBucketTTL)
 }
 
 func newAgentSignupLimiter(cfg Config) *ratelimit.Limiter {
-	if cfg.RateLimitDisabled || cfg.AgentSignupPerHour <= 0 {
+	if cfg.RateLimit.Disabled || cfg.Auth.AgentSignupPerHour <= 0 {
 		return nil
 	}
-	return ratelimit.New(float64(cfg.AgentSignupPerHour)/3600, cfg.AgentSignupPerHour, agentSignupBucketTTL)
+	return ratelimit.New(float64(cfg.Auth.AgentSignupPerHour)/3600, cfg.Auth.AgentSignupPerHour, agentSignupBucketTTL)
 }
 
 func grpcPeerIPKey(ctx context.Context) string {
@@ -335,29 +190,14 @@ func grpcPeerIPKey(ctx context.Context) string {
 }
 
 func grpcPeerIPKeyWithProxies(ctx context.Context, proxies trustedProxies) string {
-	var peerHost string
+	var peerHost, xff string
 	if p, ok := peer.FromContext(ctx); ok && p.Addr != nil {
 		peerHost = hostFromAddr(p.Addr.String())
 	}
-	peerAddr, peerValid := parseNetIP(peerHost)
-	if peerValid && proxies.isTrusted(peerAddr) {
-		if md, ok := metadata.FromIncomingContext(ctx); ok {
-			if fwdAddr, ok := rightmostForwardedIP(strings.Join(md.Get("x-forwarded-for"), ",")); ok {
-				return "ip:" + rateLimitIPBucket(fwdAddr)
-			}
-		}
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		xff = strings.Join(md.Get("x-forwarded-for"), ",")
 	}
-	if peerValid {
-		return "ip:" + rateLimitIPBucket(peerAddr)
-	}
-	if peerHost != "" {
-		return "ip:" + peerHost
-	}
-	return "ip:unknown"
-}
-
-func isHealthCheckMethod(method string) bool {
-	return strings.HasPrefix(method, "/grpc.health.v1.Health/")
+	return "ip:" + clientIP(peerHost, xff, proxies)
 }
 
 func httpClientIP(r *http.Request) string {
@@ -365,10 +205,15 @@ func httpClientIP(r *http.Request) string {
 }
 
 func httpClientIPWithProxies(r *http.Request, proxies trustedProxies) string {
-	peerHost := hostFromAddr(r.RemoteAddr)
+	return clientIP(hostFromAddr(r.RemoteAddr), r.Header.Get("X-Forwarded-For"), proxies)
+}
+
+// clientIP resolves the rate-limit IP bucket for a peer host and optional
+// X-Forwarded-For value, trusting forwarded hops only when the peer is trusted.
+func clientIP(peerHost, xffHeader string, proxies trustedProxies) string {
 	peerAddr, peerValid := parseNetIP(peerHost)
 	if peerValid && proxies.isTrusted(peerAddr) {
-		if fwdAddr, ok := rightmostForwardedIP(r.Header.Get("X-Forwarded-For")); ok {
+		if fwdAddr, ok := rightmostForwardedIP(xffHeader); ok {
 			return rateLimitIPBucket(fwdAddr)
 		}
 	}

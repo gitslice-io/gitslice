@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"connectrpc.com/connect"
+	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/requestid"
 	"gitslice.io/gitslice/internal/storage/memory"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -19,7 +20,7 @@ import (
 func TestHTTPHandlerCORSAllowsConnectTimeoutMs(t *testing.T) {
 	handler := NewHTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("preflight should not reach wrapped handler")
-	}), nil, "https://gitslice.io", Config{RateLimitDisabled: true})
+	}), nil, "https://gitslice.io", Config{RateLimit: RateLimitConfig{Disabled: true}})
 
 	req := httptest.NewRequest(http.MethodOptions, "/gitslice.core.v1.ChangesetService/SubmitChangeset", nil)
 	req.Header.Set("Origin", "https://gitslice.io")
@@ -60,8 +61,10 @@ func TestHealthzAndReadyzProbes(t *testing.T) {
 	handler := NewHTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	}), nil, "", Config{
-		RateLimitHTTPPerIPRPS:   0.001,
-		RateLimitHTTPPerIPBurst: 1,
+		RateLimit: RateLimitConfig{
+			HTTPPerIPRPS:   0.001,
+			HTTPPerIPBurst: 1,
+		},
 	})
 
 	for _, path := range []string{"/healthz", "/readyz"} {
@@ -97,9 +100,13 @@ func TestMetricsRateLimitingAndConstantTimeTokenAuth(t *testing.T) {
 	handler := NewHTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 	}), nil, "", Config{
-		MetricsToken:            "super-secret-metrics-token",
-		RateLimitHTTPPerIPRPS:   0.001,
-		RateLimitHTTPPerIPBurst: 3,
+		Integrations: IntegrationsConfig{
+			MetricsToken: "super-secret-metrics-token",
+		},
+		RateLimit: RateLimitConfig{
+			HTTPPerIPRPS:   0.001,
+			HTTPPerIPBurst: 3,
+		},
 	})
 
 	// Wrong-length and wrong-value tokens fail with 401 + WWW-Authenticate.
@@ -163,26 +170,28 @@ func TestConnectHTTPTransportPolicyAndObservabilityParity(t *testing.T) {
 
 	cfg := Config{
 		// Tiny Git HTTP per-IP limit must NOT throttle Connect RPCs.
-		RateLimitHTTPPerIPRPS:    0.001,
-		RateLimitHTTPPerIPBurst:  1,
-		RateLimitPerSubjectRPS:   0.001,
-		RateLimitPerSubjectBurst: 5,
+		RateLimit: RateLimitConfig{
+			HTTPPerIPRPS:    0.001,
+			HTTPPerIPBurst:  1,
+			PerSubjectRPS:   0.001,
+			PerSubjectBurst: 5,
+		},
 	}
 	limiters := newServerLimiters(cfg)
 	resolveCalls := 0
 	var seenReqID string
-	resolve := func(ctx context.Context, token string) (string, error) {
+	resolve := func(ctx context.Context, token string) (*authctx.Principal, error) {
 		resolveCalls++
 		seenReqID, _ = requestid.From(ctx)
-		return "user_alice", nil
+		return userPrincipal("user_alice"), nil
 	}
 
-	api := newConnectHandler(resolve, handlers, limiters)
+	api := newPrincipalConnectHandler(resolve, handlers, limiters, "")
 	srv := httptest.NewServer(newHTTPHandler(api, nil, "https://gitslice.io", cfg, true, limiters))
 	t.Cleanup(srv.Close)
 
 	client := corev1connect.NewSliceServiceClient(srv.Client(), srv.URL)
-	// First 5 Connect calls succeed even though RateLimitHTTPPerIPBurst == 1.
+	// First 5 Connect calls succeed even though RateLimit.HTTPPerIPBurst == 1.
 	for i := 0; i < 5; i++ {
 		req := connect.NewRequest(&corev1.ListSlicesRequest{Account: "acme"})
 		req.Header().Set("Authorization", "Bearer tok_1")
@@ -239,11 +248,13 @@ func TestConnectHTTPTransportPolicyAndObservabilityParity(t *testing.T) {
 func TestConnectAnonymousFallbackRateLimiting(t *testing.T) {
 	limiters := &serverLimiters{
 		subject: newGRPCRateLimiter(Config{
-			RateLimitPerSubjectRPS:   0.001,
-			RateLimitPerSubjectBurst: 1,
+			RateLimit: RateLimitConfig{
+				PerSubjectRPS:   0.001,
+				PerSubjectBurst: 1,
+			},
 		}),
 	}
-	handler := connectPrincipalAuthMiddlewareWithLimiters(nil, limiters)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := newRPCGuard(nil, limiters).connectMiddleware()(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 

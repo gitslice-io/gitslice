@@ -15,7 +15,7 @@ import (
 
 func TestRPCControllerApprovalsAndHumanGateWithPostgres(t *testing.T) {
 	ts := startRPCServerWith(t, func(cfg *server.Config) {
-		cfg.AgentSignupEnabled = true
+		cfg.Auth.AgentSignupEnabled = true
 	})
 	conn := dialTestGRPC(t, ts.addr)
 	clients := newTestCoreClients(conn)

@@ -77,9 +77,9 @@ func TestRPCTriggers(t *testing.T) {
 	defer dispatch.Close()
 
 	ts := startRPCServerWith(t, func(cfg *server.Config) {
-		cfg.OutboundAllowPrivateTargets = true
-		cfg.TriggerDispatchURL = dispatch.URL
-		cfg.TriggerDispatchSecret = testDispatchSecret
+		cfg.Network.OutboundAllowPrivateTargets = true
+		cfg.Integrations.TriggerDispatchURL = dispatch.URL
+		cfg.Integrations.TriggerDispatchSecret = testDispatchSecret
 	})
 	token := ts.loginViaGRPC(t, "alice")
 	conn := dialTestGRPC(t, ts.addr)

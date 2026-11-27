@@ -54,7 +54,7 @@ func newHTTPHandler(
 	mux.Handle("/readyz", probeHandler)
 
 	metricsHandler := metrics.Handler()
-	if token := strings.TrimSpace(cfg.MetricsToken); token != "" {
+	if token := strings.TrimSpace(cfg.Integrations.MetricsToken); token != "" {
 		metricsHandler = withMetricsToken(metricsHandler, token)
 	} else if configured {
 		warnOpenMetricsEndpoint()

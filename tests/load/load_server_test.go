@@ -70,17 +70,25 @@ func startLoadServer(t *testing.T) *loadServer {
 	}
 	go func() {
 		ts.errCh <- server.Run(ctx, server.Config{
-			DisableBlameWarmer: true,
-			GRPCAddr:           ts.addr,
-			DatabaseURL:        databaseURLWithSearchPath(t, databaseURL, schema),
-			ObjectStoreRoot:    ts.objectRoot,
-			ObjectCacheBytes:   int64(envInt("GITSLICE_LOAD_OBJECT_CACHE_BYTES", 256<<20)),
-			ObjectStoreLatency: time.Duration(envInt("GITSLICE_LOAD_OBJECT_STORE_LATENCY_MS", 0)) * time.Millisecond,
-			ServiceToken: servicetoken.Config{
-				PublicKeyPEM: ts.servicePub,
-				Issuer:       servicetoken.DefaultIssuer,
+			Network: server.NetworkConfig{
+				GRPCAddr: ts.addr,
 			},
-			RunMigrations: true,
+			Storage: server.StorageConfig{
+				DatabaseURL:        databaseURLWithSearchPath(t, databaseURL, schema),
+				RunMigrations:      true,
+				ObjectStoreRoot:    ts.objectRoot,
+				ObjectCacheBytes:   int64(envInt("GITSLICE_LOAD_OBJECT_CACHE_BYTES", 256<<20)),
+				ObjectStoreLatency: time.Duration(envInt("GITSLICE_LOAD_OBJECT_STORE_LATENCY_MS", 0)) * time.Millisecond,
+			},
+			Auth: server.AuthConfig{
+				ServiceToken: servicetoken.Config{
+					PublicKeyPEM: ts.servicePub,
+					Issuer:       servicetoken.DefaultIssuer,
+				},
+			},
+			Workers: server.WorkersConfig{
+				DisableBlameWarmer: true,
+			},
 		})
 	}()
 	waitForHealth(t, ts.addr)

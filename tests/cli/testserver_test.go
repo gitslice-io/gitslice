@@ -115,24 +115,32 @@ func (ts *testServer) launch(t *testing.T, migrate bool) error {
 	ts.errCh = make(chan error, 1)
 	go func() {
 		ts.errCh <- server.Run(ts.ctx, server.Config{
-			GRPCAddr:          ts.addr,
-			HTTPAddr:          ts.httpAddr,
-			HTTPAllowedOrigin: "http://web.test",
-			GitHTTPAddr:       ts.gitAddr,
-			GitCacheRoot:      filepath.Join(ts.objectRoot, "git-cache"),
-			DatabaseURL:       databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
-			ObjectStoreRoot:   ts.objectRoot,
-			ServiceToken: servicetoken.Config{
-				PublicKeyPEM: ts.servicePub,
-				Issuer:       servicetoken.DefaultIssuer,
+			Network: server.NetworkConfig{
+				GRPCAddr:          ts.addr,
+				HTTPAddr:          ts.httpAddr,
+				HTTPAllowedOrigin: "http://web.test",
+				GitHTTPAddr:       ts.gitAddr,
+				// Trigger and mirror tests send to local receivers.
+				OutboundAllowPrivateTargets: true,
 			},
-			RunMigrations:      migrate,
-			DisableBlameWarmer: !ts.blameWarmer,
-			OperatorSubjects:   ts.operatorSubjects,
-			AgentSignupEnabled: ts.agentSignup,
-			AgentSignupPerHour: 100,
-			// Trigger and mirror tests send to local receivers.
-			OutboundAllowPrivateTargets: true,
+			Storage: server.StorageConfig{
+				DatabaseURL:     databaseURLWithSearchPath(t, ts.databaseURL, ts.schema),
+				RunMigrations:   migrate,
+				ObjectStoreRoot: ts.objectRoot,
+				GitCacheRoot:    filepath.Join(ts.objectRoot, "git-cache"),
+			},
+			Auth: server.AuthConfig{
+				ServiceToken: servicetoken.Config{
+					PublicKeyPEM: ts.servicePub,
+					Issuer:       servicetoken.DefaultIssuer,
+				},
+				OperatorSubjects:   ts.operatorSubjects,
+				AgentSignupEnabled: ts.agentSignup,
+				AgentSignupPerHour: 100,
+			},
+			Workers: server.WorkersConfig{
+				DisableBlameWarmer: !ts.blameWarmer,
+			},
 		})
 	}()
 	return waitForHealth(ts.addr, ts.errCh)

@@ -6,17 +6,18 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strings"
+	"sync"
 	"time"
 
 	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/analytics"
 	"gitslice.io/gitslice/internal/auth/clerk"
 	"gitslice.io/gitslice/internal/automations"
+	"gitslice.io/gitslice/internal/bgloop"
+	"gitslice.io/gitslice/internal/doorbell"
 	"gitslice.io/gitslice/internal/events"
 	"gitslice.io/gitslice/internal/gitcompat"
+	"gitslice.io/gitslice/internal/gitmirror"
 	"gitslice.io/gitslice/internal/indexworker"
 	"gitslice.io/gitslice/internal/objectstore/cache"
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
@@ -24,21 +25,15 @@ import (
 	"gitslice.io/gitslice/internal/objectstore/packed"
 	"gitslice.io/gitslice/internal/objectstore/r2"
 	"gitslice.io/gitslice/internal/postgres"
-	"gitslice.io/gitslice/internal/rpclimits"
+	"gitslice.io/gitslice/internal/secretbox"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/treestore"
-	"gitslice.io/gitslice/proto/core/v1"
 	"gitslice.io/gitslice/service"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 	// Registers gzip and zstd, so clients can compress batch calls (ReadFiles,
 	// UploadBlobs, ImportGitCommitBatch) and their responses.
 	_ "gitslice.io/gitslice/internal/grpccomp"
 	_ "google.golang.org/grpc/encoding/gzip"
-	"google.golang.org/grpc/health"
-	healthv1 "google.golang.org/grpc/health/grpc_health_v1"
-	"google.golang.org/grpc/keepalive"
 )
 
 // HTTP server deadlines. The Connect HTTP API carries small, fast requests, so
@@ -60,54 +55,130 @@ const (
 	gitIdleTimeout       = 120 * time.Second
 )
 
-func Run(ctx context.Context, cfg Config) error {
+type infra struct {
+	db          *postgres.DB
+	objectStore service.ObjectStore
+	secrets     *secretbox.Box
+}
+
+func openInfra(ctx context.Context, cfg Config) (*infra, error) {
 	if err := cfg.Validate(); err != nil {
-		return err
+		return nil, err
 	}
 	secrets, err := cfg.secretsBox()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if secrets == nil {
 		slog.Warn("GITSLICE_SECRETS_KEY is unset; secret storage and signed self-requests are disabled (set GITSLICE_REQUIRE_SECRETS_KEY=1 in production)")
 	}
-	if cfg.PublishBatchSize <= 0 {
-		cfg.PublishBatchSize = 128
-	}
-	if cfg.PublishInterval <= 0 {
-		cfg.PublishInterval = defaultPublishInterval
-	}
-	if cfg.PublishBackoffMax <= 0 {
-		cfg.PublishBackoffMax = defaultPublishMaxInterval
-	}
-	if cfg.IndexBatchSize <= 0 {
-		cfg.IndexBatchSize = 128
-	}
-	if cfg.IndexInterval <= 0 {
-		cfg.IndexInterval = defaultPublishInterval
-	}
-	if cfg.IndexBackoffMax <= 0 {
-		cfg.IndexBackoffMax = 60 * time.Second
-	}
-	db, err := postgres.Open(ctx, cfg.DatabaseURL)
+	db, err := postgres.Open(ctx, cfg.Storage.DatabaseURL)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer db.Close()
-	// Background workers (publisher, outbox/index worker, check sweep) run on
-	// ctx. Cancel it on every return path, before db.Close runs, so a startup
-	// failure such as a port already in use does not leave them spinning on a
-	// closed database.
-	ctx, cancelWorkers := context.WithCancel(ctx)
-	defer cancelWorkers()
 	db.Slices().Secrets = secrets
 	objectStore, err := newObjectStore(cfg)
 	if err != nil {
-		return err
+		_ = db.Close()
+		return nil, err
 	}
 	objectStore = packed.New(objectStore, db.PackedObjects())
-	objectStore = cache.New(objectStore, cfg.ObjectCacheBytes, 4<<20)
-	tracker, err := analytics.New(cfg.PostHogAPIKey, cfg.PostHogHost, cfg.PostHogEnvironment)
+	objectStore = cache.New(objectStore, cfg.Storage.ObjectCacheBytes, 4<<20)
+	db.SetTreeStore(treestore.New(objectStore))
+	return &infra{
+		db:          db,
+		objectStore: objectStore,
+		secrets:     secrets,
+	}, nil
+}
+
+func (i *infra) Close() error {
+	if i == nil || i.db == nil {
+		return nil
+	}
+	return i.db.Close()
+}
+
+type workerGroup struct {
+	wg sync.WaitGroup
+}
+
+func (g *workerGroup) Go(fn func()) {
+	g.wg.Add(1)
+	go func() {
+		defer g.wg.Done()
+		fn()
+	}()
+}
+
+func (g *workerGroup) Wait() {
+	g.wg.Wait()
+}
+
+// App owns the fully wired server runtime: infrastructure, domain services,
+// background workers, and network listeners/servers.
+type App struct {
+	cfg      Config
+	infra    *infra
+	tracker  analytics.Client
+	gate     *activity.Gate
+	limiters *serverLimiters
+
+	dispatcher  *events.Dispatcher
+	indexWorker *indexworker.Worker
+	pubRunner   *bgloop.Runner
+	handlers    *service.Handlers
+
+	grpcServer     *grpc.Server
+	combinedServer *http.Server
+	combinedLis    net.Listener
+	gatewayServer  *http.Server
+	gatewayLis     net.Listener
+	gitHTTPServer  *http.Server
+	gitHTTPLis     net.Listener
+
+	workers      workerGroup
+	workerCancel context.CancelFunc
+	shutdownOnce sync.Once
+	closeOnce    sync.Once
+}
+
+func Run(ctx context.Context, cfg Config) error {
+	app, err := buildApp(ctx, cfg)
+	if err != nil {
+		return err
+	}
+	defer app.Close()
+
+	workerCtx, cancelWorkers := context.WithCancel(ctx)
+	app.workerCancel = cancelWorkers
+	app.StartWorkers(workerCtx)
+
+	return app.Serve(ctx)
+}
+
+func buildApp(ctx context.Context, cfg Config) (*App, error) {
+	cfg.ApplyDefaults()
+	inf, err := openInfra(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	app := &App{
+		cfg:   cfg,
+		infra: inf,
+		// Start background database loops idle until real user traffic arrives,
+		// so a cold-booted instance poked only by health checks or metrics
+		// scrapes lets Neon stay scaled to zero.
+		gate: activity.NewIdle(activity.IdleAfter),
+	}
+	ok := false
+	defer func() {
+		if !ok {
+			app.Close()
+		}
+	}()
+
+	tracker, err := analytics.New(cfg.Integrations.PostHogAPIKey, cfg.Integrations.PostHogHost, cfg.Integrations.PostHogEnvironment)
 	if err != nil {
 		slog.Warn("failed to initialize analytics; using no-op client", "error", err)
 		tracker, err = analytics.New("", "", "")
@@ -115,27 +186,26 @@ func Run(ctx context.Context, cfg Config) error {
 			slog.Warn("failed to initialize no-op analytics client", "error", err)
 		}
 	}
-	defer func() {
-		if tracker == nil {
-			return
-		}
-		if err := tracker.Close(); err != nil {
-			slog.Warn("failed to close analytics client", "error", err)
-		}
-	}()
+	app.tracker = tracker
+
+	db := inf.db
+	objectStore := inf.objectStore
+
 	resolvePrincipal, err := newPrincipalResolver(db.Auth(), cfg)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	resolvePrincipal = cachedPrincipalResolver(resolvePrincipal, time.Now)
-	db.SetTreeStore(treestore.New(objectStore))
-	if cfg.RunMigrations {
+
+	if cfg.Storage.RunMigrations {
 		if err := db.Migrate(ctx); err != nil {
-			return err
+			return nil, err
 		}
 	}
+
 	// Trigger checks are written through the wrapped check store below, so
-	// the events they cause are recorded too.
+	// the events they cause are recorded too. All wiring completes before
+	// StartWorkers launches any goroutine.
 	triggerChecks := &lateCheckStore{}
 	automationEngine := automations.NewEngine(automations.Stores{
 		Automations: db.Automations(),
@@ -145,16 +215,16 @@ func Run(ctx context.Context, cfg Config) error {
 		Checks:      triggerChecks,
 	}, automations.Options{
 		Tree:                service.TreeFiles{Repository: db.Repository(), Objects: objectStore},
-		DispatchURL:         cfg.TriggerDispatchURL,
-		DispatchSecret:      cfg.TriggerDispatchSecret,
-		AllowPrivateTargets: cfg.OutboundAllowPrivateTargets,
+		DispatchURL:         cfg.Integrations.TriggerDispatchURL,
+		DispatchSecret:      cfg.Integrations.TriggerDispatchSecret,
+		AllowPrivateTargets: cfg.Network.OutboundAllowPrivateTargets,
 	})
 	// Slice Git mirrors (design/35_git_mirrors.md): the dispatcher's drains
 	// queue and claim pushes; the projector (below) does them.
-	gitMirrors := &service.GitMirrors{
+	gitMirrors := &gitmirror.Runner{
 		Mirrors:             db.GitMirrors(),
 		Slices:              db.Slices(),
-		AllowPrivateTargets: cfg.OutboundAllowPrivateTargets,
+		AllowPrivateTargets: cfg.Network.OutboundAllowPrivateTargets,
 	}
 	dispatcher := events.NewDispatcher(events.Stores{
 		Events:     db.Events(),
@@ -166,36 +236,36 @@ func Run(ctx context.Context, cfg Config) error {
 		WebBaseURL:  cfg.webBaseURL(),
 		Automations: automationEngine,
 		Mirrors:     gitMirrors,
+		Gate:        app.gate,
 	})
-	// Start background database loops idle until real user traffic arrives, so
-	// a cold-booted instance poked only by health checks or metrics scrapes lets
-	// Neon stay scaled to zero.
-	activity.Default.ResetIdle()
-
 	gitMirrors.Nudge = dispatcher.Nudge
-	go dispatcher.Run(ctx)
-	pubNudge := newPublishNudger()
-	db.Changesets().SetPendingPublishListener(pubNudge.Nudge)
-	var indexWorker *indexworker.Worker
-	if !cfg.DisableIndexWorker {
-		indexWorker = indexworker.New(db.Changesets(), cfg.IndexBatchSize, cfg.IndexInterval, cfg.IndexBackoffMax)
-		go indexWorker.Run(ctx)
+	app.dispatcher = dispatcher
+
+	if !cfg.Workers.DisableIndexWorker {
+		iw := indexworker.New(db.Changesets(), cfg.Workers.IndexBatchSize, cfg.Workers.IndexInterval, cfg.Workers.IndexBackoffMax)
+		iw.SetGate(app.gate)
+		app.indexWorker = iw
 	}
-	if !cfg.DisableAsyncPublisher {
+	if !cfg.Workers.DisableAsyncPublisher {
 		// A landed commit records changeset.submitted in its transaction.
 		nudge := dispatcher.Nudge
-		if indexWorker != nil {
+		if app.indexWorker != nil {
 			nudge = func() {
-				indexWorker.Nudge()
+				app.indexWorker.Nudge()
 				dispatcher.Nudge()
 			}
 		}
-		go runPublisher(ctx, db.Changesets(), cfg.PublishBatchSize, cfg.PublishInterval, nudge, pubNudge.ch, cfg.PublishBackoffMax)
+		app.pubRunner = newPublisherRunner(
+			db.Changesets(),
+			cfg.Workers.PublishBatchSize,
+			cfg.Workers.PublishInterval,
+			cfg.Workers.PublishBackoffMax,
+			nudge,
+			app.gate,
+		)
+		db.Changesets().SetPendingPublishListener(app.pubRunner.Nudge)
 	}
-	lis, err := net.Listen("tcp", cfg.GRPCAddr)
-	if err != nil {
-		return err
-	}
+
 	stores := service.Stores{
 		Auth:        db.Auth(),
 		Blobs:       db.Blobs(),
@@ -209,102 +279,97 @@ func Run(ctx context.Context, cfg Config) error {
 		Automations: db.Automations(),
 	}
 	triggerChecks.CheckStore = stores.Checks
-	handlers := service.New(stores, objectStore, tracker)
-	handlers.SetAutomationEngine(automationEngine)
-	doorbell, err := service.NewDoorbell(cfg.DoorbellURL, cfg.DoorbellSecret)
+
+	dbell, err := doorbell.New(cfg.Integrations.DoorbellURL, cfg.Integrations.DoorbellSecret)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	handlers.SetDoorbell(doorbell)
-	handlers.SetCIRunners(cfg.CIRunnerDaemons)
-	handlers.Feedback.Account = cfg.FeedbackAccount
-	handlers.Feedback.OperatorSubjects = cfg.OperatorSubjects
-	handlers.Slice.GitMirrors = gitMirrors
-	handlers.Auth.AgentSignupEnabled = cfg.AgentSignupEnabled
-	handlers.Auth.OperatorSubjects = cfg.OperatorSubjects
-	if users := clerk.NewUserClient(cfg.Clerk.SecretKey); users != nil {
-		handlers.Auth.ClerkUsers = users
+	var clerkUsers service.ClerkUserDirectory
+	if users := clerk.NewUserClient(cfg.Auth.Clerk.SecretKey); users != nil {
+		clerkUsers = users
 	}
-	if handlers.Agent != nil {
-		go handlers.Agent.RunCheckDispatchSweep(ctx)
-	}
-	if !cfg.DisableBlameWarmer && handlers.Repository != nil {
-		// Blames of the files each landing changed, stored for whoever opens
-		// them next (service/blame_warm.go).
-		go handlers.Repository.RunBlameWarmer(ctx)
-	}
-	if cfg.GitBlobBackfill && handlers.Blob != nil {
-		go handlers.Blob.RunGitBlobBackfill(ctx)
-	}
-	limiters := newServerLimiters(cfg)
-	grpcServer := newPrincipalGRPCServer(resolvePrincipal, handlers, limiters)
-	apiHandler := newPrincipalConnectHandler(resolvePrincipal, handlers, limiters)
-	gitCacheRoot := cfg.GitCacheRoot
-	if gitCacheRoot == "" {
-		if cfg.ObjectStoreRoot != "" {
-			gitCacheRoot = filepath.Join(cfg.ObjectStoreRoot, "git-cache")
-		} else {
-			gitCacheRoot = filepath.Join(os.TempDir(), "gitslice-git-cache")
-		}
-	}
+	handlers := service.NewWithOptions(stores, objectStore, tracker, service.Options{
+		AutomationEngine:   automationEngine,
+		Doorbell:           dbell,
+		CIRunners:          cfg.Integrations.CIRunnerDaemons,
+		FeedbackAccount:    cfg.Auth.FeedbackAccount,
+		OperatorSubjects:   cfg.Auth.OperatorSubjects,
+		GitMirrors:         gitMirrors,
+		AgentSignupEnabled: cfg.Auth.AgentSignupEnabled,
+		ClerkUsers:         clerkUsers,
+		ActivityGate:       app.gate,
+	})
+	app.handlers = handlers
+
 	projector, err := gitcompat.NewProjector(gitcompat.ProjectorStores{
 		Auth:       db.Auth(),
 		Repository: db.Repository(),
 		Slices:     db.Slices(),
 		Blobs:      db.Blobs(),
-	}, objectStore, gitCacheRoot)
+	}, objectStore, cfg.gitCacheRoot())
 	if err != nil {
-		return err
+		return nil, err
 	}
 	gitcompatHandler := gitcompat.NewHandlerWithPrincipal(gitcompat.PrincipalResolver(resolvePrincipal), projector, handlers.Blob, handlers.Changeset)
 	// Covers (internal/gitcompat/cover.go) are built in a request the server
 	// sends itself, at its own URL; without one they are built in-process.
 	if key := cfg.internalKey(); key != nil {
 		gitcompatHandler.SetInternalKey(key)
-		if cfg.SelfURL != "" {
-			projector.SetCompactRequester(gitcompat.SelfCompactRequester(cfg.SelfURL, key))
+		if cfg.Network.SelfURL != "" {
+			projector.SetCompactRequester(gitcompat.SelfCompactRequester(cfg.Network.SelfURL, key))
 		}
 	}
 	var mirrorRequest func(account, slice string)
-	if key := cfg.internalKey(); key != nil && cfg.SelfURL != "" {
+	if key := cfg.internalKey(); key != nil && cfg.Network.SelfURL != "" {
 		// Mirror pushes, like covers, run in a request to the server itself,
 		// where Cloud Run gives them CPU.
-		mirrorRequest = gitcompat.SelfMirrorRequester(cfg.SelfURL, key)
+		mirrorRequest = gitcompat.SelfMirrorRequester(cfg.Network.SelfURL, key)
 	}
-	gitMirrors.SetPusher(projector.PushMirror, mirrorRequest)
+	// Wire mirror pusher BEFORE any worker starts so dispatcher never observes
+	// a nil pusher.
+	gitMirrors.SetPusher(service.GitMirrorPusher(projector.PushMirror), mirrorRequest)
 	gitcompatHandler.SetMirrorRunner(gitMirrors.Run)
-	var gitHandler http.Handler = gitcompatHandler
-	gitHandler = limiters.httpIPMiddleware()(gitHandler)
-	gatewayMux := newHTTPHandler(apiHandler, gitHandler, cfg.HTTPAllowedOrigin, cfg, true, limiters)
-	combinedServer := &http.Server{
-		Handler:           newCombinedServerHandler(grpcServer, gatewayMux, activity.Default),
+
+	limiters := newServerLimiters(cfg)
+	app.limiters = limiters
+	app.grpcServer = newPrincipalGRPCServer(resolvePrincipal, handlers, limiters)
+	apiHandler := newPrincipalConnectHandler(resolvePrincipal, handlers, limiters, cfg.webBaseURL())
+	gitHandler := limiters.httpIPMiddleware()(gitcompatHandler)
+	gatewayMux := newHTTPHandler(apiHandler, gitHandler, cfg.Network.HTTPAllowedOrigin, cfg, true, limiters)
+
+	lis, err := net.Listen("tcp", cfg.Network.GRPCAddr)
+	if err != nil {
+		return nil, err
+	}
+	app.combinedLis = lis
+	app.combinedServer = &http.Server{
+		Handler:           newCombinedServerHandler(app.grpcServer, gatewayMux, app.gate),
 		ReadHeaderTimeout: gatewayReadHeaderTimeout,
 		IdleTimeout:       gatewayIdleTimeout,
 	}
-	var gatewayServer *http.Server
-	var gatewayLis net.Listener
-	if cfg.HTTPAddr != "" {
-		gatewayLis, err = net.Listen("tcp", cfg.HTTPAddr)
+
+	if cfg.Network.HTTPAddr != "" {
+		gatewayLis, err := net.Listen("tcp", cfg.Network.HTTPAddr)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		gatewayServer = &http.Server{
-			Handler:           activity.Default.Middleware(gatewayMux),
+		app.gatewayLis = gatewayLis
+		app.gatewayServer = &http.Server{
+			Handler:           app.gate.Middleware(gatewayMux),
 			ReadHeaderTimeout: gatewayReadHeaderTimeout,
 			ReadTimeout:       gatewayReadTimeout,
 			WriteTimeout:      gatewayWriteTimeout,
 			IdleTimeout:       gatewayIdleTimeout,
 		}
 	}
-	var gitHTTPServer *http.Server
-	var gitHTTPLis net.Listener
-	if cfg.GitHTTPAddr != "" {
-		gitHTTPLis, err = net.Listen("tcp", cfg.GitHTTPAddr)
+	if cfg.Network.GitHTTPAddr != "" {
+		gitHTTPLis, err := net.Listen("tcp", cfg.Network.GitHTTPAddr)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		gitHTTPServer = &http.Server{
-			Handler: activity.Default.Middleware(gitHandler),
+		app.gitHTTPLis = gitHTTPLis
+		app.gitHTTPServer = &http.Server{
+			Handler: app.gate.Middleware(gitHandler),
 			// Git clone/fetch/push transfers can be large and slow, so only the
 			// header-read deadline (slowloris protection) and the idle-keepalive
 			// deadline are bounded here; body read/write are left to the request
@@ -313,141 +378,140 @@ func Run(ctx context.Context, cfg Config) error {
 			IdleTimeout:       gitIdleTimeout,
 		}
 	}
+
+	ok = true
+	return app, nil
+}
+
+// StartWorkers launches all background workers under app.workers so Shutdown
+// can cancel and drain them cleanly before the database is closed.
+func (a *App) StartWorkers(ctx context.Context) {
+	if a.dispatcher != nil {
+		a.workers.Go(func() { a.dispatcher.Run(ctx) })
+	}
+	if a.indexWorker != nil {
+		a.workers.Go(func() { a.indexWorker.Run(ctx) })
+	}
+	if a.pubRunner != nil {
+		a.workers.Go(func() { a.pubRunner.Run(ctx) })
+	}
+	if a.handlers != nil {
+		for _, worker := range a.handlers.Workers(service.WorkerOptions{
+			DisableBlameWarmer: a.cfg.Workers.DisableBlameWarmer,
+			GitBlobBackfill:    a.cfg.Workers.GitBlobBackfill,
+			Gate:               a.gate,
+		}) {
+			worker := worker
+			a.workers.Go(func() { worker(ctx) })
+		}
+	}
+}
+
+// Serve runs the network servers until ctx is cancelled or a listener fails,
+// then performs a graceful Shutdown before returning.
+func (a *App) Serve(ctx context.Context) error {
 	errCh := make(chan error, 3)
 	go func() {
-		slog.Info("gitslice server listening", "grpc_addr", lis.Addr().String())
-		errCh <- combinedServer.Serve(lis)
+		slog.Info("gitslice server listening", "grpc_addr", a.combinedLis.Addr().String())
+		errCh <- a.combinedServer.Serve(a.combinedLis)
 	}()
-	if gatewayServer != nil {
+	if a.gatewayServer != nil {
 		go func() {
-			slog.Info("gitslice http gateway listening", "http_addr", gatewayLis.Addr().String())
-			errCh <- gatewayServer.Serve(gatewayLis)
+			slog.Info("gitslice http gateway listening", "http_addr", a.gatewayLis.Addr().String())
+			errCh <- a.gatewayServer.Serve(a.gatewayLis)
 		}()
 	}
-	if gitHTTPServer != nil {
+	if a.gitHTTPServer != nil {
 		go func() {
-			slog.Info("gitslice git http listening", "git_http_addr", gitHTTPLis.Addr().String())
-			errCh <- gitHTTPServer.Serve(gitHTTPLis)
+			slog.Info("gitslice git http listening", "git_http_addr", a.gitHTTPLis.Addr().String())
+			errCh <- a.gitHTTPServer.Serve(a.gitHTTPLis)
 		}()
 	}
-	shutdown := func() {
+
+	select {
+	case <-ctx.Done():
+		a.Shutdown()
+		return ctx.Err()
+	case err := <-errCh:
+		a.Shutdown()
+		if errors.Is(err, grpc.ErrServerStopped) || errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}
+}
+
+// Shutdown drains HTTP/gRPC servers, cancels background workers, and waits for
+// every worker goroutine to exit before returning.
+func (a *App) Shutdown() {
+	a.shutdownOnce.Do(func() {
 		// Bound the HTTP drain: long-lived AgentService.Connect streams would
 		// otherwise keep the combined server from ever going idle.
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), serverShutdownTimeout)
 		defer cancel()
-		_ = combinedServer.Shutdown(shutdownCtx)
+		if a.combinedServer != nil {
+			_ = a.combinedServer.Shutdown(shutdownCtx)
+		}
 		// gRPC is multiplexed over HTTP via grpcServer.ServeHTTP; that
 		// serverHandlerTransport does not implement Drain(), so GracefulStop()
 		// panics whenever a server stream is still open at shutdown (as the
 		// daemon Connect stream always is). Stop() closes the handler
 		// transports without draining, which is correct here because
 		// combinedServer.Shutdown already drained in-flight HTTP/gRPC requests.
-		grpcServer.Stop()
-		if gatewayServer != nil {
-			_ = gatewayServer.Shutdown(shutdownCtx)
+		if a.grpcServer != nil {
+			a.grpcServer.Stop()
 		}
-		if gitHTTPServer != nil {
-			_ = gitHTTPServer.Shutdown(shutdownCtx)
+		if a.gatewayServer != nil {
+			_ = a.gatewayServer.Shutdown(shutdownCtx)
 		}
-	}
-	select {
-	case <-ctx.Done():
-		shutdown()
-		return ctx.Err()
-	case err := <-errCh:
-		if errors.Is(err, grpc.ErrServerStopped) {
-			return nil
+		if a.gitHTTPServer != nil {
+			_ = a.gitHTTPServer.Shutdown(shutdownCtx)
 		}
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
+		if a.workerCancel != nil {
+			a.workerCancel()
 		}
-		shutdown()
-		return err
-	}
+		a.workers.Wait()
+	})
+}
+
+// Close shuts down servers and workers, closes any unstarted listeners, flushes
+// analytics, and closes the database pool.
+func (a *App) Close() {
+	a.closeOnce.Do(func() {
+		a.Shutdown()
+		if a.combinedLis != nil {
+			_ = a.combinedLis.Close()
+		}
+		if a.gatewayLis != nil {
+			_ = a.gatewayLis.Close()
+		}
+		if a.gitHTTPLis != nil {
+			_ = a.gitHTTPLis.Close()
+		}
+		if a.tracker != nil {
+			if err := a.tracker.Close(); err != nil {
+				slog.Warn("failed to close analytics client", "error", err)
+			}
+		}
+		if a.infra != nil {
+			if err := a.infra.Close(); err != nil {
+				slog.Warn("failed to close database", "error", err)
+			}
+		}
+	})
 }
 
 func Migrate(ctx context.Context, cfg Config) (err error) {
-	if err := cfg.Validate(); err != nil {
-		return err
-	}
-	secrets, err := cfg.secretsBox()
-	if err != nil {
-		return err
-	}
-	if secrets == nil {
-		slog.Warn("GITSLICE_SECRETS_KEY is unset; secret storage and signed self-requests are disabled (set GITSLICE_REQUIRE_SECRETS_KEY=1 in production)")
-	}
-	db, err := postgres.Open(ctx, cfg.DatabaseURL)
+	inf, err := openInfra(ctx, cfg)
 	if err != nil {
 		return err
 	}
 	defer func() {
-		if closeErr := db.Close(); err == nil && closeErr != nil {
+		if closeErr := inf.Close(); err == nil && closeErr != nil {
 			err = closeErr
 		}
 	}()
-	db.Slices().Secrets = secrets
-	objectStore, err := newObjectStore(cfg)
-	if err != nil {
-		return err
-	}
-	objectStore = packed.New(objectStore, db.PackedObjects())
-	objectStore = cache.New(objectStore, cfg.ObjectCacheBytes, 4<<20)
-	db.SetTreeStore(treestore.New(objectStore))
-	return db.Migrate(ctx)
-}
-
-func NewCombinedGRPCGatewayHandler(grpcServer *grpc.Server, gateway http.Handler) http.Handler {
-	return newCombinedServerHandler(grpcServer, gateway, nil)
-}
-
-func newCombinedServerHandler(grpcServer *grpc.Server, gateway http.Handler, gate *activity.Gate) http.Handler {
-	boundedGateway := withNonStreamingDeadlines(gateway, gatewayReadTimeout, gatewayWriteTimeout)
-	inner := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
-			grpcServer.ServeHTTP(w, r)
-			return
-		}
-		boundedGateway.ServeHTTP(w, r)
-	}))
-	// Apply activity tracking inside h2c.NewHandler so each HTTP/2 stream has
-	// its individual path/method inspected (rather than holding the connection's
-	// PRI * HTTP/2.0 upgrade request in-flight for the lifetime of the socket).
-	if gate != nil {
-		inner = gate.Middleware(inner)
-	}
-	return h2c.NewHandler(inner, &http2.Server{
-		// Receive windows for uploads (UploadBlobs, blob streams); the
-		// defaults (1 MiB) cap a batch upload at a window per round trip.
-		MaxUploadBufferPerStream:     4 << 20,
-		MaxUploadBufferPerConnection: 16 << 20,
-	})
-}
-
-func withNonStreamingDeadlines(next http.Handler, readTimeout, writeTimeout time.Duration) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !isStreamingHTTPRequest(r) {
-			rc := http.NewResponseController(w)
-			now := time.Now()
-			_ = rc.SetReadDeadline(now.Add(readTimeout))
-			_ = rc.SetWriteDeadline(now.Add(writeTimeout))
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func isStreamingHTTPRequest(r *http.Request) bool {
-	if strings.HasPrefix(r.URL.Path, "/git/") {
-		return true
-	}
-	ct := strings.ToLower(r.Header.Get("Content-Type"))
-	if strings.HasPrefix(ct, "application/grpc") || strings.HasPrefix(ct, "application/connect+") {
-		return true
-	}
-	if strings.Contains(strings.ToLower(r.Header.Get("Accept")), "text/event-stream") {
-		return true
-	}
-	return streamingProcedures[r.URL.Path]
+	return inf.db.Migrate(ctx)
 }
 
 // newObjectStore selects the object store backend from config: Cloudflare R2 when
@@ -456,87 +520,27 @@ func isStreamingHTTPRequest(r *http.Request) bool {
 func newObjectStore(cfg Config) (service.ObjectStore, error) {
 	var objectStore service.ObjectStore
 	if cfg.usesR2() {
-		store, err := r2.New(cfg.R2)
+		store, err := r2.New(cfg.Storage.R2)
 		if err != nil {
 			return nil, err
 		}
 		objectStore = store
 	} else {
-		store, err := filesystem.New(cfg.ObjectStoreRoot)
+		store, err := filesystem.New(cfg.Storage.ObjectStoreRoot)
 		if err != nil {
 			return nil, err
 		}
 		objectStore = store
 	}
-	if cfg.ObjectStoreLatency > 0 {
-		objectStore = latency.New(objectStore, cfg.ObjectStoreLatency)
+	if cfg.Storage.ObjectStoreLatency > 0 {
+		objectStore = latency.New(objectStore, cfg.Storage.ObjectStoreLatency)
 	}
 	return objectStore, nil
 }
 
-func NewGRPCServer(resolve subjectResolver, handlers *service.Handlers, cfgs ...Config) *grpc.Server {
-	return NewPrincipalGRPCServer(toPrincipalResolver(resolve), handlers, cfgs...)
-}
-
-func NewPrincipalGRPCServer(resolve principalResolver, handlers *service.Handlers, cfgs ...Config) *grpc.Server {
-	var cfg Config
-	if len(cfgs) > 0 {
-		cfg = cfgs[0]
-	}
-	return newPrincipalGRPCServer(resolve, handlers, newServerLimiters(cfg))
-}
-
-func newGRPCServer(resolve subjectResolver, handlers *service.Handlers, limiters *serverLimiters) *grpc.Server {
-	return newPrincipalGRPCServer(toPrincipalResolver(resolve), handlers, limiters)
-}
-
-func newPrincipalGRPCServer(resolve principalResolver, handlers *service.Handlers, limiters *serverLimiters) *grpc.Server {
-	grpcServer := grpc.NewServer(
-		grpc.MaxRecvMsgSize(rpclimits.MaxUnaryMessageBytes),
-		grpc.MaxSendMsgSize(rpclimits.MaxUnaryMessageBytes),
-		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime:             10 * time.Second,
-			PermitWithoutStream: true,
-		}),
-		grpc.ChainUnaryInterceptor(
-			requestIDUnaryInterceptor(),
-			grpcMetricsUnaryInterceptor(),
-			limiters.grpcPreAuthUnaryInterceptor(),
-			principalAuthInterceptor(resolve),
-			limiters.grpcSubjectUnaryInterceptor(),
-			limiters.agentSignupUnaryInterceptor(),
-			limiters.triggerRunFailureUnaryInterceptor(),
-		),
-		grpc.ChainStreamInterceptor(
-			requestIDStreamInterceptor(),
-			grpcMetricsStreamInterceptor(),
-			limiters.grpcPreAuthStreamInterceptor(),
-			principalAuthStreamInterceptor(resolve),
-			limiters.grpcSubjectStreamInterceptor(),
-		),
-	)
-	corev1.RegisterAuthServiceServer(grpcServer, handlers.Auth)
-	corev1.RegisterRepositoryServiceServer(grpcServer, handlers.Repository)
-	corev1.RegisterBlobServiceServer(grpcServer, handlers.Blob)
-	corev1.RegisterSliceServiceServer(grpcServer, handlers.Slice)
-	corev1.RegisterWorkspaceServiceServer(grpcServer, handlers.Workspace)
-	corev1.RegisterChangesetServiceServer(grpcServer, handlers.Changeset)
-	corev1.RegisterChangesetStackServiceServer(grpcServer, handlers.Stack)
-	corev1.RegisterAgentServiceServer(grpcServer, handlers.Agent)
-	corev1.RegisterCheckServiceServer(grpcServer, handlers.Check)
-	corev1.RegisterSecretServiceServer(grpcServer, handlers.Secret)
-	corev1.RegisterFeedbackServiceServer(grpcServer, handlers.Feedback)
-	corev1.RegisterAutomationServiceServer(grpcServer, handlers.Automation)
-	corev1.RegisterAutomationRunServiceServer(grpcServer, handlers.AutomationRun)
-	healthServer := health.NewServer()
-	healthServer.SetServingStatus("", healthv1.HealthCheckResponse_SERVING)
-	healthv1.RegisterHealthServer(grpcServer, healthServer)
-	return grpcServer
-}
-
-// lateCheckStore is a check store set after it is handed out: the trigger
-// engine needs the check store wrapped by the event dispatcher, which needs
-// the engine.
+// lateCheckStore breaks the 3-way cycle between automations.Engine,
+// events.Dispatcher, and events.WrapChecks; its CheckStore is populated during
+// buildApp before StartWorkers launches any goroutine.
 type lateCheckStore struct {
 	storage.CheckStore
 }

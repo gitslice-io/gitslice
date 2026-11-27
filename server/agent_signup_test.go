@@ -22,7 +22,9 @@ func TestRegisterAgentIsPublic(t *testing.T) {
 }
 
 func TestAgentSignupLimiterGRPC(t *testing.T) {
-	interceptor := newServerLimiters(Config{AgentSignupPerHour: 2}).agentSignupUnaryInterceptor()
+	interceptor := newRPCGuard(nil, newServerLimiters(Config{
+		Auth: AuthConfig{AgentSignupPerHour: 2},
+	})).grpcUnaryInterceptor()
 	handler := func(ctx context.Context, req any) (any, error) { return "ok", nil }
 	signup := &grpc.UnaryServerInfo{FullMethod: agentSignupMethod}
 	other := &grpc.UnaryServerInfo{FullMethod: "/gitslice.core.v1.AuthService/StartCliLogin"}
@@ -48,11 +50,14 @@ func TestAgentSignupLimiterGRPC(t *testing.T) {
 }
 
 func TestAgentSignupLimiterDisabled(t *testing.T) {
-	limiters := newServerLimiters(Config{AgentSignupPerHour: 2, RateLimitDisabled: true})
+	limiters := newServerLimiters(Config{
+		Auth:      AuthConfig{AgentSignupPerHour: 2},
+		RateLimit: RateLimitConfig{Disabled: true},
+	})
 	if limiters.signup != nil {
 		t.Fatal("limiter must be nil when rate limiting is disabled")
 	}
-	interceptor := limiters.agentSignupUnaryInterceptor()
+	interceptor := newRPCGuard(nil, limiters).grpcUnaryInterceptor()
 	handler := func(ctx context.Context, req any) (any, error) { return "ok", nil }
 	for i := 0; i < 10; i++ {
 		if _, err := interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: agentSignupMethod}, handler); err != nil {
@@ -63,11 +68,11 @@ func TestAgentSignupLimiterDisabled(t *testing.T) {
 
 func TestAgentSignupLimiterConnectHTTP(t *testing.T) {
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
-	limiters := newServerLimiters(Config{AgentSignupPerHour: 1})
+	limiters := newServerLimiters(Config{Auth: AuthConfig{AgentSignupPerHour: 1}})
 	resolve := func(context.Context, string) (*authctx.Principal, error) {
 		return &authctx.Principal{SubjectID: "user_1"}, nil
 	}
-	handler := connectPrincipalAuthMiddlewareWithLimiters(resolve, limiters)(next)
+	handler := newRPCGuard(resolve, limiters).connectMiddleware()(next)
 	call := func(path string) int {
 		req := httptest.NewRequest(http.MethodPost, path, nil)
 		req.Header.Set("Connect-Protocol-Version", "1")
@@ -88,7 +93,9 @@ func TestAgentSignupLimiterConnectHTTP(t *testing.T) {
 }
 
 func TestAgentSignupLimiterUsesForwardedClientIP(t *testing.T) {
-	interceptor := newServerLimiters(Config{AgentSignupPerHour: 1}).agentSignupUnaryInterceptor()
+	interceptor := newRPCGuard(nil, newServerLimiters(Config{
+		Auth: AuthConfig{AgentSignupPerHour: 1},
+	})).grpcUnaryInterceptor()
 	handler := func(ctx context.Context, req any) (any, error) { return "ok", nil }
 	info := &grpc.UnaryServerInfo{FullMethod: agentSignupMethod}
 	// Every request arrives from the same proxy peer, as on Cloud Run.
