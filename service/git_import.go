@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"gitslice.io/gitslice/internal/authz"
+	"gitslice.io/gitslice/internal/gitimport"
 	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -66,19 +67,15 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
-	// A client that drops does not fail progress events; the import checks
-	// for it between commits. A heartbeat tells the client it is still going.
-	sink := newImportProgress(progress)
+	sink := gitimport.NewProgress(progress)
 	if progress != nil {
-		progress = sink.emit
+		progress = sink.Emit
 	}
-	defer sink.heartbeat()()
-	// One import of this source into this place at a time: a retry that
-	// arrives while the previous attempt is still finishing its commit waits
-	// for it, then resumes after it.
+	defer sink.Heartbeat()()
+
 	flightKey := strings.Join([]string{subjectID, source, mountPath, targetRef, mode, strconv.Itoa(int(req.MaxCommits))}, "\x00")
-	releaseFlight, err := s.importFlights.acquire(ctx, flightKey, func() {
-		_ = emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+	releaseFlight, err := s.importFlights.Acquire(ctx, flightKey, func() {
+		_ = gitimport.EmitProgress(progress, &corev1.ImportGitRepositoryProgress{
 			Phase:   "waiting",
 			Message: "waiting for this import's previous connection to finish its commit",
 		})
@@ -87,40 +84,40 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 		return nil, err
 	}
 	defer releaseFlight()
-	if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+
+	if err := gitimport.EmitProgress(progress, &corev1.ImportGitRepositoryProgress{
 		Phase:   "cloning",
 		Message: "cloning git repository",
 	}); err != nil {
 		return nil, err
 	}
-	// A full deep import of a remote repository keeps its clone between
-	// attempts: a client on a flaky link resumes from the kept clone instead
-	// of cloning the whole history again each time.
+
 	var repoDir string
 	var cleanup func()
 	if mode == "deep" && req.MaxCommits == 0 && !localSource {
-		repoDir, cleanup, err = s.importCloneCache().acquire(ctx, source, false)
+		repoDir, cleanup, err = s.importCloneCache().Acquire(ctx, source, false)
 	} else {
-		repoDir, cleanup, err = cloneForImport(ctx, source, mode, int(req.MaxCommits), localSource)
+		repoDir, cleanup, err = gitimport.Clone(ctx, source, mode, int(req.MaxCommits), localSource)
 	}
 	if err != nil {
-		return nil, cloneError(ctx, err)
+		return nil, gitimport.CloneError(ctx, err)
 	}
 	defer cleanup()
-	if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+
+	if err := gitimport.EmitProgress(progress, &corev1.ImportGitRepositoryProgress{
 		Phase:   "listing_commits",
 		Message: "listing git commits",
 	}); err != nil {
 		return nil, err
 	}
-	gitCommits, err := selectedGitCommits(ctx, repoDir, mode, int(req.MaxCommits))
+	gitCommits, err := gitimport.SelectedCommits(ctx, repoDir, mode, int(req.MaxCommits))
 	if err != nil {
 		return nil, status.Errorf(codes.InvalidArgument, "list git commits: %v", err)
 	}
 	if len(gitCommits) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "git repository has no commits")
 	}
-	if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+	if err := gitimport.EmitProgress(progress, &corev1.ImportGitRepositoryProgress{
 		Phase:   "listed_commits",
 		Message: "listed git commits",
 		Total:   int64(len(gitCommits)),
@@ -154,7 +151,7 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 		}
 	}
 	var previousGitCommitID string
-	known := knownBlobs{}
+	known := gitimport.KnownBlobs{}
 	for i, gitCommitID := range gitCommits {
 		if existing, ok := completed[gitCommitID]; ok {
 			response.Commits = append(response.Commits, &corev1.ImportedGitCommit{
@@ -164,7 +161,7 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 			})
 			response.FinalCommitId = existing.NativeCommitID
 			previousGitCommitID = gitCommitID
-			if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+			if err := gitimport.EmitProgress(progress, &corev1.ImportGitRepositoryProgress{
 				Phase:            "skipped",
 				Message:          existing.Message,
 				Current:          int64(i + 1),
@@ -177,16 +174,13 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 			}
 			continue
 		}
-		// The commit's work runs apart from the client's request: a client
-		// whose connection drops while it is published does not leave it half
-		// done, and its retry finds it recorded and skips it.
 		work := func(ctx context.Context) error {
-			meta, err := gitCommitMetadata(ctx, repoDir, gitCommitID)
+			meta, err := gitimport.ReadCommitMetadata(ctx, repoDir, gitCommitID)
 			if err != nil {
-				return importReadError(err, "read git commit message "+gitCommitID)
+				return gitimport.ReadError(err, "read git commit message "+gitCommitID)
 			}
 			message := meta.Subject
-			if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+			if err := gitimport.EmitProgress(progress, &corev1.ImportGitRepositoryProgress{
 				Phase:       "reading_commit",
 				Message:     message,
 				Current:     int64(i + 1),
@@ -196,21 +190,21 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 				return err
 			}
 			var deleted, upsertGitPaths []string
-			var snapshot importSnapshot
+			var snapshot gitimport.Snapshot
 			var blobIDs []string
 			if previousGitCommitID == "" {
-				snapshot, blobIDs, err = gitSnapshotMetadata(ctx, repoDir, gitCommitID, mountPath)
+				snapshot, blobIDs, err = gitimport.SnapshotMetadata(ctx, repoDir, gitCommitID, mountPath)
 				if err != nil {
-					return importReadError(err, "read git commit "+gitCommitID)
+					return gitimport.ReadError(err, "read git commit "+gitCommitID)
 				}
 			} else {
-				deleted, upsertGitPaths, snapshot, blobIDs, err = gitDeltaMetadata(ctx, repoDir, previousGitCommitID, gitCommitID, mountPath)
+				deleted, upsertGitPaths, snapshot, blobIDs, err = gitimport.DeltaMetadata(ctx, repoDir, previousGitCommitID, gitCommitID, mountPath)
 				if err != nil {
-					return importReadError(err, "read git commit "+gitCommitID)
+					return gitimport.ReadError(err, "read git commit "+gitCommitID)
 				}
 			}
 			changedPaths := int32(len(deleted) + len(snapshot))
-			if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+			if err := gitimport.EmitProgress(progress, &corev1.ImportGitRepositoryProgress{
 				Phase:            "uploading_blobs",
 				Message:          message,
 				Current:          int64(i + 1),
@@ -221,7 +215,7 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 				return err
 			}
 			uploadProgress := func(done, total int) {
-				_ = emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+				_ = gitimport.EmitProgress(progress, &corev1.ImportGitRepositoryProgress{
 					Phase:            "uploading_blobs",
 					Message:          fmt.Sprintf("%s (%d of %d new files stored)", message, done, total),
 					Current:          int64(i + 1),
@@ -230,27 +224,27 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 					ChangedPathCount: changedPaths,
 				})
 			}
-			if err := s.streamAndUploadImportBlobs(ctx, repoDir, slice.Id, snapshot, blobIDs, known, uploadProgress); err != nil {
-				var uploadErr *importUploadError
+			if err := gitimport.StreamAndUploadBlobs(ctx, s.Blobs, s.ObjectStore, repoDir, slice.Id, snapshot, blobIDs, known, uploadProgress); err != nil {
+				var uploadErr *gitimport.UploadError
 				if errors.As(err, &uploadErr) {
-					return grpcError(uploadErr.err)
+					return grpcError(uploadErr.Err)
 				}
-				return importReadError(err, "read git commit "+gitCommitID)
+				return gitimport.ReadError(err, "read git commit "+gitCommitID)
 			}
 			var edits []*corev1.FileEdit
 			if previousGitCommitID == "" {
-				edits = diffImportSnapshots(previous, snapshot)
+				edits = gitimport.DiffSnapshots(previous, snapshot)
 			} else {
-				edits, err = deltaEditsFromSnapshot(mountPath, deleted, upsertGitPaths, snapshot)
+				edits, err = gitimport.DeltaEditsFromSnapshot(mountPath, deleted, upsertGitPaths, snapshot)
 				if err != nil {
-					return importReadError(err, "read git commit "+gitCommitID)
+					return gitimport.ReadError(err, "read git commit "+gitCommitID)
 				}
 			}
 			ref, err := s.Repository.GetRef(ctx, targetRef)
 			if err != nil {
 				return grpcError(err)
 			}
-			if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+			if err := gitimport.EmitProgress(progress, &corev1.ImportGitRepositoryProgress{
 				Phase:            "submitting",
 				Message:          message,
 				Current:          int64(i + 1),
@@ -270,11 +264,11 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 			if _, err := s.Changesets.Submit(ctx, patchset.ChangesetId, patchset.Id); err != nil {
 				return grpcError(err)
 			}
-			nativeCommitID, err := s.waitForImportPublished(ctx, patchset.ChangesetId, len(edits))
+			nativeCommitID, err := gitimport.WaitForPublished(ctx, s.Changesets, patchset.ChangesetId, len(edits))
 			if err != nil {
 				return grpcError(err)
 			}
-			if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+			if err := gitimport.EmitProgress(progress, &corev1.ImportGitRepositoryProgress{
 				Phase:            "published",
 				Message:          message,
 				Current:          int64(i + 1),
@@ -309,22 +303,19 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 			}
 			return nil
 		}
-		workCtx, cancelWork := importWorkContext(ctx)
+		workCtx, cancelWork := gitimport.WorkContext(ctx)
 		err := work(workCtx)
 		cancelWork()
 		if err != nil {
 			return nil, err
 		}
 		if err := ctx.Err(); err != nil {
-			// The client went away; its commit is published. Stop here.
 			return nil, status.FromContextError(err).Err()
 		}
 		previousGitCommitID = gitCommitID
 	}
-	// Drain the derived-index outbox once, after all commits are published, so
-	// imported history is queryable (gs log / slice history) when the import
-	// returns — without paying the drain on every commit's critical path.
-	finalCtx, cancelFinal := importWorkContext(ctx)
+
+	finalCtx, cancelFinal := gitimport.WorkContext(ctx)
 	defer cancelFinal()
 	if drainer, ok := s.Changesets.(storage.DerivedIndexStore); ok {
 		if err := drainer.WaitForOutboxDrain(finalCtx); err != nil {
@@ -336,7 +327,7 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 			return nil, grpcError(err)
 		}
 	}
-	if err := emitImportProgress(progress, &corev1.ImportGitRepositoryProgress{
+	if err := gitimport.EmitProgress(progress, &corev1.ImportGitRepositoryProgress{
 		Phase:   "done",
 		Message: "import complete",
 		Current: int64(len(gitCommits)),
@@ -348,14 +339,7 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 	return response, nil
 }
 
-func emitImportProgress(progress func(*corev1.ImportGitRepositoryProgress) error, event *corev1.ImportGitRepositoryProgress) error {
-	if progress == nil {
-		return nil
-	}
-	return progress(event)
-}
-
-func (s *RepositoryService) currentMountedSnapshot(ctx context.Context, targetRef, mountPath string) (importSnapshot, error) {
+func (s *RepositoryService) currentMountedSnapshot(ctx context.Context, targetRef, mountPath string) (gitimport.Snapshot, error) {
 	ref, err := s.Repository.GetRef(ctx, targetRef)
 	if err != nil {
 		return nil, err
@@ -364,9 +348,9 @@ func (s *RepositoryService) currentMountedSnapshot(ctx context.Context, targetRe
 	if err != nil {
 		return nil, err
 	}
-	snapshot := importSnapshot{}
+	snapshot := gitimport.Snapshot{}
 	for _, file := range files {
-		snapshot[file.Path] = importFile{
+		snapshot[file.Path] = gitimport.File{
 			Path:        file.Path,
 			BlobID:      file.BlobID,
 			ContentHash: file.ContentHash,
@@ -375,4 +359,71 @@ func (s *RepositoryService) currentMountedSnapshot(ctx context.Context, targetRe
 		}
 	}
 	return snapshot, nil
+}
+
+func (s *RepositoryService) createImportPatchset(ctx context.Context, subjectID string, slice *corev1.Slice, targetRef, baseCommitID, message, description string, edits []*corev1.FileEdit) (*corev1.Patchset, error) {
+	validation, err := s.validator.validateFileEdits(ctx, slice, baseCommitID, "", edits, true)
+	if err != nil {
+		return nil, err
+	}
+	cs, err := s.Changesets.Create(ctx, subjectID, &corev1.CreateChangesetRequest{
+		AuthoringSlice: slice.Ref,
+		TargetRef:      targetRef,
+		BaseCommitId:   baseCommitID,
+		Title:          message,
+		Description:    description,
+	})
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	patchset, err := s.Changesets.AddPatchset(ctx, cs.Id, "", &corev1.Patchset{
+		BaseCommitId:       baseCommitID,
+		Author:             subjectID,
+		ChangedPaths:       validation.AffectedPaths,
+		FileEdits:          edits,
+		Coverage:           validation.Coverage,
+		SubmitRequirements: validation.SubmitRequirements,
+		PathBases:          validation.PathBases,
+		ReadSet:            validation.ReadSet,
+		WriteSet:           validation.WriteSet,
+	})
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return patchset, nil
+}
+
+func (s *RepositoryService) requireImportSubmitApprovals(ctx context.Context, changesetID, headCommitID string) error {
+	cs, err := s.Changesets.Get(ctx, changesetID)
+	if err != nil {
+		return grpcError(err)
+	}
+	core := s.changesetsCore
+	if core == nil {
+		core = &changesetCore{
+			Auth:        s.Auth,
+			Blobs:       s.Blobs,
+			Changesets:  s.Changesets,
+			Repository:  s.Repository,
+			Slices:      s.Slices,
+			ObjectStore: s.ObjectStore,
+			validator:   s.validator,
+		}
+	}
+	rules := core.changesets()
+	if err := rules.requireGitsliceApproval(ctx, cs, headCommitID); err != nil {
+		return importRequirementError(cs, err)
+	}
+	if err := rules.requirePathOwnersApproval(ctx, cs, headCommitID); err != nil {
+		return importRequirementError(cs, err)
+	}
+	return nil
+}
+
+func importRequirementError(cs *corev1.Changeset, err error) error {
+	label := firstNonEmptyString(storage.ShortChangesetID(cs.GetId()), cs.GetId())
+	if st, ok := status.FromError(err); ok && st.Code() != codes.OK && st.Code() != codes.Unknown {
+		return status.Errorf(st.Code(), "import stopped: %s (changeset %s is left open for approval)", st.Message(), label)
+	}
+	return status.Errorf(codes.FailedPrecondition, "import stopped: %v (changeset %s is left open for approval)", err, label)
 }

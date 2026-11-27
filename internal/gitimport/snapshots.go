@@ -1,11 +1,9 @@
-package service
+package gitimport
 
 import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
-	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,7 +13,8 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-type importFile struct {
+// File describes one file entry read from a Git tree during import.
+type File struct {
 	Path        string
 	GitPath     string
 	GitBlobID   string
@@ -30,44 +29,18 @@ type importFile struct {
 	Reused bool
 }
 
-type importSnapshot map[string]importFile
+// Snapshot maps canonical Gitslice paths to imported file entries.
+type Snapshot map[string]File
 
-func cloneForImport(ctx context.Context, source, mode string, maxCommits int, local bool) (string, func(), error) {
-	parent, err := os.MkdirTemp("", "gitslice-import-*")
-	if err != nil {
-		return "", nil, err
-	}
-	cleanup := func() { _ = os.RemoveAll(parent) }
-	repoDir := path.Join(parent, "repo")
-	// Bare: the import reads objects (ls-tree, cat-file), never a checkout,
-	// and on Cloud Run /tmp is memory.
-	args := []string{"-c", "http.followRedirects=false", "clone", "--quiet", "--bare"}
-	// Remote clones are pinned to the git transport (no local optimization) and
-	// the https protocol so a source that slipped past validation still cannot
-	// reach file/ext/ssh. A local clone is an explicit operator opt-in, so it
-	// keeps git's local-path handling and allows only the file protocol.
-	allowProtocol := "https"
-	if local {
-		allowProtocol = "file"
-	} else {
-		args = append(args, "--no-local")
-	}
-	if mode == "shallow" {
-		args = append(args, "--depth", "1")
-	} else if maxCommits > 0 {
-		args = append(args, "--depth", strconv.Itoa(maxCommits))
-	}
-	args = append(args, "--", source, repoDir)
-	if err := runGitImport(ctx, "", allowProtocol, args...); err != nil {
-		cleanup()
-		return "", nil, err
-	}
-	return repoDir, cleanup, nil
-}
+// KnownBlobs remembers, for one import, the blobs it has already read and
+// uploaded, by Git blob ID. A commit that moves or copies files, or leaves
+// them as they are, then neither reads nor uploads them again.
+type KnownBlobs map[string]File
 
-func selectedGitCommits(ctx context.Context, repoDir, mode string, maxCommits int) ([]string, error) {
+// SelectedCommits lists the commits to import in topological oldest-first order.
+func SelectedCommits(ctx context.Context, repoDir, mode string, maxCommits int) ([]string, error) {
 	if mode == "shallow" {
-		head, err := gitOutputImport(ctx, repoDir, "rev-parse", "HEAD")
+		head, err := Output(ctx, repoDir, "rev-parse", "HEAD")
 		if err != nil {
 			return nil, err
 		}
@@ -78,7 +51,7 @@ func selectedGitCommits(ctx context.Context, repoDir, mode string, maxCommits in
 		args = append(args, fmt.Sprintf("--max-count=%d", maxCommits))
 	}
 	args = append(args, "HEAD")
-	out, err := gitOutputImport(ctx, repoDir, args...)
+	out, err := Output(ctx, repoDir, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -95,21 +68,23 @@ func selectedGitCommits(ctx context.Context, repoDir, mode string, maxCommits in
 	return commits, nil
 }
 
-func gitSnapshotMetadata(ctx context.Context, repoDir, commitID, mountPath string) (importSnapshot, []string, error) {
-	raw, err := gitOutputBytesImport(ctx, repoDir, "ls-tree", "-r", "-z", "--full-tree", commitID)
+// SnapshotMetadata reads the file tree metadata at commitID without reading blob contents.
+func SnapshotMetadata(ctx context.Context, repoDir, commitID, mountPath string) (Snapshot, []string, error) {
+	raw, err := OutputBytes(ctx, repoDir, "ls-tree", "-r", "-z", "--full-tree", commitID)
 	if err != nil {
 		return nil, nil, err
 	}
-	snapshot := importSnapshot{}
+	snapshot := Snapshot{}
 	seenBlobIDs := map[string]struct{}{}
-	blobIDs, err := parseGitTreeRecords(raw, mountPath, snapshot, seenBlobIDs, nil)
+	blobIDs, err := ParseTreeRecords(raw, mountPath, snapshot, seenBlobIDs, nil)
 	if err != nil {
 		return nil, nil, err
 	}
 	return snapshot, blobIDs, nil
 }
 
-func parseGitTreeRecords(raw []byte, mountPath string, snapshot importSnapshot, seenBlobIDs map[string]struct{}, blobIDs []string) ([]string, error) {
+// ParseTreeRecords parses NUL-delimited `git ls-tree -r -z` records into snapshot.
+func ParseTreeRecords(raw []byte, mountPath string, snapshot Snapshot, seenBlobIDs map[string]struct{}, blobIDs []string) ([]string, error) {
 	for _, record := range bytes.Split(raw, []byte{0}) {
 		if len(record) == 0 {
 			continue
@@ -132,7 +107,7 @@ func parseGitTreeRecords(raw []byte, mountPath string, snapshot importSnapshot, 
 		if err != nil {
 			return nil, err
 		}
-		snapshot[globalPath] = importFile{
+		snapshot[globalPath] = File{
 			Path:      globalPath,
 			GitPath:   pathText,
 			GitBlobID: gitBlobID,
@@ -146,20 +121,21 @@ func parseGitTreeRecords(raw []byte, mountPath string, snapshot importSnapshot, 
 	return blobIDs, nil
 }
 
-func gitSnapshot(ctx context.Context, repoDir, commitID, mountPath string, known knownBlobs) (importSnapshot, error) {
-	raw, err := gitOutputBytesImport(ctx, repoDir, "ls-tree", "-r", "-z", "--full-tree", commitID)
+// ReadSnapshot reads all files and unseen blob payloads at commitID.
+func ReadSnapshot(ctx context.Context, repoDir, commitID, mountPath string, known KnownBlobs) (Snapshot, error) {
+	raw, err := OutputBytes(ctx, repoDir, "ls-tree", "-r", "-z", "--full-tree", commitID)
 	if err != nil {
 		return nil, err
 	}
-	return gitSnapshotFromTreeRecords(ctx, repoDir, raw, mountPath, known)
+	return SnapshotFromTreeRecords(ctx, repoDir, raw, mountPath, known)
 }
 
-// gitSnapshotFromTreeRecords reads the files ls-tree listed. A blob in known
-// is not read again; the blobs it reads are added to known.
-func gitSnapshotFromTreeRecords(ctx context.Context, repoDir string, raw []byte, mountPath string, known knownBlobs) (importSnapshot, error) {
-	snapshot := importSnapshot{}
+// SnapshotFromTreeRecords reads the files ls-tree listed. A blob in known is
+// not read again; the blobs it reads are added to known.
+func SnapshotFromTreeRecords(ctx context.Context, repoDir string, raw []byte, mountPath string, known KnownBlobs) (Snapshot, error) {
+	snapshot := Snapshot{}
 	seenBlobIDs := map[string]struct{}{}
-	blobIDs, err := parseGitTreeRecords(raw, mountPath, snapshot, seenBlobIDs, nil)
+	blobIDs, err := ParseTreeRecords(raw, mountPath, snapshot, seenBlobIDs, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -169,14 +145,14 @@ func gitSnapshotFromTreeRecords(ctx context.Context, repoDir string, raw []byte,
 			toRead = append(toRead, id)
 		}
 	}
-	blobs, err := gitBlobContents(ctx, repoDir, toRead)
+	blobs, err := BlobContents(ctx, repoDir, toRead)
 	if err != nil {
 		return nil, err
 	}
-	for path, file := range snapshot {
+	for p, file := range snapshot {
 		if k, ok := known[file.GitBlobID]; ok {
 			file.BlobID, file.ContentHash, file.Size, file.Reused = k.BlobID, k.ContentHash, k.Size, true
-			snapshot[path] = file
+			snapshot[p] = file
 			continue
 		}
 		data, ok := blobs[file.GitBlobID]
@@ -187,35 +163,37 @@ func gitSnapshotFromTreeRecords(ctx context.Context, repoDir string, raw []byte,
 		file.ContentHash = objectid.RawContentHash(data)
 		file.Size = int64(len(data))
 		file.Data = data
-		snapshot[path] = file
+		snapshot[p] = file
 	}
 	if known != nil {
 		for _, file := range snapshot {
 			if !file.Reused {
-				known[file.GitBlobID] = importFile{BlobID: file.BlobID, ContentHash: file.ContentHash, Size: file.Size}
+				known[file.GitBlobID] = File{BlobID: file.BlobID, ContentHash: file.ContentHash, Size: file.Size}
 			}
 		}
 	}
 	return snapshot, nil
 }
 
-func gitDeltaMetadata(ctx context.Context, repoDir, previousCommitID, commitID, mountPath string) ([]string, []string, importSnapshot, []string, error) {
-	raw, err := gitOutputBytesImport(ctx, repoDir, "diff-tree", "-r", "-z", "--no-commit-id", "--name-status", "--find-renames", previousCommitID, commitID)
+// DeltaMetadata computes deleted/upserted paths and tree metadata between two commits.
+func DeltaMetadata(ctx context.Context, repoDir, previousCommitID, commitID, mountPath string) ([]string, []string, Snapshot, []string, error) {
+	raw, err := OutputBytes(ctx, repoDir, "diff-tree", "-r", "-z", "--no-commit-id", "--name-status", "--find-renames", previousCommitID, commitID)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	deleted, upsertGitPaths, err := parseGitDiffNameStatus(raw)
+	deleted, upsertGitPaths, err := ParseDiffNameStatus(raw)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	snapshot, blobIDs, err := gitFilesMetadataAtPaths(ctx, repoDir, commitID, mountPath, upsertGitPaths)
+	snapshot, blobIDs, err := FilesMetadataAtPaths(ctx, repoDir, commitID, mountPath, upsertGitPaths)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
 	return deleted, upsertGitPaths, snapshot, blobIDs, nil
 }
 
-func deltaEditsFromSnapshot(mountPath string, deleted, upsertGitPaths []string, snapshot importSnapshot) ([]*corev1.FileEdit, error) {
+// DeltaEditsFromSnapshot turns delta paths and their resolved snapshot into FileEdits.
+func DeltaEditsFromSnapshot(mountPath string, deleted, upsertGitPaths []string, snapshot Snapshot) ([]*corev1.FileEdit, error) {
 	edits := make([]*corev1.FileEdit, 0, len(deleted)+len(snapshot))
 	foundUpserts := make(map[string]struct{}, len(snapshot))
 	for _, file := range snapshot {
@@ -256,27 +234,29 @@ func deltaEditsFromSnapshot(mountPath string, deleted, upsertGitPaths []string, 
 	return edits, nil
 }
 
-func gitDeltaEdits(ctx context.Context, repoDir, previousCommitID, commitID, mountPath string, known knownBlobs) ([]*corev1.FileEdit, importSnapshot, error) {
-	raw, err := gitOutputBytesImport(ctx, repoDir, "diff-tree", "-r", "-z", "--no-commit-id", "--name-status", "--find-renames", previousCommitID, commitID)
+// DeltaEdits computes the FileEdits and snapshot of upserted files between two commits.
+func DeltaEdits(ctx context.Context, repoDir, previousCommitID, commitID, mountPath string, known KnownBlobs) ([]*corev1.FileEdit, Snapshot, error) {
+	raw, err := OutputBytes(ctx, repoDir, "diff-tree", "-r", "-z", "--no-commit-id", "--name-status", "--find-renames", previousCommitID, commitID)
 	if err != nil {
 		return nil, nil, err
 	}
-	deleted, upsertGitPaths, err := parseGitDiffNameStatus(raw)
+	deleted, upsertGitPaths, err := ParseDiffNameStatus(raw)
 	if err != nil {
 		return nil, nil, err
 	}
-	snapshot, err := gitFilesAtPaths(ctx, repoDir, commitID, mountPath, upsertGitPaths, known)
+	snapshot, err := FilesAtPaths(ctx, repoDir, commitID, mountPath, upsertGitPaths, known)
 	if err != nil {
 		return nil, nil, err
 	}
-	edits, err := deltaEditsFromSnapshot(mountPath, deleted, upsertGitPaths, snapshot)
+	edits, err := DeltaEditsFromSnapshot(mountPath, deleted, upsertGitPaths, snapshot)
 	if err != nil {
 		return nil, nil, err
 	}
 	return edits, snapshot, nil
 }
 
-func diffImportSnapshots(previous, current importSnapshot) []*corev1.FileEdit {
+// DiffSnapshots returns the FileEdits transforming previous into current.
+func DiffSnapshots(previous, current Snapshot) []*corev1.FileEdit {
 	seen := map[string]struct{}{}
 	for p := range previous {
 		seen[p] = struct{}{}
@@ -284,13 +264,13 @@ func diffImportSnapshots(previous, current importSnapshot) []*corev1.FileEdit {
 	for p := range current {
 		seen[p] = struct{}{}
 	}
-	paths := make([]string, 0, len(seen))
+	allPaths := make([]string, 0, len(seen))
 	for p := range seen {
-		paths = append(paths, p)
+		allPaths = append(allPaths, p)
 	}
-	sort.Strings(paths)
-	edits := make([]*corev1.FileEdit, 0, len(paths))
-	for _, p := range paths {
+	sort.Strings(allPaths)
+	edits := make([]*corev1.FileEdit, 0, len(allPaths))
+	for _, p := range allPaths {
 		before, hadBefore := previous[p]
 		after, hasAfter := current[p]
 		if !hasAfter {

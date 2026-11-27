@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"gitslice.io/gitslice/internal/authz"
+	"gitslice.io/gitslice/internal/gitimport"
 	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -239,7 +240,7 @@ func (s *RepositoryService) ImportGitCommitBatch(ctx context.Context, req *corev
 		sort.Strings(changedPaths)
 		title := strings.TrimSpace(commit.Message)
 		if title == "" {
-			title = "Import git commit " + shortCommit(commit.GitCommitId)
+			title = "Import git commit " + gitimport.ShortCommit(commit.GitCommitId)
 		}
 		specs = append(specs, storage.GitImportCommitSpec{
 			GitCommitID:  commit.GitCommitId,

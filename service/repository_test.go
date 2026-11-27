@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/gitimport"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/proto/core/v1"
 )
@@ -33,7 +34,7 @@ func TestGitSnapshotReadsTreeWithBatchBlobContents(t *testing.T) {
 	runGitTest(t, repo, "commit", "-m", "initial")
 	head := strings.TrimSpace(runGitTest(t, repo, "rev-parse", "HEAD"))
 
-	snapshot, err := gitSnapshot(ctx, repo, head, "/acme/payment/vendor/repo", nil)
+	snapshot, err := gitimport.ReadSnapshot(ctx, repo, head, "/acme/payment/vendor/repo", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,7 +77,7 @@ func TestGitDeltaEditsReadsOnlyChangedPaths(t *testing.T) {
 	runGitTest(t, repo, "commit", "-m", "second")
 	second := strings.TrimSpace(runGitTest(t, repo, "rev-parse", "HEAD"))
 
-	edits, snapshot, err := gitDeltaEdits(ctx, repo, first, second, "/acme/payment/imported", nil)
+	edits, snapshot, err := gitimport.DeltaEdits(ctx, repo, first, second, "/acme/payment/imported", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

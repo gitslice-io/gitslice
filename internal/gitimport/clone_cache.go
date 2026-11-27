@@ -1,4 +1,4 @@
-package service
+package gitimport
 
 import (
 	"context"
@@ -7,8 +7,10 @@ import (
 	"errors"
 	"log/slog"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,29 +20,28 @@ import (
 )
 
 const (
-	// importCloneTimeout bounds one clone or fetch. It runs apart from the
-	// request that asked for it, so a client that drops does not waste it.
-	importCloneTimeout = 15 * time.Minute
-	// importCloneFetchAfter is how old a kept clone may be before an import
-	// fetches it again; within it, retries of the same import use it as is.
-	importCloneFetchAfter = 30 * time.Second
-	// importCloneStaleOK is how old a kept clone may be and still serve an
-	// import when fetching fails.
-	importCloneStaleOK = 15 * time.Minute
-	// importCloneIdleTTL is how long an unused clone is kept. On Cloud Run
-	// /tmp is memory, so clones do not linger.
-	importCloneIdleTTL = 20 * time.Minute
-	importCloneMaxKept = 3
+	// CloneTimeout bounds one clone or fetch. It runs apart from the request
+	// that asked for it, so a client that drops does not waste it.
+	CloneTimeout = 15 * time.Minute
+	// CloneFetchAfter is how old a kept clone may be before an import fetches
+	// it again; within it, retries of the same import use it as is.
+	CloneFetchAfter = 30 * time.Second
+	// CloneStaleOK is how old a kept clone may be and still serve an import
+	// when fetching fails.
+	CloneStaleOK = 15 * time.Minute
+	// CloneIdleTTL is how long an unused clone is kept. On Cloud Run /tmp is
+	// memory, so clones do not linger.
+	CloneIdleTTL = 20 * time.Minute
+	CloneMaxKept = 3
 )
 
-// importCloneCache keeps bare clones of the repositories being imported, so
-// an import that resumes after its client dropped (design/31's flaky links,
-// a deploy replacing the instance) starts from a kept clone and a fetch
+// CloneCache keeps bare clones of repositories being imported, so an import
+// that resumes after its client dropped starts from a kept clone and a fetch
 // instead of cloning the whole history again.
-type importCloneCache struct {
+type CloneCache struct {
 	mu       sync.Mutex
 	root     string
-	entries  map[string]*importClone
+	entries  map[string]*cachedClone
 	now      func() time.Time
 	run      func(ctx context.Context, dir, allowProtocol string, args ...string) error
 	maxKept  int
@@ -48,7 +49,7 @@ type importCloneCache struct {
 	sweeping bool
 }
 
-type importClone struct {
+type cachedClone struct {
 	key       string
 	dir       string
 	ready     chan struct{} // closed when the current clone or fetch ends
@@ -60,20 +61,20 @@ type importClone struct {
 	fetchedAt time.Time
 }
 
-func newImportCloneCache() *importCloneCache {
-	return &importCloneCache{
-		entries: map[string]*importClone{},
+// NewCloneCache returns a new bare-clone cache with default retention limits.
+func NewCloneCache() *CloneCache {
+	return &CloneCache{
+		entries: map[string]*cachedClone{},
 		now:     time.Now,
-		run:     runGitImport,
-		maxKept: importCloneMaxKept,
-		idleTTL: importCloneIdleTTL,
+		run:     Run,
+		maxKept: CloneMaxKept,
+		idleTTL: CloneIdleTTL,
 	}
 }
 
-// acquire returns a bare clone of source, current to within
-// importCloneFetchAfter, and a release func the caller must call when done
-// reading it.
-func (c *importCloneCache) acquire(ctx context.Context, source string, local bool) (string, func(), error) {
+// Acquire returns a bare clone of source, current to within CloneFetchAfter,
+// and a release func the caller must call when done reading it.
+func (c *CloneCache) Acquire(ctx context.Context, source string, local bool) (string, func(), error) {
 	c.mu.Lock()
 	if c.root == "" {
 		root, err := os.MkdirTemp("", "gitslice-import-clones-*")
@@ -87,10 +88,10 @@ func (c *importCloneCache) acquire(ctx context.Context, source string, local boo
 	e := c.entries[key]
 	now := c.now()
 	if e == nil {
-		e = &importClone{key: key, dir: filepath.Join(c.root, key)}
+		e = &cachedClone{key: key, dir: filepath.Join(c.root, key)}
 		c.entries[key] = e
 		c.startLocked(e, source, local, false)
-	} else if !e.busy && (e.err != nil || now.Sub(e.fetchedAt) > importCloneFetchAfter) {
+	} else if !e.busy && (e.err != nil || now.Sub(e.fetchedAt) > CloneFetchAfter) {
 		c.startLocked(e, source, local, e.cloned)
 	}
 	e.users++
@@ -108,9 +109,9 @@ func (c *importCloneCache) acquire(ctx context.Context, source string, local boo
 	err, cloned, fetchedAt := e.err, e.cloned, e.fetchedAt
 	c.mu.Unlock()
 	if err != nil {
-		// A clone that serves nothing yet fails the import. A failed fetch
-		// of a kept clone still serves it while it is recent enough.
-		if !cloned || c.now().Sub(fetchedAt) > importCloneStaleOK {
+		// A clone that serves nothing yet fails the import. A failed fetch of a
+		// kept clone still serves it while it is recent enough.
+		if !cloned || c.now().Sub(fetchedAt) > CloneStaleOK {
 			c.release(e)
 			return "", nil, err
 		}
@@ -120,7 +121,7 @@ func (c *importCloneCache) acquire(ctx context.Context, source string, local boo
 }
 
 // startLocked clones (or, for a kept clone, fetches) in the background.
-func (c *importCloneCache) startLocked(e *importClone, source string, local, fetch bool) {
+func (c *CloneCache) startLocked(e *cachedClone, source string, local, fetch bool) {
 	e.busy = true
 	e.ready = make(chan struct{})
 	allowProtocol := "https"
@@ -128,7 +129,7 @@ func (c *importCloneCache) startLocked(e *importClone, source string, local, fet
 		allowProtocol = "file"
 	}
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), importCloneTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), CloneTimeout)
 		defer cancel()
 		var err error
 		if fetch {
@@ -156,7 +157,7 @@ func (c *importCloneCache) startLocked(e *importClone, source string, local, fet
 	}()
 }
 
-func (c *importCloneCache) release(e *importClone) {
+func (c *CloneCache) release(e *cachedClone) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e.users--
@@ -168,7 +169,7 @@ func (c *importCloneCache) release(e *importClone) {
 	}
 }
 
-func (c *importCloneCache) sweep() {
+func (c *CloneCache) sweep() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sweeping = false
@@ -179,11 +180,11 @@ func (c *importCloneCache) sweep() {
 	}
 }
 
-// evictLocked drops clones nobody uses that sat idle past idleTTL, failed,
-// or exceed maxKept (oldest first).
-func (c *importCloneCache) evictLocked() {
+// evictLocked drops clones nobody uses that sat idle past idleTTL, failed, or
+// exceed maxKept (oldest first).
+func (c *CloneCache) evictLocked() {
 	now := c.now()
-	var idle []*importClone
+	var idle []*cachedClone
 	for _, e := range c.entries {
 		if e.users > 0 || e.busy {
 			continue
@@ -201,7 +202,7 @@ func (c *importCloneCache) evictLocked() {
 	}
 }
 
-func (c *importCloneCache) dropLocked(e *importClone) {
+func (c *CloneCache) dropLocked(e *cachedClone) {
 	delete(c.entries, e.key)
 	_ = os.RemoveAll(e.dir)
 }
@@ -215,10 +216,45 @@ func cloneKey(source string, local bool) string {
 	return hex.EncodeToString(sum[:])[:24]
 }
 
-// cloneError is the status for a clone that failed: a source that does not
-// exist or needs credentials is the caller's mistake; anything else (a
-// dropped connection, a timeout) is worth retrying.
-func cloneError(ctx context.Context, err error) error {
+// Clone creates an ephemeral bare clone of source for a single import and
+// returns its directory and a cleanup function.
+func Clone(ctx context.Context, source, mode string, maxCommits int, local bool) (string, func(), error) {
+	parent, err := os.MkdirTemp("", "gitslice-import-*")
+	if err != nil {
+		return "", nil, err
+	}
+	cleanup := func() { _ = os.RemoveAll(parent) }
+	repoDir := path.Join(parent, "repo")
+	// Bare: the import reads objects (ls-tree, cat-file), never a checkout,
+	// and on Cloud Run /tmp is memory.
+	args := []string{"-c", "http.followRedirects=false", "clone", "--quiet", "--bare"}
+	// Remote clones are pinned to the git transport (no local optimization) and
+	// the https protocol so a source that slipped past validation still cannot
+	// reach file/ext/ssh. A local clone is an explicit operator opt-in, so it
+	// keeps git's local-path handling and allows only the file protocol.
+	allowProtocol := "https"
+	if local {
+		allowProtocol = "file"
+	} else {
+		args = append(args, "--no-local")
+	}
+	if mode == "shallow" {
+		args = append(args, "--depth", "1")
+	} else if maxCommits > 0 {
+		args = append(args, "--depth", strconv.Itoa(maxCommits))
+	}
+	args = append(args, "--", source, repoDir)
+	if err := Run(ctx, "", allowProtocol, args...); err != nil {
+		cleanup()
+		return "", nil, err
+	}
+	return repoDir, cleanup, nil
+}
+
+// CloneError maps a failed clone error to a gRPC status: a source that does
+// not exist or needs credentials is InvalidArgument; anything else (a dropped
+// connection, a timeout) is Unavailable so the client retries.
+func CloneError(ctx context.Context, err error) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return status.FromContextError(ctxErr).Err()
 	}

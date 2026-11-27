@@ -1,16 +1,15 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"log/slog"
 	"strings"
-	"sync/atomic"
 	"time"
 
+	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/authz"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/blame"
 	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -20,80 +19,44 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Blame (design/27_blame.md): which commit last changed each line of a file.
-//
-// A file's blame at the commit that last changed it is that commit's parent
-// version's blame carried through one diff: lines the diff matches keep
-// their owner, the rest are the commit's. Blames are stored as snapshots
-// (storage.BlameStore), so a blame walks back through the file's history
-// (following moves, as path history does) only until it reaches a version
-// with a snapshot, or the commit that created the file, and then carries the
-// blame forward one diff per newer version. The newest result is stored for
-// the next blame. The walk reads at most blameMaxCommits versions.
-
-// blameFromIndex lets a blame plan its steps from the history index. A test
-// turns it off to compare with reading trees.
-var blameFromIndex atomic.Bool
-
-func init() { blameFromIndex.Store(true) }
-
 // SetBlameFromIndex turns planning blame steps from the history index on or
 // off (on by default); for tests.
-func SetBlameFromIndex(on bool) { blameFromIndex.Store(on) }
+func SetBlameFromIndex(on bool) { blame.SetFromIndex(on) }
 
-const (
-	blameMaxCommits = 500
-	blameMaxBytes   = 4 << 20
-	blamePageSize   = 100
-	// blameMoveConcurrency is how many candidate paths a move search looks at
-	// at once; each is a storage round trip.
-	blameMoveConcurrency = 16
-)
-
-// blameTrace counts what one blame did and times its stages, for one log line
-// (a blame is slow for reasons the request alone does not show).
-type blameTrace struct {
-	start      time.Time
-	last       time.Time
-	stages     []any
-	entries    atomic.Int64 // file lookups in a commit
-	blobs      atomic.Int64 // file contents read
-	candidates atomic.Int64 // paths a move search considered
-	indexSteps atomic.Int64 // steps planned from the history index
-	treeSteps  atomic.Int64 // steps that read the commit's tree
+func (s *RepositoryService) blameEngine() *blame.Engine {
+	return &blame.Engine{
+		Repository: s.Repository,
+		Blames:     s.Blames,
+		Objects:    s.ObjectStore,
+	}
 }
 
-type blameTraceKey struct{}
-
-func newBlameTrace() *blameTrace {
-	now := time.Now()
-	return &blameTrace{start: now, last: now}
+func (s *RepositoryService) bulkImportActive() bool {
+	ts := s.lastBulkImportUnixNano.Load()
+	return ts > 0 && time.Since(time.Unix(0, ts)) < blame.WarmBulkImportQuietWindow
 }
 
-func blameTraceOf(ctx context.Context) *blameTrace {
-	t, _ := ctx.Value(blameTraceKey{}).(*blameTrace)
-	return t
+// NewBlameWarmer returns a standalone blame warmer worker using gate (or the
+// service's configured gate / activity.Default when nil).
+func (s *RepositoryService) NewBlameWarmer(gate *activity.Gate) *blame.Warmer {
+	if gate == nil {
+		gate = s.activityGate()
+	}
+	return blame.NewWarmer(s.blameEngine(), gate, s.bulkImportActive)
 }
 
-// mark ends a stage: its duration is logged as name_ms.
-func (t *blameTrace) mark(name string) {
-	now := time.Now()
-	t.stages = append(t.stages, name+"_ms", now.Sub(t.last).Milliseconds())
-	t.last = now
+// RunBlameWarmer warms the blames of the files each landing on the default ref
+// changed, until ctx ends.
+func (s *RepositoryService) RunBlameWarmer(ctx context.Context) {
+	s.NewBlameWarmer(nil).Run(ctx)
 }
 
 func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFileRequest) (*corev1.BlameFileResponse, error) {
-	trace := newBlameTrace()
-	ctx = context.WithValue(ctx, blameTraceKey{}, trace)
-	var walked *blameResult
+	trace := blame.NewTrace()
+	ctx = blame.WithTrace(ctx, trace)
+	var walked *blame.Result
 	defer func() {
-		attrs := []any{"path", req.GetPath(), "total_ms", time.Since(trace.start).Milliseconds()}
-		attrs = append(attrs, trace.stages...)
-		attrs = append(attrs, "entry_lookups", trace.entries.Load(), "blob_reads", trace.blobs.Load(), "move_candidates", trace.candidates.Load(), "index_steps", trace.indexSteps.Load(), "tree_steps", trace.treeSteps.Load())
-		if walked != nil {
-			attrs = append(attrs, "lines", len(walked.owners), "walked_commits", walked.walked, "steps", walked.steps, "snapshot_hit", walked.snapshotHit, "truncated", walked.truncated)
-		}
-		slog.Info("blame", attrs...)
+		slog.Info("blame", trace.LogAttrs(req.GetPath(), walked)...)
 	}()
 	subjectID := optionalSubject(ctx)
 	p, err := paths.Canonical(req.GetPath())
@@ -138,8 +101,9 @@ func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFile
 	if refName == "" {
 		refName = storage.DefaultTargetRef
 	}
-	trace.mark("access")
-	// The head and the history filters do not depend on each other.
+	trace.Mark("access")
+
+	engine := s.blameEngine()
 	var head *corev1.Ref
 	var headEntry *storage.FileEntry
 	var filters listCommitFilters
@@ -150,8 +114,8 @@ func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFile
 			return grpcError(err)
 		}
 		var found bool
-		if headEntry, found, err = s.blameEntry(ctx, head.CommitId, p); err != nil {
-			return err
+		if headEntry, found, err = engine.Entry(ctx, head.CommitId, p); err != nil {
+			return blameError(err)
 		}
 		if !found {
 			return status.Errorf(codes.NotFound, "no file at %s", p)
@@ -166,24 +130,29 @@ func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFile
 	if err := group.Wait(); err != nil {
 		return nil, err
 	}
-	trace.mark("head")
+	trace.Mark("head")
 
-	result, err := s.blameWalk(ctx, refName, filters, head.CommitId, p, headEntry, canReadPath)
+	result, err := engine.Walk(ctx, refName, blame.CommitFilters{
+		Prefixes:                    filters.prefixes,
+		EntityRefs:                  filters.entityRefs,
+		IncludePrefixesWithEntities: filters.includePrefixesWithEntities,
+		Filtered:                    filters.filtered,
+	}, head.CommitId, p, headEntry, canReadPath)
 	if err != nil {
-		return nil, err
+		return nil, blameError(err)
 	}
 	walked = &result
-	trace.mark("walk")
+	trace.Mark("walk")
 
-	out := &corev1.BlameFileResponse{CommitId: head.CommitId, Path: p, LineCount: int32(len(result.owners)), Truncated: result.truncated}
+	out := &corev1.BlameFileResponse{CommitId: head.CommitId, Path: p, LineCount: int32(len(result.Owners)), Truncated: result.Truncated}
 	var ids []string
 	named := map[string]bool{}
-	for start := 0; start < len(result.owners); {
+	for start := 0; start < len(result.Owners); {
 		end := start
-		for end < len(result.owners) && result.owners[end] == result.owners[start] {
+		for end < len(result.Owners) && result.Owners[end] == result.Owners[start] {
 			end++
 		}
-		owner := result.owners[start]
+		owner := result.Owners[start]
 		out.Ranges = append(out.Ranges, &corev1.BlameRange{StartLine: int32(start + 1), LineCount: int32(end - start), CommitId: owner})
 		if !named[owner] {
 			named[owner] = true
@@ -191,10 +160,9 @@ func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFile
 		}
 		start = end
 	}
-	// Commits a stored snapshot names, from beyond this walk, in one query.
 	var missing []string
 	for _, id := range ids {
-		if result.commits[id] == nil {
+		if result.Commits[id] == nil {
 			missing = append(missing, id)
 		}
 	}
@@ -207,11 +175,11 @@ func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFile
 			if read[id] == nil {
 				return nil, grpcError(storage.ErrNotFound)
 			}
-			result.commits[id] = read[id]
+			result.Commits[id] = read[id]
 		}
 	}
 	for _, id := range ids {
-		cloned := proto.Clone(result.commits[id]).(*corev1.Commit)
+		cloned := proto.Clone(result.Commits[id]).(*corev1.Commit)
 		filtered := cloned.ChangedPaths[:0]
 		for _, changed := range cloned.ChangedPaths {
 			if canReadPath(changed) {
@@ -221,223 +189,23 @@ func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFile
 		cloned.ChangedPaths = filtered
 		out.Commits = append(out.Commits, cloned)
 	}
-	trace.mark("commits")
+	trace.Mark("commits")
 	if err := s.resolveCommitAuthors(ctx, out.Commits...); err != nil {
 		return nil, grpcError(err)
 	}
-	trace.mark("authors")
+	trace.Mark("authors")
 	return out, nil
 }
 
-type blameResult struct {
-	owners    []string
-	truncated bool
-	// What the walk did, for the log: commits it looked at, steps it carried
-	// the blame through, and whether it stopped at a stored blame.
-	walked      int
-	steps       int
-	snapshotHit bool
-	// guessed: the walk ran out of listed history before the file's creation
-	// (see where snapshots are stored), so nothing was stored.
-	guessed bool
-	// commits holds the commits the walk read, by id.
-	commits map[string]*corev1.Commit
-}
-
-// blameStep is one commit of the walk: the file's version right after the
-// commit, and right before it (none when the commit created it).
-type blameStep struct {
-	commit  *corev1.Commit
-	path    string
-	version blameVersion
-	parent  *blameVersion
-}
-
-type blameVersion struct {
-	hash  string
-	lines []string
-}
-
-// blameEntry finds the file at path in a commit; found is false when there
-// is none.
-func (s *RepositoryService) blameEntry(ctx context.Context, commitID, p string) (*storage.FileEntry, bool, error) {
-	if t := blameTraceOf(ctx); t != nil {
-		t.entries.Add(1)
-	}
-	entry, err := s.Repository.GetFile(ctx, commitID, p)
-	if err != nil {
-		if errors.Is(err, storage.ErrNotFound) {
-			return nil, false, nil
-		}
-		return nil, false, grpcError(err)
-	}
-	if entry.Size > blameMaxBytes {
-		return nil, false, status.Errorf(codes.FailedPrecondition, "%s is larger than %d bytes, too large to blame", p, blameMaxBytes)
-	}
-	return entry, true, nil
-}
-
-// blameLines reads a file version's lines, refusing binary files.
-func (s *RepositoryService) blameLines(ctx context.Context, p, contentHash string, size int64) ([]string, error) {
-	if size > blameMaxBytes {
-		return nil, status.Errorf(codes.FailedPrecondition, "%s is larger than %d bytes, too large to blame", p, blameMaxBytes)
-	}
-	if t := blameTraceOf(ctx); t != nil {
-		t.blobs.Add(1)
-	}
-	rc, err := s.ObjectStore.Get(ctx, filesystem.BlobKey(contentHash), 0, 0)
-	if err != nil {
-		return nil, grpcError(err)
-	}
-	defer rc.Close()
-	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(rc); err != nil {
-		return nil, grpcError(err)
-	}
-	data := buf.Bytes()
-	if bytes.IndexByte(data[:min(len(data), 8000)], 0) >= 0 {
-		return nil, status.Errorf(codes.InvalidArgument, "%s is a binary file", p)
-	}
-	return splitBlameLines(data), nil
-}
-
-// blameVersion reads the file at path in a commit; found is false when there
-// is no file there.
-func (s *RepositoryService) blameVersion(ctx context.Context, commitID, p string) (blameVersion, bool, error) {
-	entry, found, err := s.blameEntry(ctx, commitID, p)
-	if err != nil || !found {
-		return blameVersion{}, found, err
-	}
-	lines, err := s.blameLines(ctx, p, entry.ContentHash, entry.Size)
-	if err != nil {
-		return blameVersion{}, false, err
-	}
-	return blameVersion{hash: entry.ContentHash, lines: lines}, true, nil
-}
-
-// blameMovedFrom finds where a file was before a commit that moved it: among
-// the paths the commit changed, one that had a file in the parent and none
-// after, choosing the one sharing the most lines with the file.
-func (s *RepositoryService) blameMovedFrom(ctx context.Context, commit *corev1.Commit, movedTo string, moved blameVersion, canReadPath func(string) bool) (string, bool, error) {
-	if len(commit.ParentIds) == 0 {
-		return "", false, nil
-	}
-	have := map[string]int{}
-	for _, line := range moved.lines {
-		have[line]++
-	}
-	// A commit that created many files lists each of them among its changed
-	// paths, and none was where this file came from: they are not in the
-	// parent. Looking in the parent first makes those one lookup, not two,
-	// and the lookups run several at a time.
-	var candidates []string
-	redacted := false
-	for _, changed := range commit.ChangedPaths {
-		if candidate, err := paths.Canonical(changed); err == nil && candidate != movedTo {
-			if canReadPath != nil && !canReadPath(candidate) {
-				redacted = true
-				continue
-			}
-			candidates = append(candidates, candidate)
-		}
-	}
-	if t := blameTraceOf(ctx); t != nil {
-		t.candidates.Add(int64(len(candidates)))
-	}
-	shared := make([]int, len(candidates))
-	for i := range shared {
-		shared[i] = -1
-	}
-	var group errgroup.Group
-	group.SetLimit(blameMoveConcurrency)
-	for i, candidate := range candidates {
-		group.Go(func() error {
-			parentEntry, found, err := s.blameEntry(ctx, commit.ParentIds[0], candidate)
-			if err != nil || !found {
-				return nil
-			}
-			if _, stillThere, err := s.blameEntry(ctx, commit.Id, candidate); err != nil || stillThere {
-				return nil
-			}
-			lines, err := s.blameLines(ctx, candidate, parentEntry.ContentHash, parentEntry.Size)
-			if err != nil {
-				return nil
-			}
-			n, counts := 0, map[string]int{}
-			for _, line := range lines {
-				if counts[line] < have[line] {
-					counts[line]++
-					n++
-				}
-			}
-			shared[i] = n
-			return nil
-		})
-	}
-	_ = group.Wait()
-	// The first of the best, as a sequential search would pick.
-	best, bestShared := "", -1
-	for i, candidate := range candidates {
-		if shared[i] > bestShared {
-			best, bestShared = candidate, shared[i]
-		}
-	}
-	return best, redacted && best == "", nil
-}
-
-func (s *RepositoryService) blameSnapshotReadable(ctx context.Context, snapshot *storage.BlameSnapshot, known map[string]*corev1.Commit, canReadPath func(string) bool) bool {
-	if canReadPath == nil || snapshot == nil {
-		return true
-	}
-	seen := map[string]bool{}
-	var missing []string
-	for _, owner := range snapshot.Owners {
-		if seen[owner] {
-			continue
-		}
-		seen[owner] = true
-		if known[owner] == nil {
-			missing = append(missing, owner)
-		}
-	}
-	if len(missing) > 0 {
-		read, err := s.Repository.GetCommits(ctx, missing)
-		if err != nil {
-			return false
-		}
-		for _, id := range missing {
-			if read[id] == nil {
-				return false
-			}
-			known[id] = read[id]
-		}
-	}
-	for owner := range seen {
-		commit := known[owner]
-		if commit == nil {
-			return false
-		}
-		hasReadable := false
-		for _, changed := range commit.ChangedPaths {
-			if canReadPath(changed) {
-				hasReadable = true
-				break
-			}
-		}
-		if !hasReadable {
-			return false
-		}
-	}
-	return true
-}
-
-func splitBlameLines(data []byte) []string {
-	if len(data) == 0 {
+func blameError(err error) error {
+	if err == nil {
 		return nil
 	}
-	lines := strings.SplitAfter(string(data), "\n")
-	if lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
+	if errors.Is(err, blame.ErrTooLarge) {
+		return status.Error(codes.FailedPrecondition, err.Error())
 	}
-	return lines
+	if errors.Is(err, blame.ErrBinary) {
+		return status.Error(codes.InvalidArgument, err.Error())
+	}
+	return grpcError(err)
 }

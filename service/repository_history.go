@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"gitslice.io/gitslice/internal/authz"
+	"gitslice.io/gitslice/internal/blame"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -160,4 +161,17 @@ func repositoryPathContains(prefix, p string) bool {
 	prefix = strings.TrimRight(prefix, "/")
 	p = strings.TrimRight(p, "/")
 	return p == prefix || strings.HasPrefix(p, prefix+"/")
+}
+
+func (s *RepositoryService) listCommitPage(ctx context.Context, refName string, filters listCommitFilters, limit int, token string) (*storage.CommitListPage, error) {
+	page, err := s.blameEngine().ListCommitPage(ctx, refName, blame.CommitFilters{
+		Prefixes:                    filters.prefixes,
+		EntityRefs:                  filters.entityRefs,
+		IncludePrefixesWithEntities: filters.includePrefixesWithEntities,
+		Filtered:                    filters.filtered,
+	}, limit, token)
+	if err != nil {
+		return nil, grpcError(err)
+	}
+	return page, nil
 }

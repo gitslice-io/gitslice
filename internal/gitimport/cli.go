@@ -1,4 +1,7 @@
-package service
+// Package gitimport implements Git CLI execution, bare clone caching, tree
+// snapshot/delta reading, and streaming blob upload resilience for repository
+// imports.
+package gitimport
 
 import (
 	"bufio"
@@ -18,13 +21,19 @@ import (
 )
 
 var (
-	maxGitImportBlobBytes      int64 = 100 << 20 // GitHub refuses files over 100 MiB, so any GitHub repository fits
-	maxGitImportCommitBytes    int64 = 4 << 30   // safety ceiling per commit; blobs are streamed in bounded batches
-	maxGitImportBlobBatchBytes int64 = 32 << 20  // max uncompressed blob payload buffered in one upload batch
-	maxGitImportBlobBatchCount       = 512       // max unique blobs buffered in one upload batch
+	// MaxBlobBytes bounds any single imported git blob.
+	MaxBlobBytes int64 = 100 << 20 // GitHub refuses files over 100 MiB, so any GitHub repository fits
+	// MaxCommitBytes is the safety ceiling per commit; blobs are streamed in bounded batches.
+	MaxCommitBytes int64 = 4 << 30
+	// MaxBlobBatchBytes bounds uncompressed blob payloads buffered in one upload batch.
+	MaxBlobBatchBytes int64 = 32 << 20
+	// MaxBlobBatchCount bounds unique blobs buffered in one upload batch.
+	MaxBlobBatchCount = 512
 )
 
-func parseGitDiffNameStatus(raw []byte) ([]string, []string, error) {
+// ParseDiffNameStatus parses `git diff-tree -r -z --name-status --find-renames` output
+// into sorted deleted and upserted git paths.
+func ParseDiffNameStatus(raw []byte) ([]string, []string, error) {
 	if len(raw) == 0 {
 		return nil, nil, nil
 	}
@@ -83,8 +92,9 @@ func parseGitDiffNameStatus(raw []byte) ([]string, []string, error) {
 	return deleted, upserts, nil
 }
 
-func gitFilesMetadataAtPaths(ctx context.Context, repoDir, commitID, mountPath string, gitPaths []string) (importSnapshot, []string, error) {
-	snapshot := importSnapshot{}
+// FilesMetadataAtPaths lists ls-tree metadata for specific gitPaths at commitID.
+func FilesMetadataAtPaths(ctx context.Context, repoDir, commitID, mountPath string, gitPaths []string) (Snapshot, []string, error) {
+	snapshot := Snapshot{}
 	if len(gitPaths) == 0 {
 		return snapshot, nil, nil
 	}
@@ -92,19 +102,16 @@ func gitFilesMetadataAtPaths(ctx context.Context, repoDir, commitID, mountPath s
 	var blobIDs []string
 	seenBlobIDs := map[string]struct{}{}
 	for start := 0; start < len(gitPaths); start += chunkSize {
-		end := start + chunkSize
-		if end > len(gitPaths) {
-			end = len(gitPaths)
-		}
+		end := min(start+chunkSize, len(gitPaths))
 		args := []string{"ls-tree", "-r", "-z", "--full-tree", commitID, "--"}
 		for _, p := range gitPaths[start:end] {
 			args = append(args, ":(literal)"+p)
 		}
-		raw, err := gitOutputBytesImport(ctx, repoDir, args...)
+		raw, err := OutputBytes(ctx, repoDir, args...)
 		if err != nil {
 			return nil, nil, err
 		}
-		blobIDs, err = parseGitTreeRecords(raw, mountPath, snapshot, seenBlobIDs, blobIDs)
+		blobIDs, err = ParseTreeRecords(raw, mountPath, snapshot, seenBlobIDs, blobIDs)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -112,8 +119,9 @@ func gitFilesMetadataAtPaths(ctx context.Context, repoDir, commitID, mountPath s
 	return snapshot, blobIDs, nil
 }
 
-func gitFilesAtPaths(ctx context.Context, repoDir, commitID, mountPath string, gitPaths []string, known knownBlobs) (importSnapshot, error) {
-	snapshot := importSnapshot{}
+// FilesAtPaths reads file metadata and blob contents for gitPaths at commitID.
+func FilesAtPaths(ctx context.Context, repoDir, commitID, mountPath string, gitPaths []string, known KnownBlobs) (Snapshot, error) {
+	snapshot := Snapshot{}
 	if len(gitPaths) == 0 {
 		return snapshot, nil
 	}
@@ -121,19 +129,16 @@ func gitFilesAtPaths(ctx context.Context, repoDir, commitID, mountPath string, g
 	var totalBytes int64
 	seenNewBlobs := map[string]struct{}{}
 	for start := 0; start < len(gitPaths); start += chunkSize {
-		end := start + chunkSize
-		if end > len(gitPaths) {
-			end = len(gitPaths)
-		}
+		end := min(start+chunkSize, len(gitPaths))
 		args := []string{"ls-tree", "-r", "-z", "--full-tree", commitID, "--"}
 		for _, p := range gitPaths[start:end] {
 			args = append(args, ":(literal)"+p)
 		}
-		raw, err := gitOutputBytesImport(ctx, repoDir, args...)
+		raw, err := OutputBytes(ctx, repoDir, args...)
 		if err != nil {
 			return nil, err
 		}
-		chunk, err := gitSnapshotFromTreeRecords(ctx, repoDir, raw, mountPath, known)
+		chunk, err := SnapshotFromTreeRecords(ctx, repoDir, raw, mountPath, known)
 		if err != nil {
 			return nil, err
 		}
@@ -142,8 +147,8 @@ func gitFilesAtPaths(ctx context.Context, repoDir, commitID, mountPath string, g
 				if _, seen := seenNewBlobs[file.GitBlobID]; !seen {
 					seenNewBlobs[file.GitBlobID] = struct{}{}
 					totalBytes += int64(len(file.Data))
-					if totalBytes > maxGitImportCommitBytes {
-						return nil, status.Errorf(codes.ResourceExhausted, "imported commit blob bytes exceed %d byte limit", maxGitImportCommitBytes)
+					if totalBytes > MaxCommitBytes {
+						return nil, status.Errorf(codes.ResourceExhausted, "imported commit blob bytes exceed %d byte limit", MaxCommitBytes)
 					}
 				}
 			}
@@ -153,12 +158,13 @@ func gitFilesAtPaths(ctx context.Context, repoDir, commitID, mountPath string, g
 	return snapshot, nil
 }
 
-func gitBlobContents(ctx context.Context, repoDir string, blobIDs []string) (map[string][]byte, error) {
+// BlobContents reads all requested git blob IDs into memory.
+func BlobContents(ctx context.Context, repoDir string, blobIDs []string) (map[string][]byte, error) {
 	contents := make(map[string][]byte, len(blobIDs))
 	if len(blobIDs) == 0 {
 		return contents, nil
 	}
-	if err := streamGitBlobContents(ctx, repoDir, blobIDs, nil, func(blobID string, data []byte) error {
+	if err := StreamBlobContents(ctx, repoDir, blobIDs, nil, func(blobID string, data []byte) error {
 		contents[blobID] = data
 		return nil
 	}); err != nil {
@@ -167,11 +173,11 @@ func gitBlobContents(ctx context.Context, repoDir string, blobIDs []string) (map
 	return contents, nil
 }
 
-// streamGitBlobContents streams each requested git blob via `git cat-file --batch`
+// StreamBlobContents streams each requested git blob via `git cat-file --batch`
 // without holding the entire commit in memory. If beforeRead is non-nil, it is
 // called with each blob's byte size before allocating its payload buffer so the
 // caller can flush an earlier batch first.
-func streamGitBlobContents(
+func StreamBlobContents(
 	ctx context.Context,
 	repoDir string,
 	blobIDs []string,
@@ -240,13 +246,13 @@ func streamGitBlobContents(
 			abort()
 			return fmt.Errorf("invalid git blob size %q", fields[2])
 		}
-		if size > maxGitImportBlobBytes {
+		if size > MaxBlobBytes {
 			abort()
-			return status.Errorf(codes.ResourceExhausted, "git blob %s is %d bytes, exceeds %d byte import limit", fields[0], size, maxGitImportBlobBytes)
+			return status.Errorf(codes.ResourceExhausted, "git blob %s is %d bytes, exceeds %d byte import limit", fields[0], size, MaxBlobBytes)
 		}
-		if totalBytes+size > maxGitImportCommitBytes {
+		if totalBytes+size > MaxCommitBytes {
 			abort()
-			return status.Errorf(codes.ResourceExhausted, "imported commit blob bytes exceed %d byte limit", maxGitImportCommitBytes)
+			return status.Errorf(codes.ResourceExhausted, "imported commit blob bytes exceed %d byte limit", MaxCommitBytes)
 		}
 		if beforeRead != nil {
 			if err := beforeRead(size); err != nil {
@@ -289,7 +295,8 @@ func streamGitBlobContents(
 	return nil
 }
 
-type gitCommitMeta struct {
+// CommitMeta holds the parsed message and author metadata of a Git commit.
+type CommitMeta struct {
 	Subject     string
 	Body        string
 	FullMessage string
@@ -298,18 +305,18 @@ type gitCommitMeta struct {
 	AuthoredAt  string // RFC 3339 in UTC
 }
 
-// gitCommitMetadata reads an imported commit's subject (git's %s, the first
+// ReadCommitMetadata reads an imported commit's subject (git's %s, the first
 // paragraph joined into one line), body, full message and original author.
-func gitCommitMetadata(ctx context.Context, repoDir, commitID string) (gitCommitMeta, error) {
-	out, err := gitOutputImport(ctx, repoDir, "log", "-1", "--format=%an%x00%ae%x00%aI%x00%s%x00%B", commitID)
+func ReadCommitMetadata(ctx context.Context, repoDir, commitID string) (CommitMeta, error) {
+	out, err := Output(ctx, repoDir, "log", "-1", "--format=%an%x00%ae%x00%aI%x00%s%x00%B", commitID)
 	if err != nil {
-		return gitCommitMeta{}, err
+		return CommitMeta{}, err
 	}
 	parts := strings.SplitN(out, "\x00", 5)
 	if len(parts) != 5 {
-		return gitCommitMeta{}, fmt.Errorf("unexpected git log output for %s", shortCommit(commitID))
+		return CommitMeta{}, fmt.Errorf("unexpected git log output for %s", ShortCommit(commitID))
 	}
-	meta := gitCommitMeta{
+	meta := CommitMeta{
 		AuthorName:  strings.TrimSpace(parts[0]),
 		AuthorEmail: strings.TrimSpace(parts[1]),
 		Subject:     strings.TrimSpace(parts[3]),
@@ -322,24 +329,27 @@ func gitCommitMetadata(ctx context.Context, repoDir, commitID string) (gitCommit
 		meta.Body = strings.TrimSpace(body)
 	}
 	if meta.Subject == "" {
-		meta.Subject = "Import git commit " + shortCommit(commitID)
+		meta.Subject = "Import git commit " + ShortCommit(commitID)
 	}
 	return meta, nil
 }
 
-func shortCommit(commitID string) string {
+// ShortCommit returns up to the first 12 characters of a commit ID.
+func ShortCommit(commitID string) string {
 	if len(commitID) <= 12 {
 		return commitID
 	}
 	return commitID[:12]
 }
 
-func gitOutputImport(ctx context.Context, dir string, args ...string) (string, error) {
-	out, err := gitOutputBytesImport(ctx, dir, args...)
+// Output runs git in dir and returns stdout as a string.
+func Output(ctx context.Context, dir string, args ...string) (string, error) {
+	out, err := OutputBytes(ctx, dir, args...)
 	return string(out), err
 }
 
-func gitOutputBytesImport(ctx context.Context, dir string, args ...string) ([]byte, error) {
+// OutputBytes runs git in dir and returns stdout bytes.
+func OutputBytes(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	if dir != "" {
 		cmd.Dir = dir
@@ -357,7 +367,8 @@ func gitOutputBytesImport(ctx context.Context, dir string, args ...string) ([]by
 	return out, nil
 }
 
-func runGitImport(ctx context.Context, dir, allowProtocol string, args ...string) error {
+// Run executes git with GIT_ALLOW_PROTOCOL pinned to allowProtocol.
+func Run(ctx context.Context, dir, allowProtocol string, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Env = append(os.Environ(), "GIT_ALLOW_PROTOCOL="+allowProtocol)
 	if dir != "" {

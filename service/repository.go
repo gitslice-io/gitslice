@@ -9,7 +9,9 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/authz"
+	"gitslice.io/gitslice/internal/gitimport"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -31,21 +33,30 @@ type RepositoryService struct {
 
 	// importClones keeps clones between attempts of a deep import.
 	importClonesOnce sync.Once
-	importClones     *importCloneCache
+	importClones     *gitimport.CloneCache
 	// importFlights serializes imports of one source into one place.
-	importFlights importFlights
+	importFlights gitimport.Flights
 	// lastBulkImportUnixNano records recent bulk import batch activity so
 	// background blame warming pauses until the import finishes.
 	lastBulkImportUnixNano atomic.Int64
+
+	gate *activity.Gate
 
 	publishedTreesMu   sync.Mutex
 	publishedRootTrees map[string]struct{}
 }
 
-func (s *RepositoryService) importCloneCache() *importCloneCache {
+func (s *RepositoryService) activityGate() *activity.Gate {
+	if s != nil && s.gate != nil {
+		return s.gate
+	}
+	return activity.Default
+}
+
+func (s *RepositoryService) importCloneCache() *gitimport.CloneCache {
 	s.importClonesOnce.Do(func() {
 		if s.importClones == nil {
-			s.importClones = newImportCloneCache()
+			s.importClones = gitimport.NewCloneCache()
 		}
 	})
 	return s.importClones

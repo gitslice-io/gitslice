@@ -1,4 +1,4 @@
-package service
+package gitimport
 
 import (
 	"context"
@@ -13,12 +13,11 @@ import (
 	"testing"
 	"time"
 
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-// testGitSource makes a local repository with one commit and returns its
-// path and a func that adds a commit.
 func testGitSource(t *testing.T) (string, func(msg string)) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -47,14 +46,14 @@ func testGitSource(t *testing.T) (string, func(msg string)) {
 }
 
 type countingCache struct {
-	*importCloneCache
+	*CloneCache
 	clones, fetches atomic.Int32
 	clock           time.Time
 	mu              sync.Mutex
 }
 
 func newCountingCache(t *testing.T) *countingCache {
-	c := &countingCache{importCloneCache: newImportCloneCache(), clock: time.Now()}
+	c := &countingCache{CloneCache: NewCloneCache(), clock: time.Now()}
 	c.now = func() time.Time { c.mu.Lock(); defer c.mu.Unlock(); return c.clock }
 	run := c.run
 	c.run = func(ctx context.Context, dir, allow string, args ...string) error {
@@ -67,9 +66,9 @@ func newCountingCache(t *testing.T) *countingCache {
 		return run(ctx, dir, allow, args...)
 	}
 	t.Cleanup(func() {
-		c.importCloneCache.mu.Lock()
+		c.CloneCache.mu.Lock()
 		root := c.root
-		c.importCloneCache.mu.Unlock()
+		c.CloneCache.mu.Unlock()
 		if root != "" {
 			_ = os.RemoveAll(root)
 		}
@@ -92,12 +91,12 @@ func headSubject(t *testing.T, dir string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func TestImportCloneCacheReusesAndFetches(t *testing.T) {
+func TestCloneCacheReusesAndFetches(t *testing.T) {
 	source, commit := testGitSource(t)
 	c := newCountingCache(t)
 	ctx := context.Background()
 
-	dir, release, err := c.acquire(ctx, source, true)
+	dir, release, err := c.Acquire(ctx, source, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,9 +108,8 @@ func TestImportCloneCacheReusesAndFetches(t *testing.T) {
 	}
 	release()
 
-	// A retry soon after uses the kept clone as it is.
 	commit("second")
-	dir2, release, err := c.acquire(ctx, source, true)
+	dir2, release, err := c.Acquire(ctx, source, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,9 +118,8 @@ func TestImportCloneCacheReusesAndFetches(t *testing.T) {
 		t.Fatalf("clones %d fetches %d, want one clone reused", c.clones.Load(), c.fetches.Load())
 	}
 
-	// Later, it fetches first and sees the new commit.
-	c.advance(importCloneFetchAfter + time.Second)
-	dir3, release, err := c.acquire(ctx, source, true)
+	c.advance(CloneFetchAfter + time.Second)
+	dir3, release, err := c.Acquire(ctx, source, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,9 +132,7 @@ func TestImportCloneCacheReusesAndFetches(t *testing.T) {
 	}
 }
 
-// A client that drops while the clone runs does not waste it: the clone
-// finishes, and the retry uses it.
-func TestImportCloneCacheCloneOutlivesItsCaller(t *testing.T) {
+func TestCloneCacheCloneOutlivesItsCaller(t *testing.T) {
 	source, _ := testGitSource(t)
 	c := newCountingCache(t)
 	gate := make(chan struct{})
@@ -149,7 +144,7 @@ func TestImportCloneCacheCloneOutlivesItsCaller(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	errCh := make(chan error, 1)
 	go func() {
-		_, _, err := c.acquire(ctx, source, true)
+		_, _, err := c.Acquire(ctx, source, true)
 		errCh <- err
 	}()
 	time.Sleep(50 * time.Millisecond)
@@ -159,7 +154,7 @@ func TestImportCloneCacheCloneOutlivesItsCaller(t *testing.T) {
 	}
 	close(gate)
 
-	dir, release, err := c.acquire(context.Background(), source, true)
+	dir, release, err := c.Acquire(context.Background(), source, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +164,7 @@ func TestImportCloneCacheCloneOutlivesItsCaller(t *testing.T) {
 	}
 }
 
-func TestImportCloneCacheConcurrentImportsShareOneClone(t *testing.T) {
+func TestCloneCacheConcurrentImportsShareOneClone(t *testing.T) {
 	source, _ := testGitSource(t)
 	c := newCountingCache(t)
 	var wg sync.WaitGroup
@@ -177,7 +172,7 @@ func TestImportCloneCacheConcurrentImportsShareOneClone(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, release, err := c.acquire(context.Background(), source, true)
+			_, release, err := c.Acquire(context.Background(), source, true)
 			if err != nil {
 				t.Error(err)
 				return
@@ -191,13 +186,13 @@ func TestImportCloneCacheConcurrentImportsShareOneClone(t *testing.T) {
 	}
 }
 
-func TestImportCloneCacheFailedCloneIsRetried(t *testing.T) {
+func TestCloneCacheFailedCloneIsRetried(t *testing.T) {
 	c := newCountingCache(t)
 	missing := filepath.Join(t.TempDir(), "missing")
-	if _, _, err := c.acquire(context.Background(), missing, true); err == nil {
+	if _, _, err := c.Acquire(context.Background(), missing, true); err == nil {
 		t.Fatal("clone of a missing repository succeeded")
 	}
-	if _, _, err := c.acquire(context.Background(), missing, true); err == nil {
+	if _, _, err := c.Acquire(context.Background(), missing, true); err == nil {
 		t.Fatal("clone of a missing repository succeeded")
 	}
 	if c.clones.Load() != 2 {
@@ -205,11 +200,10 @@ func TestImportCloneCacheFailedCloneIsRetried(t *testing.T) {
 	}
 }
 
-// When the fetch of a recent kept clone fails, imports keep using it.
-func TestImportCloneCacheServesKeptCloneWhenFetchFails(t *testing.T) {
+func TestCloneCacheServesKeptCloneWhenFetchFails(t *testing.T) {
 	source, _ := testGitSource(t)
 	c := newCountingCache(t)
-	_, release, err := c.acquire(context.Background(), source, true)
+	_, release, err := c.Acquire(context.Background(), source, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,30 +215,30 @@ func TestImportCloneCacheServesKeptCloneWhenFetchFails(t *testing.T) {
 		}
 		return run(ctx, dir, allow, args...)
 	}
-	c.advance(importCloneFetchAfter + time.Second)
-	_, release, err = c.acquire(context.Background(), source, true)
+	c.advance(CloneFetchAfter + time.Second)
+	_, release, err = c.Acquire(context.Background(), source, true)
 	if err != nil {
 		t.Fatalf("acquire with a failing fetch = %v, want the kept clone", err)
 	}
 	release()
-	c.advance(importCloneStaleOK)
-	if _, _, err := c.acquire(context.Background(), source, true); err == nil {
+	c.advance(CloneStaleOK)
+	if _, _, err := c.Acquire(context.Background(), source, true); err == nil {
 		t.Fatal("a stale kept clone served an import although fetching failed")
 	}
 }
 
-func TestImportCloneCacheEvictsIdleAndExtraClones(t *testing.T) {
+func TestCloneCacheEvictsIdleAndExtraClones(t *testing.T) {
 	a, _ := testGitSource(t)
 	b, _ := testGitSource(t)
 	c := newCountingCache(t)
 	c.maxKept = 1
-	dirA, release, err := c.acquire(context.Background(), a, true)
+	dirA, release, err := c.Acquire(context.Background(), a, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	release()
 	c.advance(time.Second)
-	_, release, err = c.acquire(context.Background(), b, true)
+	_, release, err = c.Acquire(context.Background(), b, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,9 +248,9 @@ func TestImportCloneCacheEvictsIdleAndExtraClones(t *testing.T) {
 	}
 	c.advance(c.idleTTL + time.Second)
 	c.sweep()
-	c.importCloneCache.mu.Lock()
+	c.CloneCache.mu.Lock()
 	n := len(c.entries)
-	c.importCloneCache.mu.Unlock()
+	c.CloneCache.mu.Unlock()
 	if n != 0 {
 		t.Fatalf("%d clones kept after idling, want 0", n)
 	}
@@ -271,18 +265,18 @@ func TestCloneErrorSaysWhetherToRetry(t *testing.T) {
 		"git clone: fatal: Authentication failed for 'https'": codes.InvalidArgument,
 	}
 	for msg, want := range cases {
-		if got := status.Code(cloneError(ctx, errors.New(msg))); got != want {
-			t.Errorf("cloneError(%q) = %s, want %s", msg, got, want)
+		if got := status.Code(CloneError(ctx, errors.New(msg))); got != want {
+			t.Errorf("CloneError(%q) = %s, want %s", msg, got, want)
 		}
 	}
 	canceled, cancel := context.WithCancel(ctx)
 	cancel()
-	if got := status.Code(cloneError(canceled, errors.New("signal: killed"))); got != codes.Canceled {
-		t.Errorf("cloneError after the client left = %s, want Canceled", got)
+	if got := status.Code(CloneError(canceled, errors.New("signal: killed"))); got != codes.Canceled {
+		t.Errorf("CloneError after the client left = %s, want Canceled", got)
 	}
 }
 
-func TestImportGitHardeningFlagsAndBlobCaps(t *testing.T) {
+func TestHardeningFlagsBlobCapsAndResilience(t *testing.T) {
 	source, commit := testGitSource(t)
 	c := newCountingCache(t)
 	var recorded [][]string
@@ -294,14 +288,14 @@ func TestImportGitHardeningFlagsAndBlobCaps(t *testing.T) {
 		return run(ctx, dir, allow, args...)
 	}
 
-	dir, release, err := c.acquire(context.Background(), source, true)
+	dir, release, err := c.Acquire(context.Background(), source, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	release()
 	commit("second")
-	c.advance(importCloneFetchAfter + time.Second)
-	dir, release, err = c.acquire(context.Background(), source, true)
+	c.advance(CloneFetchAfter + time.Second)
+	dir, release, err = c.Acquire(context.Background(), source, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -325,20 +319,35 @@ func TestImportGitHardeningFlagsAndBlobCaps(t *testing.T) {
 	}
 	blobID := strings.TrimSpace(string(out))
 
-	prevBlobMax, prevCommitMax := maxGitImportBlobBytes, maxGitImportCommitBytes
+	prevBlobMax, prevCommitMax := MaxBlobBytes, MaxCommitBytes
 	t.Cleanup(func() {
-		maxGitImportBlobBytes = prevBlobMax
-		maxGitImportCommitBytes = prevCommitMax
+		MaxBlobBytes = prevBlobMax
+		MaxCommitBytes = prevCommitMax
 	})
 
-	maxGitImportBlobBytes = 2 // "second" is 6 bytes
-	if _, err := gitBlobContents(context.Background(), dir, []string{blobID}); status.Code(err) != codes.ResourceExhausted {
-		t.Fatalf("gitBlobContents over single-blob cap = %v, want ResourceExhausted", err)
+	MaxBlobBytes = 2
+	if _, err := BlobContents(context.Background(), dir, []string{blobID}); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("BlobContents over single-blob cap = %v, want ResourceExhausted", err)
 	}
 
-	maxGitImportBlobBytes = 64
-	maxGitImportCommitBytes = 8
-	if _, err := gitBlobContents(context.Background(), dir, []string{blobID, blobID}); status.Code(err) != codes.ResourceExhausted {
-		t.Fatalf("gitBlobContents over commit cap = %v, want ResourceExhausted", err)
+	MaxBlobBytes = 64
+	MaxCommitBytes = 8
+	if _, err := BlobContents(context.Background(), dir, []string{blobID, blobID}); status.Code(err) != codes.ResourceExhausted {
+		t.Fatalf("BlobContents over commit cap = %v, want ResourceExhausted", err)
+	}
+
+	// Progress ignores a disconnected client and emits heartbeats.
+	var sent atomic.Int32
+	p := NewProgress(func(*corev1.ImportGitRepositoryProgress) error {
+		if sent.Add(1) > 1 {
+			return errors.New("closed")
+		}
+		return nil
+	})
+	_ = p.Emit(&corev1.ImportGitRepositoryProgress{Phase: "published", Current: 1})
+	_ = p.Emit(&corev1.ImportGitRepositoryProgress{Phase: "published", Current: 2})
+	_ = p.Emit(&corev1.ImportGitRepositoryProgress{Phase: "published", Current: 3})
+	if sent.Load() != 2 {
+		t.Fatalf("sent = %d, want 2", sent.Load())
 	}
 }

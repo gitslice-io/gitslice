@@ -14,12 +14,12 @@ import (
 	"time"
 
 	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/gitimport"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
-// countingStore counts the objects an import stores.
 type countingStore struct {
 	ObjectStore
 	puts atomic.Int32
@@ -30,8 +30,6 @@ func (c *countingStore) Put(ctx context.Context, key string, r io.Reader) error 
 	return c.ObjectStore.Put(ctx, key, r)
 }
 
-// movedFilesRepo makes a repository whose second commit moves every file of
-// the first into another folder, and whose third adds one file.
 func movedFilesRepo(t *testing.T, files int) string {
 	t.Helper()
 	repo := t.TempDir()
@@ -69,7 +67,6 @@ func importRequest(source string, resume bool) *corev1.ImportGitRepositoryReques
 	}
 }
 
-// A commit that moves files neither reads nor stores them again.
 func TestImportDoesNotUploadMovedFilesAgain(t *testing.T) {
 	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "1")
 	_, handlers := newMemoryHandlers()
@@ -85,14 +82,11 @@ func TestImportDoesNotUploadMovedFilesAgain(t *testing.T) {
 	if len(res.Commits) != 3 {
 		t.Fatalf("imported %d commits, want 3", len(res.Commits))
 	}
-	// 24 files and the README: the move's 24 new paths are the same content.
 	if got := store.puts.Load(); got != files+1 {
 		t.Fatalf("stored %d objects, want %d (the move uploads nothing)", got, files+1)
 	}
 }
 
-// A retry after a dropped connection does not store again what the attempt
-// before it already stored.
 func TestImportSkipsContentTheServerHolds(t *testing.T) {
 	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "1")
 	_, handlers := newMemoryHandlers()
@@ -105,7 +99,6 @@ func TestImportSkipsContentTheServerHolds(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := store.puts.Load()
-	// Same content imported again somewhere else: every object is there.
 	req := importRequest(repo, true)
 	req.MountPath = "/acme/imported-again"
 	if _, err := handlers.Repository.importGitRepository(ctx, req, nil); err != nil {
@@ -116,8 +109,6 @@ func TestImportSkipsContentTheServerHolds(t *testing.T) {
 	}
 }
 
-// A client that drops while a commit is being published does not leave the
-// commit half done: it is published, and the retry resumes after it.
 func TestImportFinishesTheCommitWhenTheClientDrops(t *testing.T) {
 	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "1")
 	_, handlers := newMemoryHandlers()
@@ -128,7 +119,7 @@ func TestImportFinishesTheCommitWhenTheClientDrops(t *testing.T) {
 	defer drop()
 	_, err := handlers.Repository.importGitRepository(dropCtx, importRequest(repo, true), func(event *corev1.ImportGitRepositoryProgress) error {
 		if event.Phase == "uploading_blobs" && event.Current == 2 {
-			drop() // the connection drops during the second commit
+			drop()
 		}
 		return nil
 	})
@@ -153,9 +144,8 @@ func TestImportFinishesTheCommitWhenTheClientDrops(t *testing.T) {
 		t.Fatalf("resumed import has %d commits, want 3", len(res.Commits))
 	}
 	if fmt.Sprint(skipped) != "[1 2]" || fmt.Sprint(published) != "[3]" {
-		t.Fatalf("resume skipped %v and published %v; want the two commits the first attempt finished skipped, and the third published", skipped, published)
+		t.Fatalf("resume skipped %v and published %v; want [1 2] and [3]", skipped, published)
 	}
-	// And history holds each commit once.
 	seen := map[string]int{}
 	for _, c := range res.Commits {
 		seen[c.NativeCommitId]++
@@ -167,15 +157,15 @@ func TestImportFinishesTheCommitWhenTheClientDrops(t *testing.T) {
 
 func TestImportProgressIgnoresAClientThatLeft(t *testing.T) {
 	var sent atomic.Int32
-	p := newImportProgress(func(*corev1.ImportGitRepositoryProgress) error {
+	p := gitimport.NewProgress(func(*corev1.ImportGitRepositoryProgress) error {
 		if sent.Add(1) > 2 {
 			return errors.New("transport is closing")
 		}
 		return nil
 	})
 	for i := 0; i < 5; i++ {
-		if err := p.emit(&corev1.ImportGitRepositoryProgress{Phase: "published", Current: int64(i)}); err != nil {
-			t.Fatalf("emit returned %v; a client that left is not an error", err)
+		if err := p.Emit(&corev1.ImportGitRepositoryProgress{Phase: "published", Current: int64(i)}); err != nil {
+			t.Fatalf("Emit returned %v; a client that left is not an error", err)
 		}
 	}
 	if sent.Load() != 3 {
@@ -186,7 +176,7 @@ func TestImportProgressIgnoresAClientThatLeft(t *testing.T) {
 func TestImportHeartbeatRepeatsTheLastPosition(t *testing.T) {
 	var mu sync.Mutex
 	var beats []*corev1.ImportGitRepositoryProgress
-	p := newImportProgress(func(e *corev1.ImportGitRepositoryProgress) error {
+	p := gitimport.NewProgress(func(e *corev1.ImportGitRepositoryProgress) error {
 		mu.Lock()
 		defer mu.Unlock()
 		if e.Phase == "working" {
@@ -194,9 +184,9 @@ func TestImportHeartbeatRepeatsTheLastPosition(t *testing.T) {
 		}
 		return nil
 	})
-	p.heartbeatEvery = 20 * time.Millisecond
-	stop := p.heartbeat()
-	_ = p.emit(&corev1.ImportGitRepositoryProgress{Phase: "uploading_blobs", Message: "move", Current: 2731, Total: 4018})
+	p.HeartbeatEvery = 20 * time.Millisecond
+	stop := p.Heartbeat()
+	_ = p.Emit(&corev1.ImportGitRepositoryProgress{Phase: "uploading_blobs", Message: "move", Current: 2731, Total: 4018})
 	time.Sleep(120 * time.Millisecond)
 	stop()
 	mu.Lock()
@@ -207,15 +197,15 @@ func TestImportHeartbeatRepeatsTheLastPosition(t *testing.T) {
 }
 
 func TestImportFlightsRunOneAtATime(t *testing.T) {
-	var f importFlights
+	var f gitimport.Flights
 	ctx := context.Background()
-	release, err := f.acquire(ctx, "k", nil)
+	release, err := f.Acquire(ctx, "k", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	acquired := make(chan struct{})
 	go func() {
-		r, err := f.acquire(ctx, "k", nil)
+		r, err := f.Acquire(ctx, "k", nil)
 		if err == nil {
 			close(acquired)
 			r()
@@ -226,7 +216,7 @@ func TestImportFlightsRunOneAtATime(t *testing.T) {
 		t.Fatal("a second import of the same source ran beside the first")
 	case <-time.After(50 * time.Millisecond):
 	}
-	other, err := f.acquire(ctx, "other", nil)
+	other, err := f.Acquire(ctx, "other", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,36 +228,33 @@ func TestImportFlightsRunOneAtATime(t *testing.T) {
 		t.Fatal("the waiting import never ran after the first finished")
 	}
 
-	// A waiter whose client leaves stops waiting.
-	release, _ = f.acquire(ctx, "k", nil)
+	release, _ = f.Acquire(ctx, "k", nil)
 	defer release()
 	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
 	defer cancel()
-	if _, err := f.acquire(waitCtx, "k", nil); status.Code(err) != codes.DeadlineExceeded {
+	if _, err := f.Acquire(waitCtx, "k", nil); status.Code(err) != codes.DeadlineExceeded {
 		t.Fatalf("waiting error = %v, want DeadlineExceeded", err)
 	}
 }
 
 func TestImportReadErrorSaysWhetherToRetry(t *testing.T) {
-	if got := status.Code(importReadError(context.Canceled, "read git commit abc")); got != codes.Unavailable {
+	if got := status.Code(gitimport.ReadError(context.Canceled, "read git commit abc")); got != codes.Unavailable {
 		t.Errorf("a cancelled read = %s, want Unavailable", got)
 	}
-	if got := status.Code(importReadError(errors.New("bad object"), "read git commit abc")); got != codes.InvalidArgument {
+	if got := status.Code(gitimport.ReadError(errors.New("bad object"), "read git commit abc")); got != codes.InvalidArgument {
 		t.Errorf("a failed read = %s, want InvalidArgument", got)
 	}
-	if !strings.Contains(importReadError(errors.New("x"), "read git commit abc").Error(), "read git commit abc") {
+	if !strings.Contains(gitimport.ReadError(errors.New("x"), "read git commit abc").Error(), "read git commit abc") {
 		t.Error("the message names the commit")
 	}
 }
 
-// A blob the import has already read is not read from git again: a commit
-// that moves files reuses it.
 func TestGitDeltaEditsReuseBlobsAlreadyRead(t *testing.T) {
 	ctx := context.Background()
 	repo := movedFilesRepo(t, 6)
 	commits := strings.Fields(runGitTest(t, repo, "rev-list", "--reverse", "HEAD"))
-	known := knownBlobs{}
-	first, err := gitSnapshot(ctx, repo, commits[0], "/acme/imported", known)
+	known := gitimport.KnownBlobs{}
+	first, err := gitimport.ReadSnapshot(ctx, repo, commits[0], "/acme/imported", known)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -276,7 +263,7 @@ func TestGitDeltaEditsReuseBlobsAlreadyRead(t *testing.T) {
 			t.Fatalf("%s: first sight must read the blob: %+v", p, file)
 		}
 	}
-	edits, moved, err := gitDeltaEdits(ctx, repo, commits[0], commits[1], "/acme/imported", known)
+	edits, moved, err := gitimport.DeltaEdits(ctx, repo, commits[0], commits[1], "/acme/imported", known)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,8 +281,7 @@ func TestGitDeltaEditsReuseBlobsAlreadyRead(t *testing.T) {
 	if upserts != 6 {
 		t.Fatalf("move upserts = %d, want 6", upserts)
 	}
-	// Without the memory of what was read, the same move reads every blob.
-	_, again, err := gitDeltaEdits(ctx, repo, commits[0], commits[1], "/acme/imported", nil)
+	_, again, err := gitimport.DeltaEdits(ctx, repo, commits[0], commits[1], "/acme/imported", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -306,18 +292,15 @@ func TestGitDeltaEditsReuseBlobsAlreadyRead(t *testing.T) {
 	}
 }
 
-// Large commits stream blobs in bounded batches instead of buffering the whole
-// commit in memory, including when an individual blob exceeds the batch byte
-// budget.
 func TestImportStreamsBlobsInBoundedBatches(t *testing.T) {
 	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "1")
-	prevBatchBytes, prevBatchCount := maxGitImportBlobBatchBytes, maxGitImportBlobBatchCount
+	prevBatchBytes, prevBatchCount := gitimport.MaxBlobBatchBytes, gitimport.MaxBlobBatchCount
 	t.Cleanup(func() {
-		maxGitImportBlobBatchBytes = prevBatchBytes
-		maxGitImportBlobBatchCount = prevBatchCount
+		gitimport.MaxBlobBatchBytes = prevBatchBytes
+		gitimport.MaxBlobBatchCount = prevBatchCount
 	})
-	maxGitImportBlobBatchBytes = 16
-	maxGitImportBlobBatchCount = 3
+	gitimport.MaxBlobBatchBytes = 16
+	gitimport.MaxBlobBatchCount = 3
 
 	repo := t.TempDir()
 	runGitTest(t, repo, "init", "-q")
@@ -328,7 +311,7 @@ func TestImportStreamsBlobsInBoundedBatches(t *testing.T) {
 		"small-2.txt": "beta\n",
 		"small-3.txt": "gamma\n",
 		"small-4.txt": "delta\n",
-		"big.txt":     strings.Repeat("large-blob-line\n", 4), // 64 bytes > 16-byte batch limit
+		"big.txt":     strings.Repeat("large-blob-line\n", 4),
 	}
 	for name, content := range wantFiles {
 		if err := os.WriteFile(filepath.Join(repo, name), []byte(content), 0o644); err != nil {
@@ -369,11 +352,11 @@ func TestImportStreamsBlobsInBoundedBatches(t *testing.T) {
 
 func TestImportCommitLimitPreservesResourceExhausted(t *testing.T) {
 	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "1")
-	prevCommitMax := maxGitImportCommitBytes
+	prevCommitMax := gitimport.MaxCommitBytes
 	t.Cleanup(func() {
-		maxGitImportCommitBytes = prevCommitMax
+		gitimport.MaxCommitBytes = prevCommitMax
 	})
-	maxGitImportCommitBytes = 32
+	gitimport.MaxCommitBytes = 32
 
 	_, handlers := newMemoryHandlers()
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
