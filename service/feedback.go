@@ -18,7 +18,7 @@ import (
 // lets the Gitslice team read and answer it (design/25_feedback.md). The team
 // is the server's operators and the owners and admins of Account.
 type FeedbackService struct {
-	Auth     storage.AuthStore
+	Auth     roleAndSubjectStore
 	Feedback storage.FeedbackStore
 	// Account is the account whose owners and admins read and answer
 	// feedback (GITSLICE_FEEDBACK_ACCOUNT).

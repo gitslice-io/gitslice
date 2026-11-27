@@ -1,5 +1,5 @@
-// Package triggers reads .gitslice/automations.yaml files and decides which
-// triggers an event sets off (design/34_triggers.md).
+// Package automations reads .gitslice/automations.yaml files and decides which
+// automations an event sets off (design/34_automations.md).
 package automations
 
 import (

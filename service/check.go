@@ -12,7 +12,7 @@ import (
 )
 
 type CheckService struct {
-	Auth       storage.AuthStore
+	Auth       roleAndSubjectStore
 	Changesets storage.ChangesetStore
 	Slices     storage.SliceStore
 	Repository storage.RepositoryStore

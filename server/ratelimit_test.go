@@ -447,14 +447,15 @@ func TestTriggerRunFailureRateLimiter(t *testing.T) {
 		Agents:      mem.Agents,
 		Checks:      mem.Checks,
 		Automations: mem.Automations,
-	}, mem.Objects, nil)
-	handlers.SetAutomationEngine(automations.NewEngine(automations.Stores{
-		Automations: mem.Automations,
-		Changesets:  mem.Changesets,
-		Slices:      mem.Slices,
-		Repository:  mem.Repository,
-		Checks:      mem.Checks,
-	}, automations.Options{}))
+	}, mem.Objects, nil, service.Options{
+		AutomationEngine: automations.NewEngine(automations.Stores{
+			Automations: mem.Automations,
+			Changesets:  mem.Changesets,
+			Slices:      mem.Slices,
+			Repository:  mem.Repository,
+			Checks:      mem.Checks,
+		}, automations.Options{}),
+	})
 	httpLimiters := newServerLimiters(Config{
 		RateLimit: RateLimitConfig{
 			HTTPPerIPRPS:    1000,

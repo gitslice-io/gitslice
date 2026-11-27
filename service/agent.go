@@ -7,6 +7,7 @@ import (
 	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/authz"
+	"gitslice.io/gitslice/internal/doorbell"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -31,7 +32,7 @@ type AgentService struct {
 	dispatcher *checkDispatcher
 	serverAddr string
 	// doorbell wakes daemons waiting on standby (design/32 layer 1).
-	doorbell *Doorbell
+	doorbell *doorbell.Client
 	gate     *activity.Gate
 }
 

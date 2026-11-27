@@ -30,11 +30,11 @@ func TestCompactEndpointNeedsTheServersSignature(t *testing.T) {
 	if code := post(now, ""); code != http.StatusUnauthorized {
 		t.Fatalf("unsigned: %d", code)
 	}
-	if code := post(now, compactSignature([]byte("other"), "acme", "p", now)); code != http.StatusUnauthorized {
+	if code := post(now, internalSignature([]byte("other"), "compact", "acme", "p", now)); code != http.StatusUnauthorized {
 		t.Fatalf("wrong key: %d", code)
 	}
 	old := strconv.FormatInt(time.Now().Add(-time.Hour).Unix(), 10)
-	if code := post(old, compactSignature(key, "acme", "p", old)); code != http.StatusUnauthorized {
+	if code := post(old, internalSignature(key, "compact", "acme", "p", old)); code != http.StatusUnauthorized {
 		t.Fatalf("stale: %d", code)
 	}
 }
@@ -52,7 +52,7 @@ func TestSelfCompactRequesterSignsAndWaitsUntilSent(t *testing.T) {
 	case r := <-got:
 		q := r.URL.Query()
 		if r.URL.Path != compactPath || q.Get("account") != "acme" || q.Get("slice") != "p" ||
-			r.Header.Get(compactSignatureHdr) != compactSignature(key, "acme", "p", q.Get("ts")) {
+			r.Header.Get(compactSignatureHdr) != internalSignature(key, "compact", "acme", "p", q.Get("ts")) {
 			t.Fatalf("request = %s %v %v", r.URL.Path, q, r.Header)
 		}
 	case <-time.After(5 * time.Second):

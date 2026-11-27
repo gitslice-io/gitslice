@@ -82,6 +82,15 @@ func NewDispatcher(stores Stores, opts Options) *Dispatcher {
 	}
 }
 
+// SetConsumers attaches the automation engine and Git mirror runner to the
+// dispatcher during server wiring, before Run starts. This lets callers build
+// event-wrapped stores (such as CheckStore) before constructing consumers that
+// write through those wrapped stores, without circular proxy shims.
+func (d *Dispatcher) SetConsumers(automations Automations, mirrors Mirrors) {
+	d.opts.Automations = automations
+	d.opts.Mirrors = mirrors
+}
+
 // Emit records an event and fans it out (see Flush).
 func (d *Dispatcher) Emit(ctx context.Context, event storage.Event) {
 	if _, err := d.stores.Events.AppendEvent(context.WithoutCancel(ctx), event); err != nil {

@@ -3,10 +3,22 @@ package service
 import (
 	"context"
 	"strings"
+
+	"gitslice.io/gitslice/internal/storage"
 )
 
 type subjectUsernameStore interface {
 	UsernamesForSubjects(ctx context.Context, subjectIDs []string) (map[string]string, error)
+}
+
+type subjectLookupStore interface {
+	subjectUsernameStore
+	SubjectsByIDs(ctx context.Context, subjectIDs []string) (map[string]storage.Subject, error)
+}
+
+type roleAndSubjectStore interface {
+	storage.RoleLookupStore
+	subjectLookupStore
 }
 
 // subjectDirectory centralizes single-subject and batch username resolution

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gitslice.io/gitslice/internal/authctx"
+	"gitslice.io/gitslice/internal/doorbell"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -29,11 +30,11 @@ func TestStandbyPollUsesTheDoorbellAndQueuedChecksRingIt(t *testing.T) {
 
 	mem, handlers := newMemoryHandlers()
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
-	bell, err := NewDoorbell(srv.URL, "secret")
+	bell, err := doorbell.New(srv.URL, "secret")
 	if err != nil {
 		t.Fatal(err)
 	}
-	handlers.SetDoorbell(bell)
+	handlers.setDoorbell(bell)
 
 	first, err := handlers.Agent.StandbyPoll(ctx, &corev1.StandbyPollRequest{Name: "ci", Runtime: ciDaemonRuntime})
 	if err != nil || first.DoorbellUrl != "ws"+strings.TrimPrefix(srv.URL, "http")+"/wait" || !strings.HasPrefix(first.DoorbellToken, "gsdb1."+first.DaemonId+".") || first.SafetyPollAfterMs != doorbellSafetyPoll.Milliseconds() {

@@ -15,6 +15,7 @@ import (
 	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/automations"
+	"gitslice.io/gitslice/internal/gitmirror"
 	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
@@ -676,7 +677,7 @@ func TestGitBlobBackfillIdleWaitAndGitMirrorCoveringFanOut(t *testing.T) {
 	doneCh := make(chan struct{})
 	go func() {
 		defer close(doneCh)
-		blobSvc.RunGitBlobBackfill(ctx)
+		(&Handlers{Blob: blobSvc}).NewGitBlobBackfillWorker(nil).Run(ctx)
 	}()
 
 	time.Sleep(40 * time.Millisecond)
@@ -742,7 +743,7 @@ func TestGitBlobBackfillIdleWaitAndGitMirrorCoveringFanOut(t *testing.T) {
 	}
 
 	sliceStore := &countingMirrorSliceStore{SliceStore: mem.Slices}
-	mirrors := &GitMirrors{
+	mirrors := &gitmirror.Runner{
 		Mirrors:             mem.GitMirrors,
 		Slices:              sliceStore,
 		AllowPrivateTargets: true,

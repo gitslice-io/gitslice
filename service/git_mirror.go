@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"strings"
-	"sync"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -43,69 +41,8 @@ func GitMirrorPusher(push func(ctx context.Context, account, slice string, targe
 	}
 }
 
-// GitMirrors is a compatibility wrapper around gitmirror.Runner preserving the
-// gitcompat.MirrorTarget Push signature for existing server wiring. New callers
-// should construct *gitmirror.Runner directly and pass it via service.Options.
-type GitMirrors struct {
-	Mirrors             storage.GitMirrorStore
-	Slices              storage.SliceStore
-	Push                func(ctx context.Context, account, slice string, target gitcompat.MirrorTarget) (*gitcompat.MirrorResult, error)
-	Request             func(account, slice string)
-	AllowPrivateTargets bool
-	Nudge               func()
-	Now                 func() time.Time
-
-	mu sync.Mutex
-}
-
-// SetPusher sets Push and Request while drains may be running.
-func (m *GitMirrors) SetPusher(push func(ctx context.Context, account, slice string, target gitcompat.MirrorTarget) (*gitcompat.MirrorResult, error), request func(account, slice string)) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.Push, m.Request = push, request
-}
-
-func (m *GitMirrors) runner() *gitmirror.Runner {
-	if m == nil {
-		return nil
-	}
-	m.mu.Lock()
-	push, request := m.Push, m.Request
-	m.mu.Unlock()
-	return &gitmirror.Runner{
-		Mirrors:             m.Mirrors,
-		Slices:              m.Slices,
-		Push:                GitMirrorPusher(push),
-		Request:             request,
-		AllowPrivateTargets: m.AllowPrivateTargets,
-		Nudge:               m.Nudge,
-		Now:                 m.Now,
-	}
-}
-
-// FanOut marks the mirrors an event gives something to push.
-func (m *GitMirrors) FanOut(ctx context.Context, event storage.Event) {
-	m.runner().FanOut(ctx, event)
-}
-
-// Drain claims the mirrors that are due and pushes them (or asks for it).
-func (m *GitMirrors) Drain(ctx context.Context) {
-	m.runner().Drain(ctx)
-}
-
-// Run pushes a slice's mirror and records how it went.
-func (m *GitMirrors) Run(ctx context.Context, account, sliceSlug string) error {
-	return m.runner().Run(ctx, account, sliceSlug)
-}
-
 func (s *SliceService) mirrorRunner() *gitmirror.Runner {
-	if s.gitMirrorRunner != nil {
-		return s.gitMirrorRunner
-	}
-	if s.GitMirrors != nil {
-		return s.GitMirrors.runner()
-	}
-	return nil
+	return s.gitMirrorRunner
 }
 
 func gitMirrorProto(mirror *storage.GitMirror, slice *corev1.Slice) *corev1.SliceGitMirror {

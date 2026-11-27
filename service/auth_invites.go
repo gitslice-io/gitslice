@@ -159,10 +159,10 @@ func agentInviteToProto(inv storage.AgentInvite) *corev1.AgentInvite {
 		Id:                inv.ID,
 		Role:              inv.SliceRole,
 		SuggestedUsername: inv.SuggestedUsername,
-		ExpiresAt:         formatOptionalTime(inv.ExpiresAt),
-		CreatedAt:         formatOptionalTime(inv.CreatedAt),
-		ConsumedAt:        formatOptionalTime(inv.ConsumedAt),
-		RevokedAt:         formatOptionalTime(inv.RevokedAt),
+		ExpiresAt:         formatTime(inv.ExpiresAt),
+		CreatedAt:         formatTime(inv.CreatedAt),
+		ConsumedAt:        formatTime(inv.ConsumedAt),
+		RevokedAt:         formatTime(inv.RevokedAt),
 		ConsumedByAccount: inv.ConsumedByAccount,
 	}
 	if inv.SliceAccount != "" && inv.SliceSlug != "" {

@@ -80,7 +80,7 @@ automations:
 	engine, trigSvc, runSvc := newAutomationTestServices(mem, dispatchSecret)
 	runSvc.Blobs = mem.Blobs
 	runSvc.ChangesetService = h.Changeset
-	h.SetAutomationEngine(engine)
+	h.setAutomationEngine(engine)
 
 	run, err := trigSvc.RunAutomation(alice, &corev1.RunAutomationRequest{
 		Account:      "specorg",

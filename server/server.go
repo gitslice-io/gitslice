@@ -26,7 +26,6 @@ import (
 	"gitslice.io/gitslice/internal/objectstore/r2"
 	"gitslice.io/gitslice/internal/postgres"
 	"gitslice.io/gitslice/internal/secretbox"
-	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/treestore"
 	"gitslice.io/gitslice/service"
 	"google.golang.org/grpc"
@@ -203,16 +202,37 @@ func buildApp(ctx context.Context, cfg Config) (*App, error) {
 		}
 	}
 
-	// Trigger checks are written through the wrapped check store below, so
-	// the events they cause are recorded too. All wiring completes before
+	// Build the event dispatcher and wrapped stores before constructing
+	// consumers (automationEngine, gitMirrors), then attach consumers before
 	// StartWorkers launches any goroutine.
-	triggerChecks := &lateCheckStore{}
+	dispatcher := events.NewDispatcher(events.Stores{
+		Events:     db.Events(),
+		Slices:     db.Slices(),
+		Changesets: db.Changesets(),
+		Checks:     db.Checks(),
+		Auth:       db.Auth(),
+	}, events.Options{
+		WebBaseURL: cfg.webBaseURL(),
+		Gate:       app.gate,
+	})
+	stores := service.Stores{
+		Auth:        db.Auth(),
+		Blobs:       db.Blobs(),
+		Changesets:  events.WrapChangesets(db.Changesets(), dispatcher),
+		Repository:  db.Repository(),
+		Slices:      events.WrapSlices(db.Slices(), dispatcher),
+		Agents:      db.Agents(),
+		Checks:      events.WrapChecks(db.Checks(), dispatcher),
+		Feedback:    db.Feedback(),
+		Blames:      db.Blames(),
+		Automations: db.Automations(),
+	}
 	automationEngine := automations.NewEngine(automations.Stores{
 		Automations: db.Automations(),
 		Changesets:  db.Changesets(),
 		Slices:      db.Slices(),
 		Repository:  db.Repository(),
-		Checks:      triggerChecks,
+		Checks:      stores.Checks,
 	}, automations.Options{
 		Tree:                service.TreeFiles{Repository: db.Repository(), Objects: objectStore},
 		DispatchURL:         cfg.Integrations.TriggerDispatchURL,
@@ -225,20 +245,9 @@ func buildApp(ctx context.Context, cfg Config) (*App, error) {
 		Mirrors:             db.GitMirrors(),
 		Slices:              db.Slices(),
 		AllowPrivateTargets: cfg.Network.OutboundAllowPrivateTargets,
+		Nudge:               dispatcher.Nudge,
 	}
-	dispatcher := events.NewDispatcher(events.Stores{
-		Events:     db.Events(),
-		Slices:     db.Slices(),
-		Changesets: db.Changesets(),
-		Checks:     db.Checks(),
-		Auth:       db.Auth(),
-	}, events.Options{
-		WebBaseURL:  cfg.webBaseURL(),
-		Automations: automationEngine,
-		Mirrors:     gitMirrors,
-		Gate:        app.gate,
-	})
-	gitMirrors.Nudge = dispatcher.Nudge
+	dispatcher.SetConsumers(automationEngine, gitMirrors)
 	app.dispatcher = dispatcher
 
 	if !cfg.Workers.DisableIndexWorker {
@@ -266,20 +275,6 @@ func buildApp(ctx context.Context, cfg Config) (*App, error) {
 		db.Changesets().SetPendingPublishListener(app.pubRunner.Nudge)
 	}
 
-	stores := service.Stores{
-		Auth:        db.Auth(),
-		Blobs:       db.Blobs(),
-		Changesets:  events.WrapChangesets(db.Changesets(), dispatcher),
-		Repository:  db.Repository(),
-		Slices:      events.WrapSlices(db.Slices(), dispatcher),
-		Agents:      db.Agents(),
-		Checks:      events.WrapChecks(db.Checks(), dispatcher),
-		Feedback:    db.Feedback(),
-		Blames:      db.Blames(),
-		Automations: db.Automations(),
-	}
-	triggerChecks.CheckStore = stores.Checks
-
 	dbell, err := doorbell.New(cfg.Integrations.DoorbellURL, cfg.Integrations.DoorbellSecret)
 	if err != nil {
 		return nil, err
@@ -288,7 +283,7 @@ func buildApp(ctx context.Context, cfg Config) (*App, error) {
 	if users := clerk.NewUserClient(cfg.Auth.Clerk.SecretKey); users != nil {
 		clerkUsers = users
 	}
-	handlers := service.NewWithOptions(stores, objectStore, tracker, service.Options{
+	handlers := service.New(stores, objectStore, tracker, service.Options{
 		AutomationEngine:   automationEngine,
 		Doorbell:           dbell,
 		CIRunners:          cfg.Integrations.CIRunnerDaemons,
@@ -536,11 +531,4 @@ func newObjectStore(cfg Config) (service.ObjectStore, error) {
 		objectStore = latency.New(objectStore, cfg.Storage.ObjectStoreLatency)
 	}
 	return objectStore, nil
-}
-
-// lateCheckStore breaks the 3-way cycle between automations.Engine,
-// events.Dispatcher, and events.WrapChecks; its CheckStore is populated during
-// buildApp before StartWorkers launches any goroutine.
-type lateCheckStore struct {
-	storage.CheckStore
 }

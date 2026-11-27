@@ -11,7 +11,7 @@ import (
 
 // captureActorAttribution builds a server-verified storage.ActorAttribution from
 // ctx (and authStore fallback when ctx carries only SubjectID) for subjectID.
-func captureActorAttribution(ctx context.Context, auth storage.AuthStore, subjectID string) storage.ActorAttribution {
+func captureActorAttribution(ctx context.Context, auth subjectLookupStore, subjectID string) storage.ActorAttribution {
 	subjectID = strings.TrimSpace(subjectID)
 	if subjectID == "" {
 		return storage.ActorAttribution{}
@@ -39,14 +39,14 @@ func captureActorAttribution(ctx context.Context, auth storage.AuthStore, subjec
 
 // withCapturedAttribution attaches captureActorAttribution(ctx, auth, subjectID)
 // onto ctx so downstream store writes persist accurate audit metadata.
-func withCapturedAttribution(ctx context.Context, auth storage.AuthStore, subjectID string) (context.Context, storage.ActorAttribution) {
+func withCapturedAttribution(ctx context.Context, auth subjectLookupStore, subjectID string) (context.Context, storage.ActorAttribution) {
 	attr := captureActorAttribution(ctx, auth, subjectID)
 	return storage.WithActorAttribution(ctx, attr), attr
 }
 
 // enrichActorAttributions resolves acting_username, controller_username, and
 // daemon_name across one or more proto ActorAttribution messages in batches.
-func enrichActorAttributions(ctx context.Context, auth storage.AuthStore, agents storage.AgentStore, attrs ...*corev1.ActorAttribution) error {
+func enrichActorAttributions(ctx context.Context, auth subjectLookupStore, agents storage.AgentStore, attrs ...*corev1.ActorAttribution) error {
 	if len(attrs) == 0 {
 		return nil
 	}

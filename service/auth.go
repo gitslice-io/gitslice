@@ -338,9 +338,9 @@ func (s *AuthService) ListOwnedAgents(ctx context.Context, req *corev1.ListOwned
 			AgentSubjectId:   agent.AgentSubjectID,
 			AgentDisplayName: agent.AgentDisplayName,
 			Account:          agent.Account,
-			RegisteredAt:     formatOptionalTime(agent.RegisteredAt),
-			ClaimedAt:        formatOptionalTime(agent.ClaimedAt),
-			LastActiveAt:     formatOptionalTime(agent.LastActiveAt),
+			RegisteredAt:     formatTime(agent.RegisteredAt),
+			ClaimedAt:        formatTime(agent.ClaimedAt),
+			LastActiveAt:     formatTime(agent.LastActiveAt),
 		})
 	}
 	return &corev1.ListOwnedAgentsResponse{Agents: out}, nil
@@ -413,13 +413,6 @@ func (s *AuthService) CreateDelegatedAgent(ctx context.Context, req *corev1.Crea
 		Slice:          sliceRef,
 		Role:           res.Role,
 	}, nil
-}
-
-func formatOptionalTime(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	return t.UTC().Format(time.RFC3339)
 }
 
 // refreshVerifiedEmails syncs the caller's verified emails from Clerk. Service

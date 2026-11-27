@@ -77,13 +77,13 @@ type Stores struct {
 	Automations storage.AutomationStore
 }
 
-func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Client) *Handlers {
-	return NewWithOptions(stores, objectStore, analyticsClient, Options{})
-}
-
-// NewWithOptions builds all RPC handlers with optional integrations and
-// background worker dependencies wired upfront.
-func NewWithOptions(stores Stores, objectStore ObjectStore, analyticsClient analytics.Client, opts Options) *Handlers {
+// New builds all RPC handlers with optional integrations and background worker
+// dependencies wired upfront.
+func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Client, options ...Options) *Handlers {
+	var opts Options
+	if len(options) > 0 {
+		opts = options[0]
+	}
 	validator := diffValidator{
 		Blobs:      stores.Blobs,
 		Repository: stores.Repository,
@@ -206,13 +206,13 @@ func NewWithOptions(stores Stores, objectStore ObjectStore, analyticsClient anal
 		gate: opts.ActivityGate,
 	}
 	if opts.AutomationEngine != nil {
-		h.SetAutomationEngine(opts.AutomationEngine)
+		h.setAutomationEngine(opts.AutomationEngine)
 	}
 	if opts.Doorbell != nil {
-		h.SetDoorbell(opts.Doorbell)
+		h.setDoorbell(opts.Doorbell)
 	}
 	if len(opts.CIRunners) > 0 {
-		h.SetCIRunners(opts.CIRunners)
+		h.setCIRunners(opts.CIRunners)
 	}
 	return h
 }
@@ -302,9 +302,9 @@ func (h *Handlers) Workers(opts WorkerOptions) []WorkerFunc {
 	return workers
 }
 
-// SetAutomationEngine gives the trigger services their engine, and the engine
+// setAutomationEngine gives the automation services their engine, and the engine
 // what runs check actions on CI daemons.
-func (h *Handlers) SetAutomationEngine(engine *automations.Engine) {
+func (h *Handlers) setAutomationEngine(engine *automations.Engine) {
 	h.Automation.Engine = engine
 	h.AutomationRun.Engine = engine
 	if h.Changeset != nil && h.Changeset.dispatcher != nil {

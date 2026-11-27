@@ -30,7 +30,7 @@ func TestNewWithOptionsAndWorkersInjectActivityGate(t *testing.T) {
 	}
 	blobStore := &countingMissingGitBlobStore{BlobStore: mem.Blobs}
 
-	h := NewWithOptions(Stores{
+	h := New(Stores{
 		Auth:        mem.Auth,
 		Blobs:       blobStore,
 		Changesets:  mem.Changesets,

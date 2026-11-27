@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc/codes"
 
 	"gitslice.io/gitslice/internal/gitcompat"
+	"gitslice.io/gitslice/internal/gitmirror"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
@@ -27,16 +28,16 @@ func (f *fakeMirrorPush) push(ctx context.Context, account, slice string, target
 	return &gitcompat.MirrorResult{Head: "abc123", NativeCommitID: "sha256:n1", Exported: 1}, nil
 }
 
-func newGitMirrorHandlers(t *testing.T) (*Handlers, *GitMirrors, *fakeMirrorPush, *time.Time) {
+func newGitMirrorHandlers(t *testing.T) (*Handlers, *gitmirror.Runner, *fakeMirrorPush, *time.Time) {
 	t.Helper()
 	mem, h := newSliceMemberHandlers(t)
 	mem.AddAccountRole("user_bob", "acme", "writer")
 	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
 	mem.GitMirrors.Now = func() time.Time { return now }
 	fake := &fakeMirrorPush{}
-	mirrors := &GitMirrors{Mirrors: mem.GitMirrors, Slices: mem.Slices, AllowPrivateTargets: true, Now: func() time.Time { return now }}
-	mirrors.SetPusher(fake.push, nil)
-	h.Slice.GitMirrors = mirrors
+	mirrors := &gitmirror.Runner{Mirrors: mem.GitMirrors, Slices: mem.Slices, AllowPrivateTargets: true, Now: func() time.Time { return now }}
+	mirrors.SetPusher(GitMirrorPusher(fake.push), nil)
+	h.Slice.gitMirrorRunner = mirrors
 	if _, err := h.Secret.CreateSecret(subjectCtx("user_alice"), &corev1.CreateSecretRequest{
 		Account: "acme", Name: "GITHUB_MIRROR_TOKEN", Value: "ghp_token",
 		Scope: &corev1.SecretScope{Paths: []string{"/acme/payment"}},

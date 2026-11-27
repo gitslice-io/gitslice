@@ -15,14 +15,11 @@ import (
 )
 
 type SliceService struct {
-	Auth       storage.AuthStore
-	Repository storage.RepositoryStore
-	Slices     storage.SliceStore
-	Agents     storage.AgentStore
-	Analytics  analytics.Client
-	// GitMirrors is optional: without it the Git mirror calls are
-	// unavailable (design/35_git_mirrors.md).
-	GitMirrors      *GitMirrors
+	Auth            storage.AuthStore
+	Repository      storage.RepositoryStore
+	Slices          storage.SliceStore
+	Agents          storage.AgentStore
+	Analytics       analytics.Client
 	gitMirrorRunner *gitmirror.Runner
 }
 

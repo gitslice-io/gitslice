@@ -9859,3 +9859,18 @@ All checks passed with zero formatting diffs, zero `go vet` diagnostics, zero `g
 
 **Verification**
 - `gofmt -l .`, `go vet ./...`, `go test -race -count=1 ./internal/storage/... ./internal/postgres/... ./service/... ./server/...`, `go build ./cmd/...`, and full remote CI (`gitslice/{gofmt,vet,test,build,e2e,web/build}`).
+
+## 2026-11-27 — Governance Wave G3: break lateCheckStore cycle, unify gitcompat internal HTTP, retire service shims
+
+**Why**
+- `server/server.go` still carried a `lateCheckStore` proxy struct solely to break the 3-way construction cycle between `events.Dispatcher`, `events.WrapChecks`, and `automations.Engine`.
+- `internal/gitcompat/compact_http.go` and `mirror_http.go` duplicated ~85% identical HMAC signing, timestamp skew verification, and `httptrace` self-request plumbing.
+- Transitional compatibility shims remained in `service/` (`NewWithOptions`, `GitMirrors`, `Doorbell`/`NewDoorbell`, `RunGitBlobBackfill`, exported `SetDoorbell`/`SetCIRunners`/`SetAutomationEngine`), `service/doorbell.go` used uninterruptible `time.Sleep`, `FeedbackService`/`CheckService` injected the full 52-method `AuthStore`, and `formatOptionalTime` duplicated `formatTime`.
+
+**What changed**
+- Added `(*events.Dispatcher).SetConsumers` so `server/server.go` builds the dispatcher and wrapped stores first, constructs `automations.Engine` and `gitmirror.Runner` with real wrapped stores, attaches consumers before `StartWorkers`, and deletes `lateCheckStore`.
+- Replaced `internal/gitcompat/{compact_http,mirror_http}.go` with a single `internal/gitcompat/internal_http.go`.
+- Unified `service.New(stores, objectStore, analyticsClient, opts ...Options)` (removing `NewWithOptions`), deleted `service.GitMirrors`, `service.Doorbell`, `service.NewDoorbell`, `(*BlobService).RunGitBlobBackfill`, and `formatOptionalTime`, unexported `setDoorbell`/`setCIRunners`/`setAutomationEngine`, narrowed `FeedbackService.Auth` and `CheckService.Auth` to `storage.RoleLookupStore`, made `ringDaemon` backoff context-aware with a 30s timeout, and fixed `internal/automations/parse.go` package doc comment.
+
+**Verification**
+- `gofmt -l .`, `go vet ./...`, `go test -race -timeout 60s -count=1 ./internal/events/... ./internal/gitcompat/... ./internal/automations/... ./service/... ./server/...`, `go build ./cmd/...`, and full remote CI (`gitslice/{gofmt,vet,test,build,e2e,web/build}`).
