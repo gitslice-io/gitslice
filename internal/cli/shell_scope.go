@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"gitslice.io/gitslice/internal/workspace"
 	"path"
 	"strings"
 
@@ -96,7 +97,7 @@ func (r Runner) personalHomeShellScope(ctx context.Context, cfg UserConfig, conn
 	accountSlug := slice.Ref.Account
 	homeRoot := "/" + accountSlug
 	if slice.Definition != nil && len(slice.Definition.IncludedPaths) > 0 {
-		root, err := cleanShellGlobalPath(slice.Definition.IncludedPaths[0])
+		root, err := workspace.CleanGlobalPath(slice.Definition.IncludedPaths[0])
 		if err != nil {
 			return "", nil, err
 		}
@@ -112,7 +113,7 @@ func (r Runner) personalHomeShellScope(ctx context.Context, cfg UserConfig, conn
 }
 
 func canonicalIncludedRoot(value string) (string, error) {
-	cleaned, err := cleanShellGlobalPath(value)
+	cleaned, err := workspace.CleanGlobalPath(value)
 	if err != nil {
 		return "", err
 	}

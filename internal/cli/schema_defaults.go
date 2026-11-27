@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -84,7 +85,7 @@ func tokenizeUsageTail(tail string) []string {
 
 func parseSchemaCommandArgs(cmd *cobra.Command, fullUse string) []string {
 	var tail string
-	if isSchemaCollapsedCommand(cmd) {
+	if clibase.IsSchemaCollapsedCommand(cmd) {
 		fields := strings.Fields(fullUse)
 		if len(fields) >= 2 {
 			tail = strings.TrimSpace(strings.TrimPrefix(fullUse, strings.Join(fields[:2], " ")))

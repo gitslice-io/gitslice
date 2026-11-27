@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -115,7 +116,7 @@ func tagToOutput(tag *corev1.Tag) tagOutput {
 	}
 }
 
-var tagErrorHints = domainErrorOverrides{
+var tagErrorHints = clibase.DomainErrorOverrides{
 	codes.AlreadyExists: {
 		Code: "tag_exists",
 		Hint: "Tags are immutable; pick a new name.",
@@ -126,5 +127,5 @@ var tagErrorHints = domainErrorOverrides{
 }
 
 func tagError(err error) error {
-	return withDomainErrorHints(err, tagErrorHints)
+	return clibase.WithDomainErrorHints(err, tagErrorHints)
 }

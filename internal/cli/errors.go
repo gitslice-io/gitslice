@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"strings"
 
 	"google.golang.org/grpc/codes"
@@ -53,10 +54,10 @@ func (r Runner) enhanceCommandError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if cmdErr, ok := asCommandError(err); ok {
+	if cmdErr, ok := clibase.AsError(err); ok {
 		return cmdErr
 	}
-	baseErr, overrides := extractDomainErrorOverrides(err)
+	baseErr, overrides := clibase.ExtractDomainErrorOverrides(err)
 	st, ok := grpcstatus.FromError(baseErr)
 	if !ok || st.Code() == codes.OK {
 		return baseErr
@@ -86,7 +87,7 @@ func (r Runner) enhanceCommandError(err error) error {
 			return baseErr
 		}
 	}
-	return applyDomainErrorOverride(mapped, st.Code(), st.Message(), overrides)
+	return clibase.ApplyDomainErrorOverride(mapped, st.Code(), st.Message(), overrides)
 }
 
 // unauthenticatedError says which of the two ways a request goes
@@ -190,7 +191,7 @@ func classifyErrorBody(err error, mcpMode bool) errorBody {
 	if err == nil {
 		return errorBody{Code: defaultCode}
 	}
-	if cmdErr, ok := asCommandError(err); ok {
+	if cmdErr, ok := clibase.AsError(err); ok {
 		return populateDefaultRemediation(errorBody{
 			Code:               cmdErr.Code,
 			Message:            cmdErr.Message,
@@ -201,7 +202,7 @@ func classifyErrorBody(err error, mcpMode bool) errorBody {
 		})
 	}
 	var cmdErr commandError
-	baseErr, overrides := extractDomainErrorOverrides(err)
+	baseErr, overrides := clibase.ExtractDomainErrorOverrides(err)
 	if explained := explainUnavailable(baseErr); explained != nil && errors.As(explained, &cmdErr) {
 		return populateDefaultRemediation(errorBody{
 			Code:               cmdErr.Code,
@@ -214,7 +215,7 @@ func classifyErrorBody(err error, mcpMode bool) errorBody {
 	}
 	if st, ok := grpcstatus.FromError(baseErr); ok && st.Code() != codes.OK && st.Code() != codes.Unknown {
 		if mapped, matched := grpcStatusCommandError(baseErr, st); matched {
-			mapped = applyDomainErrorOverride(mapped, st.Code(), st.Message(), overrides)
+			mapped = clibase.ApplyDomainErrorOverride(mapped, st.Code(), st.Message(), overrides)
 			code := mapped.Code
 			if mcpMode && len(overrides) == 0 {
 				code = strings.ToLower(st.Code().String())

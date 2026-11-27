@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"io"
 	"strings"
 
@@ -351,7 +352,7 @@ func (r Runner) helpCommand(root *cobra.Command) *cobra.Command {
 			},
 		})
 	}
-	withSchemaCollapsed(cmd, "gs help <topic>", "show help for a command or CLI topic")
+	clibase.WithSchemaCollapsed(cmd, "gs help <topic>", "show help for a command or CLI topic")
 	withSchemaOutputFields(cmd)
 	return cmd
 }

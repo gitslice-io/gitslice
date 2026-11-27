@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"gitslice.io/gitslice/internal/workspace"
 	"io"
 	"io/fs"
 	"path"
@@ -153,7 +154,7 @@ func (s overlayEditSource) edits(ctx context.Context, base BaseSnapshot, _ int) 
 	}
 	sort.Strings(paths)
 	found.files = map[string]workingFile{}
-	var ignore *workspaceIgnore
+	var ignore *workspace.Ignore
 	for _, p := range paths {
 		state := states[p]
 		baseFile, tracked := lookupBase(p)
@@ -178,7 +179,7 @@ func (s overlayEditSource) edits(ctx context.Context, base BaseSnapshot, _ int) 
 		case state.exists && (!tracked || baseFile.ContentHash != state.hash || !sameWorkspaceMode(baseFile.Mode, state.mode)):
 			found.edits = append(found.edits, &corev1.FileEdit{Op: "upsert", Path: p, ContentHash: state.hash, Mode: state.mode})
 			absPath := state.localPath
-			if isSymlinkMode(state.mode) {
+			if workspace.IsSymlinkMode(state.mode) {
 				absPath = ""
 			} else if liveMount && s.mountRoot != "" {
 				absPath = filepath.Join(s.mountRoot, filepath.FromSlash(rel))
@@ -197,16 +198,16 @@ func (s overlayEditSource) edits(ctx context.Context, base BaseSnapshot, _ int) 
 // ignoreRules builds the .gitignore matcher over the workspace's layers. As
 // in a walk, every file of the layer's base and of the base asked about
 // counts as tracked.
-func (s overlayEditSource) ignoreRules(ctx context.Context, base BaseSnapshot, baseFiles map[string]BaseSnapshotFile, manifest *lazyfs.Manifest) *workspaceIgnore {
-	var ig *workspaceIgnore
+func (s overlayEditSource) ignoreRules(ctx context.Context, base BaseSnapshot, baseFiles map[string]BaseSnapshotFile, manifest *lazyfs.Manifest) *workspace.Ignore {
+	var ig *workspace.Ignore
 	if manifest != nil {
 		tracked := map[string]BaseSnapshotFile{}
 		manifest.Files(func(entry lazyfs.BaseEntry) {
 			tracked[entry.Path] = BaseSnapshotFile{Path: entry.Path}
 		})
-		ig = newWorkspaceIgnore("", s.ws, tracked, base.Files)
+		ig = workspace.NewIgnore("", s.ws, tracked, base.Files)
 	} else {
-		ig = newWorkspaceIgnore("", s.ws, baseFiles, base.Files)
+		ig = workspace.NewIgnore("", s.ws, baseFiles, base.Files)
 	}
 	ig.Read = func(dir string) []byte {
 		globalPath, err := workspaceRelativePathToGlobalPath(s.ws, path.Join(dir, ".gitignore"))

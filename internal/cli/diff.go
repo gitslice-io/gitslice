@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"io"
 	"sort"
 	"strings"
@@ -82,7 +83,7 @@ func (r Runner) runCommitDiff(ctx context.Context, opts commandOptions, commitAr
 			printUnifiedDiffStatColor(r.Stdout, changed, diffText, color)
 			return nil
 		}
-		_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, diffCtx.Lines()), color))
+		_, err = io.WriteString(r.Stdout, clibase.ColorUnifiedDiff(compactUnifiedDiff(diffText, diffCtx.Lines()), color))
 		return err
 	})
 }
@@ -146,7 +147,7 @@ func (r Runner) runWorkspaceDiff(ctx context.Context, opts commandOptions, nameO
 	if err != nil {
 		return err
 	}
-	_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, diffCtx.Lines()), r.colorEnabled(opts)))
+	_, err = io.WriteString(r.Stdout, clibase.ColorUnifiedDiff(compactUnifiedDiff(diffText, diffCtx.Lines()), r.colorEnabled(opts)))
 	return err
 }
 

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -382,7 +383,7 @@ func groupFromProto(g *corev1.AccountGroup) groupOutput {
 	}
 }
 
-var groupErrorHints = domainErrorOverrides{
+var groupErrorHints = clibase.DomainErrorOverrides{
 	codes.PermissionDenied: {
 		Hint: "Account groups are managed by account owners and admins.",
 	},
@@ -395,5 +396,5 @@ var groupErrorHints = domainErrorOverrides{
 }
 
 func groupError(err error) error {
-	return withDomainErrorHints(err, groupErrorHints)
+	return clibase.WithDomainErrorHints(err, groupErrorHints)
 }

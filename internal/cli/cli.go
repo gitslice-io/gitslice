@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"io"
 	"os"
 
@@ -43,8 +44,8 @@ type Runner struct {
 func Main(args []string, stdout, stderr io.Writer) int {
 	r := Runner{Stdout: stdout, Stderr: stderr, Stdin: os.Stdin}
 	if err := r.Run(context.Background(), args); err != nil {
-		if wantsJSON(args) {
-			if writeErr := writeJSON(stderr, classifyError(err)); writeErr != nil {
+		if clibase.WantsJSON(args) {
+			if writeErr := clibase.WriteJSON(stderr, classifyError(err)); writeErr != nil {
 				fmt.Fprintln(stderr, err)
 			}
 		} else {
@@ -98,7 +99,7 @@ func (r Runner) rootCommand() *cobra.Command {
 			cmd.SetContext(withInsecure(cmd.Context(), r.Insecure))
 			if cmd.Root().PersistentFlags().Changed("json") {
 				opts.Format = "json"
-				fields, err := parseJSONFields(jsonFlagValue)
+				fields, err := clibase.ParseJSONFields(jsonFlagValue)
 				if err != nil {
 					return err
 				}
@@ -111,7 +112,7 @@ func (r Runner) rootCommand() *cobra.Command {
 				return userError("invalid_format", "cannot use --jq and --template together", "Use --jq to filter JSON or --template to format output.")
 			}
 			if !opts.Quiet && !opts.JSONOutput() {
-				cmd.SetContext(withProgress(cmd.Context(), r.stderr()))
+				cmd.SetContext(clibase.WithProgress(cmd.Context(), r.stderr()))
 			}
 			return nil
 		},
@@ -176,7 +177,7 @@ func (r Runner) rootCommand() *cobra.Command {
 	root.InitDefaultHelpCmd()
 	root.InitDefaultCompletionCmd()
 	if comp, _, err := root.Find([]string{"completion"}); err == nil && comp != nil && comp != root {
-		withSchemaCollapsed(comp, "gs completion <shell>", "print a shell completion script (bash, zsh, fish, powershell); changeset and slice arguments complete from the server")
+		clibase.WithSchemaCollapsed(comp, "gs completion <shell>", "print a shell completion script (bash, zsh, fish, powershell); changeset and slice arguments complete from the server")
 	}
 	r.attachCompletions(root)
 	return root

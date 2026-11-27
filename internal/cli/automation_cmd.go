@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"google.golang.org/grpc/codes"
 )
 
@@ -153,7 +154,7 @@ Before an automation lands, try it in one of two ways:
 	return autoCmd
 }
 
-var triggerErrorHints = domainErrorOverrides{
+var triggerErrorHints = clibase.DomainErrorOverrides{
 	codes.Unimplemented: {
 		Message: "this server does not run automations",
 		Hint:    "Upgrade the server.",
@@ -161,5 +162,5 @@ var triggerErrorHints = domainErrorOverrides{
 }
 
 func automationError(err error) error {
-	return withDomainErrorHints(err, triggerErrorHints)
+	return clibase.WithDomainErrorHints(err, triggerErrorHints)
 }

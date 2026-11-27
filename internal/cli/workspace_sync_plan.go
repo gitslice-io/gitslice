@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"gitslice.io/gitslice/internal/workspace"
 	"sort"
 	"strings"
 
@@ -172,7 +173,7 @@ func (r Runner) tryLineMergeWorkspaceConflict(ctx context.Context, repo corev1.R
 	if !isTextConflictSide(baseData, true) || !isTextConflictSide(localData, true) || !isTextConflictSide(remoteData, true) {
 		return mergedWorkspaceFile{}, false, nil
 	}
-	merged, ok := mergeTextLines(baseData, localData, remoteData)
+	merged, ok := workspace.MergeTextLines(baseData, localData, remoteData)
 	if !ok {
 		return mergedWorkspaceFile{}, false, nil
 	}

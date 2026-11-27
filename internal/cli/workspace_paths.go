@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"gitslice.io/gitslice/internal/workspace"
 	"strings"
 
 	"gitslice.io/gitslice/internal/paths"
@@ -21,7 +22,7 @@ func workspaceInputToGlobalPath(ws WorkspaceConfig, value string) (string, error
 		return canonicalIncludedRoot(ws.IncludedPaths[0])
 	}
 	if strings.HasPrefix(value, "/") {
-		globalPath, err := cleanShellGlobalPath(value)
+		globalPath, err := workspace.CleanGlobalPath(value)
 		if err != nil {
 			return "", err
 		}
@@ -44,7 +45,7 @@ func workspaceRelativePathToGlobalPath(ws WorkspaceConfig, value string) (string
 	if err := ensureNotReservedGsPath(value); err != nil {
 		return "", err
 	}
-	canonicalRel, err := cleanShellGlobalPath(value)
+	canonicalRel, err := workspace.CleanGlobalPath(value)
 	if err == nil && paths.InAnyPrefix(ws.IncludedPaths, canonicalRel) {
 		if err := ensureNotReservedGsPath(canonicalRel); err != nil {
 			return "", err
@@ -65,7 +66,7 @@ func workspaceRelativePathToGlobalPath(ws WorkspaceConfig, value string) (string
 }
 
 func workspaceRelPath(ws WorkspaceConfig, globalPath string) (string, error) {
-	cleaned, err := cleanShellGlobalPath(globalPath)
+	cleaned, err := workspace.CleanGlobalPath(globalPath)
 	if err != nil {
 		return "", err
 	}

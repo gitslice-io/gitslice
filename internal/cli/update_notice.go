@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"os"
 	"path/filepath"
 	"strings"
@@ -158,7 +159,7 @@ func updateNoticeWanted(args []string, current string) bool {
 	if _, ok := selfupdate.ParseVersion(current); !ok {
 		return false
 	}
-	if wantsJSON(args) {
+	if clibase.WantsJSON(args) {
 		return false
 	}
 	for _, arg := range args {

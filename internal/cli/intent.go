@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"strings"
 	"time"
 
@@ -332,7 +333,7 @@ func pathIntentFromProto(item *corev1.PathIntent) pathIntentOutput {
 	}
 }
 
-var intentErrorHints = domainErrorOverrides{
+var intentErrorHints = clibase.DomainErrorOverrides{
 	codes.InvalidArgument: {
 		Code: "invalid_intent",
 		Hint: "Check pattern syntax, slice bounds, and --for duration (max 7d).",
@@ -354,5 +355,5 @@ var intentErrorHints = domainErrorOverrides{
 }
 
 func intentRPCError(err error) error {
-	return withDomainErrorHints(err, intentErrorHints)
+	return clibase.WithDomainErrorHints(err, intentErrorHints)
 }

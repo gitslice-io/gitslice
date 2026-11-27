@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"gitslice.io/gitslice/internal/cli/clibase"
+	"gitslice.io/gitslice/internal/workspace"
 	"io"
 	"strings"
 
@@ -183,7 +185,7 @@ func (r Runner) runCommitShow(ctx context.Context, opts commandOptions, commitID
 			if err != nil {
 				return err
 			}
-			_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(diffText, showOpts.DiffContext.Lines()), color))
+			_, err = io.WriteString(r.Stdout, clibase.ColorUnifiedDiff(compactUnifiedDiff(diffText, showOpts.DiffContext.Lines()), color))
 			return err
 		}
 		printCommitDetails(r.Stdout, commit, showOpts.Full, color)
@@ -197,7 +199,7 @@ func (r Runner) resolveCommitLogPath(raw string) (string, error) {
 		return "", nil
 	}
 	if strings.HasPrefix(raw, "/") {
-		return cleanShellGlobalPath(raw)
+		return workspace.CleanGlobalPath(raw)
 	}
 	ws, err := r.readWorkspaceConfig()
 	if err != nil {

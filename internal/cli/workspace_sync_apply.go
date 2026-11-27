@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"gitslice.io/gitslice/internal/workspace"
 
 	"gitslice.io/gitslice/internal/clientcache"
 	"gitslice.io/gitslice/internal/lazyfs"
@@ -47,7 +48,7 @@ func (d *eagerWorkspaceSyncDriver) remoteFiles(_, callCtx context.Context, _ *gr
 }
 
 func (d *eagerWorkspaceSyncDriver) backupUncommitted(localDirtyPaths []string) (string, error) {
-	return d.r.backupUncommittedEdits(d.root, localDirtyPaths)
+	return workspace.BackupUncommittedEdits(d.root, localDirtyPaths)
 }
 
 func (d *eagerWorkspaceSyncDriver) applySyncPlan(ctx, callCtx context.Context, repo corev1.RepositoryServiceClient, cache *clientcache.ObjectCache, ws WorkspaceConfig, oldBaseCommitID, newBaseCommitID string, base BaseSnapshot, current map[string]workingFile, remoteFiles map[string]remoteWorkspaceFile, plan workspaceSyncPlan, _ bool) error {

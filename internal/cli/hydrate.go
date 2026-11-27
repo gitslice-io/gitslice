@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"gitslice.io/gitslice/internal/cli/clibase"
+	"gitslice.io/gitslice/internal/workspace"
 	"io"
 	"os"
 	"path/filepath"
@@ -97,11 +99,11 @@ func (r Runner) hydrateWith(ctx context.Context, conn *grpc.ClientConn, ws Works
 	}
 	// The files just written need not be hashed by the next scan.
 	if len(hydrator.stats) > 0 {
-		cache := readStatCache(root)
+		cache := workspace.ReadStatCache(root)
 		for rel, entry := range hydrator.stats {
 			cache.Files[rel] = entry
 		}
-		writeStatCache(root, cache.Files)
+		workspace.WriteStatCache(root, cache.Files)
 	}
 	if err := r.writeBaseSnapshot(hydrator.base); err != nil {
 		return hydrateResult{}, err
@@ -119,11 +121,11 @@ type workspaceHydrator struct {
 	commitID string
 	base     BaseSnapshot
 	result   hydrateResult
-	progress *progressReporter
+	progress *clibase.ProgressReporter
 	// pending are the files hydratePath found; materialize writes them.
 	pending []*corev1.TreeEntry
 	// stats are the written files' stat cache entries, by relative path.
-	stats map[string]statCacheEntry
+	stats map[string]workspace.StatCacheEntry
 	// fetched are contents just downloaded into the cache (by Checkout);
 	// they count as misses, not hits (true until counted).
 	fetched map[string]bool
@@ -243,9 +245,9 @@ func (h *workspaceHydrator) recordFile(entry *corev1.TreeEntry, rel, target stri
 	info, statErr := os.Lstat(target)
 	h.mu.Lock()
 	if statErr == nil {
-		if stat, ok := statCacheEntryFor(info, entry.ContentHash); ok {
+		if stat, ok := workspace.StatCacheEntryFor(info, entry.ContentHash); ok {
 			if h.stats == nil {
-				h.stats = map[string]statCacheEntry{}
+				h.stats = map[string]workspace.StatCacheEntry{}
 			}
 			h.stats[rel] = stat
 		}
@@ -268,7 +270,7 @@ func (h *workspaceHydrator) recordFile(entry *corev1.TreeEntry, rel, target stri
 // containing the target; the workspace scan treats that fallback as unchanged.
 // A regular file never writes through an existing symlink at the same path.
 func writeWorkspaceFile(target string, mode uint32, r io.Reader) (int64, error) {
-	root, rel, err := inferConfiningRootForTarget(target)
+	root, rel, err := workspace.InferConfiningRootForTarget(target)
 	if err != nil {
 		return 0, err
 	}

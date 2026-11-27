@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"gitslice.io/gitslice/internal/workspace"
 	"os"
 	"sort"
 	"strings"
@@ -247,7 +248,7 @@ func (r Runner) lazySnapshotDiff(ctx context.Context, conn *grpc.ClientConn, cfg
 			return nil, err
 		}
 		entry, inBase := manifest.Lookup(p)
-		if isSymlinkMode(file.Mode) {
+		if workspace.IsSymlinkMode(file.Mode) {
 			if inBase && entry.Kind == lazyfs.KindSymlink && entry.ContentHash == file.ContentHash {
 				continue
 			}

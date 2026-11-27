@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"gitslice.io/gitslice/internal/workspace"
 	"io"
 	"io/fs"
 	"os"
@@ -174,7 +175,7 @@ func (v *daemonLayerView) offlineEdits() ([]lazyfs.Edit, *lazyfs.Manifest, error
 	}
 	v.offlineRead = func(ctx context.Context, p string) ([]byte, error) {
 		if edit, ok := editByPath[p]; ok {
-			if edit.Op == "delete" || isSymlinkMode(edit.Mode) {
+			if edit.Op == "delete" || workspace.IsSymlinkMode(edit.Mode) {
 				return nil, fs.ErrNotExist
 			}
 			if edit.LocalPath != "" {

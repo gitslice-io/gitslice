@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"gitslice.io/gitslice/internal/workspace"
 	"io"
 	"io/fs"
 	"os"
@@ -97,7 +98,7 @@ func (s walkEditSource) edits(ctx context.Context, base BaseSnapshot, hashConcur
 func readWorkingFile(file workingFile, cache *clientcache.ObjectCache) ([]byte, error) {
 	if file.AbsPath != "" {
 		rootDir, relPath := splitConfinedWorkingPath(file)
-		if isSymlinkMode(file.Mode) {
+		if workspace.IsSymlinkMode(file.Mode) {
 			if dir := filepath.Dir(relPath); dir != "." {
 				root, err := os.OpenRoot(rootDir)
 				if err != nil {

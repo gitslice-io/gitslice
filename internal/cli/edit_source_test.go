@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"gitslice.io/gitslice/internal/workspace"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,8 +22,8 @@ import (
 // would.
 func TestOverlayAndWalkFindTheSameEdits(t *testing.T) {
 	ctx := context.Background()
-	workspace := t.TempDir()
-	r := Runner{Home: t.TempDir(), Dir: workspace}
+	wsDir := t.TempDir()
+	r := Runner{Home: t.TempDir(), Dir: wsDir}
 	ws := WorkspaceConfig{Account: "acme", Slice: "app", IncludedPaths: []string{"/acme/app"}}
 	if err := r.writeWorkspaceConfig(ws); err != nil {
 		t.Fatal(err)
@@ -50,7 +51,7 @@ func TestOverlayAndWalkFindTheSameEdits(t *testing.T) {
 	base := BaseSnapshot{CommitID: "commit-1", Files: map[string]BaseSnapshotFile{}}
 	var entries []lazyfs.BaseEntry
 	for p, f := range baseFiles {
-		local := filepath.Join(workspace, strings.TrimPrefix(p, "/"))
+		local := filepath.Join(wsDir, strings.TrimPrefix(p, "/"))
 		if err := os.MkdirAll(filepath.Dir(local), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -94,7 +95,7 @@ func TestOverlayAndWalkFindTheSameEdits(t *testing.T) {
 	defer layer.Close()
 
 	// The same changes, to the directory and to the layer.
-	disk := func(p string) string { return filepath.Join(workspace, strings.TrimPrefix(p, "/")) }
+	disk := func(p string) string { return filepath.Join(wsDir, strings.TrimPrefix(p, "/")) }
 	must := func(err error) {
 		t.Helper()
 		if err != nil {
@@ -147,7 +148,7 @@ func TestOverlayAndWalkFindTheSameEdits(t *testing.T) {
 			got, err := readWorkingFile(overlaid.files[edit.Path], cache)
 			must(err)
 			want, err := readWorkingFile(walked.files[edit.Path], cache)
-			if isSymlinkMode(edit.Mode) {
+			if workspace.IsSymlinkMode(edit.Mode) {
 				want, err = []byte(must2(os.Readlink(disk(edit.Path)))), nil
 			}
 			must(err)

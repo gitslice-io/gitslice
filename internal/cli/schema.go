@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -123,14 +124,14 @@ func schemaCommandsFromRoot(root *cobra.Command) []map[string]any {
 	var commands []map[string]any
 	var walk func(ancestors []*cobra.Command, cmd *cobra.Command)
 	walk = func(ancestors []*cobra.Command, cmd *cobra.Command) {
-		if cmd == nil || cmd.Hidden || isSchemaExcludedCommand(cmd) {
+		if cmd == nil || cmd.Hidden || clibase.IsSchemaExcludedCommand(cmd) {
 			return
 		}
 		chain := append(append([]*cobra.Command(nil), ancestors...), cmd)
-		if !isSchemaGroupCommand(cmd) {
+		if !clibase.IsSchemaGroupCommand(cmd) {
 			commands = append(commands, buildSchemaCommandEntry(root, chain))
 		}
-		if isSchemaCollapsedCommand(cmd) {
+		if clibase.IsSchemaCollapsedCommand(cmd) {
 			return
 		}
 		for _, child := range cmd.Commands() {
@@ -195,7 +196,7 @@ func schemaCommandUse(root *cobra.Command, chain []*cobra.Command) string {
 
 func schemaCommandAliases(root *cobra.Command, chain []*cobra.Command) []string {
 	cmd := chain[len(chain)-1]
-	if isSchemaCollapsedCommand(cmd) {
+	if clibase.IsSchemaCollapsedCommand(cmd) {
 		return nil
 	}
 	tail := strings.TrimPrefix(strings.TrimSpace(cmd.Use), cmd.Name())

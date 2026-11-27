@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"gitslice.io/gitslice/internal/workspace"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,10 +18,10 @@ import (
 )
 
 func TestScanWorkspaceFilesIncludesUserDotPaths(t *testing.T) {
-	workspace := t.TempDir()
+	wsDir := t.TempDir()
 	write := func(rel, content string) {
 		t.Helper()
-		path := filepath.Join(workspace, filepath.FromSlash(rel))
+		path := filepath.Join(wsDir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -36,7 +37,7 @@ func TestScanWorkspaceFilesIncludesUserDotPaths(t *testing.T) {
 	write(".git/config", "[core]\n")
 	write(".gitslice/cache", "local\n")
 
-	r := Runner{Home: t.TempDir(), Dir: workspace}
+	r := Runner{Home: t.TempDir(), Dir: wsDir}
 	files, err := r.scanWorkspaceFiles(WorkspaceConfig{
 		Account:       "acme",
 		Slice:         "payment",
@@ -71,12 +72,12 @@ func TestScanWorkspaceFilesIncludesUserDotPaths(t *testing.T) {
 // was modified no earlier than the record, or when its content left the
 // client cache.
 func TestScanWorkspaceFilesReusesStatCache(t *testing.T) {
-	workspace := t.TempDir()
-	r := Runner{Home: t.TempDir(), Dir: workspace}
+	wsDir := t.TempDir()
+	r := Runner{Home: t.TempDir(), Dir: wsDir}
 	ws := WorkspaceConfig{Account: "acme", Slice: "payment", IncludedPaths: []string{"/acme/payment"}}
 	write := func(rel, content string, modTime time.Time) {
 		t.Helper()
-		path := filepath.Join(workspace, filepath.FromSlash(rel))
+		path := filepath.Join(wsDir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -99,14 +100,14 @@ func TestScanWorkspaceFilesReusesStatCache(t *testing.T) {
 	// recordAs replaces a file's recorded hash, keeping its recorded stat.
 	recordAs := func(rel, contentHash string) {
 		t.Helper()
-		cache := readStatCache(workspace)
+		cache := workspace.ReadStatCache(wsDir)
 		entry, ok := cache.Files[rel]
 		if !ok {
 			t.Fatalf("no record for %s", rel)
 		}
 		entry.ContentHash = contentHash
 		cache.Files[rel] = entry
-		writeStatCache(workspace, cache.Files)
+		workspace.WriteStatCache(wsDir, cache.Files)
 	}
 
 	past := time.Now().Add(-time.Hour)
@@ -141,9 +142,9 @@ func TestScanWorkspaceFilesReusesStatCache(t *testing.T) {
 	// its stat matches: a change in the same clock tick would not show.
 	future := time.Now().Add(time.Hour)
 	write("acme/payment/b.txt", "bravo\n", future)
-	cache := readStatCache(workspace)
-	cache.Files["acme/payment/b.txt"] = statCacheEntry{Size: 6, ModTimeNs: future.UnixNano(), Mode: 0o100644, ContentHash: hashOf("ALPHA\n")}
-	writeStatCache(workspace, cache.Files)
+	cache := workspace.ReadStatCache(wsDir)
+	cache.Files["acme/payment/b.txt"] = workspace.StatCacheEntry{Size: 6, ModTimeNs: future.UnixNano(), Mode: 0o100644, ContentHash: hashOf("ALPHA\n")}
+	workspace.WriteStatCache(wsDir, cache.Files)
 	if got := scanned("/acme/payment/b.txt"); got != hashOf("bravo\n") {
 		t.Fatalf("a record newer than the cache was used: %s", got)
 	}
@@ -243,10 +244,10 @@ func TestShouldSkipGsStateAtAnyDepth(t *testing.T) {
 // files are not scanned (they would add a second copy of its slice), unless
 // the base already tracks files there, and its .gs never is.
 func TestScanWorkspaceFilesLeavesOutAnotherWorkspace(t *testing.T) {
-	workspace := t.TempDir()
+	wsDir := t.TempDir()
 	write := func(rel, content string) {
 		t.Helper()
-		path := filepath.Join(workspace, filepath.FromSlash(rel))
+		path := filepath.Join(wsDir, filepath.FromSlash(rel))
 		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -263,7 +264,7 @@ func TestScanWorkspaceFilesLeavesOutAnotherWorkspace(t *testing.T) {
 
 	ws := WorkspaceConfig{Account: "acme", Slice: "app", IncludedPaths: []string{"/acme/app"}}
 	var stderr bytes.Buffer
-	r := Runner{Home: t.TempDir(), Dir: workspace, Stderr: &stderr}
+	r := Runner{Home: t.TempDir(), Dir: wsDir, Stderr: &stderr}
 	tracked := map[string]BaseSnapshotFile{
 		"/acme/app/vendored/lib.go": {Path: "/acme/app/vendored/lib.go", RelPath: "acme/app/vendored/lib.go"},
 	}

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"gitslice.io/gitslice/internal/workspace"
 	"sort"
 	"strings"
 	"time"
@@ -302,7 +303,7 @@ func normalizeHomePath(slice *corev1.Slice, value string, allowRoot bool) (strin
 		}
 		return "", userError("invalid_path", "gs fs paths must be absolute: "+value, "Use an absolute path such as /"+account+"/notes/readme.md.")
 	}
-	cleaned, err := cleanShellGlobalPath(value)
+	cleaned, err := workspace.CleanGlobalPath(value)
 	if err != nil {
 		return "", err
 	}
@@ -310,7 +311,7 @@ func normalizeHomePath(slice *corev1.Slice, value string, allowRoot bool) (strin
 		return "", fmt.Errorf("home slice has no included paths")
 	}
 	for _, prefix := range slice.Definition.IncludedPaths {
-		root, err := cleanShellGlobalPath(prefix)
+		root, err := workspace.CleanGlobalPath(prefix)
 		if err != nil {
 			return "", err
 		}
@@ -329,7 +330,7 @@ func homeSliceRoot(slice *corev1.Slice) (string, error) {
 	if slice == nil || slice.Definition == nil || len(slice.Definition.IncludedPaths) == 0 {
 		return "", fmt.Errorf("home slice has no included paths")
 	}
-	return cleanShellGlobalPath(slice.Definition.IncludedPaths[0])
+	return workspace.CleanGlobalPath(slice.Definition.IncludedPaths[0])
 }
 
 func operationPastTense(operation string) string {

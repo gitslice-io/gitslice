@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"gitslice.io/gitslice/internal/workspace"
 	"io"
 	"os"
 	"path/filepath"
@@ -73,7 +74,7 @@ func (r Runner) materializeWorkspaceConflict(ctx context.Context, repo corev1.Re
 	if err != nil || !ok {
 		return err
 	}
-	if isSymlinkMode(mode) {
+	if workspace.IsSymlinkMode(mode) {
 		mode = 0o100644
 	}
 	_, _, err = writeConfinedWorkspaceFile(root, rel, mode, bytes.NewReader(data))
@@ -254,7 +255,7 @@ func localWorkspaceFileBytes(file workingFile, exists bool) ([]byte, bool, error
 	if !exists {
 		return nil, false, nil
 	}
-	if isSymlinkMode(file.Mode) && file.AbsPath != "" {
+	if workspace.IsSymlinkMode(file.Mode) && file.AbsPath != "" {
 		link, err := os.Readlink(file.AbsPath)
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, false, nil
@@ -301,7 +302,7 @@ func confinedLocalWorkspaceFileBytes(root string, cache *clientcache.ObjectCache
 		defer osRoot.Close()
 		parentRel := filepath.Dir(osRel)
 		if parentRel != "." {
-			if err := ensureNoAncestorSymlinksInRoot(osRoot, parentRel); err != nil {
+			if err := workspace.EnsureNoAncestorSymlinksInRoot(osRoot, parentRel); err != nil {
 				return nil, false, err
 			}
 		}
@@ -312,7 +313,7 @@ func confinedLocalWorkspaceFileBytes(root string, cache *clientcache.ObjectCache
 		if err != nil {
 			return nil, false, err
 		}
-		if info.Mode()&os.ModeSymlink != 0 || isSymlinkMode(file.Mode) {
+		if info.Mode()&os.ModeSymlink != 0 || workspace.IsSymlinkMode(file.Mode) {
 			link, lerr := os.Readlink(absLocal)
 			if errors.Is(lerr, os.ErrNotExist) {
 				return nil, false, nil

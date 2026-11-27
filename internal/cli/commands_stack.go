@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"time"
 )
 
@@ -174,7 +175,7 @@ func (r Runner) stackCommands(opts *commandOptions) []*cobra.Command {
 			steps := 1
 			if len(args) > 0 {
 				var err error
-				steps, err = parsePositiveIntArg("steps", args[0])
+				steps, err = clibase.ParsePositiveIntArg("steps", args[0])
 				if err != nil {
 					return err
 				}

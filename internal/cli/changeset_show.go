@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"io"
 	"strings"
 	"time"
@@ -295,7 +296,7 @@ func (r Runner) runChangesetDiff(ctx context.Context, opts commandOptions, reque
 			printUnifiedDiffStatColor(r.Stdout, res.ChangedPaths, res.Diff, r.colorEnabled(opts))
 			return nil
 		}
-		_, err = io.WriteString(r.Stdout, colorUnifiedDiff(compactUnifiedDiff(res.Diff, diffCtx.Lines()), r.colorEnabled(opts)))
+		_, err = io.WriteString(r.Stdout, clibase.ColorUnifiedDiff(compactUnifiedDiff(res.Diff, diffCtx.Lines()), r.colorEnabled(opts)))
 		return err
 	})
 }

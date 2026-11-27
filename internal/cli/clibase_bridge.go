@@ -3,33 +3,27 @@ package cli
 import (
 	"context"
 	"io"
-	"reflect"
 	"time"
 
 	"github.com/spf13/cobra"
 	"gitslice.io/gitslice/internal/cli/clibase"
 	"gitslice.io/gitslice/internal/workspace"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
 )
 
-// Type aliases and thin wrappers bridging internal/cli onto internal/cli/clibase.
+// High-frequency type aliases, constants, and Runner adapters bridging
+// internal/cli onto internal/cli/clibase. Low-fanout helpers are called
+// directly on internal/cli/clibase.
 type (
-	commandOptions       = clibase.Options
-	diffContextOption    = clibase.DiffContext
-	commandError         = clibase.Error
-	userCodedError       = clibase.UserCodedError
-	errorResponse        = clibase.ErrorResponse
-	errorBody            = clibase.ErrorBody
-	domainErrorOverride  = clibase.DomainErrorOverride
-	domainErrorOverrides = clibase.DomainErrorOverrides
-	progressSink         = clibase.ProgressSink
-	progressReporter     = clibase.ProgressReporter
+	commandOptions    = clibase.Options
+	diffContextOption = clibase.DiffContext
+	commandError      = clibase.Error
+	userCodedError    = clibase.UserCodedError
+	errorResponse     = clibase.ErrorResponse
+	errorBody         = clibase.ErrorBody
 )
 
 const (
-	defaultDiffContext = clibase.DefaultDiffContextLines
-
 	ansiReset  = clibase.AnsiReset
 	ansiDim    = clibase.AnsiDim
 	ansiBlue   = clibase.AnsiBlue
@@ -48,11 +42,6 @@ const (
 	schemaOutputTypeAnnotation = clibase.SchemaOutputTypeAnnotation
 )
 
-func addDiffContextFlag(cmd *cobra.Command, value *int) { clibase.AddDiffContextFlag(cmd, value) }
-func diffContextFromFlag(cmd *cobra.Command, value int) diffContextOption {
-	return clibase.DiffContextFromFlag(cmd, value)
-}
-
 func requireSubcommand(name string) func(*cobra.Command, []string) error {
 	return clibase.RequireSubcommand(name)
 }
@@ -62,75 +51,38 @@ func maxArgs(max int, usage string) cobra.PositionalArgs    { return clibase.Max
 func rangeArgs(min, max int, usage string) cobra.PositionalArgs {
 	return clibase.RangeArgs(min, max, usage)
 }
-func minArgs(want int, usage string) cobra.PositionalArgs { return clibase.MinArgs(want, usage) }
 func parsePositiveDurationFlag(name, value string) (time.Duration, error) {
 	return clibase.ParsePositiveDurationFlag(name, value)
-}
-func parsePositiveIntArg(name, value string) (int, error) {
-	return clibase.ParsePositiveIntArg(name, value)
 }
 
 func isTerminal(w any) bool                            { return clibase.IsTerminal(w) }
 func colorize(enabled bool, code, value string) string { return clibase.Colorize(enabled, code, value) }
-func colorUnifiedDiff(diffText string, enabled bool) string {
-	return clibase.ColorUnifiedDiff(diffText, enabled)
-}
 
-func wantsJSON(args []string) bool                 { return clibase.WantsJSON(args) }
-func parseJSONFields(raw string) ([]string, error) { return clibase.ParseJSONFields(raw) }
-func writeJSON(w io.Writer, v any) error           { return clibase.WriteJSON(w, v) }
 func (r Runner) writeJSONOutput(opts commandOptions, v any) error {
 	return clibase.WriteJSONOutput(r.Stdout, opts, v)
 }
 func writeSchemaOutput[T any](r Runner, opts commandOptions, val T, textFn func() error) error {
 	return clibase.WriteSchemaOutput(r.Stdout, opts, val, textFn)
 }
-func renderCommandOutput[T any](r Runner, opts commandOptions, val T, textFn func() error) error {
-	return clibase.WriteSchemaOutput(r.Stdout, opts, val, textFn)
-}
 
-func withProgress(ctx context.Context, w io.Writer) context.Context {
-	return clibase.WithProgress(ctx, w)
-}
-func startProgress(ctx context.Context, verb, unit string, total int) *progressReporter {
+func startProgress(ctx context.Context, verb, unit string, total int) *clibase.ProgressReporter {
 	return clibase.StartProgress(ctx, verb, unit, total)
-}
-func startProgressEvery(sink progressSink, verb, unit string, total int, delay, interval time.Duration) *progressReporter {
-	return clibase.StartProgressEvery(sink, verb, unit, total, delay, interval)
 }
 
 func userError(code, message, hint string) error { return clibase.UserError(code, message, hint) }
-func asCommandError(err error) (commandError, bool) {
-	return clibase.AsError(err)
-}
-func isUserErrorCode(err error, code string) bool { return clibase.IsUserErrorCode(err, code) }
-func withDomainErrorHints(err error, overrides domainErrorOverrides) error {
-	return clibase.WithDomainErrorHints(err, overrides)
-}
-func extractDomainErrorOverrides(err error) (error, domainErrorOverrides) {
-	return clibase.ExtractDomainErrorOverrides(err)
-}
-func applyDomainErrorOverride(cmdErr commandError, code codes.Code, stMsg string, overrides domainErrorOverrides) commandError {
-	return clibase.ApplyDomainErrorOverride(cmdErr, code, stMsg, overrides)
+func isUserErrorCode(err error, code string) bool {
+	return clibase.IsUserErrorCode(err, code)
 }
 func exitCodeForError(err error) int { return clibase.ExitCodeForError(err) }
 
-func schemaOutputTypeForCommand(cmd *cobra.Command) (reflect.Type, bool) {
-	return clibase.SchemaOutputTypeForCommand(cmd)
-}
 func markSchemaGroup(cmds ...*cobra.Command)    { clibase.MarkSchemaGroup(cmds...) }
 func markSchemaExcluded(cmds ...*cobra.Command) { clibase.MarkSchemaExcluded(cmds...) }
-func withSchemaCollapsed(cmd *cobra.Command, use, summary string) {
-	clibase.WithSchemaCollapsed(cmd, use, summary)
+func withSchemaOutput[T any](cmds ...*cobra.Command) {
+	clibase.WithSchemaOutput[T](cmds...)
 }
-func withSchemaOutput[T any](cmds ...*cobra.Command) { clibase.WithSchemaOutput[T](cmds...) }
 func withSchemaOutputFields(cmd *cobra.Command, fields ...string) {
 	clibase.WithSchemaOutputFields(cmd, fields...)
 }
-func isSchemaGroupCommand(cmd *cobra.Command) bool     { return clibase.IsSchemaGroupCommand(cmd) }
-func isSchemaExcludedCommand(cmd *cobra.Command) bool  { return clibase.IsSchemaExcludedCommand(cmd) }
-func isSchemaCollapsedCommand(cmd *cobra.Command) bool { return clibase.IsSchemaCollapsedCommand(cmd) }
-func structJSONFields(t reflect.Type) []string         { return clibase.StructJSONFields(t) }
 
 // runnerApp adapts Runner to clibase.App for extracted internal/cli/cmd/* subpackages.
 type runnerApp struct {

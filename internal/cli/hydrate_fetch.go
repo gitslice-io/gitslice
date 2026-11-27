@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"gitslice.io/gitslice/internal/workspace"
 	"io"
 	"io/fs"
 	"os"
@@ -59,9 +60,9 @@ func receiveCheckoutStream(ctx context.Context, conn *grpc.ClientConn, ref *core
 	req := &corev1.CheckoutRequest{Slice: ref, CommitId: commitID, IncludeContent: includeContent}
 	// A listing the cache has for this slice, at any commit, lets the server
 	// send only what changed since (CheckoutHeader.delta).
-	var since *listingBase
+	var since *workspace.ListingBase
 	if !includeContent {
-		if base, ok := newestCachedListing(cache, ref); ok {
+		if base, ok := workspace.NewestCachedListing(cache, ref); ok {
 			since = base
 			req.SinceCommitId, req.SinceDefinitionHash = base.CommitID, base.DefinitionHash
 		}
@@ -88,9 +89,9 @@ func receiveCheckoutStream(ctx context.Context, conn *grpc.ClientConn, ref *core
 			if part.Header.GetDelta() && since == nil {
 				return nil, fmt.Errorf("checkout sent changes since a listing this client did not name")
 			}
-			rememberListingRef(cache, ref, out.slice)
+			workspace.RememberListingRef(cache, ref, out.slice)
 			if !includeContent {
-				if entries, ok := readCachedListing(cache, out.slice, out.commitID); ok {
+				if entries, ok := workspace.ReadCachedListing(cache, out.slice, out.commitID); ok {
 					out.entries, out.fromListingCache = entries, true
 					cancel()
 					if out.slice.GetDefinition() == nil || out.commitID == "" {
@@ -124,10 +125,10 @@ func receiveCheckoutStream(ctx context.Context, conn *grpc.ClientConn, ref *core
 	}
 	if delta {
 		out.deltaEntries, out.deltaRemoved = len(out.entries), len(removed)
-		out.entries = applyListingDelta(since.Entries, removed, out.entries)
+		out.entries = workspace.ApplyListingDelta(since.Entries, removed, out.entries)
 	}
 	if !includeContent {
-		writeCachedListing(cache, out.slice, out.commitID, out.entries)
+		workspace.WriteCachedListing(cache, out.slice, out.commitID, out.entries)
 	}
 	return out, nil
 }
@@ -240,7 +241,7 @@ func (h *workspaceHydrator) hydrateLargeFile(ctx context.Context, entry *corev1.
 	if err != nil {
 		return 0, err
 	}
-	if isSymlinkMode(mode) {
+	if workspace.IsSymlinkMode(mode) {
 		cached, err := h.cache.PutReader(newBlobStreamReader(stream))
 		if err != nil {
 			return 0, err
@@ -268,7 +269,7 @@ func (h *workspaceHydrator) hydrateLargeFile(ctx context.Context, entry *corev1.
 
 	parentRel := filepath.Dir(osRel)
 	if parentRel != "." {
-		if err := mkdirAllNoSymlinksInRoot(osRoot, parentRel); err != nil {
+		if err := workspace.MkdirAllNoSymlinksInRoot(osRoot, parentRel); err != nil {
 			return 0, err
 		}
 	}

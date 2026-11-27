@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"gitslice.io/gitslice/internal/workspace"
 	"os"
 	"runtime"
 	"sync"
@@ -98,7 +99,7 @@ func ensureCachedBlobFromWorkingFile(cache *clientcache.ObjectCache, hash string
 	}
 	var cached clientcache.Object
 	var err error
-	if isSymlinkMode(wf.Mode) {
+	if workspace.IsSymlinkMode(wf.Mode) {
 		link, lerr := os.Readlink(wf.AbsPath)
 		if lerr != nil {
 			return fmt.Errorf("read symlink %s: %w", wf.AbsPath, lerr)

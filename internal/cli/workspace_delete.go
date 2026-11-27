@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"gitslice.io/gitslice/internal/workspace"
 	"os"
 	"path"
 	"path/filepath"
@@ -192,7 +193,7 @@ func (r Runner) dropIgnoredLazyEdits(rec mountRecord, edits []lazyfs.Edit, read 
 			tracked[entry.Path] = BaseSnapshotFile{Path: entry.Path}
 		})
 	}
-	ig := newWorkspaceIgnore("", ws, tracked)
+	ig := workspace.NewIgnore("", ws, tracked)
 	ig.Read = func(dir string) []byte {
 		return read(path.Join(dir, ".gitignore"))
 	}

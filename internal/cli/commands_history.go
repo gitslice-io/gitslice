@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -79,7 +80,7 @@ func (r Runner) historyCommands(opts *commandOptions) []*cobra.Command {
 				NameOnly:    showNameOnly,
 				Stat:        showStat,
 				Patch:       showPatch,
-				DiffContext: diffContextFromFlag(cmd, showContext),
+				DiffContext: clibase.DiffContextFromFlag(cmd, showContext),
 			}
 			if looksLikeChangesetID(args[0]) {
 				return r.runShowChangeset(cmd.Context(), *opts, args[0], showOpts)
@@ -97,7 +98,7 @@ func (r Runner) historyCommands(opts *commandOptions) []*cobra.Command {
 	showCmd.Flags().BoolVar(&showNameOnly, "name-only", showNameOnly, "show only changed path names")
 	showCmd.Flags().BoolVar(&showStat, "stat", showStat, "show a compact changed-path summary")
 	showCmd.Flags().BoolVarP(&showPatch, "patch", "p", showPatch, "show the commit patch")
-	addDiffContextFlag(showCmd, &showContext)
+	clibase.AddDiffContextFlag(showCmd, &showContext)
 
 	diffContext := 0
 	diffNameOnly := false
@@ -109,14 +110,14 @@ func (r Runner) historyCommands(opts *commandOptions) []*cobra.Command {
 		Short: "Show workspace, changeset, or commit diffs",
 		Args:  maxArgs(2, "gs diff [commit-or-changeset] [commit-id-or-prefix] [--from patchset --to patchset]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return r.runDiff(cmd.Context(), *opts, args, diffFrom, diffTo, diffNameOnly, diffStat, diffContextFromFlag(cmd, diffContext))
+			return r.runDiff(cmd.Context(), *opts, args, diffFrom, diffTo, diffNameOnly, diffStat, clibase.DiffContextFromFlag(cmd, diffContext))
 		},
 	}
 	diffCmd.Flags().StringVar(&diffFrom, "from", diffFrom, "patchset number or id to diff from")
 	diffCmd.Flags().StringVar(&diffTo, "to", diffTo, "patchset number or id to diff to")
 	diffCmd.Flags().BoolVar(&diffNameOnly, "name-only", diffNameOnly, "show only changed path names")
 	diffCmd.Flags().BoolVar(&diffStat, "stat", diffStat, "show a compact changed-path summary")
-	addDiffContextFlag(diffCmd, &diffContext)
+	clibase.AddDiffContextFlag(diffCmd, &diffContext)
 
 	ciCmd := &cobra.Command{
 		Use:   "ci",

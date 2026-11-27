@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"gitslice.io/gitslice/internal/workspace"
 	"io/fs"
 	"os"
 	"path"
@@ -40,22 +41,22 @@ type workspaceScanCandidate struct {
 // recordStatCache records the scanned files' stats and hashes, leaving out
 // files modified too close to the scan to be trusted later. It writes the
 // cache only when something changed.
-func recordStatCache(root string, known statCache, candidates []workspaceScanCandidate, objects []clientcache.Object, scanStarted time.Time) {
-	recordBefore := scanStarted.Add(-statCacheClockSlack)
-	recorded := make(map[string]statCacheEntry, len(candidates))
+func recordStatCache(root string, known workspace.StatCache, candidates []workspaceScanCandidate, objects []clientcache.Object, scanStarted time.Time) {
+	recordBefore := scanStarted.Add(-workspace.StatCacheClockSlack)
+	recorded := make(map[string]workspace.StatCacheEntry, len(candidates))
 	changed := false
 	for i, candidate := range candidates {
 		if candidate.linkTarget != nil || !candidate.modTime.Before(recordBefore) {
 			continue
 		}
-		entry := statCacheEntry{Size: candidate.size, ModTimeNs: candidate.modTime.UnixNano(), Mode: candidate.mode, ContentHash: objects[i].ContentHash}
+		entry := workspace.StatCacheEntry{Size: candidate.size, ModTimeNs: candidate.modTime.UnixNano(), Mode: candidate.mode, ContentHash: objects[i].ContentHash}
 		if old, ok := known.Files[candidate.relPath]; !ok || old != entry {
 			changed = true
 		}
 		recorded[candidate.relPath] = entry
 	}
 	if changed || len(recorded) != len(known.Files) {
-		writeStatCache(root, recorded)
+		workspace.WriteStatCache(root, recorded)
 	}
 }
 
@@ -90,10 +91,10 @@ func (r Runner) scanWorkspaceFilesWithStats(ctx context.Context, ws WorkspaceCon
 	} else {
 		trackedSnapshots = tracked
 	}
-	ignore := newWorkspaceIgnore(root, ws, trackedSnapshots...)
+	ignore := workspace.NewIgnore(root, ws, trackedSnapshots...)
 	candidates := []workspaceScanCandidate{}
 	walkStarted := time.Now()
-	known := readStatCache(root)
+	known := workspace.ReadStatCache(root)
 	trackedDirs := trackedDirectories(trackedSnapshots...)
 	var nested []string
 	err = filepath.WalkDir(root, func(p string, entry fs.DirEntry, err error) error {

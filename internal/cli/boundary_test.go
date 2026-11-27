@@ -37,6 +37,10 @@ func TestCmdGSBinaryDoesNotLinkServerStorageStack(t *testing.T) {
 		"gitslice.io/gitslice/internal/indexworker",
 		"gitslice.io/gitslice/internal/socialcard",
 		"gitslice.io/gitslice/internal/events",
+		"gitslice.io/gitslice/internal/agenthub",
+		"gitslice.io/gitslice/internal/pubsub",
+		"gitslice.io/gitslice/internal/doorbell",
+		"gitslice.io/gitslice/internal/activity",
 		"gitslice.io/gitslice/internal/auth/clerk",
 		"github.com/jackc/pgx",
 	}
@@ -147,8 +151,15 @@ func TestNoDirectWriteJSONInCLICommands(t *testing.T) {
 			if !ok {
 				return true
 			}
-			if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "writeJSON" {
-				t.Errorf("internal/cli/%s calls raw writeJSON(); use r.writeJSONOutput(opts, ...) or writeSchemaOutput so --jq/--template/--fields work", name)
+			switch fn := call.Fun.(type) {
+			case *ast.Ident:
+				if fn.Name == "writeJSON" {
+					t.Errorf("internal/cli/%s calls raw writeJSON(); use r.writeJSONOutput(opts, ...) or writeSchemaOutput so --jq/--template/--fields work", name)
+				}
+			case *ast.SelectorExpr:
+				if pkg, ok := fn.X.(*ast.Ident); ok && pkg.Name == "clibase" && fn.Sel.Name == "WriteJSON" {
+					t.Errorf("internal/cli/%s calls raw clibase.WriteJSON(); use r.writeJSONOutput(opts, ...) or writeSchemaOutput so --jq/--template/--fields work", name)
+				}
 			}
 			return true
 		})

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"gitslice.io/gitslice/internal/workspace"
 	"sort"
 	"strings"
 	"time"
@@ -129,7 +130,7 @@ func sameWorkspaceMode(base, local uint32) bool {
 	if base == local {
 		return true
 	}
-	return isSymlinkMode(base) && local == 0o100644
+	return workspace.IsSymlinkMode(base) && local == 0o100644
 }
 
 func (r Runner) stackBaseSnapshotThroughChangeset(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, stack *corev1.ChangesetStack, throughChangesetID string) (BaseSnapshot, error) {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
+	"gitslice.io/gitslice/internal/cli/clibase"
 )
 
 // changesetCommand builds gs cs (gs changeset) and its subcommands.
@@ -170,7 +171,7 @@ func (r Runner) changesetCommand(opts *commandOptions) *cobra.Command {
 			if len(args) > 0 {
 				id = args[0]
 			}
-			return r.runChangesetDiff(cmd.Context(), *opts, id, csDiffPatchset, csDiffFrom, csDiffTo, csDiffNameOnly, csDiffStat, diffContextFromFlag(cmd, csDiffContext))
+			return r.runChangesetDiff(cmd.Context(), *opts, id, csDiffPatchset, csDiffFrom, csDiffTo, csDiffNameOnly, csDiffStat, clibase.DiffContextFromFlag(cmd, csDiffContext))
 		},
 	}
 	csDiffCmd.Flags().StringVar(&csDiffPatchset, "patchset", csDiffPatchset, "patchset number or id to diff against its base")
@@ -178,7 +179,7 @@ func (r Runner) changesetCommand(opts *commandOptions) *cobra.Command {
 	csDiffCmd.Flags().StringVar(&csDiffTo, "to", csDiffTo, "patchset number or id to diff to")
 	csDiffCmd.Flags().BoolVar(&csDiffNameOnly, "name-only", csDiffNameOnly, "show only changed path names")
 	csDiffCmd.Flags().BoolVar(&csDiffStat, "stat", csDiffStat, "show a compact changed-path summary")
-	addDiffContextFlag(csDiffCmd, &csDiffContext)
+	clibase.AddDiffContextFlag(csDiffCmd, &csDiffContext)
 	csApproveCmd := &cobra.Command{
 		Use:   "approve <changeset>",
 		Short: "Approve the current patchset of a changeset",

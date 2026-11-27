@@ -9951,3 +9951,14 @@ All checks passed with zero formatting diffs, zero `go vet` diagnostics, zero `g
   - Added canonical `NormalizeCheckRunStatus`, `IsTerminalCheckRunStatus`, and `TerminalCheckResultStatus` to `internal/model/model.go` (+ `model_test.go`).
   - Migrated `internal/postgres/check_store.go`, `internal/storage/memory/check_store.go`, `service/check.go`, `service/check_recovery.go`, and `internal/cli/check_cmd.go` to `model.*`, deleting 5 duplicated local helper implementations (including `service/check_plan.go:isFinalCheckStatus`).
 - **Enforceable layer boundaries**: Extended `server/architecture_test.go` to keep `internal/pubsub` stdlib-only and prevent `internal/agenthub` / `internal/model` from depending on `internal/storage`, `internal/postgres`, `service`, or `server`.
+
+## 2026-11-27 — Architecture Governance Wave G10 (CLI `import_local.go` Decomposition & Bridge Shim Pruning)
+
+- **Decomposed `internal/cli/import_local.go` (1,269 LOC -> 3 cohesive `<500` LOC modules)**:
+  - `internal/cli/import_local.go` (453 LOC): import orchestration, repo preparation, summary output, and RPC retries.
+  - `internal/cli/import_local_upload.go` (308 LOC): `git cat-file --batch` blob streaming and chunked parallel uploads.
+  - `internal/cli/import_local_git.go` (413 LOC): git commit/tree/delta streaming, edit building, and deduplicated `parseLocalImportCommitMeta`.
+- **Applied Deletion Test to `workspace_bridge.go` & `clibase_bridge.go`**:
+  - Pruned all 16 pure pass-through wrappers, 4 type aliases, and `statCacheClockSlack` (including dead `hasReservedGsSegment`) from `internal/cli/workspace_bridge.go`, leaving only `translateWorkspaceError` and the 6 error-translating adapters; migrated callers directly to `internal/workspace`.
+  - Pruned duplicate `renderCommandOutput`, dead `defaultDiffContext`, 20 low-fanout pure pass-through wrappers, and 4 single-use type aliases from `internal/cli/clibase_bridge.go`; migrated callers directly to `internal/cli/clibase`.
+- **Strengthened CLI boundary enforcement**: Updated `internal/cli/boundary_test.go` to forbid `cmd/gs` from linking server-only runtime packages (`internal/agenthub`, `internal/pubsub`, `internal/doorbell`, `internal/activity`) and extended `TestNoDirectWriteJSONInCLICommands` to catch direct `clibase.WriteJSON` calls as well as bare `writeJSON`.

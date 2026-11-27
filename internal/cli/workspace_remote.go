@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"gitslice.io/gitslice/internal/workspace"
 	"path/filepath"
 
 	"gitslice.io/gitslice/internal/clientcache"
@@ -185,7 +186,7 @@ func (r Runner) writeWorkspaceMergedFile(root string, ws WorkspaceConfig, curren
 		return err
 	}
 	mode := normalizedSnapshotMode(file.Mode)
-	if isSymlinkMode(mode) {
+	if workspace.IsSymlinkMode(mode) {
 		mode = 0o100644
 	}
 	_, _, err = writeConfinedWorkspaceFile(root, rel, mode, bytes.NewReader(file.Data))

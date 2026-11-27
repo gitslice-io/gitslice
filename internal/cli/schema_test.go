@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"reflect"
 	"slices"
 	"strings"
@@ -225,7 +226,7 @@ func TestSchemaParityWithLiveCobraCommandTree(t *testing.T) {
 			}
 			return
 		}
-		if isSchemaExcludedCommand(cmd) {
+		if clibase.IsSchemaExcludedCommand(cmd) {
 			if !allowedLegacyExcluded[canonical] {
 				t.Fatalf("unexpected schema-excluded command %q (not in legacy compatibility allowlist)", canonical)
 			}
@@ -234,7 +235,7 @@ func TestSchemaParityWithLiveCobraCommandTree(t *testing.T) {
 			}
 			return
 		}
-		if isSchemaGroupCommand(cmd) {
+		if clibase.IsSchemaGroupCommand(cmd) {
 			if _, ok := byUse[use]; ok {
 				t.Fatalf("group container command %q should not appear as runnable in gs schema", use)
 			}
@@ -246,14 +247,14 @@ func TestSchemaParityWithLiveCobraCommandTree(t *testing.T) {
 			if strings.TrimSpace(entry.Summary) == "" {
 				t.Fatalf("command %q in gs schema has empty summary", use)
 			}
-			if !isSchemaCollapsedCommand(cmd) {
+			if !clibase.IsSchemaCollapsedCommand(cmd) {
 				wantFlags := collectSchemaCommandFlags(chain)
 				if !slices.Equal(entry.Flags, wantFlags) {
 					t.Fatalf("command %q flags = %v, want %v", use, entry.Flags, wantFlags)
 				}
 			}
 		}
-		if isSchemaCollapsedCommand(cmd) {
+		if clibase.IsSchemaCollapsedCommand(cmd) {
 			return
 		}
 		for _, child := range cmd.Commands() {
@@ -266,10 +267,10 @@ func TestSchemaParityWithLiveCobraCommandTree(t *testing.T) {
 }
 
 func TestStructJSONFieldsHandlesEmbeddedStructs(t *testing.T) {
-	got := structJSONFields(reflect.TypeFor[sharedSliceOutput]())
+	got := clibase.StructJSONFields(reflect.TypeFor[sharedSliceOutput]())
 	for _, want := range []string{"id", "ref", "account", "slice", "required_human_approvals", "role"} {
 		if !slices.Contains(got, want) {
-			t.Fatalf("structJSONFields(sharedSliceOutput) = %v, missing %q", got, want)
+			t.Fatalf("clibase.StructJSONFields(sharedSliceOutput) = %v, missing %q", got, want)
 		}
 	}
 }
@@ -297,7 +298,7 @@ func TestSchemaOutputAnnotatedCommandsBindMachineOutputAndJSONRendering(t *testi
 	annotatedCanonicals := map[string]reflect.Type{}
 	var walk func(ancestors []*cobra.Command, cmd *cobra.Command)
 	walk = func(ancestors []*cobra.Command, cmd *cobra.Command) {
-		if cmd == nil || cmd.Hidden || isSchemaExcludedCommand(cmd) {
+		if cmd == nil || cmd.Hidden || clibase.IsSchemaExcludedCommand(cmd) {
 			return
 		}
 		chain := append(append([]*cobra.Command(nil), ancestors...), cmd)
@@ -309,14 +310,14 @@ func TestSchemaOutputAnnotatedCommandsBindMachineOutputAndJSONRendering(t *testi
 					t.Fatalf("command %q (%s) declares empty machine_output via withSchemaOutputFields, got %v", use, canonical, got)
 				}
 			} else {
-				outType, ok := schemaOutputTypeForCommand(cmd)
+				outType, ok := clibase.SchemaOutputTypeForCommand(cmd)
 				if !ok {
 					t.Fatalf("command %q (%s) sets non-empty schema output annotation without registered Go type", use, canonical)
 				}
 				if outType.Kind() != reflect.Struct {
 					t.Fatalf("command %q (%s) schema output type %v is not a struct", use, canonical, outType)
 				}
-				wantFields := structJSONFields(outType)
+				wantFields := clibase.StructJSONFields(outType)
 				if len(wantFields) == 0 {
 					t.Fatalf("command %q (%s) schema output struct %v has no exported JSON fields", use, canonical, outType)
 				}
@@ -350,7 +351,7 @@ func TestSchemaOutputAnnotatedCommandsBindMachineOutputAndJSONRendering(t *testi
 				annotatedCanonicals[canonical] = outType
 			}
 		}
-		if isSchemaCollapsedCommand(cmd) {
+		if clibase.IsSchemaCollapsedCommand(cmd) {
 			return
 		}
 		for _, child := range cmd.Commands() {
@@ -392,7 +393,7 @@ func TestSchemaOutputAnnotatedCommandsBindMachineOutputAndJSONRendering(t *testi
 	var textBuf bytes.Buffer
 	textRunner := Runner{Stdout: &textBuf, Stderr: &bytes.Buffer{}}
 	called := false
-	if err := renderCommandOutput(textRunner, commandOptions{Format: "text"}, versionOutput{Version: "1.2.3", GoVersion: "go1.26"}, func() error {
+	if err := writeSchemaOutput(textRunner, commandOptions{Format: "text"}, versionOutput{Version: "1.2.3", GoVersion: "go1.26"}, func() error {
 		called = true
 		textBuf.WriteString("human text\n")
 		return nil

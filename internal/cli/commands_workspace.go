@@ -2,6 +2,7 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
+	"gitslice.io/gitslice/internal/cli/clibase"
 )
 
 // workspaceCommands builds gs init, gs workspace and gs sync.
@@ -84,7 +85,7 @@ matching files in the background; --read-only refuses writes.`,
 	workspaceHydrateCmd := &cobra.Command{
 		Use:   "hydrate <path> [path...]",
 		Short: "Hydrate workspace files through the client object cache",
-		Args:  minArgs(1, "gs workspace hydrate <path> [path...]"),
+		Args:  clibase.MinArgs(1, "gs workspace hydrate <path> [path...]"),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return r.runWorkspaceHydrate(cmd.Context(), *opts, args)
 		},
