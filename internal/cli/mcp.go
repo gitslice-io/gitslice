@@ -65,8 +65,7 @@ func (r Runner) newSessionMCPBackend(s *Session, cache *clientcache.ObjectCache,
 			_, err := tm.AttachAndUploadBlobs(ctx, edits, BlobBytesSources(byHash), nil, defaultUploadConcurrency())
 			return err
 		},
-		LatestCheckRuns: LatestPatchsetCheckRuns,
-		WebResourceURL:  webResourceURL,
+		WebResourceURL: webResourceURL,
 	})
 }
 

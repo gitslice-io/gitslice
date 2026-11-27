@@ -259,7 +259,7 @@ func (r Runner) agentHost(cfg UserConfig, opts commandOptions) agentd.HostCallba
 		ServerAddr:          cfg.ServerAddr,
 		Token:               cfg.Token,
 		Home:                r.Home,
-		Insecure:            r.Insecure,
+		Insecure:            r.Insecure || opts.Insecure,
 		Version:             cliVersionInfo().Version,
 		Stdout:              r.Stdout,
 		Stderr:              r.stderr(),

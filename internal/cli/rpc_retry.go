@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/mountd"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
@@ -118,19 +119,7 @@ func retryUnaryInterceptor(ctx context.Context, method string, req, reply any, c
 // safe to start over, because it only reads and caches. It returns the last
 // error.
 func retryUnavailable(ctx context.Context, backoff []time.Duration, fn func() error) error {
-	err := fn()
-	for _, pause := range backoff {
-		if grpcstatus.Code(err) != codes.Unavailable {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return err
-		case <-time.After(pause):
-		}
-		err = fn()
-	}
-	return err
+	return mountd.RetryUnavailable(ctx, backoff, fn)
 }
 
 // explainUnavailable turns an Unavailable error from a call into a message

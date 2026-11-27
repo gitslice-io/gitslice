@@ -30,6 +30,29 @@ func New(root string) (*ObjectCache, error) {
 	return cache, nil
 }
 
+// DefaultRoot resolves the canonical client object cache root directory shared
+// by gs, agentd, and mountd. Explicit GS_CLIENT_CACHE_DIR / GITSLICE_CLIENT_CACHE_DIR
+// env vars take precedence; otherwise <home>/.cache/gitslice when home is set,
+// or os.UserCacheDir()/gitslice.
+func DefaultRoot(home string, getenv func(string) string) string {
+	if getenv == nil {
+		getenv = os.Getenv
+	}
+	for _, key := range []string{"GS_CLIENT_CACHE_DIR", "GITSLICE_CLIENT_CACHE_DIR"} {
+		if v := strings.TrimSpace(getenv(key)); v != "" {
+			return v
+		}
+	}
+	if home != "" {
+		return filepath.Join(home, ".cache", "gitslice")
+	}
+	if cacheDir, err := os.UserCacheDir(); err == nil && cacheDir != "" {
+		return filepath.Join(cacheDir, "gitslice")
+	}
+	fallbackHome, _ := os.UserHomeDir()
+	return filepath.Join(fallbackHome, ".cache", "gitslice")
+}
+
 // EnsureDir creates and tightens the cache root and internal directories to 0700.
 func (c *ObjectCache) EnsureDir() error {
 	for _, dir := range []string{

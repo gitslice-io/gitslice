@@ -118,32 +118,12 @@ func runAdminRebuildIndexes(ctx context.Context, stdout io.Writer, jsonOutput bo
 	if strings.TrimSpace(targetRef) == "" {
 		targetRef = model.DefaultTargetRef
 	}
-	databaseURL := os.Getenv("GITSLICE_DATABASE_URL")
-	if databaseURL == "" {
-		return adminError{
-			Code:    "missing_config",
-			Message: "GITSLICE_DATABASE_URL is required",
-			Hint:    "Set GITSLICE_DATABASE_URL to the metadata database used by the server.",
-		}
-	}
-	objectStoreRoot := os.Getenv("GITSLICE_OBJECT_STORE_ROOT")
-	if objectStoreRoot == "" {
-		return adminError{
-			Code:    "missing_config",
-			Message: "GITSLICE_OBJECT_STORE_ROOT is required",
-			Hint:    "Set GITSLICE_OBJECT_STORE_ROOT to the filesystem object store root used by the server.",
-		}
-	}
-	db, err := postgres.Open(ctx, databaseURL)
+	db, objectStore, err := openAdminStores(ctx)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	objectStore, err := filesystem.New(objectStoreRoot)
-	if err != nil {
-		return err
-	}
-	db.SetTreeStore(treestore.New(objectStore))
+	_ = objectStore
 	if err := db.Changesets().RebuildDerivedIndexes(ctx, targetRef); err != nil {
 		return err
 	}
@@ -160,6 +140,36 @@ func runAdminRebuildIndexes(ctx context.Context, stdout io.Writer, jsonOutput bo
 	return nil
 }
 
+func openAdminStores(ctx context.Context) (*postgres.DB, *filesystem.Store, error) {
+	databaseURL := os.Getenv("GITSLICE_DATABASE_URL")
+	if databaseURL == "" {
+		return nil, nil, adminError{
+			Code:    "missing_config",
+			Message: "GITSLICE_DATABASE_URL is required",
+			Hint:    "Set GITSLICE_DATABASE_URL to the metadata database used by the server.",
+		}
+	}
+	objectStoreRoot := os.Getenv("GITSLICE_OBJECT_STORE_ROOT")
+	if objectStoreRoot == "" {
+		return nil, nil, adminError{
+			Code:    "missing_config",
+			Message: "GITSLICE_OBJECT_STORE_ROOT is required",
+			Hint:    "Set GITSLICE_OBJECT_STORE_ROOT to the filesystem object store root used by the server.",
+		}
+	}
+	db, err := postgres.Open(ctx, databaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	objectStore, err := filesystem.New(objectStoreRoot)
+	if err != nil {
+		_ = db.Close()
+		return nil, nil, err
+	}
+	db.SetTreeStore(treestore.New(objectStore))
+	return db, objectStore, nil
+}
+
 func runAdminGC(ctx context.Context, stdout io.Writer, jsonOutput bool, dryRun bool, sampleLimit int) error {
 	if !dryRun {
 		return adminError{
@@ -168,32 +178,11 @@ func runAdminGC(ctx context.Context, stdout io.Writer, jsonOutput bool, dryRun b
 			Hint:    "Deletion is future work; run gitslice-admin gc --dry-run to produce a report.",
 		}
 	}
-	databaseURL := os.Getenv("GITSLICE_DATABASE_URL")
-	if databaseURL == "" {
-		return adminError{
-			Code:    "missing_config",
-			Message: "GITSLICE_DATABASE_URL is required",
-			Hint:    "Set GITSLICE_DATABASE_URL to the metadata database used by the server.",
-		}
-	}
-	objectStoreRoot := os.Getenv("GITSLICE_OBJECT_STORE_ROOT")
-	if objectStoreRoot == "" {
-		return adminError{
-			Code:    "missing_config",
-			Message: "GITSLICE_OBJECT_STORE_ROOT is required",
-			Hint:    "Set GITSLICE_OBJECT_STORE_ROOT to the filesystem object store root used by the server.",
-		}
-	}
-	db, err := postgres.Open(ctx, databaseURL)
+	db, objectStore, err := openAdminStores(ctx)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
-	objectStore, err := filesystem.New(objectStoreRoot)
-	if err != nil {
-		return err
-	}
-	db.SetTreeStore(treestore.New(objectStore))
 	report, err := db.ReportUnreachable(ctx, objectStore, postgres.GCOptions{SampleLimit: sampleLimit})
 	if err != nil {
 		return err

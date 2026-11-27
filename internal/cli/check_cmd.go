@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"gitslice.io/gitslice/internal/mcpserver"
 	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
@@ -149,7 +150,7 @@ func (s *Session) latestCheckRuns(requested string) (*corev1.Changeset, []*corev
 	if err != nil {
 		return nil, nil, err
 	}
-	return cs, LatestPatchsetCheckRuns(res.GetRuns(), patchsetID), nil
+	return cs, mcpserver.LatestPatchsetCheckRuns(res.GetRuns(), patchsetID), nil
 }
 
 func (r Runner) runCheckList(ctx context.Context, opts commandOptions, requested string) error {

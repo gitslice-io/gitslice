@@ -188,7 +188,7 @@ func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, oper
 		}
 		m.last = output
 		if opts.JSONOutput() {
-			return writeJSON(m.runner.stdout(), output)
+			return m.runner.writeJSONOutput(opts, output)
 		}
 		if !opts.Quiet {
 			stdout := m.runner.stdout()
@@ -228,7 +228,7 @@ func (m *remoteFileMutator) apply(ctx context.Context, opts commandOptions, oper
 	}
 	m.last = output
 	if opts.JSONOutput() {
-		return writeJSON(m.runner.stdout(), output)
+		return m.runner.writeJSONOutput(opts, output)
 	}
 	if opts.Quiet {
 		return nil

@@ -8,7 +8,7 @@ import (
 	"net/url"
 	"strings"
 
-	"gitslice.io/gitslice/internal/model"
+	"gitslice.io/gitslice/internal/cli/clibase"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 )
@@ -198,24 +198,12 @@ func webSliceResourceURL(ref *corev1.SliceRef) string {
 }
 
 func parseSliceRef(value string) (*corev1.SliceRef, error) {
-	accountPart, slicePart, ok := model.SplitSliceHandle(value)
-	if !ok {
-		return nil, userError("invalid_slice_ref", "slice must be account:slice", "Pass a slice reference such as acme:payment.")
-	}
-	account, err := normalizeCLISlug(accountPart, "account")
-	if err != nil {
-		return nil, err
-	}
-	slug, err := normalizeCLISlug(slicePart, "slice")
-	if err != nil {
-		return nil, err
-	}
-	return &corev1.SliceRef{Account: account, Slice: slug}, nil
+	return clibase.ParseSliceRef(value)
 }
 
 func (r Runner) resolveSliceRefInput(ctx context.Context, cfg UserConfig, conn *grpc.ClientConn, value string) (*corev1.SliceRef, error) {
 	value = strings.TrimSpace(value)
-	// A qualified handle uses account:slice (or the legacy account:slice); a bare
+	// A qualified handle uses account:slice (or legacy account/slice); a bare
 	// token is a slice slug expanded against the signed-in account.
 	if strings.ContainsAny(value, ":/") {
 		return parseSliceRef(value)
@@ -236,24 +224,7 @@ func (r Runner) resolveSliceRefInput(ctx context.Context, cfg UserConfig, conn *
 }
 
 func normalizeCLISlug(value, name string) (string, error) {
-	value = strings.ToLower(strings.TrimSpace(value))
-	value = strings.ReplaceAll(value, "_", "-")
-	if value == "" {
-		return "", userError("invalid_slug", name+" is required", "Use lower-case letters, numbers, '-' or '_'.")
-	}
-	if len(value) > 63 {
-		return "", userError("invalid_slug", name+" must be 63 characters or fewer", "Use a shorter "+name+".")
-	}
-	if strings.HasPrefix(value, "-") || strings.HasSuffix(value, "-") {
-		return "", userError("invalid_slug", name+" must not start or end with '-'", "Use lower-case letters, numbers, '-' or '_'.")
-	}
-	for _, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			continue
-		}
-		return "", userError("invalid_slug", name+" may contain only letters, numbers, '-' or '_'", "Use lower-case letters, numbers, '-' or '_'.")
-	}
-	return value, nil
+	return clibase.NormalizeSlug(value, name)
 }
 
 // listAllSlices reads every page of an account's slices.

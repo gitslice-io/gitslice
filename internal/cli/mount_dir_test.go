@@ -183,7 +183,7 @@ func TestMountIDValidationAndPathTraversal(t *testing.T) {
 		t.Fatalf("lazyWorkspaceID with traversal id = %q, want empty", got)
 	}
 
-	sup := mountd.NewSupervisor(context.Background(), r.mountEnv(), io.Discard)
+	sup := mountd.NewSupervisor(context.Background(), r.mountEnv(context.Background()), io.Discard)
 	reply := sup.Attach("../../etc/passwd")
 	if reply.ErrorCode != "invalid_workspace_id" {
 		t.Fatalf("Supervisor.Attach traversal reply = %+v, want invalid_workspace_id", reply)

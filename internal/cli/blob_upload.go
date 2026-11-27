@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"runtime"
 	"sync"
@@ -76,26 +75,6 @@ func boundedUploadConcurrency(value, itemCount int) int {
 	return value
 }
 
-func uploadLocalBlob(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, file localUploadFile) (*corev1.UploadBlobResponse, error) {
-	f, err := os.Open(file.LocalPath)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if info.Size() > blobStreamThresholdBytes {
-		return uploadBlobReader(ctx, blobClient, sliceRef, file.ContentHash, info.Size(), f)
-	}
-	data, err := io.ReadAll(f)
-	if err != nil {
-		return nil, err
-	}
-	return uploadBlobBytes(ctx, blobClient, sliceRef, file.ContentHash, data)
-}
-
 func attachBlobIDs(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, edits []*corev1.FileEdit) error {
 	_, err := attachBlobIDsWithStats(ctx, blobClient, sliceRef, cache, edits, defaultUploadConcurrency())
 	return err
@@ -107,10 +86,6 @@ func attachBlobIDsWithStats(ctx context.Context, blobClient corev1.BlobServiceCl
 
 func attachBlobIDsFromFilesWithStats(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, edits []*corev1.FileEdit, workingFiles map[string]workingFile, concurrency int) (blobAttachStats, error) {
 	return NewTransferManager(nil, blobClient, sliceRef, cache).AttachAndUploadBlobs(ctx, edits, nil, workingFiles, concurrency)
-}
-
-func uploadCachedBlobs(ctx context.Context, blobClient corev1.BlobServiceClient, sliceRef *corev1.SliceRef, cache *clientcache.ObjectCache, hashes []string, concurrency int) (map[string]*corev1.UploadBlobResponse, error) {
-	return uploadCachedBlobsWithFallback(ctx, blobClient, sliceRef, cache, hashes, nil, concurrency)
 }
 
 func ensureCachedBlobFromWorkingFile(cache *clientcache.ObjectCache, hash string, filesByHash map[string]workingFile) error {

@@ -3,7 +3,6 @@ package cli
 import (
 	"io"
 	"os"
-	"path/filepath"
 
 	"gitslice.io/gitslice/internal/agentd"
 	"gitslice.io/gitslice/internal/clientcache"
@@ -56,13 +55,7 @@ func (r Runner) objectCache() (*clientcache.ObjectCache, error) {
 }
 
 func (r Runner) defaultObjectCacheRoot() string {
-	if r.Home != "" {
-		return filepath.Join(r.Home, ".cache", "gitslice")
-	}
-	if cacheDir, err := os.UserCacheDir(); err == nil && cacheDir != "" {
-		return filepath.Join(cacheDir, "gitslice")
-	}
-	return filepath.Join(r.homeDir(), ".cache", "gitslice")
+	return clientcache.DefaultRoot(r.Home, r.Getenv)
 }
 
 func (r Runner) homeDir() string {

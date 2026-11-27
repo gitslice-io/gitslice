@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"sort"
 	"strings"
 	"time"
@@ -61,13 +60,6 @@ func normalizedSnapshotMode(mode uint32) uint32 {
 		return 0o100644
 	}
 	return mode
-}
-
-func fileModeFromSnapshot(mode uint32) fs.FileMode {
-	if normalizedSnapshotMode(mode)&0o111 != 0 {
-		return 0o755
-	}
-	return 0o644
 }
 
 func (r Runner) snapshotEdits(ctx context.Context, conn *grpc.ClientConn, cfg UserConfig, ws WorkspaceConfig, upload bool) ([]*corev1.FileEdit, map[string]workingFile, error) {

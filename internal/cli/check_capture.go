@@ -17,8 +17,7 @@ import (
 )
 
 func requireContainerChecks() bool {
-	v := strings.TrimSpace(os.Getenv("GITSLICE_CHECKS_REQUIRE_CONTAINER"))
-	return v == "1" || strings.EqualFold(v, "true") || strings.EqualFold(v, "yes") || strings.EqualFold(v, "on")
+	return checkexec.RequireContainerChecks()
 }
 
 func isContainerizedCheckSpec(spec checks.CheckSpec) bool {

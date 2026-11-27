@@ -9874,3 +9874,23 @@ All checks passed with zero formatting diffs, zero `go vet` diagnostics, zero `g
 
 **Verification**
 - `gofmt -l .`, `go vet ./...`, `go test -race -timeout 60s -count=1 ./internal/events/... ./internal/gitcompat/... ./internal/automations/... ./service/... ./server/...`, `go build ./cmd/...`, and full remote CI (`gitslice/{gofmt,vet,test,build,e2e,web/build}`).
+
+## 2026-11-27 — Governance Wave G4: Go CLI/runtime P0 bug fixes, SSOT deduplication, and expanded boundary tests
+
+**Why**
+- Value-receiver `Runner` silently dropped `--insecure` on `dialServerLazy`, `agentHost`, and `mountEnv`.
+- `internal/agentd/daemon.go` passed `~/.cache/gitslice/objects` to `clientcache.New` (which appends `objects/` again), creating nested `objects/objects`.
+- `gs fs` mutations (`fs_mutate.go`) called raw `writeJSON`, bypassing `--jq`/`--template`/`--fields`.
+- `cmd/gs-exec/main.go` (618 LOC) allowed concurrent `logStreamer.flush()` calls from reader goroutines and `loop()`, risking out-of-order `/logs` POSTs.
+- Multiple helpers were duplicated across `clibase/util.go`, `internal/cli/`, `internal/mcpserver/`, `internal/checkexec/`, `internal/mountd/`, and `cmd/gitslice-admin/main.go`, and `gs slice secret` lacked `requireSubcommand` / `markSchemaGroup`.
+
+**What changed**
+- Fixed `--insecure` propagation via `insecureFromContext(ctx)` / `opts.Insecure` in `internal/cli/{connection,agent,mount}.go`.
+- Added canonical `clientcache.DefaultRoot(home, getenv)` (+ `default_root_test.go`) and migrated `internal/agentd/daemon.go` and `internal/cli/runner_env.go` onto it.
+- Switched `internal/cli/fs_mutate.go` to `m.runner.writeJSONOutput(opts, output)`.
+- Serialized `cmd/gs-exec` log flushing on `loop()` via buffered `flushCh` and split `cmd/gs-exec/logs.go` out of `main.go` (both <350 LOC).
+- Deduplicated `parseSliceRef`/`normalizeCLISlug`/`triggerFolder` onto `clibase`, `requireContainerChecks` onto `checkexec`, `retryUnavailable` onto `mountd`, `LatestPatchsetCheckRuns` onto `mcpserver` (deleting `internal/cli/check_runs.go`), and `cmd/gitslice-admin` store bootstrap into `openAdminStores`; added `requireSubcommand` + `markSchemaGroup` on `gs slice secret`; removed confirmed dead functions (`isLoopbackDialAddr`, `uploadLocalBlob`, `uploadCachedBlobs`, `printPathList`, `printPathStat`, `fileModeFromSnapshot`, `isSafeRelativeSymlink`, `ServiceDefinition`, `copyContextFile`).
+- Expanded `internal/cli/boundary_test.go` (`TestCmdGSBinaryDoesNotLinkServerStorageStack`, `TestExtractedCLILibrariesHaveNoCLIDependencies` across all 9 libraries, plus new `TestCmdGSExecUsesStdlibOnly`, `TestNoDirectWriteJSONInCLICommands`, and `TestCobraGroupCommandsRequireSubcommand`).
+
+**Verification**
+- `gofmt -l .`, `go vet ./...`, `go test -race -timeout 60s -count=1 ./internal/cli/... ./internal/clientcache/... ./internal/agentd/... ./internal/mountd/... ./internal/checkexec/... ./internal/mcpserver/... ./cmd/...`, `go build ./cmd/...`, `CGO_ENABLED=0` cross-builds of `./cmd/gs` (`darwin/arm64`, `windows/arm64`), and full remote CI (`gitslice/{gofmt,vet,test,build,e2e,web/build}`).

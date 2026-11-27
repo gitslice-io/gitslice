@@ -5,10 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"path/filepath"
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/cli/clibase"
 	"gitslice.io/gitslice/internal/paths"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
@@ -16,30 +16,7 @@ import (
 // triggerFolder reads a folder argument: canonical (/acme/x), or a folder of
 // the workspace (default: the current directory).
 func (r Runner) triggerFolder(raw string) (string, error) {
-	if strings.HasPrefix(strings.TrimSpace(raw), "/") {
-		folder, err := paths.CanonicalPrefix(strings.TrimSpace(raw))
-		if err != nil {
-			return "", userError("invalid_argument", err.Error(), "")
-		}
-		return folder, nil
-	}
-	dir := r.cwd()
-	if raw != "" {
-		dir = filepath.Join(dir, raw)
-	}
-	root, err := workspaceRootFrom(dir)
-	if err != nil {
-		return "", userError("path_required", "not in a gitslice workspace", "Pass a canonical folder, such as /acme/services.")
-	}
-	rel, err := filepath.Rel(root, dir)
-	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
-		return "", userError("path_required", "cannot tell which folder that is", "Pass a canonical folder, such as /acme/services.")
-	}
-	folder, err := paths.CanonicalPrefix("/" + filepath.ToSlash(rel))
-	if err != nil {
-		return "", userError("invalid_argument", err.Error(), "")
-	}
-	return folder, nil
+	return clibase.WorkspaceFolder(r.cwd(), raw)
 }
 
 // automationFolder resolves a folder for automation commands: canonical path,

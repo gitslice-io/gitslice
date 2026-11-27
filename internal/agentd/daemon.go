@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -128,18 +127,7 @@ func (h HostCallbacks) objectCache() (*clientcache.ObjectCache, error) {
 	if h.ObjectCache != nil {
 		return h.ObjectCache()
 	}
-	dir := strings.TrimSpace(os.Getenv("GS_CLIENT_CACHE_DIR"))
-	if dir == "" {
-		dir = strings.TrimSpace(os.Getenv("GITSLICE_CLIENT_CACHE_DIR"))
-	}
-	if dir == "" {
-		home := h.Home
-		if home == "" {
-			home, _ = os.UserHomeDir()
-		}
-		dir = filepath.Join(home, ".cache", "gitslice", "objects")
-	}
-	return clientcache.New(dir)
+	return clientcache.New(clientcache.DefaultRoot(h.Home, os.Getenv))
 }
 
 // AuthClient manages delegated child API keys for conversations.

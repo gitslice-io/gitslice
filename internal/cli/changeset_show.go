@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/mcpserver"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
 )
@@ -53,7 +54,7 @@ func currentPatchsetChecks(ctx context.Context, conn *grpc.ClientConn, changeset
 	if err != nil {
 		return nil
 	}
-	latest := LatestPatchsetCheckRuns(res.GetRuns(), patchsetID)
+	latest := mcpserver.LatestPatchsetCheckRuns(res.GetRuns(), patchsetID)
 	out := make([]changesetCheckOutput, 0, len(latest))
 	for _, run := range latest {
 		out = append(out, changesetCheckOutput{Name: run.GetCheckName(), Status: run.GetStatus(), RunID: run.GetId(), Daemon: run.GetDaemonName()})

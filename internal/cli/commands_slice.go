@@ -159,7 +159,9 @@ func (r Runner) sliceCommand(opts *commandOptions) *cobra.Command {
 		Short: "Manage the CI secrets of one slice",
 		Long: "These commands manage the secrets that reach one slice. A secret shared with other slices,\n" +
 			"or with every slice of the account, is managed with gs secret.",
+		RunE: requireSubcommand("slice secret"),
 	}
+	markSchemaGroup(sliceSecretCmd)
 	sliceSecretSetCmd := &cobra.Command{
 		Use:   "set <slice|account:slice> <NAME> [value]",
 		Short: "Set a CI secret of this slice only, reading the value from stdin",

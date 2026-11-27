@@ -283,10 +283,6 @@ func ServiceSecretEnv(name string) bool {
 	return strings.Contains(name, "TOKEN") || strings.Contains(name, "SECRET") || strings.Contains(name, "PASSWORD") || strings.Contains(name, "KEY")
 }
 
-func ServiceDefinition(osName, home, name, gs, workingDir string, ci bool, env map[string]string) (definition, path, logPath string) {
-	return ServiceDefinitionWithSlices(osName, home, name, gs, workingDir, ci, nil, env)
-}
-
 func ServiceDefinitionWithSlices(osName, home, name, gs, workingDir string, ci bool, slices []string, env map[string]string) (definition, path, logPath string) {
 	switch osName {
 	case "linux":

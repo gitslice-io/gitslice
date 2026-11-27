@@ -107,12 +107,12 @@ func (r Runner) listenMountControl(id string) (net.Listener, func()) {
 	return mountd.ListenMountControl(r.mountRuntimeDir(), id)
 }
 
-func (r Runner) mountEnv() mountd.Env {
+func (r Runner) mountEnv(ctx context.Context) mountd.Env {
 	return mountd.Env{
 		Home:             r.Home,
 		MountsRoot:       r.mountsRoot(),
 		RuntimeDir:       r.mountRuntimeDir(),
-		Insecure:         r.Insecure,
+		Insecure:         r.Insecure || insecureFromContext(ctx),
 		ObjectCache:      r.objectCache,
 		PruneObjectCache: r.maybePruneObjectCache,
 		DialLazy:         dialLazy,
@@ -128,15 +128,15 @@ func (r Runner) mountEnv() mountd.Env {
 }
 
 func (r Runner) serveMount(ctx context.Context, rec mountRecord, debug bool, ready func()) error {
-	return r.mountEnv().ServeMount(ctx, rec, debug, ready)
+	return r.mountEnv(ctx).ServeMount(ctx, rec, debug, ready)
 }
 
 func (r Runner) attachViaSupervisor(rec mountRecord) error {
-	return r.mountEnv().AttachViaSupervisor(rec)
+	return r.mountEnv(context.Background()).AttachViaSupervisor(rec)
 }
 
 func (r Runner) runMountSupervisor(ctx context.Context) error {
-	return r.mountEnv().RunSupervisor(ctx)
+	return r.mountEnv(ctx).RunSupervisor(ctx)
 }
 
 func fetchBaseFiles(ctx context.Context, conn *grpc.ClientConn, slice *corev1.SliceRef, commitID string, entries []lazyfs.BaseEntry, cache *clientcache.ObjectCache) (int, int64, error) {

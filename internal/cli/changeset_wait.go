@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/mcpserver"
 	"gitslice.io/gitslice/internal/model"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
@@ -215,7 +216,7 @@ func (w *checkProgressWatch) poll(ctx context.Context, conn *grpc.ClientConn, cf
 	if err != nil {
 		return nil
 	}
-	return w.observe(changesetID, pendingCheck, meta.required, LatestPatchsetCheckRuns(res.GetRuns(), meta.patchsetID))
+	return w.observe(changesetID, pendingCheck, meta.required, mcpserver.LatestPatchsetCheckRuns(res.GetRuns(), meta.patchsetID))
 }
 
 func (w *checkProgressWatch) observe(changesetID, pendingCheck string, required map[string]bool, runs []*corev1.CheckRun) error {

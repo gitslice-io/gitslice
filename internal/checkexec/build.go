@@ -324,10 +324,6 @@ func copyContext(srcDir, dstDir string, files []string) error {
 	return nil
 }
 
-func copyContextFile(srcDir, dstDir, rel string) error {
-	return copyContext(srcDir, dstDir, []string{rel})
-}
-
 func copyContextEntry(srcRoot *os.Root, realSrc string, dstRoot *os.Root, realDst, rel string) error {
 	cleaned, err := cleanContextRel(rel, false)
 	if err != nil {

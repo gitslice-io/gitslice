@@ -135,7 +135,7 @@ func (r Runner) dialServerLazy(ctx context.Context, addr string) (*grpc.ClientCo
 	if r.Dial != nil {
 		return r.Dial(ctx, addr)
 	}
-	return dialLazy(addr, r.Insecure)
+	return dialLazy(addr, r.Insecure || insecureFromContext(ctx))
 }
 
 func dial(ctx context.Context, addr string) (*grpc.ClientConn, error) {
@@ -290,11 +290,6 @@ func isLoopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
-}
-
-func isLoopbackDialAddr(addr string) bool {
-	target, _, _ := resolveDialTargetPolicy(addr, false)
-	return isLoopbackHost(extractDialHost(target))
 }
 
 func serverUsesNonLoopbackTLS(addr string) bool {

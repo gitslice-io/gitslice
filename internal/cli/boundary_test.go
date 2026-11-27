@@ -1,9 +1,16 @@
 package cli
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/cobra"
 )
 
 func TestCmdGSBinaryDoesNotLinkServerStorageStack(t *testing.T) {
@@ -13,8 +20,24 @@ func TestCmdGSBinaryDoesNotLinkServerStorageStack(t *testing.T) {
 	}
 	deps := strings.Split(strings.TrimSpace(string(out)), "\n")
 	forbidden := []string{
+		"gitslice.io/gitslice/server",
+		"gitslice.io/gitslice/service",
 		"gitslice.io/gitslice/internal/postgres",
 		"gitslice.io/gitslice/internal/storage",
+		"gitslice.io/gitslice/internal/automations",
+		"gitslice.io/gitslice/internal/gitcompat",
+		"gitslice.io/gitslice/internal/gitimport",
+		"gitslice.io/gitslice/internal/gitmirror",
+		"gitslice.io/gitslice/internal/objectstore/r2",
+		"gitslice.io/gitslice/internal/objectstore/filesystem",
+		"gitslice.io/gitslice/internal/objectstore/packed",
+		"gitslice.io/gitslice/internal/objectstore/cache",
+		"gitslice.io/gitslice/internal/objectstore/latency",
+		"gitslice.io/gitslice/internal/treestore",
+		"gitslice.io/gitslice/internal/indexworker",
+		"gitslice.io/gitslice/internal/socialcard",
+		"gitslice.io/gitslice/internal/events",
+		"gitslice.io/gitslice/internal/auth/clerk",
 		"github.com/jackc/pgx",
 	}
 	required := map[string]bool{
@@ -54,10 +77,19 @@ func TestExtractedCLILibrariesHaveNoCLIDependencies(t *testing.T) {
 		"gitslice.io/gitslice/internal/cli",
 		"gitslice.io/gitslice/internal/postgres",
 		"gitslice.io/gitslice/internal/storage",
+		"gitslice.io/gitslice/server",
+		"gitslice.io/gitslice/service",
 	}
 	for _, pkg := range []string{
 		"gitslice.io/gitslice/internal/workspace",
 		"gitslice.io/gitslice/internal/remoteshell",
+		"gitslice.io/gitslice/internal/agentd",
+		"gitslice.io/gitslice/internal/mountd",
+		"gitslice.io/gitslice/internal/lazyfs",
+		"gitslice.io/gitslice/internal/mcpserver",
+		"gitslice.io/gitslice/internal/clientcache",
+		"gitslice.io/gitslice/internal/selfupdate",
+		"gitslice.io/gitslice/internal/checkexec",
 	} {
 		out, err := exec.Command("go", "list", "-deps", pkg).CombinedOutput()
 		if err != nil {
@@ -72,6 +104,75 @@ func TestExtractedCLILibrariesHaveNoCLIDependencies(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestCmdGSExecUsesStdlibOnly(t *testing.T) {
+	out, err := exec.Command("go", "list", "-f", "{{range .Deps}}{{.}}\n{{end}}", "gitslice.io/gitslice/cmd/gs-exec").CombinedOutput()
+	if err != nil {
+		t.Fatalf("go list cmd/gs-exec: %v\n%s", err, out)
+	}
+	for _, dep := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		dep = strings.TrimSpace(dep)
+		if dep == "" {
+			continue
+		}
+		if strings.Contains(dep, ".") && !strings.HasPrefix(dep, "vendor/") {
+			t.Fatalf("cmd/gs-exec must remain stdlib-only to keep container image tiny, found non-stdlib dep %q", dep)
+		}
+	}
+}
+
+func TestNoDirectWriteJSONInCLICommands(t *testing.T) {
+	allowed := map[string]bool{
+		"cli.go":            true,
+		"output.go":         true,
+		"clibase_bridge.go": true,
+	}
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	fset := token.NewFileSet()
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || allowed[name] {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Clean(name), nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			if id, ok := call.Fun.(*ast.Ident); ok && id.Name == "writeJSON" {
+				t.Errorf("internal/cli/%s calls raw writeJSON(); use r.writeJSONOutput(opts, ...) or writeSchemaOutput so --jq/--template/--fields work", name)
+			}
+			return true
+		})
+	}
+}
+
+func TestCobraGroupCommandsRequireSubcommand(t *testing.T) {
+	root := (Runner{}).rootCommand()
+	var walk func(cmd *cobra.Command, path string)
+	walk = func(cmd *cobra.Command, path string) {
+		if len(cmd.Commands()) > 0 && path != "" && !cmd.Hidden && cmd.Name() != "help" && cmd.Name() != "completion" {
+			if cmd.RunE == nil && cmd.Run == nil {
+				t.Errorf("Cobra group command %q has subcommands but no RunE (missing requireSubcommand)", path)
+			}
+		}
+		for _, sub := range cmd.Commands() {
+			next := sub.Name()
+			if path != "" {
+				next = path + " " + next
+			}
+			walk(sub, next)
+		}
+	}
+	walk(root, "")
 }
 
 func TestCLICommandSubpackagesAreIsolated(t *testing.T) {

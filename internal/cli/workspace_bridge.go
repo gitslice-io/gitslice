@@ -56,9 +56,6 @@ func cleanConfinedRelPath(rel string) (string, error) {
 	out, err := workspace.CleanConfinedRelPath(rel)
 	return out, translateWorkspaceError(err)
 }
-func isSafeRelativeSymlink(absRoot, absTarget, link string) bool {
-	return workspace.IsSafeRelativeSymlink(absRoot, absTarget, link)
-}
 func ensureConfinedDir(root, relDir string) (string, error) {
 	out, err := workspace.EnsureConfinedDir(root, relDir)
 	return out, translateWorkspaceError(err)
