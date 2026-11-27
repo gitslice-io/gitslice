@@ -254,7 +254,7 @@ func (r Runner) streamCheckRunLog(ctx context.Context, conn *grpc.ClientConn, cf
 	if err != nil {
 		return err
 	}
-	terminal := isTerminalCheckStatus(run.GetStatus())
+	terminal := model.IsTerminalCheckRunStatus(run.GetStatus())
 	type recvResult struct {
 		log *corev1.CheckRunLog
 		err error
@@ -290,14 +290,6 @@ func (r Runner) streamCheckRunLog(ctx context.Context, conn *grpc.ClientConn, cf
 			return err
 		}
 	}
-}
-
-func isTerminalCheckStatus(status string) bool {
-	switch status {
-	case "passed", "failed", "errored", "cancelled", "canceled", "skipped":
-		return true
-	}
-	return false
 }
 
 func tailLines(text string, n int) string {

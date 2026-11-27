@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"gitslice.io/gitslice/internal/agenthub"
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
@@ -12,7 +13,7 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-func setupSecretAllowanceTestSlice(t *testing.T, checksYAML string) (*memory.Stores, *Handlers, string, *daemonConn) {
+func setupSecretAllowanceTestSlice(t *testing.T, checksYAML string) (*memory.Stores, *Handlers, string, *agenthub.DaemonConn) {
 	t.Helper()
 	mem, handlers := newSliceMemberHandlers(t)
 	mem.AddPersonalAccount("user_dana", "dana")
@@ -67,8 +68,8 @@ func setupSecretAllowanceTestSlice(t *testing.T, checksYAML string) (*memory.Sto
 	if _, err := mem.Slices.SetCIDaemons(context.Background(), paymentSlice.GetId(), []string{daemon.GetId()}); err != nil {
 		t.Fatalf("SetCIDaemons: %v", err)
 	}
-	conn := handlers.Agent.hub.registerDaemon(daemon.GetId(), "inst-allow-1", 4)
-	t.Cleanup(func() { handlers.Agent.hub.unregisterDaemon(conn) })
+	conn := handlers.Agent.hub.RegisterDaemon(daemon.GetId(), "inst-allow-1", 4)
+	t.Cleanup(func() { handlers.Agent.hub.UnregisterDaemon(conn) })
 
 	return mem, handlers, baseCommit, conn
 }

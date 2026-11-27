@@ -93,7 +93,7 @@ func TestDetachedCIDaemonStaysOnline(t *testing.T) {
 	if err := <-errCh; err != nil {
 		t.Fatalf("Connect after a detach returned %v, want a clean end", err)
 	}
-	if _, connected := handlers.Agent.hub.daemon(daemonID); connected {
+	if _, connected := handlers.Agent.hub.Daemon(daemonID); connected {
 		t.Fatal("a detached daemon is still in the hub")
 	}
 	daemon, err := handlers.Agent.Agents.GetDaemon(ctx, daemonID)

@@ -310,6 +310,46 @@ func NormalizeCheckStatus(status string) (string, bool) {
 	}
 }
 
+// NormalizeCheckRunStatus validates and canonicalizes a CheckRun lifecycle
+// status ("queued", "running", "passed", "failed", "errored", "skipped", or
+// "canceled"). Empty status defaults to "queued".
+func NormalizeCheckRunStatus(status string) (string, error) {
+	status = strings.ToLower(strings.TrimSpace(status))
+	if status == "" {
+		return "queued", nil
+	}
+	switch status {
+	case "queued", "running", "passed", "failed", "errored", "skipped", "canceled":
+		return status, nil
+	default:
+		return "", fmt.Errorf("%w: unsupported check run status %q", ErrInvalid, status)
+	}
+}
+
+// IsTerminalCheckRunStatus reports whether a CheckRun has reached a final state.
+func IsTerminalCheckRunStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "passed", "failed", "errored", "skipped", "canceled", "cancelled":
+		return true
+	default:
+		return false
+	}
+}
+
+// TerminalCheckResultStatus maps a terminal CheckRun status to its binary
+// submit-requirement check result ("pass" or "fail"), or ok=false if the status
+// does not produce a pass/fail verdict (e.g. skipped or canceled).
+func TerminalCheckResultStatus(status string) (string, bool) {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "passed":
+		return NormalizeCheckStatus(CheckStatusPass)
+	case "failed", "errored":
+		return NormalizeCheckStatus(CheckStatusFail)
+	default:
+		return "", false
+	}
+}
+
 // FormatActorAttribution renders an ActorAttribution in the canonical human
 // format: "<acting> (for <controller>) via <daemon_name || daemon_id>, conversation <conv_id>".
 func FormatActorAttribution(attr *corev1.ActorAttribution, fallbackUsername string) string {

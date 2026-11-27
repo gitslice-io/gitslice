@@ -35,3 +35,34 @@ func TestModelHandlesRolesAndAttribution(t *testing.T) {
 		t.Fatalf("FormatActorAttribution = %q", got)
 	}
 }
+
+func TestCheckRunStatusHelpers(t *testing.T) {
+	if got, err := NormalizeCheckRunStatus(""); err != nil || got != "queued" {
+		t.Fatalf("NormalizeCheckRunStatus(\"\") = %q, %v", got, err)
+	}
+	if got, err := NormalizeCheckRunStatus(" PASSED "); err != nil || got != "passed" {
+		t.Fatalf("NormalizeCheckRunStatus(\" PASSED \") = %q, %v", got, err)
+	}
+	if _, err := NormalizeCheckRunStatus("bogus"); err == nil {
+		t.Fatal("expected error for bogus check run status")
+	}
+	for _, s := range []string{"passed", "failed", "errored", "skipped", "canceled", "cancelled"} {
+		if !IsTerminalCheckRunStatus(s) {
+			t.Fatalf("expected %q to be terminal", s)
+		}
+	}
+	for _, s := range []string{"", "queued", "running"} {
+		if IsTerminalCheckRunStatus(s) {
+			t.Fatalf("expected %q to be non-terminal", s)
+		}
+	}
+	if got, ok := TerminalCheckResultStatus("passed"); !ok || got != CheckStatusPass {
+		t.Fatalf("TerminalCheckResultStatus(passed) = %q, %v", got, ok)
+	}
+	if got, ok := TerminalCheckResultStatus("errored"); !ok || got != CheckStatusFail {
+		t.Fatalf("TerminalCheckResultStatus(errored) = %q, %v", got, ok)
+	}
+	if _, ok := TerminalCheckResultStatus("canceled"); ok {
+		t.Fatal("expected canceled to have no binary check result")
+	}
+}

@@ -641,8 +641,8 @@ checks:
 	if _, err := mem.Slices.SetCIDaemons(context.Background(), paymentSlice.GetId(), []string{daemon.GetId()}); err != nil {
 		t.Fatalf("SetCIDaemons: %v", err)
 	}
-	conn := handlers.Agent.hub.registerDaemon(daemon.GetId(), "inst-1", 4)
-	defer handlers.Agent.hub.unregisterDaemon(conn)
+	conn := handlers.Agent.hub.RegisterDaemon(daemon.GetId(), "inst-1", 4)
+	defer handlers.Agent.hub.UnregisterDaemon(conn)
 
 	// Contributor (bob) creates a patchset touching normal code (not .gitslice/).
 	cs, _ := createDispatchTestPatchset(t, bob, handlers, paymentRef, baseCommit, "/acme/payment/app.go", "package payment\n", "contributor patch")

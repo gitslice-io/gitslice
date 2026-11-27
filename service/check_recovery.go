@@ -8,7 +8,9 @@ import (
 	"time"
 
 	"gitslice.io/gitslice/internal/activity"
+	"gitslice.io/gitslice/internal/agenthub"
 	"gitslice.io/gitslice/internal/checks"
+	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
@@ -27,11 +29,11 @@ var strandedRunAfter = 2 * time.Minute
 
 // replayDaemonCheckRuns sends a process that (re)connected the runs it
 // holds claims on, then the daemon's unclaimed queued runs it has room for.
-func (s *AgentService) replayDaemonCheckRuns(ctx context.Context, daemonID string, conn *daemonConn) {
+func (s *AgentService) replayDaemonCheckRuns(ctx context.Context, daemonID string, conn *agenthub.DaemonConn) {
 	if s.Checks == nil || s.dispatcher == nil || conn == nil {
 		return
 	}
-	if claimed, err := s.Checks.ListClaimedCheckRuns(ctx, conn.instance); err == nil {
+	if claimed, err := s.Checks.ListClaimedCheckRuns(ctx, conn.Instance); err == nil {
 		s.dispatcher.sendRuns(ctx, conn, claimed, false)
 	}
 	s.dispatcher.dispatchQueued(ctx, daemonID)
@@ -70,12 +72,12 @@ func (s *AgentService) runCheckDispatchSweepOnce(ctx context.Context, now time.T
 	if s == nil || s.hub == nil || s.Checks == nil || s.dispatcher == nil {
 		return
 	}
-	for _, daemonID := range s.hub.onlineDaemonIDs() {
-		for _, conn := range s.hub.conns(daemonID) {
+	for _, daemonID := range s.hub.OnlineDaemonIDs() {
+		for _, conn := range s.hub.Conns(daemonID) {
 			if err := ctx.Err(); err != nil {
 				return
 			}
-			runs, err := s.Checks.ListClaimedCheckRuns(ctx, conn.instance)
+			runs, err := s.Checks.ListClaimedCheckRuns(ctx, conn.Instance)
 			if err != nil {
 				if ctx.Err() != nil {
 					return
@@ -295,12 +297,12 @@ func (d *checkDispatcher) rebuildRunChecksMessage(ctx context.Context, runs []*c
 	}}}, nil
 }
 
-func (s *AgentService) handleCheckRunUpdate(ctx context.Context, daemonID string, conn *daemonConn, update *corev1.CheckRunUpdate) {
+func (s *AgentService) handleCheckRunUpdate(ctx context.Context, daemonID string, conn *agenthub.DaemonConn, update *corev1.CheckRunUpdate) {
 	if s.Checks == nil || conn == nil || update == nil {
 		return
 	}
 	ack := func() {
-		conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_CheckAck{CheckAck: &corev1.CheckRunAck{
+		conn.TrySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_CheckAck{CheckAck: &corev1.CheckRunAck{
 			RunId:          update.RunId,
 			AckedClientSeq: update.ClientSeq,
 		}}})
@@ -308,30 +310,30 @@ func (s *AgentService) handleCheckRunUpdate(ctx context.Context, daemonID string
 	run, err := s.Checks.GetCheckRun(ctx, update.RunId)
 	if err != nil {
 		if errors.Is(err, storage.ErrNotFound) {
-			conn.untrackRun(update.RunId)
+			conn.UntrackRun(update.RunId)
 			ack()
 		}
 		return
 	}
 	if run.DaemonId != daemonID {
-		conn.untrackRun(update.RunId)
+		conn.UntrackRun(update.RunId)
 		ack()
 		return
 	}
-	if !update.Final && !isFinalCheckStatus(update.Status) && (run.Status == "queued" || run.Status == "running") {
-		conn.trackRun(run.Id)
+	if !update.Final && !model.IsTerminalCheckRunStatus(update.Status) && (run.Status == "queued" || run.Status == "running") {
+		conn.TrackRun(run.Id)
 	} else {
-		conn.untrackRun(run.Id)
+		conn.UntrackRun(run.Id)
 	}
 	// The process reporting on a run holds it (design/32 layer 3). A run
 	// that ended without it (canceled, or tried again elsewhere after its
 	// claim lapsed) is stopped there.
 	if run.Status == "queued" || run.Status == "running" {
-		_ = s.Checks.RenewCheckRunClaim(ctx, run.Id, conn.instance, storage.CheckRunLease)
+		_ = s.Checks.RenewCheckRunClaim(ctx, run.Id, conn.Instance, storage.CheckRunLease)
 	} else if update.Status != "" && update.Status != run.Status && !update.Final {
-		conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_CancelCheck{CancelCheck: &corev1.CancelCheckRun{RunId: run.Id}}})
+		conn.TrySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_CancelCheck{CancelCheck: &corev1.CancelCheckRun{RunId: run.Id}}})
 	}
-	if s.dispatcher != nil && (update.Final || isFinalCheckStatus(update.Status)) {
+	if s.dispatcher != nil && (update.Final || model.IsTerminalCheckRunStatus(update.Status)) {
 		// A slot is free on that process.
 		defer s.dispatcher.dispatchQueued(context.WithoutCancel(ctx), daemonID)
 	}
@@ -359,7 +361,7 @@ func (s *AgentService) handleCheckRunUpdate(ctx context.Context, daemonID string
 			if stored := s.persistedCheckRunLog(ctx, update.RunId, update.ClientSeq); stored != nil {
 				log = stored
 			}
-			s.checkLogs.publish(update.RunId, log)
+			s.checkLogs.Publish(update.RunId, log)
 		}
 	}
 	if update.Status != "" {
@@ -370,7 +372,7 @@ func (s *AgentService) handleCheckRunUpdate(ctx context.Context, daemonID string
 			return
 		}
 		if s.checkLogs != nil {
-			s.checkLogs.publish(update.RunId, nil)
+			s.checkLogs.Publish(update.RunId, nil)
 		}
 	} else if update.Final {
 		if _, err := s.Checks.UpdateCheckRunStatus(ctx, update.RunId, "errored", update.ExitCode, update.Summary); err != nil {
@@ -380,7 +382,7 @@ func (s *AgentService) handleCheckRunUpdate(ctx context.Context, daemonID string
 			return
 		}
 		if s.checkLogs != nil {
-			s.checkLogs.publish(update.RunId, nil)
+			s.checkLogs.Publish(update.RunId, nil)
 		}
 	}
 	ack()

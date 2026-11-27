@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"gitslice.io/gitslice/internal/agenthub"
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
 	"gitslice.io/gitslice/internal/objectstore"
@@ -51,10 +52,10 @@ func poolSlice(t *testing.T, ctx context.Context, mem *memory.Stores, name strin
 	return ref, slice
 }
 
-func noMessage(t *testing.T, conn *daemonConn) {
+func noMessage(t *testing.T, conn *agenthub.DaemonConn) {
 	t.Helper()
 	select {
-	case msg := <-conn.send:
+	case msg := <-conn.Send:
 		t.Fatalf("unexpected message: %v", msg)
 	case <-time.After(50 * time.Millisecond):
 	}
@@ -66,10 +67,10 @@ func TestProcessesOfADaemonShareItsRunsByTheirSlots(t *testing.T) {
 	putChecksForPoolTest(t, mem, "c1", "c2", "c3")
 	ref, _ := poolSlice(t, ctx, mem, "slots", []string{"daemon-1"}, "c1", "c2", "c3")
 	hub := handlers.Agent.hub
-	p1 := hub.registerDaemon("daemon-1", storage.InstanceKey("daemon-1", "p1"), 1)
-	p2 := hub.registerDaemon("daemon-1", storage.InstanceKey("daemon-1", "p2"), 1)
-	defer hub.unregisterDaemon(p1)
-	defer hub.unregisterDaemon(p2)
+	p1 := hub.RegisterDaemon("daemon-1", storage.InstanceKey("daemon-1", "p1"), 1)
+	p2 := hub.RegisterDaemon("daemon-1", storage.InstanceKey("daemon-1", "p2"), 1)
+	defer hub.UnregisterDaemon(p1)
+	defer hub.UnregisterDaemon(p2)
 
 	base, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{})
 	if err != nil {
@@ -99,8 +100,8 @@ func TestRunsGoToTheFirstReachableDaemonOfThePool(t *testing.T) {
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
 	putChecksForPoolTest(t, mem, "c1")
 	ref, _ := poolSlice(t, ctx, mem, "failover", []string{"daemon-a", "daemon-b"}, "c1")
-	b := handlers.Agent.hub.registerDaemon("daemon-b", storage.InstanceKey("daemon-b", ""), 0)
-	defer handlers.Agent.hub.unregisterDaemon(b)
+	b := handlers.Agent.hub.RegisterDaemon("daemon-b", storage.InstanceKey("daemon-b", ""), 0)
+	defer handlers.Agent.hub.UnregisterDaemon(b)
 
 	base, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{})
 	if err != nil {
@@ -119,8 +120,8 @@ func TestARunWhoseProcessStopsRespondingIsTriedAgain(t *testing.T) {
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
 	putChecksForPoolTest(t, mem, "c1")
 	ref, _ := poolSlice(t, ctx, mem, "lapse", []string{"daemon-1"}, "c1")
-	conn := handlers.Agent.hub.registerDaemon("daemon-1", storage.InstanceKey("daemon-1", "p1"), 0)
-	defer handlers.Agent.hub.unregisterDaemon(conn)
+	conn := handlers.Agent.hub.RegisterDaemon("daemon-1", storage.InstanceKey("daemon-1", "p1"), 0)
+	defer handlers.Agent.hub.UnregisterDaemon(conn)
 
 	base, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{})
 	if err != nil {
@@ -131,7 +132,7 @@ func TestARunWhoseProcessStopsRespondingIsTriedAgain(t *testing.T) {
 	for attempt := int32(1); attempt <= storage.MaxCheckRunAttempts; attempt++ {
 		handlers.Agent.handleCheckRunUpdate(ctx, "daemon-1", conn, &corev1.CheckRunUpdate{RunId: runID, Status: "running", ClientSeq: 1})
 		// The process goes quiet and its claim lapses.
-		if err := mem.Checks.RenewCheckRunClaim(ctx, runID, conn.instance, time.Nanosecond); err != nil {
+		if err := mem.Checks.RenewCheckRunClaim(ctx, runID, conn.Instance, time.Nanosecond); err != nil {
 			t.Fatal(err)
 		}
 		time.Sleep(time.Millisecond)
@@ -183,8 +184,8 @@ func TestAQueuedRunMovesOffADaemonThatIsGone(t *testing.T) {
 		t.Fatalf("runs = %v, %v; want one run waiting on daemon-a", runs, err)
 	}
 
-	b := handlers.Agent.hub.registerDaemon("daemon-b", storage.InstanceKey("daemon-b", ""), 0)
-	defer handlers.Agent.hub.unregisterDaemon(b)
+	b := handlers.Agent.hub.RegisterDaemon("daemon-b", storage.InstanceKey("daemon-b", ""), 0)
+	defer handlers.Agent.hub.UnregisterDaemon(b)
 	handlers.Agent.dispatcher.recoverCheckRuns(ctx)
 	sent := waitForRunChecksMessage(t, b)
 	if sent.Checks[0].RunId != runs.Runs[0].Id {

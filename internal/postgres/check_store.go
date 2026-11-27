@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/internal/objectid"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -24,7 +25,7 @@ func (s *CheckStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInpu
 	checkName := strings.TrimSpace(in.CheckName)
 	daemonID := strings.TrimSpace(in.DaemonID)
 	provenance := normalizeCheckRunProvenance(in.Provenance)
-	status, err := normalizeCheckRunStatus(in.Status)
+	status, err := model.NormalizeCheckRunStatus(in.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -78,10 +79,10 @@ func (s *CheckStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInpu
 			finishedExpr = "null"
 			durationExpr = "null"
 		)
-		if status == "running" || isTerminalCheckRunStatus(status) {
+		if status == "running" || model.IsTerminalCheckRunStatus(status) {
 			startedExpr = "now()"
 		}
-		if isTerminalCheckRunStatus(status) {
+		if model.IsTerminalCheckRunStatus(status) {
 			finishedExpr = "now()"
 			durationExpr = "0"
 		}
@@ -140,7 +141,7 @@ func (s *CheckStore) ListCheckRuns(ctx context.Context, changesetID, patchsetID 
 
 func (s *CheckStore) ListRunsByDaemonStatus(ctx context.Context, daemonID, status string) ([]*corev1.CheckRun, error) {
 	daemonID = strings.TrimSpace(daemonID)
-	normalizedStatus, err := normalizeCheckRunStatus(status)
+	normalizedStatus, err := model.NormalizeCheckRunStatus(status)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +193,7 @@ func (s *CheckStore) CancelOpenCheckRunsBeforePatchset(ctx context.Context, chan
 }
 
 func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status string, exitCode int32, summary string) (*corev1.CheckRun, error) {
-	status, err := normalizeCheckRunStatus(status)
+	status, err := model.NormalizeCheckRunStatus(status)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +223,7 @@ func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status str
 			  and status not in ('passed', 'failed', 'errored', 'skipped', 'canceled')
 			  and (superseded_by_run_id is null or $2 = 'canceled')
 			returning changeset_id, patchset_id, check_name
-		`, runID, status, isTerminalCheckRunStatus(status), exitCode, strings.TrimSpace(summary)).Scan(&run.ChangesetID, &run.PatchsetID, &run.CheckName)
+		`, runID, status, model.IsTerminalCheckRunStatus(status), exitCode, strings.TrimSpace(summary)).Scan(&run.ChangesetID, &run.PatchsetID, &run.CheckName)
 		if errors.Is(err, sql.ErrNoRows) {
 			var exists bool
 			if existsErr := tx.QueryRowContext(ctx, `select exists(select 1 from check_runs where id = $1)`, runID).Scan(&exists); existsErr != nil {
@@ -236,7 +237,7 @@ func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status str
 		if err != nil {
 			return err
 		}
-		if resultStatus, ok := terminalCheckResultStatus(status); ok {
+		if resultStatus, ok := model.TerminalCheckResultStatus(status); ok {
 			reportedBy, err := checkRunReporterSubject(ctx, tx, runID)
 			if err != nil {
 				return err
@@ -521,37 +522,4 @@ func normalizeCheckRunProvenance(provenance string) string {
 		return "ci"
 	}
 	return "self"
-}
-
-func normalizeCheckRunStatus(status string) (string, error) {
-	status = strings.ToLower(strings.TrimSpace(status))
-	if status == "" {
-		status = "queued"
-	}
-	switch status {
-	case "queued", "running", "passed", "failed", "errored", "skipped", "canceled":
-		return status, nil
-	default:
-		return "", fmt.Errorf("%w: unsupported check run status %q", storage.ErrInvalid, status)
-	}
-}
-
-func isTerminalCheckRunStatus(status string) bool {
-	switch status {
-	case "passed", "failed", "errored", "skipped", "canceled":
-		return true
-	default:
-		return false
-	}
-}
-
-func terminalCheckResultStatus(status string) (string, bool) {
-	switch status {
-	case "passed":
-		return storage.NormalizeCheckStatus(storage.CheckStatusPass)
-	case "failed", "errored":
-		return storage.NormalizeCheckStatus(storage.CheckStatusFail)
-	default:
-		return "", false
-	}
 }

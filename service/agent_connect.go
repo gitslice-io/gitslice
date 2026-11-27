@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"gitslice.io/gitslice/internal/agenthub"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -67,21 +68,21 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 		return grpcError(err)
 	}
 
-	conn := s.hub.registerDaemon(daemon.Id, storage.InstanceKey(daemon.Id, reg.GetInstanceId()), int(max(reg.GetCheckConcurrency(), 0)))
+	conn := s.hub.RegisterDaemon(daemon.Id, storage.InstanceKey(daemon.Id, reg.GetInstanceId()), int(max(reg.GetCheckConcurrency(), 0)))
 	// A daemon that detaches on purpose stays online (it polls with
 	// StandbyPoll); any other end of the stream marks it offline, unless
 	// another of its processes is still connected.
 	detached := false
 	defer func() {
-		s.hub.unregisterDaemon(conn)
+		s.hub.UnregisterDaemon(conn)
 		background := context.WithoutCancel(ctx)
 		// Queued runs this process was sent but never started go back to
 		// the daemon's other processes (design/32 layer 3). Running ones keep
 		// their claim until it lapses, so a reconnect carries on with them.
 		if s.Checks != nil {
-			_ = s.Checks.ReleaseCheckRunClaims(background, conn.instance)
+			_ = s.Checks.ReleaseCheckRunClaims(background, conn.Instance)
 		}
-		if !detached && len(s.hub.conns(daemon.Id)) == 0 {
+		if !detached && len(s.hub.Conns(daemon.Id)) == 0 {
 			_ = s.Agents.SetDaemonStatus(background, daemon.Id, "offline")
 		}
 		if s.dispatcher != nil {
@@ -104,7 +105,7 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 		defer ping.Stop()
 		for {
 			select {
-			case msg := <-conn.send:
+			case msg := <-conn.Send:
 				if err := stream.Send(msg); err != nil {
 					return
 				}
@@ -114,7 +115,7 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 				}); err != nil {
 					return
 				}
-			case <-conn.done:
+			case <-conn.Done:
 				return
 			case <-ctx.Done():
 				return
@@ -178,12 +179,12 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 			// Only fan out a genuinely new event; a resent duplicate (deduped by
 			// client_seq) was already published when first stored.
 			if inserted {
-				s.hub.publish(ev.ConversationId, stored)
+				s.hub.Publish(ev.ConversationId, stored)
 			}
 			// Ack sequenced events so the daemon can drop them from its resend
 			// buffer. Ack duplicates too: a dup means it is already durable.
 			if ev.ClientSeq > 0 {
-				conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_Ack{Ack: &corev1.EventAck{
+				conn.TrySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_Ack{Ack: &corev1.EventAck{
 					ConversationId: ev.ConversationId,
 					AckedClientSeq: ev.ClientSeq,
 				}}})
@@ -200,11 +201,11 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 // database alone except every idleDaemonStatusEvery, when it marks the daemon
 // online until the next such write is due. It returns when it last made that
 // idle write (zero after a busy heartbeat).
-func (s *AgentService) daemonHeartbeat(ctx context.Context, daemonID string, conn *daemonConn, idleStatusAt, now time.Time) time.Time {
-	if s.activityGate().Awake() || conn.hasRuns() {
+func (s *AgentService) daemonHeartbeat(ctx context.Context, daemonID string, conn *agenthub.DaemonConn, idleStatusAt, now time.Time) time.Time {
+	if s.activityGate().Awake() || conn.HasRuns() {
 		_ = s.Agents.SetDaemonStatus(ctx, daemonID, "online")
 		if s.Checks != nil {
-			_ = s.Checks.RenewCheckRunClaims(ctx, conn.instance, storage.CheckRunLease)
+			_ = s.Checks.RenewCheckRunClaims(ctx, conn.Instance, storage.CheckRunLease)
 		}
 		return time.Time{}
 	}
@@ -228,7 +229,7 @@ func (s *AgentService) daemonHeartbeat(ctx context.Context, daemonID string, con
 // Started follows for every active conversation, so this is the redelivery
 // point. The daemon dedups on seq, so redelivering a message that actually
 // arrived (e.g. a turn still running with no durable output yet) is safe.
-func (s *AgentService) redeliverUnansweredUserMessages(ctx context.Context, daemonID string, conn *daemonConn, conversationID string) {
+func (s *AgentService) redeliverUnansweredUserMessages(ctx context.Context, daemonID string, conn *agenthub.DaemonConn, conversationID string) {
 	conv, err := s.Agents.GetConversation(ctx, conversationID)
 	if err != nil || conv.DaemonId != daemonID {
 		return
@@ -238,7 +239,7 @@ func (s *AgentService) redeliverUnansweredUserMessages(ctx context.Context, daem
 		return
 	}
 	for _, ev := range events {
-		if !conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_UserMessage{UserMessage: &corev1.DeliverUserMessage{
+		if !conn.TrySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_UserMessage{UserMessage: &corev1.DeliverUserMessage{
 			ConversationId: conversationID,
 			Text:           ev.Text,
 			Seq:            ev.Seq,
@@ -248,7 +249,7 @@ func (s *AgentService) redeliverUnansweredUserMessages(ctx context.Context, daem
 	}
 }
 
-func (s *AgentService) replayDaemonConversations(ctx context.Context, daemonID string, conn *daemonConn) {
+func (s *AgentService) replayDaemonConversations(ctx context.Context, daemonID string, conn *agenthub.DaemonConn) {
 	convs, err := s.Agents.ListConversations(ctx, storage.ConversationFilter{DaemonID: daemonID})
 	if err != nil {
 		return
@@ -263,7 +264,7 @@ func (s *AgentService) replayDaemonConversations(ctx context.Context, daemonID s
 			return
 		default:
 		}
-		if !conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_Start{Start: &corev1.StartConversation{
+		if !conn.TrySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_Start{Start: &corev1.StartConversation{
 			ConversationId: conv.Id,
 			Slice:          conv.Slice,
 			SliceId:        conv.SliceId,
@@ -278,7 +279,7 @@ func (s *AgentService) replayDaemonConversations(ctx context.Context, daemonID s
 	// After replaying the active set, tell the daemon exactly which conversations
 	// are still active so it can reap the on-disk workspaces of any it holds that
 	// were closed while it was offline (the live CloseWorkspace push was missed).
-	conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_Reconcile{Reconcile: &corev1.ReconcileWorkspaces{
+	conn.TrySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_Reconcile{Reconcile: &corev1.ReconcileWorkspaces{
 		ActiveConversationIds: activeIDs,
 	}}})
 }

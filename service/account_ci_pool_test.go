@@ -96,8 +96,8 @@ func TestAccountCIDaemonPoolDispatchesChecksAcrossSlicesAndAllowsOverride(t *tes
 		t.Fatal(err)
 	}
 
-	acctConn := handlers.Agent.hub.registerDaemon(acctDaemon.Id, storage.InstanceKey(acctDaemon.Id, ""), 4)
-	defer handlers.Agent.hub.unregisterDaemon(acctConn)
+	acctConn := handlers.Agent.hub.RegisterDaemon(acctDaemon.Id, storage.InstanceKey(acctDaemon.Id, ""), 4)
+	defer handlers.Agent.hub.UnregisterDaemon(acctConn)
 
 	// Bob opens a changeset on team:web (no slice CI daemon set) -> automatically dispatched to team's account CI runner!
 	cs, ps := createDispatchTestPatchset(t, bob, handlers, webRef, commitID, "/team/web/app.ts", "export const x = 1;\n", "web change")
@@ -111,8 +111,8 @@ func TestAccountCIDaemonPoolDispatchesChecksAcrossSlicesAndAllowsOverride(t *tes
 	}
 
 	// Slice override takes precedence over account CI pool when explicitly configured.
-	overrideConn := handlers.Agent.hub.registerDaemon(overrideDaemon.Id, storage.InstanceKey(overrideDaemon.Id, ""), 4)
-	defer handlers.Agent.hub.unregisterDaemon(overrideConn)
+	overrideConn := handlers.Agent.hub.RegisterDaemon(overrideDaemon.Id, storage.InstanceKey(overrideDaemon.Id, ""), 4)
+	defer handlers.Agent.hub.UnregisterDaemon(overrideConn)
 	if _, err := handlers.Slice.SetSliceCIDaemon(alice, &corev1.SetSliceCIDaemonRequest{
 		Slice: webRef, DaemonId: overrideDaemon.Id,
 	}); err != nil {

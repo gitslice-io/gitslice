@@ -5,9 +5,11 @@ import (
 	"strings"
 
 	"gitslice.io/gitslice/internal/activity"
+	"gitslice.io/gitslice/internal/agenthub"
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/doorbell"
+	"gitslice.io/gitslice/internal/pubsub"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -27,8 +29,8 @@ type AgentService struct {
 	Checks      storage.CheckStore
 	ObjectStore ObjectStore
 
-	hub        *agentHub
-	checkLogs  *checkLogHub
+	hub        *agenthub.Hub
+	checkLogs  *pubsub.Hub[*corev1.CheckRunLog]
 	dispatcher *checkDispatcher
 	serverAddr string
 	// doorbell wakes daemons waiting on standby (design/32 layer 1).
@@ -117,8 +119,8 @@ func (s *AgentService) CreateConversation(ctx context.Context, req *corev1.Creat
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	if conn, ok := s.hub.daemon(req.DaemonId); ok {
-		conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_Start{Start: &corev1.StartConversation{
+	if conn, ok := s.hub.Daemon(req.DaemonId); ok {
+		conn.TrySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_Start{Start: &corev1.StartConversation{
 			ConversationId: conv.Id,
 			Slice:          conv.Slice,
 			SliceId:        conv.SliceId,
@@ -201,9 +203,9 @@ func (s *AgentService) SendAgentMessage(ctx context.Context, req *corev1.SendAge
 	if err != nil {
 		return nil, grpcError(err)
 	}
-	s.hub.publish(conv.Id, ev)
-	if conn, ok := s.hub.daemon(conv.DaemonId); ok {
-		conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_UserMessage{UserMessage: &corev1.DeliverUserMessage{
+	s.hub.Publish(conv.Id, ev)
+	if conn, ok := s.hub.Daemon(conv.DaemonId); ok {
+		conn.TrySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_UserMessage{UserMessage: &corev1.DeliverUserMessage{
 			ConversationId: conv.Id,
 			Text:           req.Text,
 			Seq:            ev.Seq,
@@ -225,8 +227,8 @@ func (s *AgentService) StreamConversation(req *corev1.StreamConversationRequest,
 
 	// Subscribe before replaying so no event slips through the gap; the seq
 	// cursor below de-duplicates any event that appears in both replay and live.
-	subID, ch := s.hub.subscribe(req.ConversationId)
-	defer s.hub.unsubscribe(req.ConversationId, subID)
+	ch, cancel := s.hub.Subscribe(req.ConversationId)
+	defer cancel()
 
 	events, err := s.Agents.ListEvents(ctx, req.ConversationId, req.AfterSeq)
 	if err != nil {
@@ -307,8 +309,8 @@ func (s *AgentService) CloseConversation(ctx context.Context, req *corev1.CloseC
 	// Best-effort live teardown. If the daemon is offline the dir lingers until a
 	// future reap; the durable inactive status above is what matters for replay
 	// (replayDaemonConversations only re-starts active conversations).
-	if conn, ok := s.hub.daemon(conv.DaemonId); ok {
-		conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_Close{Close: &corev1.CloseWorkspace{
+	if conn, ok := s.hub.Daemon(conv.DaemonId); ok {
+		conn.TrySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_Close{Close: &corev1.CloseWorkspace{
 			ConversationId:  conv.Id,
 			DeleteWorkspace: true,
 		}}})
@@ -390,7 +392,7 @@ func (s *AgentService) annotateConversation(c *corev1.Conversation) {
 	if c.GetDaemonId() == "" {
 		return
 	}
-	_, ok := s.hub.daemon(c.GetDaemonId())
+	_, ok := s.hub.Daemon(c.GetDaemonId())
 	c.DaemonOnline = ok
 }
 

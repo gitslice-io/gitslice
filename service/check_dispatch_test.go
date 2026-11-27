@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"gitslice.io/gitslice/internal/agenthub"
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
 	"gitslice.io/gitslice/internal/objectstore"
@@ -66,8 +67,8 @@ func TestNewPatchsetCancelsOpenOlderCheckRuns(t *testing.T) {
 	if err := mem.Agents.ExposeDaemon(ctx, "daemon-1", slice.Id, "test"); err != nil {
 		t.Fatal(err)
 	}
-	conn := handlers.Agent.hub.registerDaemon("daemon-1", "daemon-1/legacy", 0)
-	defer handlers.Agent.hub.unregisterDaemon(conn)
+	conn := handlers.Agent.hub.RegisterDaemon("daemon-1", "daemon-1/legacy", 0)
+	defer handlers.Agent.hub.UnregisterDaemon(conn)
 
 	ref, err := handlers.Repository.GetRef(ctx, &corev1.GetRefRequest{})
 	if err != nil {
@@ -220,12 +221,12 @@ checks:
 	}}
 	handlers.Agent.Checks = checks
 
-	conn := handlers.Agent.hub.registerDaemon("daemon-1", "daemon-1/legacy", 0)
-	defer handlers.Agent.hub.unregisterDaemon(conn)
+	conn := handlers.Agent.hub.RegisterDaemon("daemon-1", "daemon-1/legacy", 0)
+	defer handlers.Agent.hub.UnregisterDaemon(conn)
 	handlers.Agent.runCheckDispatchSweepOnce(ctx, now)
 
 	select {
-	case msg := <-conn.send:
+	case msg := <-conn.Send:
 		runChecks := msg.GetRunChecks()
 		if runChecks == nil {
 			t.Fatalf("sweep sent %#v, want RunChecks", msg)
@@ -240,7 +241,7 @@ checks:
 		t.Fatal("timed out waiting for sweep RunChecks")
 	}
 	select {
-	case extra := <-conn.send:
+	case extra := <-conn.Send:
 		t.Fatalf("unexpected extra sweep message: %#v", extra)
 	default:
 	}
@@ -250,7 +251,7 @@ checks:
 }
 
 func TestHandleCheckRunUpdateAcksPermanentConflict(t *testing.T) {
-	conn := &daemonConn{daemonID: "daemon-1", send: make(chan *corev1.ServerMessage, 1), done: make(chan struct{})}
+	conn := &agenthub.DaemonConn{DaemonID: "daemon-1", Send: make(chan *corev1.ServerMessage, 1), Done: make(chan struct{})}
 	checks := &checkUpdateFakeStore{
 		run:       &corev1.CheckRun{Id: "run-1", DaemonId: "daemon-1", Status: "running"},
 		updateErr: storage.ErrConflict,
@@ -263,7 +264,7 @@ func TestHandleCheckRunUpdateAcksPermanentConflict(t *testing.T) {
 		ClientSeq: 42,
 	})
 
-	msg := <-conn.send
+	msg := <-conn.Send
 	ack := msg.GetCheckAck()
 	if ack == nil || ack.RunId != "run-1" || ack.AckedClientSeq != 42 {
 		t.Fatalf("ack = %#v, want run-1 seq 42", ack)
@@ -271,7 +272,7 @@ func TestHandleCheckRunUpdateAcksPermanentConflict(t *testing.T) {
 }
 
 func TestHandleCheckRunUpdateDoesNotAckTransientStatusError(t *testing.T) {
-	conn := &daemonConn{daemonID: "daemon-1", send: make(chan *corev1.ServerMessage, 1), done: make(chan struct{})}
+	conn := &agenthub.DaemonConn{DaemonID: "daemon-1", Send: make(chan *corev1.ServerMessage, 1), Done: make(chan struct{})}
 	checks := &checkUpdateFakeStore{
 		run:       &corev1.CheckRun{Id: "run-1", DaemonId: "daemon-1", Status: "running"},
 		updateErr: errors.New("database temporarily unavailable"),
@@ -285,7 +286,7 @@ func TestHandleCheckRunUpdateDoesNotAckTransientStatusError(t *testing.T) {
 	})
 
 	select {
-	case msg := <-conn.send:
+	case msg := <-conn.Send:
 		t.Fatalf("unexpected ack for transient error: %#v", msg)
 	default:
 	}
@@ -468,11 +469,11 @@ func createDispatchTestPatchset(t *testing.T, ctx context.Context, handlers *Han
 	return cs, patchset
 }
 
-func waitForRunChecksMessage(t *testing.T, conn *daemonConn) *corev1.RunChecks {
+func waitForRunChecksMessage(t *testing.T, conn *agenthub.DaemonConn) *corev1.RunChecks {
 	t.Helper()
 	for {
 		select {
-		case msg := <-conn.send:
+		case msg := <-conn.Send:
 			if run := msg.GetRunChecks(); run != nil {
 				return run
 			}
@@ -482,11 +483,11 @@ func waitForRunChecksMessage(t *testing.T, conn *daemonConn) *corev1.RunChecks {
 	}
 }
 
-func waitForCancelCheckMessage(t *testing.T, conn *daemonConn) *corev1.CancelCheckRun {
+func waitForCancelCheckMessage(t *testing.T, conn *agenthub.DaemonConn) *corev1.CancelCheckRun {
 	t.Helper()
 	for {
 		select {
-		case msg := <-conn.send:
+		case msg := <-conn.Send:
 			if cancel := msg.GetCancelCheck(); cancel != nil {
 				return cancel
 			}
@@ -517,8 +518,8 @@ func TestDispatchWithholdsSecretsOnUnapprovedGitsliceEditsAndIgnoresBundledRequi
 	if err := mem.Agents.ExposeDaemon(alice, "daemon-sec", slice.Id, "user_alice"); err != nil {
 		t.Fatal(err)
 	}
-	conn := handlers.Agent.hub.registerDaemon("daemon-sec", "daemon-sec/1", 0)
-	defer handlers.Agent.hub.unregisterDaemon(conn)
+	conn := handlers.Agent.hub.RegisterDaemon("daemon-sec", "daemon-sec/1", 0)
+	defer handlers.Agent.hub.UnregisterDaemon(conn)
 
 	ref, err := handlers.Repository.GetRef(alice, &corev1.GetRefRequest{})
 	if err != nil {

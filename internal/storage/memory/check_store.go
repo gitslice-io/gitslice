@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/model"
 	"gitslice.io/gitslice/internal/objectid"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -17,7 +18,7 @@ func (s *CheckStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInpu
 	changesetID := strings.TrimSpace(in.ChangesetID)
 	patchsetID := strings.TrimSpace(in.PatchsetID)
 	checkName := strings.TrimSpace(in.CheckName)
-	status, err := normalizeMemoryCheckRunStatus(in.Status)
+	status, err := model.NormalizeCheckRunStatus(in.Status)
 	if err != nil {
 		return nil, err
 	}
@@ -65,10 +66,10 @@ func (s *CheckStore) CreateCheckRun(ctx context.Context, in storage.CheckRunInpu
 		CreatedAt:       now,
 		AutomationRunId: strings.TrimSpace(in.AutomationRunID),
 	}
-	if status == "running" || isTerminalMemoryCheckRunStatus(status) {
+	if status == "running" || model.IsTerminalCheckRunStatus(status) {
 		run.StartedAt = now
 	}
-	if isTerminalMemoryCheckRunStatus(status) {
+	if model.IsTerminalCheckRunStatus(status) {
 		run.FinishedAt = now
 		run.DurationMs = 0
 	}
@@ -131,7 +132,7 @@ func (s *CheckStore) ListRunsByDaemonStatus(ctx context.Context, daemonID, statu
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
 	daemonID = strings.TrimSpace(daemonID)
-	status, err := normalizeMemoryCheckRunStatus(status)
+	status, err := model.NormalizeCheckRunStatus(status)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +204,7 @@ func (s *CheckStore) CancelOpenCheckRunsBeforePatchset(ctx context.Context, chan
 func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status string, exitCode int32, summary string) (*corev1.CheckRun, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	status, err := normalizeMemoryCheckRunStatus(status)
+	status, err := model.NormalizeCheckRunStatus(status)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +212,7 @@ func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status str
 	if run == nil {
 		return nil, storage.ErrNotFound
 	}
-	if isTerminalMemoryCheckRunStatus(run.Status) {
+	if model.IsTerminalCheckRunStatus(run.Status) {
 		return nil, storage.ErrConflict
 	}
 	if s.b.checkRunSupersededBy[run.Id] != "" && status != "canceled" {
@@ -222,7 +223,7 @@ func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status str
 	if status == "running" && run.StartedAt == "" {
 		run.StartedAt = now
 	}
-	if isTerminalMemoryCheckRunStatus(status) {
+	if model.IsTerminalCheckRunStatus(status) {
 		if run.StartedAt == "" {
 			run.StartedAt = now
 		}
@@ -231,7 +232,7 @@ func (s *CheckStore) UpdateCheckRunStatus(ctx context.Context, runID, status str
 		run.ExitCode = exitCode
 		run.Summary = strings.TrimSpace(summary)
 	}
-	if resultStatus, ok := terminalMemoryCheckResultStatus(status); ok {
+	if resultStatus, ok := model.TerminalCheckResultStatus(status); ok {
 		key := patchsetRequirementKey(run.ChangesetId, run.PatchsetId)
 		if s.b.checkResults[key] == nil {
 			s.b.checkResults[key] = map[string]string{}
@@ -285,39 +286,6 @@ func (s *CheckStore) ListCheckRunLogs(ctx context.Context, runID string, afterSe
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Seq < out[j].Seq })
 	return out, nil
-}
-
-func normalizeMemoryCheckRunStatus(status string) (string, error) {
-	status = strings.ToLower(strings.TrimSpace(status))
-	if status == "" {
-		status = "queued"
-	}
-	switch status {
-	case "queued", "running", "passed", "failed", "errored", "skipped", "canceled":
-		return status, nil
-	default:
-		return "", storage.ErrInvalid
-	}
-}
-
-func isTerminalMemoryCheckRunStatus(status string) bool {
-	switch status {
-	case "passed", "failed", "errored", "skipped", "canceled":
-		return true
-	default:
-		return false
-	}
-}
-
-func terminalMemoryCheckResultStatus(status string) (string, bool) {
-	switch status {
-	case "passed":
-		return storage.NormalizeCheckStatus(storage.CheckStatusPass)
-	case "failed", "errored":
-		return storage.NormalizeCheckStatus(storage.CheckStatusFail)
-	default:
-		return "", false
-	}
 }
 
 func memoryCheckRunDurationMS(startedAt, finishedAt string) int64 {

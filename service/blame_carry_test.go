@@ -15,9 +15,9 @@ func TestClaimAndMergeLocksEvictWhenIdle(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		daemonID := fmt.Sprintf("daemon-ephemeral-%d", i)
-		conn := handlers.Agent.hub.registerDaemon(daemonID, daemonID+"/inst", 2)
+		conn := handlers.Agent.hub.RegisterDaemon(daemonID, daemonID+"/inst", 2)
 		handlers.Agent.dispatcher.dispatchQueued(ctx, daemonID)
-		handlers.Agent.hub.unregisterDaemon(conn)
+		handlers.Agent.hub.UnregisterDaemon(conn)
 	}
 	if got := handlers.Agent.dispatcher.claimLocks.Len(); got != 0 {
 		t.Fatalf("claimLocks.Len() = %d, want 0 when idle", got)

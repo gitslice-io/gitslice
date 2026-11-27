@@ -39,7 +39,7 @@ func (s *AgentService) ringDaemon(ctx context.Context, daemonID string, queued i
 			}
 			var listening int
 			if listening, err = s.doorbell.Ring(ringCtx, daemonID, queued); err == nil {
-				if listening == 0 && len(s.hub.conns(daemonID)) == 0 && !s.dispatcher.onDemand[daemonID] {
+				if listening == 0 && len(s.hub.Conns(daemonID)) == 0 && !s.dispatcher.onDemand[daemonID] {
 					_ = s.Agents.SetDaemonStandby(ringCtx, daemonID, time.Time{})
 				}
 				return

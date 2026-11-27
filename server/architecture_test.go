@@ -139,6 +139,31 @@ func TestGoBackendArchitectureBoundaries(t *testing.T) {
 				}
 			}
 		}
+
+		// 6. Pure leaf runtime primitives (internal/pubsub, internal/agenthub, internal/model)
+		// must stay free of storage, postgres, service, and server layers.
+		if rel == "internal/pubsub" {
+			for _, imp := range pkg.Imports {
+				if strings.Contains(imp, ".") {
+					t.Errorf("layer violation: internal/pubsub must remain stdlib-only, found %s", imp)
+				}
+			}
+		}
+		if rel == "internal/agenthub" || rel == "internal/model" {
+			forbidden := []string{
+				mod + "internal/storage",
+				mod + "internal/postgres",
+				mod + "service",
+				mod + "server",
+			}
+			for _, imp := range pkg.Imports {
+				for _, f := range forbidden {
+					if imp == f || strings.HasPrefix(imp, f+"/") {
+						t.Errorf("layer violation: %s must not import %s", rel, strings.TrimPrefix(imp, mod))
+					}
+				}
+			}
+		}
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"gitslice.io/gitslice/internal/agenthub"
 	"gitslice.io/gitslice/internal/checks"
 	"gitslice.io/gitslice/internal/gitslicecfg"
 	"gitslice.io/gitslice/internal/keylock"
@@ -26,7 +27,7 @@ type checkDispatcher struct {
 	Agents      storage.AgentStore
 	ObjectStore ObjectStore
 
-	hub        *agentHub
+	hub        *agenthub.Hub
 	serverAddr string
 
 	// wake tells a daemon waiting on standby that queued check runs are
@@ -209,7 +210,7 @@ func (d *checkDispatcher) daemonReachable(ctx context.Context, daemonID string) 
 	if d.onDemand[daemonID] {
 		return true
 	}
-	if d.hub != nil && len(d.hub.conns(daemonID)) > 0 {
+	if d.hub != nil && len(d.hub.Conns(daemonID)) > 0 {
 		return true
 	}
 	return d.daemonOnline(ctx, daemonID)
@@ -226,19 +227,19 @@ func (d *checkDispatcher) dispatchQueued(ctx context.Context, daemonID string) {
 	}
 	unlock := d.claimLocks.Lock(daemonID)
 	defer unlock()
-	for _, conn := range d.hub.conns(daemonID) {
+	for _, conn := range d.hub.Conns(daemonID) {
 		limit := 0
-		if conn.capacity > 0 {
-			claimed, err := d.Checks.ListClaimedCheckRuns(ctx, conn.instance)
+		if conn.Capacity > 0 {
+			claimed, err := d.Checks.ListClaimedCheckRuns(ctx, conn.Instance)
 			if err != nil {
 				slog.Warn("failed to count a daemon process's check runs", "daemon_id", daemonID, "error", err)
 				continue
 			}
-			if limit = conn.capacity - len(claimed); limit <= 0 {
+			if limit = conn.Capacity - len(claimed); limit <= 0 {
 				continue
 			}
 		}
-		runs, err := d.Checks.ClaimCheckRuns(ctx, daemonID, conn.instance, limit, storage.CheckRunLease)
+		runs, err := d.Checks.ClaimCheckRuns(ctx, daemonID, conn.Instance, limit, storage.CheckRunLease)
 		if err != nil {
 			slog.Warn("failed to claim queued check runs", "daemon_id", daemonID, "error", err)
 			continue
@@ -248,7 +249,7 @@ func (d *checkDispatcher) dispatchQueued(ctx context.Context, daemonID string) {
 }
 
 // sendRuns sends runs to a daemon process, one RunChecks per patchset.
-func (d *checkDispatcher) sendRuns(ctx context.Context, conn *daemonConn, runs []*corev1.CheckRun, logErrors bool) bool {
+func (d *checkDispatcher) sendRuns(ctx context.Context, conn *agenthub.DaemonConn, runs []*corev1.CheckRun, logErrors bool) bool {
 	grouped := map[string][]*corev1.CheckRun{}
 	for _, run := range runs {
 		if run == nil || run.Provenance != "ci" {
@@ -270,15 +271,15 @@ func (d *checkDispatcher) sendRuns(ctx context.Context, conn *daemonConn, runs [
 		msg, err := d.rebuildRunChecksMessage(ctx, group)
 		if err != nil || msg == nil {
 			if err != nil && logErrors {
-				slog.Warn("failed to build a check dispatch", "daemon_id", conn.daemonID, "changeset_id", group[0].GetChangesetId(), "patchset_id", group[0].GetPatchsetId(), "error", err)
+				slog.Warn("failed to build a check dispatch", "daemon_id", conn.DaemonID, "changeset_id", group[0].GetChangesetId(), "patchset_id", group[0].GetPatchsetId(), "error", err)
 			}
 			continue
 		}
-		if !conn.trySend(msg) {
+		if !conn.TrySend(msg) {
 			return false
 		}
 		for _, spec := range msg.GetRunChecks().GetChecks() {
-			conn.trackRun(spec.GetRunId())
+			conn.TrackRun(spec.GetRunId())
 		}
 	}
 	return true
@@ -430,8 +431,8 @@ func (d *checkDispatcher) cancelCheckRun(run *corev1.CheckRun) {
 		return
 	}
 	// Whichever process has it stops it; the others do not know the run.
-	for _, conn := range d.hub.conns(strings.TrimSpace(run.GetDaemonId())) {
-		conn.trySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_CancelCheck{CancelCheck: &corev1.CancelCheckRun{
+	for _, conn := range d.hub.Conns(strings.TrimSpace(run.GetDaemonId())) {
+		conn.TrySend(&corev1.ServerMessage{Payload: &corev1.ServerMessage_CancelCheck{CancelCheck: &corev1.CancelCheckRun{
 			RunId: run.GetId(),
 		}}})
 	}

@@ -1,4 +1,4 @@
-package service
+package gitimport
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestValidateImportSource(t *testing.T) {
+func TestValidateSource(t *testing.T) {
 	t.Setenv("GITSLICE_IMPORT_ALLOWED_HOSTS", "")
 	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "")
 
@@ -47,62 +47,62 @@ func TestValidateImportSource(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, local, err := validateImportSource(tt.source)
+			got, local, err := ValidateSource(tt.source)
 			if tt.wantErr {
 				if err == nil {
-					t.Fatalf("validateImportSource(%q) returned %q, want error", tt.source, got)
+					t.Fatalf("ValidateSource(%q) returned %q, want error", tt.source, got)
 				}
 				return
 			}
 			if err != nil {
-				t.Fatalf("validateImportSource(%q) returned error: %v", tt.source, err)
+				t.Fatalf("ValidateSource(%q) returned error: %v", tt.source, err)
 			}
 			if got != tt.want {
-				t.Fatalf("validateImportSource(%q) = %q, want %q", tt.source, got, tt.want)
+				t.Fatalf("ValidateSource(%q) = %q, want %q", tt.source, got, tt.want)
 			}
 			if local {
-				t.Fatalf("validateImportSource(%q) reported local for a remote source", tt.source)
+				t.Fatalf("ValidateSource(%q) reported local for a remote source", tt.source)
 			}
 		})
 	}
 }
 
-func TestValidateImportSourceAllowsConfiguredHost(t *testing.T) {
+func TestValidateSourceAllowsConfiguredHost(t *testing.T) {
 	t.Setenv("GITSLICE_IMPORT_ALLOWED_HOSTS", " Git.Example.COM ")
 	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "")
-	prevResolve := resolvePublicImportHost
-	resolvePublicImportHost = func(_ context.Context, host string, allowPrivate bool) (netip.Addr, error) {
+	prevResolve := ResolvePublicHost
+	ResolvePublicHost = func(_ context.Context, host string, allowPrivate bool) (netip.Addr, error) {
 		if host == "git.example.com" && !allowPrivate {
 			return netip.MustParseAddr("93.184.216.34"), nil
 		}
 		return netip.Addr{}, errors.New("unexpected host")
 	}
-	t.Cleanup(func() { resolvePublicImportHost = prevResolve })
+	t.Cleanup(func() { ResolvePublicHost = prevResolve })
 
 	const source = "https://git.example.com/owner/repo.git"
-	got, local, err := validateImportSource(source)
+	got, local, err := ValidateSource(source)
 	if err != nil {
-		t.Fatalf("validateImportSource(%q) returned error: %v", source, err)
+		t.Fatalf("ValidateSource(%q) returned error: %v", source, err)
 	}
 	if got != source {
-		t.Fatalf("validateImportSource(%q) = %q, want %q", source, got, source)
+		t.Fatalf("ValidateSource(%q) = %q, want %q", source, got, source)
 	}
 	if local {
-		t.Fatalf("validateImportSource(%q) reported local for a remote source", source)
+		t.Fatalf("ValidateSource(%q) reported local for a remote source", source)
 	}
 }
 
-func TestValidateImportSourceRejectsNonPublicConfiguredHosts(t *testing.T) {
+func TestValidateSourceRejectsNonPublicConfiguredHosts(t *testing.T) {
 	t.Setenv("GITSLICE_IMPORT_ALLOWED_HOSTS", "127.0.0.1,localhost,169.254.169.254,[::1],internal.corp")
 	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "")
-	prevResolve := resolvePublicImportHost
-	resolvePublicImportHost = func(ctx context.Context, host string, allowPrivate bool) (netip.Addr, error) {
+	prevResolve := ResolvePublicHost
+	ResolvePublicHost = func(ctx context.Context, host string, allowPrivate bool) (netip.Addr, error) {
 		if host == "internal.corp" {
 			return netip.Addr{}, errors.New("webhook target resolves to non-public address 10.0.0.5")
 		}
 		return prevResolve(ctx, host, allowPrivate)
 	}
-	t.Cleanup(func() { resolvePublicImportHost = prevResolve })
+	t.Cleanup(func() { ResolvePublicHost = prevResolve })
 
 	for _, source := range []string{
 		"https://127.0.0.1/o/r.git",
@@ -111,18 +111,18 @@ func TestValidateImportSourceRejectsNonPublicConfiguredHosts(t *testing.T) {
 		"https://[::1]/o/r.git",
 		"https://internal.corp/o/r.git",
 	} {
-		if _, _, err := validateImportSource(source); err == nil {
-			t.Fatalf("validateImportSource(%q) succeeded, want rejection for non-public host", source)
+		if _, _, err := ValidateSource(source); err == nil {
+			t.Fatalf("ValidateSource(%q) succeeded, want rejection for non-public host", source)
 		}
 	}
 }
 
-func TestValidateImportSourceLocalPathsGatedByFlag(t *testing.T) {
+func TestValidateSourceLocalPathsGatedByFlag(t *testing.T) {
 	// Disabled by default: local paths are rejected.
 	t.Setenv("GITSLICE_IMPORT_ALLOW_LOCAL", "")
 	for _, source := range []string{"/srv/repo", "file:///srv/repo"} {
-		if _, _, err := validateImportSource(source); err == nil {
-			t.Fatalf("validateImportSource(%q) succeeded, want error while local import disabled", source)
+		if _, _, err := ValidateSource(source); err == nil {
+			t.Fatalf("ValidateSource(%q) succeeded, want error while local import disabled", source)
 		}
 	}
 
@@ -137,22 +137,22 @@ func TestValidateImportSourceLocalPathsGatedByFlag(t *testing.T) {
 		{source: "file:///srv/repo", want: "/srv/repo"},
 	}
 	for _, tc := range cases {
-		got, local, err := validateImportSource(tc.source)
+		got, local, err := ValidateSource(tc.source)
 		if err != nil {
-			t.Fatalf("validateImportSource(%q) returned error: %v", tc.source, err)
+			t.Fatalf("ValidateSource(%q) returned error: %v", tc.source, err)
 		}
 		if got != tc.want {
-			t.Fatalf("validateImportSource(%q) = %q, want %q", tc.source, got, tc.want)
+			t.Fatalf("ValidateSource(%q) = %q, want %q", tc.source, got, tc.want)
 		}
 		if !local {
-			t.Fatalf("validateImportSource(%q) did not report local", tc.source)
+			t.Fatalf("ValidateSource(%q) did not report local", tc.source)
 		}
 	}
 
 	// Even with local enabled, ssh/ext sources stay rejected.
 	for _, source := range []string{"git@github.com:o/r.git", "ext::sh -c id"} {
-		if _, _, err := validateImportSource(source); err == nil {
-			t.Fatalf("validateImportSource(%q) succeeded, want error", source)
+		if _, _, err := ValidateSource(source); err == nil {
+			t.Fatalf("ValidateSource(%q) succeeded, want error", source)
 		}
 	}
 }

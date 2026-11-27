@@ -234,14 +234,6 @@ func defaultCheckStream(stream string) string {
 	return "stdout"
 }
 
-func isFinalCheckStatus(status string) bool {
-	switch strings.ToLower(strings.TrimSpace(status)) {
-	case "passed", "failed", "errored", "skipped", "canceled":
-		return true
-	}
-	return false
-}
-
 func (s *ChangesetService) skippedRequiredCheckStatuses(ctx context.Context, cs *corev1.Changeset) (map[string]string, error) {
 	patchset := currentPatchset(cs)
 	if patchset == nil {

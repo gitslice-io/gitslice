@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"gitslice.io/gitslice/internal/activity"
+	"gitslice.io/gitslice/internal/agenthub"
 	"gitslice.io/gitslice/internal/analytics"
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/automations"
@@ -11,7 +12,9 @@ import (
 	"gitslice.io/gitslice/internal/doorbell"
 	"gitslice.io/gitslice/internal/gitmirror"
 	"gitslice.io/gitslice/internal/objectstore"
+	"gitslice.io/gitslice/internal/pubsub"
 	"gitslice.io/gitslice/internal/storage"
+	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 type ObjectStore = objectstore.Store
@@ -89,8 +92,8 @@ func New(stores Stores, objectStore ObjectStore, analyticsClient analytics.Clien
 		Repository: stores.Repository,
 		Slices:     stores.Slices,
 	}
-	hub := newAgentHub()
-	checkLogs := newCheckLogHub()
+	hub := agenthub.New()
+	checkLogs := pubsub.NewHub[*corev1.CheckRunLog](256)
 	checkDispatcher := &checkDispatcher{
 		Auth:        stores.Auth,
 		Checks:      stores.Checks,

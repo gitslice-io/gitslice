@@ -9940,3 +9940,14 @@ All checks passed with zero formatting diffs, zero `go vet` diagnostics, zero `g
   - Promoted shared `StatusBadge.tsx` and `ChangesetMetaLine.tsx` from `routes/changeset-detail/` into `web/src/components/changesets/`.
   - Deduplicated `isTraceEvent` in `routes/changeset-detail/conversation.tsx` (delegating to `components/slices/conversationEvents.ts`) and `sliceDisplayName` in `SlicePageParts.tsx` (delegating to `lib/sliceRoutes.ts`).
 - **Machine-enforced 4-tier web architecture**: Strengthened `web/src/architecture.test.ts` to ban `src/queries/ -> src/components/`, ban `src/routes/loaders/ -> src/components/` & route feature subdirectories, and prevent ANY cross-imports between sibling route feature directories (`changeset-detail`, `changesets-list`, `slice-detail`, `doc`, `blog`, `landing`, `site`).
+
+## 2026-11-27 — Architecture Governance Wave G9 (Go Backend Layer Extraction & Check-Run Status SSOT)
+
+- **Extracted reusable Go infrastructure packages out of `service/`**:
+  - Created generic stdlib-only `internal/pubsub` (`Hub[T]`) replacing the duplicated topic fan-out boilerplate across `service/check_log_hub.go` and `service/agent_hub.go`.
+  - Created `internal/agenthub` (`Hub`, `DaemonConn`) composing `*pubsub.Hub[*corev1.ConversationEvent]` and migrated `service/` handlers and tests; deleted `service/check_log_hub.go` and `service/agent_hub.go`.
+  - Moved git import source URL/SSRF validation from `service/import_source.go` (+ `import_source_test.go`) into `internal/gitimport/source.go` (+ `source_test.go`), deduplicating `defaultAllowedHosts` and deleting `service/import_source*.go`.
+- **Single Source of Truth for CheckRun lifecycle statuses**:
+  - Added canonical `NormalizeCheckRunStatus`, `IsTerminalCheckRunStatus`, and `TerminalCheckResultStatus` to `internal/model/model.go` (+ `model_test.go`).
+  - Migrated `internal/postgres/check_store.go`, `internal/storage/memory/check_store.go`, `service/check.go`, `service/check_recovery.go`, and `internal/cli/check_cmd.go` to `model.*`, deleting 5 duplicated local helper implementations (including `service/check_plan.go:isFinalCheckStatus`).
+- **Enforceable layer boundaries**: Extended `server/architecture_test.go` to keep `internal/pubsub` stdlib-only and prevent `internal/agenthub` / `internal/model` from depending on `internal/storage`, `internal/postgres`, `service`, or `server`.

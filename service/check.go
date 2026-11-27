@@ -4,7 +4,10 @@ import (
 	"context"
 	"strings"
 
+	"gitslice.io/gitslice/internal/agenthub"
 	"gitslice.io/gitslice/internal/authz"
+	"gitslice.io/gitslice/internal/model"
+	"gitslice.io/gitslice/internal/pubsub"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -21,9 +24,9 @@ type CheckService struct {
 	// run can say what it waits for.
 	Agents storage.AgentStore
 
-	checkLogs  *checkLogHub
+	checkLogs  *pubsub.Hub[*corev1.CheckRunLog]
 	dispatcher *checkDispatcher
-	hub        *agentHub
+	hub        *agenthub.Hub
 }
 
 // annotateDaemons fills in whether each run's daemon is online and when it
@@ -54,7 +57,7 @@ func (s *CheckService) annotateDaemons(ctx context.Context, runs ...*corev1.Chec
 		run.DaemonLastSeenAt = daemon.GetLastSeenAt()
 		run.DaemonOnline = daemon.GetStatus() == "online"
 		if s.hub != nil {
-			if _, connected := s.hub.daemon(daemonID); connected {
+			if _, connected := s.hub.Daemon(daemonID); connected {
 				run.DaemonOnline = true
 			}
 		}
@@ -246,7 +249,7 @@ func (s *CheckService) streamCheckRun(req *corev1.StreamCheckRunRequest, stream 
 		cancel func()
 	)
 	if s.checkLogs != nil {
-		ch, cancel = s.checkLogs.subscribe(runID)
+		ch, cancel = s.checkLogs.Subscribe(runID)
 		defer cancel()
 	}
 	if err := s.sendPersistedCheckLogs(ctx, runID, &lastSeq, stream); err != nil {
@@ -256,7 +259,7 @@ func (s *CheckService) streamCheckRun(req *corev1.StreamCheckRunRequest, stream 
 	if err != nil {
 		return grpcError(err)
 	}
-	if isTerminalServiceCheckRunStatus(run.GetStatus()) {
+	if model.IsTerminalCheckRunStatus(run.GetStatus()) {
 		return nil
 	}
 	if ch == nil {
@@ -277,7 +280,7 @@ func (s *CheckService) streamCheckRun(req *corev1.StreamCheckRunRequest, stream 
 			if err != nil {
 				return grpcError(err)
 			}
-			if isTerminalServiceCheckRunStatus(run.GetStatus()) {
+			if model.IsTerminalCheckRunStatus(run.GetStatus()) {
 				return nil
 			}
 		}
@@ -327,13 +330,4 @@ func (s *CheckService) authorizedChangesetAndSlice(ctx context.Context, subjectI
 type checkRunLogStream interface {
 	Context() context.Context
 	Send(*corev1.CheckRunLog) error
-}
-
-func isTerminalServiceCheckRunStatus(status string) bool {
-	switch status {
-	case "passed", "failed", "errored", "skipped", "canceled":
-		return true
-	default:
-		return false
-	}
 }

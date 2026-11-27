@@ -63,7 +63,7 @@ func (s *RepositoryService) importGitRepository(ctx context.Context, req *corev1
 	if targetRef == "" {
 		targetRef = storage.DefaultTargetRef
 	}
-	source, localSource, err := validateImportSource(req.Source)
+	source, localSource, err := gitimport.ValidateSource(req.Source)
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}

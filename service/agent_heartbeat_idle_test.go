@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"gitslice.io/gitslice/internal/activity"
+	"gitslice.io/gitslice/internal/agenthub"
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -33,7 +34,7 @@ func TestDaemonHeartbeatLeavesTheDatabaseAloneWhileIdle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterDaemon: %v", err)
 	}
-	conn := &daemonConn{daemonID: daemon.Id, instance: "idle-daemon/1"}
+	conn := &agenthub.DaemonConn{DaemonID: daemon.Id, Instance: "idle-daemon/1"}
 	svc := handlers.Agent
 
 	// wrote reports whether the heartbeat wrote the daemon's status.
@@ -63,11 +64,11 @@ func TestDaemonHeartbeatLeavesTheDatabaseAloneWhileIdle(t *testing.T) {
 		t.Fatalf("idle heartbeat after %s: wrote %v at %v, want a write", idleDaemonStatusEvery, wrote, at)
 	}
 
-	conn.trackRun("run_1")
+	conn.TrackRun("run_1")
 	if at, wrote = heartbeat(later, later.Add(time.Minute)); !wrote || !at.IsZero() {
 		t.Fatalf("heartbeat while running a check: wrote %v at %v, want a write", wrote, at)
 	}
-	conn.untrackRun("run_1")
+	conn.UntrackRun("run_1")
 
 	activity.Default.Begin()()
 	if at, wrote = heartbeat(later, later.Add(time.Minute)); !wrote || !at.IsZero() {
