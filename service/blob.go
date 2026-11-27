@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/objectid"
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
@@ -18,10 +19,19 @@ import (
 )
 
 type BlobService struct {
-	Auth        storage.AuthStore
+	Auth        storage.RoleLookupStore
 	Blobs       storage.BlobStore
 	Slices      storage.SliceStore
 	ObjectStore ObjectStore
+
+	gate *activity.Gate
+}
+
+func (s *BlobService) activityGate() *activity.Gate {
+	if s != nil && s.gate != nil {
+		return s.gate
+	}
+	return activity.Default
 }
 
 const getBlobStatusMaxHashes = 1000

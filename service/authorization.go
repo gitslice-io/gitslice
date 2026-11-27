@@ -10,28 +10,28 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-func authorize(ctx context.Context, auth storage.AuthStore, subjectID string, slice *corev1.Slice, action authz.Action) error {
+func authorize(ctx context.Context, auth storage.RoleLookupStore, subjectID string, slice *corev1.Slice, action authz.Action) error {
 	if err := authz.New(auth).Authorize(ctx, subjectID, slice, action); err != nil {
 		return grpcError(err)
 	}
 	return nil
 }
 
-func authorizeAllowArchived(ctx context.Context, auth storage.AuthStore, subjectID string, slice *corev1.Slice, action authz.Action) error {
+func authorizeAllowArchived(ctx context.Context, auth storage.RoleLookupStore, subjectID string, slice *corev1.Slice, action authz.Action) error {
 	if err := authz.New(auth).AuthorizeAllowArchived(ctx, subjectID, slice, action); err != nil {
 		return grpcError(err)
 	}
 	return nil
 }
 
-func authorizeAccount(ctx context.Context, auth storage.AuthStore, subjectID, account string, action authz.Action) error {
+func authorizeAccount(ctx context.Context, auth storage.RoleLookupStore, subjectID, account string, action authz.Action) error {
 	if err := authz.New(auth).AuthorizeAccount(ctx, subjectID, account, action); err != nil {
 		return grpcError(err)
 	}
 	return nil
 }
 
-func canAuthorizeAccount(ctx context.Context, auth storage.AuthStore, subjectID, account string, action authz.Action) (bool, error) {
+func canAuthorizeAccount(ctx context.Context, auth storage.RoleLookupStore, subjectID, account string, action authz.Action) (bool, error) {
 	err := authz.New(auth).AuthorizeAccount(ctx, subjectID, account, action)
 	if err == nil {
 		return true, nil
@@ -42,7 +42,7 @@ func canAuthorizeAccount(ctx context.Context, auth storage.AuthStore, subjectID,
 	return false, grpcError(err)
 }
 
-func resolveAuthorizedSlice(ctx context.Context, auth storage.AuthStore, slices storage.SliceStore, subjectID string, ref *corev1.SliceRef, action authz.Action) (*corev1.Slice, error) {
+func resolveAuthorizedSlice(ctx context.Context, auth storage.RoleLookupStore, slices storage.SliceStore, subjectID string, ref *corev1.SliceRef, action authz.Action) (*corev1.Slice, error) {
 	slice, err := slices.Resolve(ctx, ref)
 	if err != nil {
 		return nil, grpcError(err)
@@ -53,7 +53,7 @@ func resolveAuthorizedSlice(ctx context.Context, auth storage.AuthStore, slices 
 	return slice, nil
 }
 
-func resolveAuthorizedSliceAllowArchived(ctx context.Context, auth storage.AuthStore, slices storage.SliceStore, subjectID string, ref *corev1.SliceRef, action authz.Action) (*corev1.Slice, error) {
+func resolveAuthorizedSliceAllowArchived(ctx context.Context, auth storage.RoleLookupStore, slices storage.SliceStore, subjectID string, ref *corev1.SliceRef, action authz.Action) (*corev1.Slice, error) {
 	slice, err := slices.Resolve(ctx, ref)
 	if err != nil {
 		return nil, grpcError(err)
@@ -70,7 +70,7 @@ func resolveAuthorizedSliceAllowArchived(ctx context.Context, auth storage.AuthS
 // (design/26_slice_members.md) cannot: widening the paths or pointing the
 // slice at their own daemon, which receives its secrets, would reach past the
 // slice they were given.
-func authorizeSliceOwner(ctx context.Context, auth storage.AuthStore, subjectID string, slice *corev1.Slice) error {
+func authorizeSliceOwner(ctx context.Context, auth storage.RoleLookupStore, subjectID string, slice *corev1.Slice) error {
 	if err := authorizeAccount(ctx, auth, subjectID, slice.GetRef().GetAccount(), authz.ActionAdmin); err != nil {
 		return err
 	}
@@ -80,6 +80,6 @@ func authorizeSliceOwner(ctx context.Context, auth storage.AuthStore, subjectID 
 	return nil
 }
 
-func authorizeSliceOwnerAllowArchived(ctx context.Context, auth storage.AuthStore, subjectID string, slice *corev1.Slice) error {
+func authorizeSliceOwnerAllowArchived(ctx context.Context, auth storage.RoleLookupStore, subjectID string, slice *corev1.Slice) error {
 	return authorizeAccount(ctx, auth, subjectID, slice.GetRef().GetAccount(), authz.ActionAdmin)
 }

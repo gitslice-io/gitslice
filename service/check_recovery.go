@@ -38,8 +38,15 @@ func (s *AgentService) replayDaemonCheckRuns(ctx context.Context, daemonID strin
 }
 
 func (s *AgentService) RunCheckDispatchSweep(ctx context.Context) {
+	s.runCheckDispatchSweepWithGate(ctx, nil)
+}
+
+func (s *AgentService) runCheckDispatchSweepWithGate(ctx context.Context, gate *activity.Gate) {
 	if s == nil || s.hub == nil || s.Checks == nil || s.dispatcher == nil {
 		return
+	}
+	if gate == nil {
+		gate = s.activityGate()
 	}
 	ticker := time.NewTicker(checkDispatchSweepInterval)
 	defer ticker.Stop()
@@ -49,7 +56,7 @@ func (s *AgentService) RunCheckDispatchSweep(ctx context.Context) {
 			return
 		case now := <-ticker.C:
 			// An idle server leaves the database alone (internal/activity).
-			if activity.Default.Wait(ctx) != nil {
+			if gate.Wait(ctx) != nil {
 				return
 			}
 			s.runCheckDispatchSweepOnce(ctx, now)

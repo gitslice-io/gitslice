@@ -18,7 +18,7 @@ import (
 )
 
 type checkDispatcher struct {
-	Auth        storage.AuthStore
+	Auth        storage.RoleLookupStore
 	Checks      storage.CheckStore
 	Changesets  storage.ChangesetStore
 	Repository  storage.RepositoryStore

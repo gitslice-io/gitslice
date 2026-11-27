@@ -21,7 +21,7 @@ import (
 // through the slice itself. It asks about each account once, however many
 // paths it checks.
 type pathReads struct {
-	auth      storage.AuthStore
+	auth      storage.RoleLookupStore
 	slices    storage.SliceStore
 	subjectID string
 	accounts  map[string]error
@@ -58,7 +58,7 @@ func (s *RepositoryService) ensureRepositoryPathRead(ctx context.Context, subjec
 }
 
 // ensurePathRead lets the subject read path p in account (pathReads).
-func ensurePathRead(ctx context.Context, auth storage.AuthStore, sliceStore storage.SliceStore, subjectID, account, p string) error {
+func ensurePathRead(ctx context.Context, auth storage.RoleLookupStore, sliceStore storage.SliceStore, subjectID, account, p string) error {
 	reads := pathReads{auth: auth, slices: sliceStore, subjectID: subjectID}
 	return reads.check(ctx, account, p)
 }

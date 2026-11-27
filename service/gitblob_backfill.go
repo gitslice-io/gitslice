@@ -68,9 +68,16 @@ func (s *BlobService) BackfillGitBlobIDs(ctx context.Context, limit, concurrency
 // again every half minute for new ones (uploads record their own). Blobs it
 // cannot read are retried on the next pass.
 func (s *BlobService) RunGitBlobBackfill(ctx context.Context) {
+	s.runGitBlobBackfillWithGate(ctx, nil)
+}
+
+func (s *BlobService) runGitBlobBackfillWithGate(ctx context.Context, gate *activity.Gate) {
+	if gate == nil {
+		gate = s.activityGate()
+	}
 	total := 0
 	for ctx.Err() == nil {
-		if activity.Default.Wait(ctx) != nil {
+		if gate.Wait(ctx) != nil {
 			return
 		}
 		done, failed, err := s.BackfillGitBlobIDs(ctx, gitBlobBackfillBatch, gitBlobBackfillConcurrency)

@@ -233,7 +233,7 @@ func (s *SliceService) usernameOf(ctx context.Context, subjectID string) (string
 
 // hasSliceRole reports whether the subject has any role on the slice: in its
 // account, or on the slice itself.
-func hasSliceRole(ctx context.Context, auth storage.AuthStore, subjectID string, slice *corev1.Slice) (bool, error) {
+func hasSliceRole(ctx context.Context, auth storage.RoleLookupStore, subjectID string, slice *corev1.Slice) (bool, error) {
 	ok, err := canAuthorizeAccount(ctx, auth, subjectID, slice.GetRef().GetAccount(), authz.ActionRead)
 	if err != nil || ok {
 		return ok, err
@@ -249,7 +249,7 @@ func hasSliceRole(ctx context.Context, auth storage.AuthStore, subjectID string,
 // slice that includes it is readable to them: public, or shared with them.
 // Reads by path (not through a slice) start from the account; this lets a
 // slice's readers outside the account read its files the same way.
-func readableThroughSlice(ctx context.Context, auth storage.AuthStore, sliceStore storage.SliceStore, subjectID, p string) (bool, error) {
+func readableThroughSlice(ctx context.Context, auth storage.RoleLookupStore, sliceStore storage.SliceStore, subjectID, p string) (bool, error) {
 	if sliceStore == nil {
 		return false, nil
 	}

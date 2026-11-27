@@ -19,7 +19,7 @@ import (
 // defined in its folders, and whoever chooses the folders chooses who can
 // read it.
 type SecretService struct {
-	Auth   storage.AuthStore
+	Auth   storage.RoleLookupStore
 	Slices storage.SliceSecretStore
 }
 
@@ -316,7 +316,10 @@ func (s *SecretService) resolveScope(ctx context.Context, account string, scope 
 }
 
 func (s *SecretService) usernames(ctx context.Context, subjects []string) map[string]string {
-	return newSubjectDirectory(s.Auth).bestEffortUsernames(ctx, subjects...)
+	if lookup, ok := s.Auth.(subjectUsernameStore); ok {
+		return newSubjectDirectory(lookup).bestEffortUsernames(ctx, subjects...)
+	}
+	return nil
 }
 
 func (s *SecretService) secretProto(ctx context.Context, secret storage.Secret) *corev1.Secret {

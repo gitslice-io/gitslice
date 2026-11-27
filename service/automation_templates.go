@@ -20,7 +20,7 @@ import (
 type sliceTemplateLookup struct {
 	Repository storage.RepositoryStore
 	Slices     storage.SliceStore
-	Auth       storage.AuthStore
+	Auth       storage.RoleLookupStore
 }
 
 func (l *sliceTemplateLookup) ResolveTemplateTree(ctx context.Context, callerAccount, callerCommitID, callerRootTreeID string, ref automations.UsesRef) (*automations.ResolvedTemplateTree, error) {

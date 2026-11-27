@@ -14,7 +14,7 @@ import (
 )
 
 type WorkspaceService struct {
-	Auth        storage.AuthStore
+	Auth        storage.RoleLookupStore
 	Repository  storage.RepositoryStore
 	Slices      storage.SliceStore
 	ObjectStore ObjectStore

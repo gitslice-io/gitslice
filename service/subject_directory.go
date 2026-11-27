@@ -3,17 +3,19 @@ package service
 import (
 	"context"
 	"strings"
-
-	"gitslice.io/gitslice/internal/storage"
 )
 
-// subjectDirectory centralizes single-subject and batch username resolution
-// over storage.AuthStore across service handlers.
-type subjectDirectory struct {
-	auth storage.AuthStore
+type subjectUsernameStore interface {
+	UsernamesForSubjects(ctx context.Context, subjectIDs []string) (map[string]string, error)
 }
 
-func newSubjectDirectory(auth storage.AuthStore) subjectDirectory {
+// subjectDirectory centralizes single-subject and batch username resolution
+// across service handlers.
+type subjectDirectory struct {
+	auth subjectUsernameStore
+}
+
+func newSubjectDirectory(auth subjectUsernameStore) subjectDirectory {
 	return subjectDirectory{auth: auth}
 }
 

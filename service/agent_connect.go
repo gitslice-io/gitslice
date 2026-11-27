@@ -6,7 +6,6 @@ import (
 	"io"
 	"time"
 
-	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -139,7 +138,7 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 		if msg.GetHeartbeat() == nil {
 			// The open stream is not activity (activity.DaemonConnectPath),
 			// but the work it carries is.
-			activity.Default.Begin()()
+			s.activityGate().Begin()()
 		}
 		switch p := msg.Payload.(type) {
 		case *corev1.DaemonMessage_Heartbeat:
@@ -202,7 +201,7 @@ func (s *AgentService) Connect(stream corev1.AgentService_ConnectServer) error {
 // online until the next such write is due. It returns when it last made that
 // idle write (zero after a busy heartbeat).
 func (s *AgentService) daemonHeartbeat(ctx context.Context, daemonID string, conn *daemonConn, idleStatusAt, now time.Time) time.Time {
-	if activity.Default.Awake() || conn.hasRuns() {
+	if s.activityGate().Awake() || conn.hasRuns() {
 		_ = s.Agents.SetDaemonStatus(ctx, daemonID, "online")
 		if s.Checks != nil {
 			_ = s.Checks.RenewCheckRunClaims(ctx, conn.instance, storage.CheckRunLease)

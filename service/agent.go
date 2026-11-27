@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/storage"
@@ -31,6 +32,14 @@ type AgentService struct {
 	serverAddr string
 	// doorbell wakes daemons waiting on standby (design/32 layer 1).
 	doorbell *Doorbell
+	gate     *activity.Gate
+}
+
+func (s *AgentService) activityGate() *activity.Gate {
+	if s != nil && s.gate != nil {
+		return s.gate
+	}
+	return activity.Default
 }
 
 func normalizeConversationRole(role string) (string, authz.Action, error) {
