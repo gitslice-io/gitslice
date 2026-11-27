@@ -9931,3 +9931,12 @@ All checks passed with zero formatting diffs, zero `go vet` diagnostics, zero `g
   - Eliminated shadow `appendLogLine` divergence in `trigger-dispatch/src/entry.ts` and updated stale `internal/triggers`/`design/34_triggers.md` references across `trigger-dispatch/src/`.
   - Hardened `agents/src/` scale-to-zero and WebSocket behavior: added `setWebSocketAutoResponse("ping", "pong")` in `Hub` constructor (`hub.ts`), added exponential backoff + jitter + `document.hidden` pause in `dashboard.ts`, invoked `host.scheduleAlarm()` in `markSessionLanded` (`hubOverlap.ts` + test), and eliminated duplicate `watchNative()` RPC on `/stream` (`index.ts`).
   - Centralized Hub DO storage keys in `agents/src/hubKeys.ts`, deleted dead `baselineRepoName` (`artifacts.ts`) and unused `findChange` import (`index.ts`), deduplicated `mapLimit` and `shortPath` (`land.ts`, `review.ts` -> `hubOverlap.ts`), removed shallow re-exports in `hub.ts`/`land.ts`, and standardized `.ts` relative imports across `agents/src/`.
+
+## 2026-11-27 — Architecture Governance Wave G8 (Web Strict 4-Tier Layering & Domain Deduplication)
+
+- **Eliminated `src/queries/ -> src/components/` layer inversion**: Moved `listDirectoryAll` from `components/source/sourceUtils.ts` into `queries/slices.ts` and `isPathNotFoundError` into `api/rpcError.ts`.
+- **Eliminated all cross-feature route coupling & loader UI dependencies**:
+  - Moved pure domain logic out of route folders into `web/src/lib/`: `repoPaths.ts`, `checkStatus.ts`, `patchsets.ts`, `readme.ts`, `sourceTree.ts` (removing duplicate `entryDisplayName`), `changesetStatus.ts`, `siteLinks.ts`, and `docSections.ts`.
+  - Promoted shared `StatusBadge.tsx` and `ChangesetMetaLine.tsx` from `routes/changeset-detail/` into `web/src/components/changesets/`.
+  - Deduplicated `isTraceEvent` in `routes/changeset-detail/conversation.tsx` (delegating to `components/slices/conversationEvents.ts`) and `sliceDisplayName` in `SlicePageParts.tsx` (delegating to `lib/sliceRoutes.ts`).
+- **Machine-enforced 4-tier web architecture**: Strengthened `web/src/architecture.test.ts` to ban `src/queries/ -> src/components/`, ban `src/routes/loaders/ -> src/components/` & route feature subdirectories, and prevent ANY cross-imports between sibling route feature directories (`changeset-detail`, `changesets-list`, `slice-detail`, `doc`, `blog`, `landing`, `site`).

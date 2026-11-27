@@ -2,7 +2,7 @@ import { Timestamp } from "../../components/Timestamp";
 import { stripPathPrefix } from "../../components/diff/diffViewShared";
 import { cn } from "../../lib/cn";
 import type { ApprovalSummary } from "./approvalSummary";
-import { formatActorAttribution } from "./ChangesetMetaLine";
+import { formatActorAttribution } from "../../components/changesets/ChangesetMetaLine";
 
 export function ApprovalStatusBadge({
   className,

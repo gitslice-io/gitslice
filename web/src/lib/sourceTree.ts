@@ -1,7 +1,5 @@
-import type { TreeEntry } from "../../api/types";
-import {
-  normalizeRepositoryPath
-} from "../../components/source/sourceUtils";
+import type { TreeEntry } from "../api/types";
+import { entryDisplayName, normalizeRepositoryPath } from "./repoPaths";
 
 interface GitCloneEnv extends ImportMetaEnv {
   readonly VITE_GITSLICE_GIT_HTTP_BASE_URL?: string;
@@ -39,10 +37,6 @@ export function buildGitCloneHint(account?: string, slug?: string, origin?: stri
     /\/+$/,
     ""
   );
-  // The git smart-HTTP endpoint is served same-origin with the web app (the
-  // Worker reverse-proxies /git/* to the backend), so prefer the live origin
-  // when the caller supplies it. Fall back to the build-time base for SSR and
-  // local dev, where git runs on its own port.
   const baseUrl = (origin ?? "").replace(/\/+$/, "") || envBase;
   const clonePath = `/git/${encodeURIComponent(
     account || "account"
@@ -222,15 +216,4 @@ export function compareRepositoryPaths(left: string, right: string) {
     numeric: true,
     sensitivity: "base"
   });
-}
-
-function entryDisplayName(entry: TreeEntry) {
-  if (entry.name) {
-    return entry.name;
-  }
-  if (entry.path) {
-    const parts = normalizeRepositoryPath(entry.path).split("/").filter(Boolean);
-    return parts[parts.length - 1] ?? entry.path;
-  }
-  return "(unnamed)";
 }

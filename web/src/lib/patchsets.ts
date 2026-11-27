@@ -1,5 +1,5 @@
-import type { Changeset, Patchset } from "../../api/types";
-import { shortHash, shortPatchsetId } from "../../lib/objectId";
+import type { Changeset, Patchset } from "../api/types";
+import { shortHash, shortPatchsetId } from "./objectId";
 
 export { shortPatchsetId };
 
@@ -78,12 +78,7 @@ export function patchsetConversationRange(
   }
   const beforeSeq = Number(selected.authoringConversationSeq ?? 0);
 
-  // When the comparison's "from" handle is provided, trim the conversation to
-  // the segment that produced the visible diff range (from, to] instead of just
-  // the patchset that immediately precedes the selected one.
   if (fromPatchsetId !== undefined) {
-    // An empty "from" means the recorded base: include the whole conversation
-    // up to the selected patchset, mirroring the full-changeset diff.
     if (!fromPatchsetId) {
       return { conversationId, afterSeq: 0, beforeSeq };
     }

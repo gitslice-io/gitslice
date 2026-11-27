@@ -1,14 +1,6 @@
-export type DocSection =
-  | "start"
-  | "concepts"
-  | "agents"
-  | "lazy"
-  | "checks"
-  | "secrets"
-  | "automations"
-  | "mirrors"
-  | "git-users"
-  | "cli";
+import type { DocSection } from "../../lib/docSections";
+
+export type { DocSection };
 
 export interface DocParams {
   section?: string;

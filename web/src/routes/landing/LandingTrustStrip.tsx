@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 
-import { GITHUB_MIRROR_URL } from "../site/SitePageChrome";
+import { GITHUB_MIRROR_URL } from "../../lib/siteLinks";
 import { LANDING_SOURCE_SLICE } from "./landingData";
 
 export function LandingTrustStrip() {

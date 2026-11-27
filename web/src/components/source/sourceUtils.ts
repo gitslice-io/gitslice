@@ -1,10 +1,19 @@
-import { RpcError, isNotFoundError } from "../../api/rpcError";
-import type { ApiClient } from "../../api/useApi";
-import type {
-  ListDirectoryResponse,
-  SliceRef,
-  TreeEntry
-} from "../../api/types";
+import { isPathNotFoundError } from "../../api/rpcError";
+import type { TreeEntry } from "../../api/types";
+import {
+  entryDisplayName,
+  isSliceProjectionDirectoryPath,
+  normalizeRelativePath,
+  normalizeRepositoryPath
+} from "../../lib/repoPaths";
+
+export {
+  entryDisplayName,
+  isPathNotFoundError,
+  isSliceProjectionDirectoryPath,
+  normalizeRelativePath,
+  normalizeRepositoryPath
+};
 
 export interface SourceRouteParams {
   account?: string;
@@ -84,40 +93,6 @@ export function breadcrumbSegments(account: string, repositoryPath: string) {
   }
 
   return segments;
-}
-
-export function normalizeRepositoryPath(value: string) {
-  const relative = normalizeRelativePath(value);
-  return relative ? `/${relative}` : "/";
-}
-
-export function normalizeRelativePath(value: string) {
-  const parts: string[] = [];
-
-  for (const part of value.replace(/\\/g, "/").split("/")) {
-    const trimmed = part.trim();
-    if (!trimmed || trimmed === ".") {
-      continue;
-    }
-    if (trimmed === "..") {
-      parts.pop();
-      continue;
-    }
-    parts.push(trimmed);
-  }
-
-  return parts.join("/");
-}
-
-export function entryDisplayName(entry: TreeEntry) {
-  if (entry.name) {
-    return entry.name;
-  }
-  if (entry.path) {
-    const parts = normalizeRelativePath(entry.path).split("/");
-    return parts[parts.length - 1] || entry.path;
-  }
-  return "(unnamed)";
 }
 
 export function entryKindLabel(kind: TreeEntry["kind"]) {
@@ -275,41 +250,6 @@ export function decodeBase64File(data: string | undefined) {
   }
 }
 
-export async function listDirectoryAll(
-  api: ApiClient,
-  request: {
-    allowMissingDirectory?: boolean;
-    commitId: string;
-    path: string;
-    slice?: SliceRef;
-  }
-) {
-  const entries: TreeEntry[] = [];
-  let cursor = "";
-
-  do {
-    let page: ListDirectoryResponse;
-    try {
-      page = await api.listDirectory({
-        commitId: request.commitId,
-        cursor,
-        pageSize: 500,
-        path: request.path,
-        slice: request.slice
-      });
-    } catch (error) {
-      if (request.allowMissingDirectory && isPathNotFoundError(error)) {
-        return [];
-      }
-      throw error;
-    }
-    entries.push(...(page.entries ?? []));
-    cursor = page.nextCursor ?? "";
-  } while (cursor);
-
-  return entries;
-}
-
 export function syntheticDirectoryEntry(path: string, fallbackName = "slice root"): TreeEntry {
   const parts = normalizeRepositoryPath(path).split("/").filter(Boolean);
 
@@ -318,32 +258,6 @@ export function syntheticDirectoryEntry(path: string, fallbackName = "slice root
     name: parts[parts.length - 1] ?? fallbackName,
     path
   };
-}
-
-export function isSliceProjectionDirectoryPath(path: string, includedPaths: string[]) {
-  if (!path) {
-    return true;
-  }
-
-  const normalized = normalizeRepositoryPath(path);
-
-  return includedPaths.some((includedPath) => {
-    const includedNormalized = normalizeRepositoryPath(includedPath);
-    return (
-      normalized === includedNormalized ||
-      includedNormalized.startsWith(`${normalized}/`)
-    );
-  });
-}
-
-export function isPathNotFoundError(error: unknown) {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  if (error instanceof RpcError) {
-    return isNotFoundError(error);
-  }
-  return error.message.toLowerCase().includes("path not found");
 }
 
 export function pathCoversCurrentPath(includedPath: string, currentPath: string) {

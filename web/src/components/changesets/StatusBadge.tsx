@@ -1,5 +1,5 @@
 import { cn } from "../../lib/cn";
-import { humanizeStatus, statusClass } from "./status";
+import { humanizeStatus, statusClass } from "../../lib/changesetStatus";
 
 export function StatusBadge({ status }: { status?: string }) {
   const label = humanizeStatus(status);

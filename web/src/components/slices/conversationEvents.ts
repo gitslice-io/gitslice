@@ -155,7 +155,7 @@ export function agentTurnLabel(
   return label;
 }
 
-function isTraceEvent(event: ConversationEvent) {
+export function isTraceEvent(event: ConversationEvent) {
   const role = (event.role ?? "").toLowerCase();
   const type = (event.type ?? "").toLowerCase();
   return (

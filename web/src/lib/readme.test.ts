@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { TreeEntry } from "../../api/types";
+import type { TreeEntry } from "../api/types";
 import { findReadmeEntry } from "./readme";
 
 const file = (name: string): TreeEntry => ({ kind: "ENTRY_KIND_FILE", name, path: `/acme/app/${name}` });

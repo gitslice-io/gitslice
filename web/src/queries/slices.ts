@@ -1,9 +1,8 @@
 import { queryOptions } from "@tanstack/react-query";
 
-import { isNotFoundError } from "../api/rpcError";
-import type { SliceGitMirror, SliceRef } from "../api/types";
+import { isNotFoundError, isPathNotFoundError } from "../api/rpcError";
+import type { ListDirectoryResponse, SliceGitMirror, SliceRef, TreeEntry } from "../api/types";
 import type { ApiClient } from "../api/useApi";
-import { listDirectoryAll } from "../components/source/sourceUtils";
 import { GLOBAL_REF_NAME } from "../lib/globalRef";
 
 // Slice source and settings data. The slice page, the folder navigator, the
@@ -76,8 +75,43 @@ export function slicePathQuery(
   });
 }
 
+export async function listDirectoryAll(
+  api: Pick<ApiClient, "listDirectory">,
+  request: {
+    allowMissingDirectory?: boolean;
+    commitId: string;
+    path: string;
+    slice?: SliceRef;
+  }
+): Promise<TreeEntry[]> {
+  const entries: TreeEntry[] = [];
+  let cursor = "";
+
+  do {
+    let page: ListDirectoryResponse;
+    try {
+      page = await api.listDirectory({
+        commitId: request.commitId,
+        cursor,
+        pageSize: 500,
+        path: request.path,
+        slice: request.slice
+      });
+    } catch (error) {
+      if (request.allowMissingDirectory && isPathNotFoundError(error)) {
+        return [];
+      }
+      throw error;
+    }
+    entries.push(...(page.entries ?? []));
+    cursor = page.nextCursor ?? "";
+  } while (cursor);
+
+  return entries;
+}
+
 export function sliceDirectoryQuery(
-  api: ApiClient,
+  api: Pick<ApiClient, "listDirectory">,
   ref: SliceRef | undefined,
   commitId: string,
   path: string,

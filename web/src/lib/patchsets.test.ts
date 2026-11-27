@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { Changeset, Patchset } from "../../api/types";
+import type { Changeset, Patchset } from "../api/types";
 import {
   clamp,
   findPatchset,
@@ -15,7 +15,7 @@ import {
   sortedPatchsets,
   timelineIndexForValue,
   timelinePosition
-} from "./patchsetUtils";
+} from "./patchsets";
 
 describe("sortedPatchsets", () => {
   it("sorts patchsets by number then by key", () => {

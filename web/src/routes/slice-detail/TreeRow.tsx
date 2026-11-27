@@ -5,7 +5,7 @@ interface TreeRowProps {
   depth: number;
   isExpanded: boolean;
   isLoading: boolean;
-  node: import("./sourceTree").SourceTreeNode;
+  node: import("../../lib/sourceTree").SourceTreeNode;
   onSelect(path: string): void;
   onToggle(path: string): void;
   selectedPath: string;

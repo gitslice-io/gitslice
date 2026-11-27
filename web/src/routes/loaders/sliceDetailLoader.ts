@@ -4,11 +4,19 @@ import type { QueryClient } from "@tanstack/react-query";
 import type { Slice } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import {
+  findNestedReadme,
+  findReadmeEntry,
+  onlyDirectory,
+  README_MAX_BYTES
+} from "../../lib/readme";
+import {
   isSliceProjectionDirectoryPath,
   normalizeRepositoryPath
-} from "../../components/source/sourceUtils";
+} from "../../lib/repoPaths";
 import type { SliceSocial } from "../../lib/socialMeta";
+import { initialTreeExpansion } from "../../lib/sourceTree";
 import { authStatusQuery } from "../../queries/auth";
+import { nestedReadmeQueryKey } from "../../queries/repository";
 import {
   globalRefQuery,
   sliceDirectoryQuery,
@@ -20,9 +28,6 @@ import {
   sliceRenderedFileQueryKey
 } from "../../queries/slices";
 import { lookupOrNotFound } from "../layouts";
-import { findNestedReadme, nestedReadmeQueryKey, onlyDirectory } from "../slice-detail/nestedReadme";
-import { findReadmeEntry, README_MAX_BYTES } from "../slice-detail/readme";
-import { initialTreeExpansion } from "../slice-detail/sourceTree";
 
 // Upper bound on how long SSR waits for path-specific prefetches. Anything that
 // finishes in time is hydrated; the rest loads client-side as before, so a slow

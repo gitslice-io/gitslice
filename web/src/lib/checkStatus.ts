@@ -1,8 +1,7 @@
-import type { CheckRun } from "../../api/types";
+import type { CheckRun } from "../api/types";
 
-// A check run's status, apart from the panel that shows it: the server render
-// needs to know whether a run is finished (see the changeset route's loader)
-// without bringing the panel into every page's script.
+// A check run's status, apart from the panel that shows it: loaders and UI
+// panels share this single source of truth without cross-importing routes.
 
 const terminalCheckStatuses = new Set(["passed", "failed", "errored", "skipped", "canceled"]);
 

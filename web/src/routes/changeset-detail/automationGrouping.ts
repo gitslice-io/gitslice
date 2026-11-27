@@ -1,5 +1,5 @@
 import type { CheckRun, AutomationRun } from "../../api/types";
-import { sortCheckRuns } from "./checkStatus";
+import { sortCheckRuns } from "../../lib/checkStatus";
 
 export interface TriggerGroup {
   checks: CheckRun[];

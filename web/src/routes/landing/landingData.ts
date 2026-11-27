@@ -1,4 +1,4 @@
-import type { DocSection } from "../doc/docData";
+import type { DocSection } from "../../lib/docSections";
 
 // Gitslice is developed on Gitslice.
 export const LANDING_SOURCE_SLICE = { account: "gitslice", slice: "gitslice" } as const;

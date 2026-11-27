@@ -11,7 +11,7 @@ import {
 } from "../../components/source/sourceUtils";
 import { projectRoot } from "../../lib/repoLinks";
 import { sliceRenderedFileQuery } from "../../queries/slices";
-import { README_MAX_BYTES } from "./readme";
+import { README_MAX_BYTES } from "../../lib/readme";
 
 interface FolderReadmeProps {
   canEdit: boolean;

@@ -5,10 +5,10 @@ import { useState } from "react";
 import type { Changeset } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import { AuthorLabel } from "../../components/AccountAvatar";
+import { ChangesetMetaLine } from "../../components/changesets/ChangesetMetaLine";
+import { StatusBadge } from "../../components/changesets/StatusBadge";
+import { isMergeableStatus, mergeErrorMessage } from "../../lib/changesetStatus";
 import { changesetLabel, shortChangesetId } from "../../lib/objectId";
-import { ChangesetMetaLine } from "../changeset-detail/ChangesetMetaLine";
-import { StatusBadge } from "../changeset-detail/StatusBadge";
-import { isMergeableStatus, mergeErrorMessage } from "../changeset-detail/status";
 import { displaySubmitBlockedReason } from "../stackPageUtils";
 
 // The key every variant of the list shares, to refresh them all at once.

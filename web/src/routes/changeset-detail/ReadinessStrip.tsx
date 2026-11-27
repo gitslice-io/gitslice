@@ -9,7 +9,7 @@ import { checkRunsQuery, triggerRunsQuery } from "../../queries/checks";
 import { ApprovalsCard } from "./ApprovalsCard";
 import type { ApprovalSummary } from "./approvalSummary";
 import { groupTriggersAndChecks } from "./automationGrouping";
-import { isTerminalCheckStatus } from "./checkStatus";
+import { isTerminalCheckStatus } from "../../lib/checkStatus";
 import { isFinalTriggerStatus } from "../../components/automations/AutomationRunLog";
 import { TriggersChecksPanel } from "./TriggersChecksPanel";
 

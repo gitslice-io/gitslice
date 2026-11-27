@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { Slice } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { getErrorMessage } from "../../lib/errors";
+import { formatSliceRef } from "../../lib/sliceRoutes";
 import { Alert, type AlertTone } from "../ui/Alert";
 
 export { getErrorMessage };
@@ -144,14 +145,7 @@ export function sliceDisplayName(slice?: Slice) {
     return "Unknown slice";
   }
 
-  const account = slice.ref?.account;
-  const slug = slice.ref?.slice;
-
-  if (account && slug) {
-    return `${account}:${slug}`;
-  }
-
-  return slug || slice.id || "Unknown slice";
+  return formatSliceRef(slice.ref) || slice.ref?.slice || slice.id || "Unknown slice";
 }
 
 export function formatPathPreview(paths: string[], max = 2) {

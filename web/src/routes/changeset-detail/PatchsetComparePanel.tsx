@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Patchset } from "../../api/types";
 import { cn } from "../../lib/cn";
-import { findPatchset, patchsetOptionLabel } from "./patchsetUtils";
+import { findPatchset, patchsetOptionLabel } from "../../lib/patchsets";
 import { PatchsetTimeline } from "./PatchsetTimeline";
 
 export function PatchsetComparePanel({

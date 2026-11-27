@@ -12,8 +12,8 @@ export { ReviewActions } from "./ReviewActions";
 export { MoreActionsMenu } from "./MoreActionsMenu";
 export { PatchsetComparePanel } from "./PatchsetComparePanel";
 export { PatchsetTimeline } from "./PatchsetTimeline";
-export { StatusBadge } from "./StatusBadge";
-export { ChangesetMetaLine } from "./ChangesetMetaLine";
+export { StatusBadge } from "../../components/changesets/StatusBadge";
+export { ChangesetMetaLine } from "../../components/changesets/ChangesetMetaLine";
 export {
   changesetBreadcrumbItems,
   changesetLabel,
@@ -42,4 +42,4 @@ export {
   timelinePosition,
   type TimelineHandle,
   type TimelineStep
-} from "./patchsetUtils";
+} from "../../lib/patchsets";

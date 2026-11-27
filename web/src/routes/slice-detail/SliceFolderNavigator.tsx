@@ -14,7 +14,7 @@ import {
   parentAncestorDirectoryPaths,
   normalizeTreePath,
   compareRepositoryPaths
-} from "./sourceTree";
+} from "../../lib/sourceTree";
 import { sliceDirectoryQuery } from "../../queries/slices";
 import { TreeRow } from "./TreeRow";
 import { NavigatorSkeleton } from "./skeletons";

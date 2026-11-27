@@ -12,8 +12,8 @@ import {
   dependentChangesetsQuery
 } from "../../queries/changesets";
 import { checkRunsQuery, triggerRunsQuery } from "../../queries/checks";
-import { isTerminalCheckStatus } from "../changeset-detail/checkStatus";
-import { sortedPatchsets } from "../changeset-detail/patchsetUtils";
+import { isTerminalCheckStatus } from "../../lib/checkStatus";
+import { sortedPatchsets } from "../../lib/patchsets";
 import { lookupOrNotFound } from "../layouts";
 
 export function changesetSocial(

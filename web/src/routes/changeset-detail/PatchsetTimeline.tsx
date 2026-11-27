@@ -9,7 +9,7 @@ import {
   patchsetKey,
   patchsetOptionLabel,
   timelineIndexForValue
-} from "./patchsetUtils";
+} from "../../lib/patchsets";
 
 export function PatchsetTimeline({
   currentPatchsetId,

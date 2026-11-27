@@ -36,6 +36,16 @@ export function isNotFoundError(error: unknown): boolean {
   );
 }
 
+export function isPathNotFoundError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if (error instanceof RpcError) {
+    return isNotFoundError(error);
+  }
+  return error.message.toLowerCase().includes("path not found");
+}
+
 // isUnauthenticatedError says the server refused the call because the caller
 // is not signed in or holds no valid session/credential.
 export function isUnauthenticatedError(error: unknown): boolean {

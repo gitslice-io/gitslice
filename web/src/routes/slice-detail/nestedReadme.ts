@@ -2,43 +2,17 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import type { SliceRef, TreeEntry } from "../../api/types";
 import { useApi } from "../../api/useApi";
-import { normalizeRepositoryPath } from "../../components/source/sourceUtils";
+import {
+  findNestedReadme,
+  findReadmeEntry,
+  NESTED_README_MAX_DEPTH,
+  onlyDirectory
+} from "../../lib/readme";
+import { normalizeRepositoryPath } from "../../lib/repoPaths";
 import { nestedReadmeQueryKey } from "../../queries/repository";
 import { sliceDirectoryQuery } from "../../queries/slices";
-import { findReadmeEntry } from "./readme";
 
-export { nestedReadmeQueryKey };
-
-// How many single-folder levels a folder page looks down for a README.
-export const NESTED_README_MAX_DEPTH = 8;
-
-// onlyDirectory is the one entry of a folder that holds a single folder and
-// nothing else.
-export function onlyDirectory(entries: TreeEntry[]): TreeEntry | undefined {
-  return entries.length === 1 && entries[0].kind === "ENTRY_KIND_DIRECTORY" ? entries[0] : undefined;
-}
-
-// findNestedReadme is the README a folder page shows: the folder's own, or,
-// when the folder holds only one folder, that folder's, and so on down, as
-// long as each level is a single folder (an account's slice that is one
-// project at /account/project/). It stops where the tree branches.
-export async function findNestedReadme(
-  entries: TreeEntry[],
-  list: (path: string) => Promise<TreeEntry[]>
-): Promise<TreeEntry | undefined> {
-  let current = entries;
-  for (let depth = 0; ; depth++) {
-    const readme = findReadmeEntry(current);
-    if (readme) {
-      return readme;
-    }
-    const only = onlyDirectory(current);
-    if (!only || depth >= NESTED_README_MAX_DEPTH) {
-      return undefined;
-    }
-    current = await list(normalizeRepositoryPath(only.path ?? ""));
-  }
-}
+export { findNestedReadme, NESTED_README_MAX_DEPTH, nestedReadmeQueryKey, onlyDirectory };
 
 // useFolderReadme finds a folder's README as findNestedReadme does. The
 // listings it reads are the ones the folder pages use, so opening the folder

@@ -10,7 +10,7 @@ import {
   diffFileForResponse,
   fileMetadataForPath
 } from "./diffFiles";
-import { sortedPatchsets } from "./patchsetUtils";
+import { sortedPatchsets } from "../../lib/patchsets";
 
 export const FULL_DIFF_PATH_LIMIT = 20;
 export const EAGER_FILE_DIFF_COUNT = 10;

@@ -11,9 +11,13 @@ import type { ConversationEvent, Patchset } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { useQuery } from "@tanstack/react-query";
 import { MessageMarkdown } from "../../components/MessageMarkdown";
+import {
+  isMessageDelta,
+  isTraceEvent as isAgentTraceEvent
+} from "../../components/slices/conversationEvents";
 import { cn } from "../../lib/cn";
+import { patchsetConversationRange } from "../../lib/patchsets";
 import { conversationEventsKey } from "../../queries/agents";
-import { patchsetConversationRange } from "./patchsetUtils";
 
 export type ConversationViewItem =
   | { kind: "message"; event: ConversationEvent }
@@ -327,19 +331,7 @@ export function coalesceStreamedEvents(
 }
 
 export function isTraceEvent(event: ConversationEvent) {
-  const role = (event.role ?? "").toLowerCase();
-  const type = (event.type ?? "").toLowerCase();
-  return (
-    role === "tool" ||
-    type === "delta" ||
-    type === "tool_call" ||
-    type === "tool_output" ||
-    type === "thinking" ||
-    type === "thinking_trace" ||
-    type === "reasoning" ||
-    type === "reasoning_delta" ||
-    type === "message_delta"
-  );
+  return isAgentTraceEvent(event) || isMessageDelta(event);
 }
 
 export function ConversationTrace({ events }: { events: ConversationEvent[] }) {

@@ -5,7 +5,7 @@ import type { ApiClient } from "../../api/useApi";
 import { cn } from "../../lib/cn";
 import { useConnectStream } from "../../lib/useConnectStream";
 import { useStickToBottomScroll } from "../../lib/useStickToBottomScroll";
-import { isTerminalCheckStatus } from "./checkStatus";
+import { isTerminalCheckStatus } from "../../lib/checkStatus";
 import { errorMessage } from "./status";
 import { AutomationRunLog } from "../../components/automations/AutomationRunLog";
 

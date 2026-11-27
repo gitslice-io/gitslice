@@ -49,7 +49,7 @@ import {
   type FileVersionSide,
   type FileVersionTarget
 } from "./changeset-detail/FileVersionDrawer";
-import { sortedPatchsets } from "./changeset-detail/patchsetUtils";
+import { sortedPatchsets } from "../lib/patchsets";
 import {
   changesetBreadcrumbItems,
   changesetSliceSearch,

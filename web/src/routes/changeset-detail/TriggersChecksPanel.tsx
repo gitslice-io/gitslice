@@ -12,7 +12,7 @@ import {
 } from "../../queries/checks";
 import { groupTriggersAndChecks } from "./automationGrouping";
 import { CheckRunItem } from "./CheckRunItem";
-import { isTerminalCheckStatus } from "./checkStatus";
+import { isTerminalCheckStatus } from "../../lib/checkStatus";
 import { errorMessage } from "./status";
 import { isFinalTriggerStatus } from "../../components/automations/AutomationRunLog";
 import { TriggerGroupRow } from "./TriggerGroupRow";

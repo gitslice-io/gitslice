@@ -1,4 +1,4 @@
-import { pathSearchValue } from "./slice-detail/sourceTree";
+import { pathSearchValue } from "../lib/sourceTree";
 import { parseStatusTab, type StatusTab } from "../lib/changesetFilters";
 
 // Validated search (query string) shapes of the routes whose addresses carry

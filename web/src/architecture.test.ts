@@ -130,18 +130,50 @@ describe("web architecture boundaries", () => {
     expect(violations).toEqual([]);
   });
 
-  it("prevents cross-imports between slice-detail and changeset-detail routes", () => {
+  it("prevents cross-imports between sibling route feature directories", () => {
+    const featureDirs = new Set([
+      "changeset-detail",
+      "changesets-list",
+      "slice-detail",
+      "doc",
+      "blog",
+      "landing",
+      "site"
+    ]);
     const violations: string[] = [];
     for (const { rel, imports } of entries) {
-      if (rel.startsWith("routes/slice-detail/")) {
-        for (const imp of imports) {
-          if (imp.startsWith("routes/changeset-detail/")) {
-            violations.push(`${rel} -> ${imp}`);
-          }
+      if (!rel.startsWith("routes/")) {
+        continue;
+      }
+      const sourceDir = rel.split("/")[1];
+      if (!featureDirs.has(sourceDir)) {
+        continue;
+      }
+      for (const imp of imports) {
+        if (!imp.startsWith("routes/")) {
+          continue;
         }
-      } else if (rel.startsWith("routes/changeset-detail/")) {
-        for (const imp of imports) {
-          if (imp.startsWith("routes/slice-detail/")) {
+        const targetDir = imp.split("/")[1];
+        if (featureDirs.has(targetDir) && targetDir !== sourceDir) {
+          violations.push(`${rel} -> ${imp}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it("keeps src/routes/loaders free of route UI subdirectories and components", () => {
+    const violations: string[] = [];
+    for (const { rel, imports } of entries) {
+      if (!rel.startsWith("routes/loaders/")) {
+        continue;
+      }
+      for (const imp of imports) {
+        if (imp.startsWith("components/")) {
+          violations.push(`${rel} -> ${imp}`);
+        } else if (imp.startsWith("routes/")) {
+          const targetDir = imp.split("/")[1];
+          if (targetDir !== "loaders" && targetDir !== "layouts" && targetDir !== "layouts.ts") {
             violations.push(`${rel} -> ${imp}`);
           }
         }
@@ -164,14 +196,14 @@ describe("web architecture boundaries", () => {
     expect(violations).toEqual([]);
   });
 
-  it("keeps src/queries free of src/routes imports", () => {
+  it("keeps src/queries free of src/components and src/routes imports", () => {
     const violations: string[] = [];
     for (const { rel, imports } of entries) {
       if (!rel.startsWith("queries/")) {
         continue;
       }
       for (const imp of imports) {
-        if (imp.startsWith("routes/")) {
+        if (imp.startsWith("components/") || imp.startsWith("routes/")) {
           violations.push(`${rel} -> ${imp}`);
         }
       }

@@ -12,7 +12,7 @@ import {
   normalizeProvenance,
   safeDetailsUrl,
   shouldShowExitCode
-} from "./checkStatus";
+} from "../../lib/checkStatus";
 
 interface CheckRunItemProps {
   api: ApiClient;

@@ -1,6 +1,5 @@
 import type { ActorAttribution, Changeset } from "../../api/types";
-
-import { AccountLink, AuthorLabel } from "../../components/AccountAvatar";
+import { AccountLink, AuthorLabel } from "../AccountAvatar";
 
 export function effectiveChangesetAttribution(changeset: Changeset): ActorAttribution | undefined {
   const base = changeset.attribution;
@@ -34,7 +33,8 @@ export function formatActorAttribution(
   }
 
   let out = acting;
-  const rawCtrl = (attr?.controllerUsername || "").trim() ||
+  const rawCtrl =
+    (attr?.controllerUsername || "").trim() ||
     (attr?.controllerSubjectId && attr.controllerSubjectId !== attr.actingSubjectId
       ? attr.controllerSubjectId.trim()
       : "");

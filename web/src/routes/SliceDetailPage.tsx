@@ -41,7 +41,7 @@ import {
 } from "./slice-detail/SliceDetailChrome";
 import { SliceFolderNavigator } from "./slice-detail/SliceFolderNavigator";
 import { SliceSourceWorkspace } from "./slice-detail/SliceSourceWorkspace";
-import { buildGitCloneHint } from "./slice-detail/sourceTree";
+import { buildGitCloneHint } from "../lib/sourceTree";
 import { FolderPolicyDrawer } from "./slice-detail/FolderPolicyDrawer";
 import { useGitCloneOrigin } from "./slice-detail/useGitCloneOrigin";
 import { useSlicePathExplorer } from "./slice-detail/useSlicePathExplorer";
