@@ -1,14 +1,11 @@
-import { useMemo } from "react";
-
 import { Link } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 
 import type { ConversationEvent } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { cn } from "../../lib/cn";
-import { renderMarkdownToHtml } from "../../lib/markdown";
 import { changesetQuery } from "../../queries/changesets";
-import { useInternalLinkClickHandler } from "../../lib/internalLinkNavigation";
+import { MessageMarkdown } from "../MessageMarkdown";
 
 import {
   traceGroupLabel,
@@ -78,22 +75,6 @@ export function ConversationTraceGroup({ events }: { events: ConversationEvent[]
         ))}
       </div>
     </details>
-  );
-}
-
-// MessageMarkdown renders an agent message as sanitized markdown. Parsing is
-// synchronous so a streaming message re-renders cleanly on every token. The
-// prose classes are tuned for chat bubbles: tight vertical rhythm and no
-// leading/trailing margin so the rendered block sits flush in the bubble.
-function MessageMarkdown({ source }: { source: string }) {
-  const html = useMemo(() => renderMarkdownToHtml(source), [source]);
-  const onLinkClick = useInternalLinkClickHandler();
-  return (
-    <div
-      className="prose prose-sm prose-slate dark:prose-invert max-w-none break-words prose-p:my-2 prose-pre:my-2 prose-pre:border prose-pre:border-slate-200 dark:prose-pre:border-zinc-800 prose-pre:bg-slate-50 dark:prose-pre:bg-zinc-950 prose-pre:text-zinc-900 dark:prose-pre:text-zinc-100 prose-code:before:content-none prose-code:after:content-none prose-headings:mb-2 prose-headings:mt-3 first:prose-headings:mt-0 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-a:text-sky-700 dark:prose-a:text-sky-300 prose-a:underline [&>:first-child]:mt-0 [&>:last-child]:mb-0"
-      dangerouslySetInnerHTML={{ __html: html }}
-      onClick={onLinkClick}
-    />
   );
 }
 

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { cn } from "../../lib/cn";
+import { getErrorMessage } from "../../lib/errors";
 import { type RevealState } from "./collapse";
 import { type DiffFile } from "./parseDiff";
 
@@ -12,7 +13,6 @@ import {
   type ExpandFn,
   type ViewMode,
   largeDiffLineLimit,
-  errorMessage,
   estimatedDiffBodyHeight,
   splitDisplayPath,
   stripPathPrefix
@@ -221,7 +221,7 @@ function PendingDiffBody({
   if (status === "error") {
     return (
       <div className="flex min-h-20 flex-wrap items-center justify-between gap-3 bg-rose-50/60 dark:bg-rose-950/20 px-4 py-4 text-sm text-rose-800 dark:text-rose-200">
-        <span>{errorMessage(error)}</span>
+        <span>{getErrorMessage(error, "Request failed.")}</span>
         {onRetry ? (
           <button
             className="rounded-md border border-rose-300 dark:border-rose-800 bg-white dark:bg-zinc-900 px-3 py-1.5 text-xs font-semibold transition hover:bg-rose-50 dark:hover:bg-rose-950/30 active:scale-[0.98]"

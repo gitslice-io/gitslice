@@ -3,11 +3,11 @@ import { useCallback, useEffect, useReducer, useRef } from "react";
 
 import type { Changeset, SliceRef } from "../../../api/types";
 import { type ApiClient } from "../../../api/useApi";
+import { getErrorMessage } from "../../../lib/errors";
 import { shortChangesetId } from "../../../lib/objectId";
 import { changesetKey, changesetQuery, changesetsListKeyPrefix } from "../../../queries/changesets";
 import {
   currentChangesetPatchset,
-  errorMessageFromUnknown,
   fileEditToPendingEdit,
   preparePendingFileEdits
 } from "./draftChangesetHelpers";
@@ -268,7 +268,7 @@ export function useDraftChangesetController({
         }
         dispatch({
           type: "saveFailed",
-          errorMessage: errorMessageFromUnknown(error)
+          errorMessage: getErrorMessage(error, "The request failed.")
         });
       }
     }
@@ -361,7 +361,7 @@ export function useDraftChangesetController({
         }
         dispatch({
           type: "saveFailed",
-          errorMessage: errorMessageFromUnknown(error)
+          errorMessage: getErrorMessage(error, "The request failed.")
         });
       });
     },

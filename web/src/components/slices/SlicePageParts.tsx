@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { Slice } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { getErrorMessage } from "../../lib/errors";
+import { Alert, type AlertTone } from "../ui/Alert";
 
 export { getErrorMessage };
 
@@ -62,7 +63,7 @@ export function SlicePanel({ children, className }: PanelProps) {
 interface NoticeProps {
   title: string;
   children?: ReactNode;
-  tone?: "neutral" | "error" | "success";
+  tone?: AlertTone;
 }
 
 export function SliceNotice({
@@ -71,20 +72,9 @@ export function SliceNotice({
   tone = "neutral"
 }: NoticeProps) {
   return (
-    <div
-      className={cn(
-        "rounded-lg border p-4 text-sm",
-        tone === "error" &&
-          "border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/30 text-rose-900 dark:text-rose-200",
-        tone === "success" &&
-          "border-emerald-200 dark:border-emerald-900/60 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-900 dark:text-emerald-200",
-        tone === "neutral" &&
-          "border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-slate-700 dark:text-zinc-300"
-      )}
-    >
-      <p className="font-semibold">{title}</p>
-      {children ? <div className="mt-1 leading-6">{children}</div> : null}
-    </div>
+    <Alert title={title} tone={tone}>
+      {children}
+    </Alert>
   );
 }
 

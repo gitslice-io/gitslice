@@ -3,6 +3,7 @@ import { useLayoutEffect, useMemo, useState, type ReactNode } from "react";
 
 import type { SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
+import { shortHash } from "../../lib/objectId";
 import { sliceBlameQuery } from "../../queries/slices";
 import { BlameDetails, BlameGutter, BlameHighlight } from "./BlameGutter";
 import { blameLines, codeLineCount, commitBands } from "./blame";
@@ -21,7 +22,7 @@ interface BlameViewProps {
 // shortCommitKey is the part of a commit id the URL carries: enough to name it
 // among a file's few hundred changes.
 export function shortCommitKey(commitId: string): string {
-  return commitId.replace(/^sha256:/, "").slice(0, 12);
+  return shortHash(commitId);
 }
 
 // The scroll position is kept for the address it was left at, so coming back

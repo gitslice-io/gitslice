@@ -154,10 +154,6 @@ export function draftStatusLabel(status: "idle" | "adopting" | "saving" | "saved
   return "Not saved";
 }
 
-export function errorMessageFromUnknown(error: unknown) {
-  return error instanceof Error ? error.message : "The request failed.";
-}
-
 export function pendingEditLabel(edit: PendingEdit) {
   if (edit.kind === "write") {
     return edit.isNew ? "new file" : "edited";

@@ -5,10 +5,10 @@ import { useState } from "react";
 import type { Changeset } from "../../api/types";
 import type { ApiClient } from "../../api/useApi";
 import { AuthorLabel } from "../../components/AccountAvatar";
-import { shortChangesetId } from "../../lib/objectId";
+import { changesetLabel, shortChangesetId } from "../../lib/objectId";
 import { ChangesetMetaLine } from "../changeset-detail/ChangesetMetaLine";
 import { StatusBadge } from "../changeset-detail/StatusBadge";
-import { mergeErrorMessage } from "../changeset-detail/status";
+import { isMergeableStatus, mergeErrorMessage } from "../changeset-detail/status";
 import { displaySubmitBlockedReason } from "../stackPageUtils";
 
 // The key every variant of the list shares, to refresh them all at once.
@@ -209,22 +209,4 @@ function ChangesetRow({
       ) : null}
     </tr>
   );
-}
-
-function changesetLabel(changeset: Changeset) {
-  const shortId = shortChangesetId(changeset.id || "");
-  if (shortId) {
-    return shortId;
-  }
-  if (changeset.number !== undefined && changeset.number !== "") {
-    return `#${changeset.number}`;
-  }
-  return changeset.id || "Changeset";
-}
-
-// Submit (merge) is only valid while the changeset is still open. Once it has
-// been submitted/published/abandoned it can't be merged again.
-function isMergeableStatus(status?: string) {
-  const normalized = (status || "").toLowerCase();
-  return normalized === "" || normalized === "draft" || normalized === "open";
 }

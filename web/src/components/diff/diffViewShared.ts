@@ -154,7 +154,3 @@ export function estimatedDiffBodyHeight(file: DiffFile, viewMode: ViewMode) {
   return Math.max(minDiffBodyPlaceholderHeight, height);
 }
 export const largeDiffLineLimit = 5000;
-
-export function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Request failed.";
-}

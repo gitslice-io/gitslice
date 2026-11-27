@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { DiffChangesetResponse } from "../../api/types";
 import { cn } from "../../lib/cn";
+import { getErrorMessage } from "../../lib/errors";
 import { ChangedFilesTree } from "./ChangedFilesTree";
 import { DiffErrorBox, DiffFilePanel, DiffSkeleton } from "./DiffFilePanel";
-import { errorMessage, type ViewMode } from "./diffViewShared";
+import { type ViewMode } from "./diffViewShared";
 import { FilePickerSheet, MobileFileSwitcher } from "./FileSwitcher";
 import {
   diffFileId,
@@ -206,7 +207,7 @@ export function DiffViewer({
         {isLoading ? (
           <DiffSkeleton />
         ) : isError ? (
-          <DiffErrorBox message={errorMessage(error)} />
+          <DiffErrorBox message={getErrorMessage(error, "Request failed.")} />
         ) : hasTextualDiff ? (
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-[19rem_minmax(0,1fr)] lg:gap-4">
             <aside className="hidden lg:sticky lg:top-20 lg:block lg:self-start">

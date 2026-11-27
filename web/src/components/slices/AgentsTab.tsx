@@ -13,7 +13,8 @@ import {
   sliceConversationsQuery
 } from "../../queries/agents";
 import { AgentConversation } from "./AgentConversation";
-import { AgentsSidebar, sortConversationsNewestFirst } from "./AgentsSidebar";
+import { AgentsSidebar } from "./AgentsSidebar";
+import { sortConversationsNewestFirst } from "./ConversationCard";
 import { CreateConversationDialog } from "./CreateConversationDialog";
 import { SliceNotice, SlicePanel, getErrorMessage } from "./SlicePageParts";
 

@@ -1,8 +1,11 @@
 import { isTransientTransportError } from "../../api/rpcError";
 import type { Changeset } from "../../api/types";
 import type { Crumb } from "../../components/Breadcrumb";
-import { shortChangesetId } from "../../lib/objectId";
-import { sliceBreadcrumbItems } from "../../lib/sliceRoutes";
+import { getErrorMessage } from "../../lib/errors";
+import { changesetLabel } from "../../lib/objectId";
+import { formatSliceRef, sliceBreadcrumbItems } from "../../lib/sliceRoutes";
+
+export { changesetLabel };
 
 export function humanizeStatus(status?: string) {
   const normalized = (status || "").toLowerCase();
@@ -65,11 +68,7 @@ export function isMergeableStatus(status?: string) {
 }
 
 export function changesetSliceSearch(changeset: Changeset) {
-  const ref = changeset.authoringSlice;
-  if (!ref?.account || !ref.slice) {
-    return "";
-  }
-  return `${ref.account}:${ref.slice}`;
+  return formatSliceRef(changeset.authoringSlice);
 }
 
 export function changesetBreadcrumbItems({
@@ -98,19 +97,8 @@ export function changesetBreadcrumbItems({
   return items;
 }
 
-export function changesetLabel(changeset: Changeset) {
-  const shortId = shortChangesetId(changeset.id || "");
-  if (shortId) {
-    return shortId;
-  }
-  if (changeset.number !== undefined && changeset.number !== "") {
-    return `#${changeset.number}`;
-  }
-  return changeset.id || "changeset";
-}
-
 export function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "Request failed.";
+  return getErrorMessage(error, "Request failed.");
 }
 
 // Merge submits can legitimately run for minutes on large changesets; an

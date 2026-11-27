@@ -1,26 +1,8 @@
 import type { SliceRef } from "../api/types";
+import { parseSliceRef } from "../lib/sliceRoutes";
 
 export function parseSliceSearch(value: unknown): Required<SliceRef> | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  const sep = trimmed.includes(":") ? ":" : "/";
-  const index = trimmed.indexOf(sep);
-
-  if (index <= 0) {
-    return null;
-  }
-
-  const account = trimmed.slice(0, index).trim();
-  const slice = trimmed.slice(index + 1).trim();
-
-  if (!account || !slice) {
-    return null;
-  }
-
-  return { account, slice };
+  return parseSliceRef(value);
 }
 
 export function displaySubmitBlockedReason(reason?: string) {

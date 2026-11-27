@@ -1,4 +1,5 @@
 import type { SliceRef, Tag } from "../../../api/types";
+import { shortHash } from "../../../lib/objectId";
 
 // Release tags of Gitslice itself; their files are served under /releases.
 export const RELEASE_TAG = /^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
@@ -21,10 +22,7 @@ export function releaseHrefForTag(
 }
 
 export function shortCommitHash(commitId: string | undefined): string {
-  if (!commitId) {
-    return "";
-  }
-  return commitId.replace(/^sha256:/, "").slice(0, 7);
+  return shortHash(commitId, 7);
 }
 
 export function originSliceForTag(

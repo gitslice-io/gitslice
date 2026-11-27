@@ -83,8 +83,24 @@ const utcDate = new Intl.DateTimeFormat("en-US", {
   day: "numeric"
 });
 
+const utcDateLong = new Intl.DateTimeFormat("en", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "long",
+  day: "numeric"
+});
+
 /** What a server render shows before the browser knows the viewer's zone. */
 export function formatUTCDate(value?: string | Date | null) {
   const date = parseTime(value);
   return date ? utcDate.format(date) : "";
+}
+
+/** Long UTC date ("November 25, 2026") for blog articles and changelogs. */
+export function formatUTCDateLong(value?: string | Date | null) {
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return utcDateLong.format(new Date(`${value}T00:00:00Z`));
+  }
+  const date = parseTime(value);
+  return date ? utcDateLong.format(date) : "";
 }

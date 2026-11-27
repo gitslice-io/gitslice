@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useAppAuth } from "../auth/AppAuthProvider";
+import { formatDateTime } from "../lib/time";
 import { useSelection } from "../state/selection";
 
 interface MenuPosition {
@@ -11,19 +12,7 @@ interface MenuPosition {
 }
 
 function formatShortExpiry(expiresAt: string | null): string | null {
-  if (!expiresAt) {
-    return null;
-  }
-  const date = new Date(expiresAt);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-  return date.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit"
-  });
+  return formatDateTime(expiresAt) || null;
 }
 
 // Top-bar account control for agent web sessions (in place of Clerk's

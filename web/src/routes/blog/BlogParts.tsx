@@ -1,12 +1,7 @@
-const dateFormatter = new Intl.DateTimeFormat("en", {
-  day: "numeric",
-  month: "long",
-  timeZone: "UTC",
-  year: "numeric",
-});
+import { formatUTCDateLong } from "../../lib/time";
 
 export function formatPostDate(date: string) {
-  return dateFormatter.format(new Date(`${date}T00:00:00Z`));
+  return formatUTCDateLong(date);
 }
 
 export function BlogTags({ tags }: { tags: string[] }) {

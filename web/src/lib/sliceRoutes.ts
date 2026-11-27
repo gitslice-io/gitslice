@@ -27,6 +27,29 @@ export function toSliceRouteParams(
   return { account, slice };
 }
 
+export function formatSliceRef(ref: SliceRef | null | undefined): string {
+  const params = toSliceRouteParams(ref);
+  return params ? `${params.account}:${params.slice}` : "";
+}
+
+export function parseSliceRef(value: unknown): SliceRouteParams | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  const sep = trimmed.includes(":") ? ":" : "/";
+  const index = trimmed.indexOf(sep);
+  if (index <= 0) {
+    return null;
+  }
+  const account = trimmed.slice(0, index).trim();
+  const slice = trimmed.slice(index + 1).trim();
+  if (!account || !slice) {
+    return null;
+  }
+  return { account, slice };
+}
+
 // sliceBreadcrumbItems is a slice's place in a breadcrumb: the owner, linked to
 // the owner's page, and then the slice. The owner crumb is how the trail says
 // whose slice this is, so it is there for the viewer's own slices too.

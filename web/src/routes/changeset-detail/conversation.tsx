@@ -10,9 +10,8 @@ import { createPortal } from "react-dom";
 import type { ConversationEvent, Patchset } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { useQuery } from "@tanstack/react-query";
+import { MessageMarkdown } from "../../components/MessageMarkdown";
 import { cn } from "../../lib/cn";
-import { renderMarkdownToHtml } from "../../lib/markdown";
-import { useInternalLinkClickHandler } from "../../lib/internalLinkNavigation";
 import { conversationEventsKey } from "../../queries/agents";
 import { patchsetConversationRange } from "./patchsetUtils";
 
@@ -262,22 +261,6 @@ export function PatchsetConversationContent({
         </ul>
       )}
     </>
-  );
-}
-
-// MessageMarkdown renders an agent message as sanitized markdown, matching the
-// live conversation view (AgentConversation) so the drawer doesn't show raw
-// markdown source. Parsing is synchronous; the prose classes are tuned for the
-// compact drawer bubbles.
-function MessageMarkdown({ source }: { source: string }) {
-  const html = useMemo(() => renderMarkdownToHtml(source), [source]);
-  const onLinkClick = useInternalLinkClickHandler();
-  return (
-    <div
-      className="prose prose-sm prose-slate dark:prose-invert max-w-none break-words text-slate-800 dark:text-zinc-200 prose-p:my-2 prose-pre:my-2 prose-pre:border prose-pre:border-slate-200 dark:prose-pre:border-zinc-800 prose-pre:bg-slate-50 dark:prose-pre:bg-zinc-950 prose-pre:text-zinc-900 dark:prose-pre:text-zinc-100 prose-code:before:content-none prose-code:after:content-none prose-headings:mb-2 prose-headings:mt-3 first:prose-headings:mt-0 prose-ul:my-2 prose-ol:my-2 prose-li:my-0.5 prose-a:text-sky-700 dark:prose-a:text-sky-300 prose-a:underline [&>:first-child]:mt-0 [&>:last-child]:mb-0"
-      dangerouslySetInnerHTML={{ __html: html }}
-      onClick={onLinkClick}
-    />
   );
 }
 

@@ -9907,3 +9907,15 @@ All checks passed with zero formatting diffs, zero `go vet` diagnostics, zero `g
   - Deleted unreachable zombie components and barrels: `ChecksPanel.tsx`/test, `TriggerRunsPanel.tsx`/test (preserving `CheckRunLogTail` unit test in `CheckRunLogTail.test.ts`), `DraftChangesetPanel.tsx`, `web/src/api/index.ts`, empty `web/signup/`, dead `RpcError` re-exports from `web/src/api/client.ts`, 23 unused exports from `stackPageUtils.tsx`, 4 unused exports from `sourceUtils.ts`, and duplicate `canModifyPath`/`isIncludedRoot` in `DirectoryHeader.tsx`.
   - Split `AutomationsDoc.tsx` (711 LOC -> <600 LOC) by extracting reference tables into `AutomationsDocData.ts`, and cleaned stale comments/paths in `tailwind.config.js`, `vite.config.ts`, and `wrangler.jsonc`.
 - **Enforceable architecture**: Extended `web/src/architecture.test.ts` to ban `src/queries/ -> src/routes/` and to isolate `@connectrpc/*` and `src/api/client` (both static and dynamic imports) strictly inside `src/api/`.
+
+## 2026-11-27 — Architecture Governance Wave G6 (Web Frontend SSOT Formatters & Shared UI Primitives)
+
+- **Consolidated formatters & domain helpers**:
+  - Removed duplicate `errorMessage`/`errorMessageFromUnknown` implementations (`diffViewShared.ts`, `draftChangesetHelpers.ts`, `changeset-detail/status.ts`) in favor of canonical `getErrorMessage` (`web/src/lib/errors.ts`).
+  - Centralized `shortPatchsetId` and `changesetLabel` in `web/src/lib/objectId.ts`, migrating `changeset-detail/status.ts`, `ChangesetsTable.tsx`, `patchsetUtils.ts`, `BlameView.tsx` (`shortCommitKey`), and `tagUtils.ts` (`shortCommitHash`).
+  - Added canonical `formatSliceRef` and `parseSliceRef` in `web/src/lib/sliceRoutes.ts` (delegating `stackPageUtils.parseSliceSearch` and `changesetSliceSearch`) and `formatUTCDateLong` in `web/src/lib/time.ts` (deduplicating `AgentAccountMenu.formatShortExpiry` and `BlogParts.formatPostDate`).
+  - Deduplicated `sortConversationsNewestFirst`, `ConversationStatusDot`, and `MessageMarkdown` (extracted `web/src/components/MessageMarkdown.tsx` shared by `ConversationParts.tsx` and `changeset-detail/conversation.tsx`; pruned duplicates in `AgentsSidebar.tsx`).
+- **Consolidated UI primitives & CSS**:
+  - Extracted shared `web/src/components/ui/PortalMenu.tsx` (viewport-clamped portal dropdown with Escape/outside-click/reflow dismissal) and migrated `ActionMenu.tsx` and `MoreActionsMenu.tsx` onto it.
+  - Added `web/src/components/ui/Alert.tsx` (`role="alert"` on error, `role="status"` on success) and `web/src/components/ui/Textarea.tsx`, migrating `SliceNotice` onto `Alert` with unit coverage in `PortalMenu.test.tsx`.
+  - Deduplicated `.doc-copy-tip` and `.landing-copy-tip` CSS rules in `web/src/index.css`.

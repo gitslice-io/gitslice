@@ -1,5 +1,7 @@
 import type { Changeset, Patchset } from "../../api/types";
-import { shortHash } from "../../lib/objectId";
+import { shortHash, shortPatchsetId } from "../../lib/objectId";
+
+export { shortPatchsetId };
 
 export type TimelineHandle = "from" | "to";
 
@@ -62,13 +64,6 @@ export function patchsetDotLabel(patchset: Patchset) {
 
 export function shortCommit(commitId: string) {
   return shortHash(commitId);
-}
-
-export function shortPatchsetId(patchsetId: string) {
-  if (!patchsetId) {
-    return "";
-  }
-  return patchsetId.replace(/^ps_/, "").slice(0, 12);
 }
 
 export function patchsetConversationRange(

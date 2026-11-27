@@ -2,6 +2,7 @@ import type { AgentDaemon, Conversation } from "../../api/types";
 import { cn } from "../../lib/cn";
 import { daemonName } from "../../lib/daemons";
 import { Timestamp } from "../Timestamp";
+import { ConversationStatusDot } from "./ConversationParts";
 
 export function AgentsSidebar({
   conversations,
@@ -129,7 +130,7 @@ export function AgentsSidebar({
                         "Untitled conversation"}
                     </span>
                     <span className="mt-1 flex items-center gap-2">
-                      <ConversationStatusPill status={conversation.status} />
+                      <ConversationStatusDot status={conversation.status} />
                       {conversation.daemonOnline === false ? (
                         <span className="shrink-0 rounded-full bg-amber-100 dark:bg-amber-950/45 px-2 py-0.5 text-[0.7rem] font-medium text-amber-700 dark:text-amber-300">
                           Offline
@@ -187,40 +188,4 @@ function DaemonRow({ daemon }: { daemon: AgentDaemon }) {
       </p>
     </div>
   );
-}
-
-function ConversationStatusPill({ status }: { status?: string }) {
-  const value = status || "active";
-  const active = value === "active";
-  return (
-    <span
-      aria-label={value}
-      className={cn(
-        "inline-block h-2 w-2 shrink-0 rounded-full",
-        active ? "bg-emerald-500" : "bg-slate-300 dark:bg-zinc-600"
-      )}
-      role="img"
-      title={value}
-    />
-  );
-}
-
-export function sortConversationsNewestFirst(conversations: Conversation[]) {
-  return [...conversations].sort((left, right) => {
-    const leftTime = conversationSortTime(left);
-    const rightTime = conversationSortTime(right);
-    if (leftTime !== rightTime) {
-      return rightTime - leftTime;
-    }
-    return (right.id ?? "").localeCompare(left.id ?? "");
-  });
-}
-
-function conversationSortTime(conversation: Conversation) {
-  const updated = Date.parse(conversation.updatedAt ?? "");
-  if (Number.isFinite(updated)) {
-    return updated;
-  }
-  const created = Date.parse(conversation.createdAt ?? "");
-  return Number.isFinite(created) ? created : 0;
 }

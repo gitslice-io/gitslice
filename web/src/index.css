@@ -106,14 +106,17 @@ dialog::backdrop {
   order: 1;
 }
 
-.doc-copyable .doc-copy-tip {
+.doc-copyable .doc-copy-tip,
+.landing-copy-tip {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.15s ease;
 }
 
 .doc-copyable .doc-copy-button[data-copied] + .doc-copy-tip,
-.doc-copyable .doc-copy-button[data-failed] + .doc-copy-tip {
+.doc-copyable .doc-copy-button[data-failed] + .doc-copy-tip,
+.landing-copy-btn[data-copied] + .landing-copy-tip,
+.landing-copy-btn[data-failed] + .landing-copy-tip {
   opacity: 1;
 }
 
@@ -145,7 +148,8 @@ dialog::backdrop {
 
 @media (prefers-reduced-motion: reduce) {
   .doc-copyable .doc-copy-button,
-  .doc-copyable .doc-copy-tip {
+  .doc-copyable .doc-copy-tip,
+  .landing-copy-tip {
     transition-duration: 0.01ms;
   }
 }
@@ -205,23 +209,6 @@ dialog::backdrop {
   inset-inline: 0.75rem;
   inset-block-end: 0;
   border-block-end: 2px solid #38bdf8;
-}
-
-.landing-copy-tip {
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
-}
-
-.landing-copy-btn[data-copied] + .landing-copy-tip,
-.landing-copy-btn[data-failed] + .landing-copy-tip {
-  opacity: 1;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .landing-copy-tip {
-    transition-duration: 0.01ms;
-  }
 }
 
 /* Native <details> disclosure used for the unified changeset readiness bar. */

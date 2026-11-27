@@ -37,3 +37,26 @@ export function shortChangesetId(id: string): string {
   }
   return id.replace(/^cs_/, "").slice(0, SHORT_CHANGESET_ID_LEN);
 }
+
+// Strip an optional leading "ps_" and return the first SHORT_HASH_LENGTH chars.
+export function shortPatchsetId(id: string | undefined | null): string {
+  if (!id) {
+    return "";
+  }
+  return id.replace(/^ps_/, "").slice(0, SHORT_HASH_LENGTH);
+}
+
+// Display label for a changeset: short id, then #number, then raw id or fallback.
+export function changesetLabel(
+  changeset: { id?: string; number?: number | string } | null | undefined,
+  fallback = "changeset"
+): string {
+  const shortId = shortChangesetId(changeset?.id || "");
+  if (shortId) {
+    return shortId;
+  }
+  if (changeset?.number !== undefined && changeset.number !== "") {
+    return `#${changeset.number}`;
+  }
+  return changeset?.id || fallback;
+}
