@@ -9843,3 +9843,19 @@ All checks passed with zero formatting diffs, zero `go vet` diagnostics, zero `g
 
 **Verification**
 - `gofmt -l .`, `go vet ./...`, `go test -race -count=1 ./server/... ./internal/objectstore/... ./service/...`, `TestCmdGSBinaryDoesNotLinkServerStorageStack`, `go test -c` on `tests/{cli,rpc,load}`, `go build ./cmd/...`, and full remote CI (`gitslice/{gofmt,vet,test,build,e2e,web/build}`).
+
+## 2026-11-27 — Governance Wave G2: storage SSOT validation, cursor codecs, and postgres/memory parity
+
+**Why**
+- Slice ref/slug normalization and slice definition validation were copy-pasted across `internal/postgres/slice_validate.go`, `internal/storage/memory/slice_names.go`, and `service/slice_validation.go` with real behavioral drift (memory did not reject commas in `includedPaths`).
+- Definition hashing, token hashing, `time|id` cursors, slice keyset cursors, and commit page cursors were duplicated across `postgres`, `memory`, and `service/feedback.go`, while `memory`'s `ListCommitPage*` ignored `refName`/`pageToken` and never emitted `NextPageToken`, and `memory`'s `ListSorted` ignored v1 keyset cursors and the 1,000-row cap.
+- `SliceStore` still carried redundant `List`, `ListPublic`, and `ListVisible` methods superseded by `ListSorted`.
+
+**What changed**
+- Added canonical `internal/storage/slice_validate.go` (+ `slice_validate_test.go`) holding `NormalizeSlug`, `NormalizeSliceRef`, `ValidateSliceDefinition`, `TokenHash`, `DefinitionHash`, `EncodeTimeIDCursor`/`DecodeTimeIDCursor`, `EncodeSliceCursor`/`DecodeSliceCursor`, and `CommitPageCursor` / `EncodeCommitPageToken` / `DecodeCommitPageToken` / `CommitPageTokenForCommit` / `NormalizeCommitListLimit`.
+- Deleted `internal/postgres/slice_validate.go` and migrated `internal/postgres`, `internal/storage/memory`, `service/slice_validation.go`, and `service/feedback.go` to the canonical `internal/storage` helpers.
+- Fixed `internal/storage/memory` parity in `slice_store.go` (`ListSorted` v1 keyset cursors + 1000 cap) and `repository_store.go` (`ListCommitPage*` honoring `refName`, validating/filtering `pageToken`, emitting `NextPageToken`), and added `internal/storage/memory/parity_contract_test.go`.
+- Removed redundant `SliceStore.{List,ListPublic,ListVisible}` and migrated `service/account_groups.go` and Postgres slice tests to `ListSorted`.
+
+**Verification**
+- `gofmt -l .`, `go vet ./...`, `go test -race -count=1 ./internal/storage/... ./internal/postgres/... ./service/... ./server/...`, `go build ./cmd/...`, and full remote CI (`gitslice/{gofmt,vet,test,build,e2e,web/build}`).

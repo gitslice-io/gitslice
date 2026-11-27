@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -13,7 +14,7 @@ func TestListSlicesActivity(t *testing.T) {
 	ctx, store := newPostgresTestStore(t)
 	listed := func() (created, active time.Time) {
 		t.Helper()
-		slices, err := store.Slices().List(ctx, "acme", "", 50, false)
+		slices, _, err := store.Slices().ListSorted(ctx, "acme", "all", "", "", 50, false, storage.SliceSortName)
 		if err != nil {
 			t.Fatal(err)
 		}

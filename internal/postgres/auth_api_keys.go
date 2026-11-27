@@ -47,7 +47,7 @@ func (s *AuthStore) agentKeyTargetTx(ctx context.Context, tx *sql.Tx, actorID, a
 		}
 		return subjectID, account, err
 	}
-	if agentAccount, err = normalizeSlug(agentAccount, "agent"); err != nil {
+	if agentAccount, err = storage.NormalizeSlug(agentAccount, "agent"); err != nil {
 		return "", "", err
 	}
 	err = tx.QueryRowContext(ctx, `

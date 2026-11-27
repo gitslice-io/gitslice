@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -46,7 +47,7 @@ func TestSliceRenameKeepsTheOldNameWorking(t *testing.T) {
 	if err != nil || moved.AuthoringSlice.Slice != "botparley" {
 		t.Fatalf("changeset authoring slice = %v, %v", moved.GetAuthoringSlice(), err)
 	}
-	listed, err := slices.List(ctx, "acme", "", 50, false)
+	listed, _, err := slices.ListSorted(ctx, "acme", "all", "", "", 50, false, storage.SliceSortName)
 	if err != nil || !sliceNamed(listed, "botparley") || sliceNamed(listed, "bot-channels") {
 		t.Fatalf("List = %v, %v", listed, err)
 	}
@@ -94,10 +95,17 @@ func TestSliceArchiveHidesFromListings(t *testing.T) {
 		t.Fatalf("archiving twice: %v, %v", again, err)
 	}
 	for name, list := range map[string]func(bool) ([]*corev1.Slice, error){
-		"List":       func(all bool) ([]*corev1.Slice, error) { return slices.List(ctx, "acme", "", 100, all) },
-		"ListPublic": func(all bool) ([]*corev1.Slice, error) { return slices.ListPublic(ctx, "acme", "", 100, all) },
+		"List": func(all bool) ([]*corev1.Slice, error) {
+			got, _, err := slices.ListSorted(ctx, "acme", "all", "", "", 100, all, storage.SliceSortName)
+			return got, err
+		},
+		"ListPublic": func(all bool) ([]*corev1.Slice, error) {
+			got, _, err := slices.ListSorted(ctx, "acme", "public", "", "", 100, all, storage.SliceSortName)
+			return got, err
+		},
 		"ListVisible": func(all bool) ([]*corev1.Slice, error) {
-			return slices.ListVisible(ctx, "acme", "user_dave", "", 100, all)
+			got, _, err := slices.ListSorted(ctx, "acme", "visible", "user_dave", "", 100, all, storage.SliceSortName)
+			return got, err
 		},
 	} {
 		hidden, err := list(false)
@@ -117,7 +125,7 @@ func TestSliceArchiveHidesFromListings(t *testing.T) {
 	if err != nil || restored.Archived {
 		t.Fatalf("unarchive = %v, %v", restored, err)
 	}
-	if listed, err := slices.List(ctx, "acme", "", 100, false); err != nil || !sliceNamed(listed, "old-ideas") {
+	if listed, _, err := slices.ListSorted(ctx, "acme", "all", "", "", 100, false, storage.SliceSortName); err != nil || !sliceNamed(listed, "old-ideas") {
 		t.Fatalf("List after unarchive = %v, %v", listed, err)
 	}
 	if _, err := slices.SetArchived(ctx, "slice_missing", true); !errors.Is(err, ErrNotFound) {
@@ -168,7 +176,7 @@ func TestSliceRetireKeepsHistoryAndTheName(t *testing.T) {
 	if _, err := slices.Resolve(ctx, created.Ref); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("Resolve retired: err = %v, want ErrNotFound", err)
 	}
-	if listed, err := slices.List(ctx, "acme", "", 100, true); err != nil || sliceNamed(listed, "scratch") {
+	if listed, _, err := slices.ListSorted(ctx, "acme", "all", "", "", 100, true, storage.SliceSortName); err != nil || sliceNamed(listed, "scratch") {
 		t.Fatalf("List retired = %v, %v", listed, err)
 	}
 	if covering, err := slices.CoveringIDsByPath(ctx, []string{"/acme/scratch/file.txt"}); err != nil || len(covering["/acme/scratch/file.txt"]) != 0 {

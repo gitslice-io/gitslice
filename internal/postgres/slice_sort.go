@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -34,49 +33,15 @@ func (s *SliceStore) ListSorted(ctx context.Context, account, visibilityMode, su
 	return s.listSortedKeyset(ctx, account, visibilityMode, subjectID, afterCursor, limit, includeArchived, sortOrder)
 }
 
-type sliceCursor struct {
-	IsHome bool
-	Ts     time.Time
-	Slug   string
-}
-
-func encodeSliceCursor(isHome bool, ts time.Time, slug string) string {
-	homeFlag := "0"
-	if isHome {
-		homeFlag = "1"
-	}
-	return fmt.Sprintf("v1|%s|%d|%s", homeFlag, ts.UTC().UnixNano(), slug)
-}
-
-func decodeSliceCursor(raw string) (sliceCursor, bool, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return sliceCursor{}, false, nil
-	}
-	parts := strings.SplitN(raw, "|", 4)
-	if len(parts) != 4 || parts[0] != "v1" || (parts[1] != "0" && parts[1] != "1") || parts[3] == "" {
-		return sliceCursor{}, false, fmt.Errorf("%w: invalid slice cursor", ErrInvalid)
-	}
-	var nanos int64
-	if _, err := fmt.Sscanf(parts[2], "%d", &nanos); err != nil {
-		return sliceCursor{}, false, fmt.Errorf("%w: invalid slice cursor", ErrInvalid)
-	}
-	return sliceCursor{
-		IsHome: parts[1] == "1",
-		Ts:     time.Unix(0, nanos).UTC(),
-		Slug:   parts[3],
-	}, true, nil
-}
-
 func (s *SliceStore) listSortedKeyset(ctx context.Context, account, visibilityMode, subjectID, afterCursor string, limit int, includeArchived bool, sortOrder storage.SliceSort) ([]*corev1.Slice, string, error) {
-	account, err := normalizeSlug(account, "account")
+	account, err := storage.NormalizeSlug(account, "account")
 	if err != nil {
 		return nil, "", err
 	}
 	if limit <= 0 || limit > 1000 {
 		limit = 50
 	}
-	cur, hasCur, err := decodeSliceCursor(afterCursor)
+	cur, hasCur, err := storage.DecodeSliceCursor(afterCursor)
 	if err != nil {
 		return nil, "", err
 	}
@@ -156,7 +121,7 @@ func (s *SliceStore) listSortedKeyset(ctx context.Context, account, visibilityMo
 	if len(out) > limit {
 		out = out[:limit]
 		last := metas[limit-1]
-		next = encodeSliceCursor(last.isHome, last.sortTs, last.slug)
+		next = storage.EncodeSliceCursor(last.isHome, last.sortTs, last.slug)
 	}
 	return out, next, nil
 }

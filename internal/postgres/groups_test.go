@@ -104,8 +104,8 @@ func TestMigration0058AndAccountGroupsStorePostgres(t *testing.T) {
 	if role, err := auth.SliceGroupRole(ctx, "user_eve", "slice_acme_payment"); err != nil || role != "writer" {
 		t.Fatalf("SliceGroupRole(eve) = (%q, %v), want writer", role, err)
 	}
-	if visible, err := slices.ListVisible(ctx, "acme", "user_eve", "", 50, false); err != nil || len(visible) != 1 || visible[0].Ref.Slice != "payment" {
-		t.Fatalf("ListVisible(eve) = %+v, %v", visible, err)
+	if visible, _, err := slices.ListSorted(ctx, "acme", "visible", "user_eve", "", 50, false, storage.SliceSortName); err != nil || len(visible) != 1 || visible[0].Ref.Slice != "payment" {
+		t.Fatalf("ListSorted(visible, eve) = %+v, %v", visible, err)
 	}
 	// Adding a second group with higher role picks highest across direct and group shares.
 	gLead, err := auth.CreateGroup(ctx, "acme", "lead", "", "user_alice")

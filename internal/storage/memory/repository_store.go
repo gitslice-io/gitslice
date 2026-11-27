@@ -4,6 +4,7 @@ import (
 	"context"
 	"sort"
 	"strings"
+	"time"
 
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -185,7 +186,7 @@ func (s *RepositoryStore) ResolveCommitCandidates(ctx context.Context, filter st
 func (s *RepositoryStore) ListCommitPage(ctx context.Context, refName string, limit int, pageToken string) (*storage.CommitListPage, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	return s.b.listCommitPageLocked(limit, func(commit *corev1.Commit) bool { return commit.Id != "mem_root" }), nil
+	return s.b.listCommitPageLocked(refName, limit, pageToken, func(commit *corev1.Commit) bool { return commit.Id != "mem_root" })
 }
 
 func (s *RepositoryStore) ListCommitChain(ctx context.Context, refName, stopCommitID string, prefixes []string) (*storage.CommitChain, error) {
@@ -241,7 +242,7 @@ func commitTouchesPrefixes(changed, prefixes []string) bool {
 func (s *RepositoryStore) ListCommitPageByPathPrefixes(ctx context.Context, refName string, prefixes []string, limit int, pageToken string) (*storage.CommitListPage, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
-	return s.b.listCommitPageLocked(limit, func(commit *corev1.Commit) bool {
+	return s.b.listCommitPageLocked(refName, limit, pageToken, func(commit *corev1.Commit) bool {
 		for _, changed := range commit.ChangedPaths {
 			for _, prefix := range prefixes {
 				if pathContains(prefix, changed) {
@@ -250,7 +251,7 @@ func (s *RepositoryStore) ListCommitPageByPathPrefixes(ctx context.Context, refN
 			}
 		}
 		return false
-	}), nil
+	})
 }
 
 func (s *RepositoryStore) ListCommitPageByEntityRefs(ctx context.Context, refName string, refs []storage.HistoryEntityRef, limit int, pageToken string) (*storage.CommitListPage, error) {
@@ -260,7 +261,7 @@ func (s *RepositoryStore) ListCommitPageByEntityRefs(ctx context.Context, refNam
 	for _, ref := range refs {
 		refSet[ref.AccountID+"\x00"+ref.EntityID] = struct{}{}
 	}
-	return s.b.listCommitPageLocked(limit, func(commit *corev1.Commit) bool {
+	return s.b.listCommitPageLocked(refName, limit, pageToken, func(commit *corev1.Commit) bool {
 		for _, changed := range commit.ChangedPaths {
 			for _, ref := range s.b.entityChanges[changed] {
 				if _, ok := refSet[ref.AccountID+"\x00"+ref.EntityID]; ok {
@@ -269,37 +270,31 @@ func (s *RepositoryStore) ListCommitPageByEntityRefs(ctx context.Context, refNam
 			}
 		}
 		return false
-	}), nil
+	})
 }
 
 func (s *RepositoryStore) ListCommitPageByEntityRefsOrPathPrefixes(ctx context.Context, refName string, refs []storage.HistoryEntityRef, prefixes []string, limit int, pageToken string) (*storage.CommitListPage, error) {
-	entityPage, err := s.ListCommitPageByEntityRefs(ctx, refName, refs, 0, "")
-	if err != nil {
-		return nil, err
+	s.b.mu.Lock()
+	defer s.b.mu.Unlock()
+	refSet := map[string]struct{}{}
+	for _, ref := range refs {
+		refSet[ref.AccountID+"\x00"+ref.EntityID] = struct{}{}
 	}
-	pathPage, err := s.ListCommitPageByPathPrefixes(ctx, refName, prefixes, 0, "")
-	if err != nil {
-		return nil, err
-	}
-	seen := map[string]*corev1.Commit{}
-	for _, commit := range entityPage.Commits {
-		seen[commit.Id] = commit
-	}
-	for _, commit := range pathPage.Commits {
-		seen[commit.Id] = commit
-	}
-	var commits []*corev1.Commit
-	for _, commit := range seen {
-		commits = append(commits, commit)
-	}
-	sortCommits(commits)
-	if limit <= 0 {
-		limit = 50
-	}
-	if len(commits) > limit {
-		commits = commits[:limit]
-	}
-	return &storage.CommitListPage{Commits: commits}, nil
+	return s.b.listCommitPageLocked(refName, limit, pageToken, func(commit *corev1.Commit) bool {
+		for _, changed := range commit.ChangedPaths {
+			for _, prefix := range prefixes {
+				if pathContains(prefix, changed) {
+					return true
+				}
+			}
+			for _, ref := range s.b.entityChanges[changed] {
+				if _, ok := refSet[ref.AccountID+"\x00"+ref.EntityID]; ok {
+					return true
+				}
+			}
+		}
+		return false
+	})
 }
 
 func (s *RepositoryStore) CurrentPathEntitiesByPrefixes(ctx context.Context, refName string, prefixes []string) ([]storage.CurrentPathEntity, error) {
@@ -384,9 +379,18 @@ func (s *RepositoryStore) ListFiles(ctx context.Context, commitID, prefix string
 	return out, nil
 }
 
-func (b *backend) listCommitPageLocked(limit int, include func(*corev1.Commit) bool) *storage.CommitListPage {
-	if limit <= 0 {
-		limit = 50
+func (b *backend) listCommitPageLocked(refName string, limit int, pageToken string, include func(*corev1.Commit) bool) (*storage.CommitListPage, error) {
+	if refName == "" {
+		refName = storage.DefaultTargetRef
+	}
+	limit = storage.NormalizeCommitListLimit(limit)
+	cursor, err := storage.DecodeCommitPageToken(pageToken)
+	if err != nil {
+		return nil, err
+	}
+	ref := b.refs[refName]
+	if ref == nil {
+		return nil, storage.ErrNotFound
 	}
 	var commits []*corev1.Commit
 	for _, commit := range b.commits {
@@ -395,10 +399,31 @@ func (b *backend) listCommitPageLocked(limit int, include func(*corev1.Commit) b
 		}
 	}
 	sortCommits(commits)
+	if cursor != nil {
+		cursorTime, err := cursor.CommittedAtTime()
+		if err != nil {
+			return nil, err
+		}
+		filtered := make([]*corev1.Commit, 0, len(commits))
+		for _, commit := range commits {
+			ct, parseErr := time.Parse(time.RFC3339Nano, commit.CreatedAt)
+			if parseErr != nil {
+				continue
+			}
+			if ct.Before(cursorTime) || (ct.Equal(cursorTime) && commit.Id < cursor.CommitID) {
+				filtered = append(filtered, commit)
+			}
+		}
+		commits = filtered
+	}
+	nextToken := ""
 	if len(commits) > limit {
 		commits = commits[:limit]
+		if tok, err := storage.CommitPageTokenForCommit(commits[limit-1]); err == nil {
+			nextToken = tok
+		}
 	}
-	return &storage.CommitListPage{Commits: commits}
+	return &storage.CommitListPage{Commits: commits, NextPageToken: nextToken}, nil
 }
 
 func normalizePathPrefixes(prefixes []string) []string {

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"gitslice.io/gitslice/internal/storage"
 
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
@@ -46,7 +47,7 @@ func (s *SliceStore) Rename(ctx context.Context, sliceID, newName string) (*core
 		if err != nil {
 			return err
 		}
-		ref, err := normalizeSliceRef(&corev1.SliceRef{Account: account, Slice: newName})
+		ref, err := storage.NormalizeSliceRef(&corev1.SliceRef{Account: account, Slice: newName})
 		if err != nil {
 			return err
 		}
@@ -193,7 +194,7 @@ func (s *SliceStore) Retire(ctx context.Context, sliceID string) error {
 
 // ResolveRetired finds a retired slice by the name it had.
 func (s *SliceStore) ResolveRetired(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error) {
-	ref, err := normalizeSliceRef(ref)
+	ref, err := storage.NormalizeSliceRef(ref)
 	if err != nil {
 		return nil, err
 	}

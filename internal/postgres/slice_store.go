@@ -36,7 +36,7 @@ func (s *SliceStore) Create(ctx context.Context, subjectID string, ref *corev1.S
 }
 
 func (s *SliceStore) CreateDefinition(ctx context.Context, subjectID string, ref *corev1.SliceRef, definition *corev1.SliceDefinition) (*corev1.Slice, error) {
-	ref, err := normalizeSliceRef(ref)
+	ref, err := storage.NormalizeSliceRef(ref)
 	if err != nil {
 		return nil, err
 	}
@@ -111,11 +111,11 @@ func (s *SliceStore) CreateDefinition(ctx context.Context, subjectID string, ref
 }
 
 func (s *SliceStore) ValidateSliceDefinition(ref *corev1.SliceRef, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error) {
-	return validateSliceDefinitionProto(ref, definition)
+	return storage.ValidateSliceDefinition(ref, definition)
 }
 
 func (s *SliceStore) Resolve(ctx context.Context, ref *corev1.SliceRef) (*corev1.Slice, error) {
-	ref, err := normalizeSliceRef(ref)
+	ref, err := storage.NormalizeSliceRef(ref)
 	if err != nil {
 		return nil, err
 	}
@@ -157,23 +157,11 @@ func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, er
 	return s.withFormerNames(ctx, slice)
 }
 
-func (s *SliceStore) List(ctx context.Context, account, after string, limit int, includeArchived bool) ([]*corev1.Slice, error) {
-	return s.list(ctx, account, after, limit, false, "", includeArchived)
-}
-
-func (s *SliceStore) ListPublic(ctx context.Context, account, after string, limit int, includeArchived bool) ([]*corev1.Slice, error) {
-	return s.list(ctx, account, after, limit, true, "", includeArchived)
-}
-
-func (s *SliceStore) ListVisible(ctx context.Context, account, subjectID, after string, limit int, includeArchived bool) ([]*corev1.Slice, error) {
-	return s.list(ctx, account, after, limit, true, strings.TrimSpace(subjectID), includeArchived)
-}
-
 // list lists an account's slices: all of them, or with publicOnly the public
 // ones and those shared with sharedWith. Retired slices are never listed, and
 // archived ones only with includeArchived.
 func (s *SliceStore) list(ctx context.Context, account, after string, limit int, publicOnly bool, sharedWith string, includeArchived bool) ([]*corev1.Slice, error) {
-	account, err := normalizeSlug(account, "account")
+	account, err := storage.NormalizeSlug(account, "account")
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +269,7 @@ func (s *SliceStore) UpdateDefinition(ctx context.Context, subjectID, sliceID, e
 	if err != nil {
 		return nil, err
 	}
-	validated, err := validateSliceDefinitionProto(current.Ref, definition)
+	validated, err := storage.ValidateSliceDefinition(current.Ref, definition)
 	if err != nil {
 		return nil, err
 	}

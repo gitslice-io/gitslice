@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"encoding/base64"
 	"slices"
 	"strings"
 	"time"
@@ -255,19 +254,15 @@ func firstNonEmptyString(values ...string) string {
 }
 
 func encodeFeedbackCursor(createdAt time.Time, id string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(createdAt.UTC().Format(time.RFC3339Nano) + "|" + id))
+	return storage.EncodeTimeIDCursor(createdAt, id)
 }
 
 func decodeFeedbackCursor(cursor string) (time.Time, string, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(cursor)
-	if err == nil {
-		if stamp, id, ok := strings.Cut(string(raw), "|"); ok && id != "" {
-			if createdAt, err := time.Parse(time.RFC3339Nano, stamp); err == nil {
-				return createdAt, id, nil
-			}
-		}
+	createdAt, id, err := storage.DecodeTimeIDCursor(cursor)
+	if err != nil {
+		return time.Time{}, "", status.Error(codes.InvalidArgument, "cursor is not one ListFeedback returned")
 	}
-	return time.Time{}, "", status.Error(codes.InvalidArgument, "cursor is not one ListFeedback returned")
+	return createdAt, id, nil
 }
 
 func feedbackToProto(f *storage.Feedback) *corev1.Feedback {

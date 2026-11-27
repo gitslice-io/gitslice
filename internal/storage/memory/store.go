@@ -1,9 +1,6 @@
 package memory
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"path"
 	"sort"
@@ -520,32 +517,11 @@ func (b *backend) nextChangesetNumberLocked(sliceID string) int64 {
 }
 
 func memoryDefinitionHash(sliceID string, version int64, included []string, visibility string, requiredApprovals, requiredHumanApprovals int32, requiredChecks []string, approvers string) string {
-	payload, _ := json.Marshal(struct {
-		SliceID                string   `json:"slice_id"`
-		Version                int64    `json:"version"`
-		Included               []string `json:"included_paths"`
-		Visibility             string   `json:"visibility"`
-		RequiredApprovals      int32    `json:"required_approvals"`
-		RequiredHumanApprovals int32    `json:"required_human_approvals,omitempty"`
-		RequiredChecks         []string `json:"required_checks"`
-		Approvers              string   `json:"approvers,omitempty"`
-	}{
-		SliceID:                sliceID,
-		Version:                version,
-		Included:               included,
-		Visibility:             visibility,
-		RequiredApprovals:      requiredApprovals,
-		RequiredHumanApprovals: requiredHumanApprovals,
-		RequiredChecks:         requiredChecks,
-		Approvers:              strings.ToLower(strings.TrimSpace(approvers)),
-	})
-	sum := sha256.Sum256(payload)
-	return "mem_sha256:" + hex.EncodeToString(sum[:])
+	return storage.DefinitionHash(sliceID, version, included, visibility, requiredApprovals, requiredHumanApprovals, requiredChecks, approvers)
 }
 
 func memoryTokenHash(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
+	return storage.TokenHash(token)
 }
 
 func (b *backend) resolveChangesetSelectorLocked(selector string) (string, error) {

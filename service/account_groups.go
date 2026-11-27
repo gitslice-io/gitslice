@@ -172,7 +172,7 @@ func (s *AuthService) authorizeGroupRead(ctx context.Context, subjectID, account
 		authorizer := authz.New(s.Auth)
 		after := ""
 		for {
-			slices, err := s.Slices.List(ctx, account, after, 200, true)
+			slices, next, err := s.Slices.ListSorted(ctx, account, "all", "", after, 200, true, storage.SliceSortName)
 			if err != nil {
 				return grpcError(err)
 			}
@@ -181,10 +181,10 @@ func (s *AuthService) authorizeGroupRead(ctx context.Context, subjectID, account
 					return nil
 				}
 			}
-			if len(slices) < 200 {
+			if next == "" {
 				break
 			}
-			after = slices[len(slices)-1].GetRef().GetSlice()
+			after = next
 		}
 	}
 	return status.Errorf(codes.PermissionDenied, "access to groups in account %q denied", account)

@@ -3,7 +3,6 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -325,20 +324,11 @@ func (s *ChangesetStore) getManyByIDs(ctx context.Context, ids []string) ([]*cor
 }
 
 func encodeChangesetPageToken(updatedAt time.Time, id string) string {
-	return base64.RawURLEncoding.EncodeToString([]byte(updatedAt.UTC().Format(time.RFC3339Nano) + "|" + id))
+	return storage.EncodeTimeIDCursor(updatedAt, id)
 }
 
 func decodeChangesetPageToken(token string) (time.Time, string, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil {
-		return time.Time{}, "", fmt.Errorf("invalid page token: %w", ErrInvalid)
-	}
-	stamp, id, ok := strings.Cut(string(raw), "|")
-	updatedAt, parseErr := time.Parse(time.RFC3339Nano, stamp)
-	if !ok || id == "" || parseErr != nil {
-		return time.Time{}, "", fmt.Errorf("invalid page token: %w", ErrInvalid)
-	}
-	return updatedAt, id, nil
+	return storage.DecodeTimeIDCursor(token)
 }
 
 func (s *ChangesetStore) resolveChangesetSelector(ctx context.Context, selector string) (string, error) {

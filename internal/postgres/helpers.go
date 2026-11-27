@@ -1,8 +1,6 @@
 package postgres
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"strings"
 	"time"
@@ -66,40 +64,15 @@ func signupAccountID(username string) string {
 }
 
 func tokenHash(token string) string {
-	sum := sha256.Sum256([]byte(token))
-	return hex.EncodeToString(sum[:])
+	return storage.TokenHash(token)
 }
 
 func definitionHash(sliceID string, version int64, included []string, visibility string, requiredApprovals int32, requiredChecks []string) string {
-	return definitionHashWithHuman(sliceID, version, included, visibility, requiredApprovals, 0, requiredChecks)
-}
-
-func definitionHashWithHuman(sliceID string, version int64, included []string, visibility string, requiredApprovals, requiredHumanApprovals int32, requiredChecks []string) string {
-	return definitionHashWithApprovers(sliceID, version, included, visibility, requiredApprovals, requiredHumanApprovals, requiredChecks, "")
+	return storage.DefinitionHash(sliceID, version, included, visibility, requiredApprovals, 0, requiredChecks, "")
 }
 
 func definitionHashWithApprovers(sliceID string, version int64, included []string, visibility string, requiredApprovals, requiredHumanApprovals int32, requiredChecks []string, approvers string) string {
-	payload, _ := json.Marshal(struct {
-		SliceID                string   `json:"slice_id"`
-		Version                int64    `json:"version"`
-		Included               []string `json:"included_paths"`
-		Visibility             string   `json:"visibility"`
-		RequiredApprovals      int32    `json:"required_approvals"`
-		RequiredHumanApprovals int32    `json:"required_human_approvals,omitempty"`
-		RequiredChecks         []string `json:"required_checks"`
-		Approvers              string   `json:"approvers,omitempty"`
-	}{
-		SliceID:                sliceID,
-		Version:                version,
-		Included:               included,
-		Visibility:             visibility,
-		RequiredApprovals:      requiredApprovals,
-		RequiredHumanApprovals: requiredHumanApprovals,
-		RequiredChecks:         requiredChecks,
-		Approvers:              strings.ToLower(strings.TrimSpace(approvers)),
-	})
-	sum := sha256.Sum256(payload)
-	return "sha256:" + hex.EncodeToString(sum[:])
+	return storage.DefinitionHash(sliceID, version, included, visibility, requiredApprovals, requiredHumanApprovals, requiredChecks, approvers)
 }
 
 func encodeJSON(v any) ([]byte, error) {

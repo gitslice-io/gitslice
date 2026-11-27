@@ -66,7 +66,7 @@ func (s *SliceStore) ListTags(ctx context.Context, sliceID string) ([]storage.Sl
 }
 
 func (s *SliceStore) ListAccountTags(ctx context.Context, account string, publicOnly bool, sharedWith string) ([]storage.AccountSliceTag, error) {
-	account, err := normalizeSlug(account, "account")
+	account, err := storage.NormalizeSlug(account, "account")
 	if err != nil {
 		return nil, err
 	}

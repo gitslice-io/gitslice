@@ -104,37 +104,17 @@ func sameStringSet(a, b []string) bool {
 }
 
 func normalizeServiceSliceRef(ref *corev1.SliceRef) (*corev1.SliceRef, error) {
-	if ref == nil {
-		return nil, status.Error(codes.InvalidArgument, "slice ref is required")
-	}
-	account, err := normalizeServiceSlug(ref.Account, "account")
+	normalized, err := storage.NormalizeSliceRef(ref)
 	if err != nil {
-		return nil, err
+		return nil, grpcError(err)
 	}
-	slug, err := normalizeServiceSlug(ref.Slice, "slice")
-	if err != nil {
-		return nil, err
-	}
-	return &corev1.SliceRef{Account: account, Slice: slug}, nil
+	return normalized, nil
 }
 
 func normalizeServiceSlug(value, name string) (string, error) {
-	value = strings.ToLower(strings.TrimSpace(value))
-	value = strings.ReplaceAll(value, "_", "-")
-	if value == "" {
-		return "", status.Errorf(codes.InvalidArgument, "%s is required", name)
+	normalized, err := storage.NormalizeSlug(value, name)
+	if err != nil {
+		return "", grpcError(err)
 	}
-	if len(value) > 63 {
-		return "", status.Errorf(codes.InvalidArgument, "%s must be 63 characters or fewer", name)
-	}
-	if strings.HasPrefix(value, "-") || strings.HasSuffix(value, "-") {
-		return "", status.Errorf(codes.InvalidArgument, "%s must not start or end with '-'", name)
-	}
-	for _, r := range value {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' {
-			continue
-		}
-		return "", status.Errorf(codes.InvalidArgument, "%s may contain only letters, numbers, '-' or '_'", name)
-	}
-	return value, nil
+	return normalized, nil
 }

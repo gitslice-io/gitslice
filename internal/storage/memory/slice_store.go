@@ -63,21 +63,13 @@ func (s *SliceStore) Get(ctx context.Context, sliceID string) (*corev1.Slice, er
 	return s.withCIDaemonName(cloneSlice(slice)), nil
 }
 
-func (s *SliceStore) List(ctx context.Context, account, after string, limit int, includeArchived bool) ([]*corev1.Slice, error) {
-	return s.list(account, after, limit, false, "", includeArchived)
-}
-
-func (s *SliceStore) ListPublic(ctx context.Context, account, after string, limit int, includeArchived bool) ([]*corev1.Slice, error) {
-	return s.list(account, after, limit, true, "", includeArchived)
-}
-
 func (s *SliceStore) ListSorted(ctx context.Context, account, visibilityMode, subjectID, afterCursor string, limit int, includeArchived bool, sortOrder storage.SliceSort) ([]*corev1.Slice, string, error) {
 	publicOnly := visibilityMode != "all"
 	sharedWith := ""
 	if visibilityMode == "visible" {
 		sharedWith = strings.TrimSpace(subjectID)
 	}
-	if limit <= 0 {
+	if limit <= 0 || limit > 1000 {
 		limit = 50
 	}
 	if sortOrder == "" || sortOrder == storage.SliceSortName {
@@ -91,6 +83,10 @@ func (s *SliceStore) ListSorted(ctx context.Context, account, visibilityMode, su
 			next = slices[limit-1].GetRef().GetSlice()
 		}
 		return slices, next, nil
+	}
+	cur, hasCur, err := storage.DecodeSliceCursor(afterCursor)
+	if err != nil {
+		return nil, "", err
 	}
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
@@ -107,19 +103,19 @@ func (s *SliceStore) ListSorted(ctx context.Context, account, visibilityMode, su
 			items = append(items, s.withCIDaemonName(cloneSlice(slice)))
 		}
 	}
-	sortTimestamp := func(sl *corev1.Slice) int64 {
+	sortTimestamp := func(sl *corev1.Slice) time.Time {
 		raw := sl.GetCreatedAt()
 		if sortOrder == storage.SliceSortActive && sl.GetLastActivityAt() != "" {
 			raw = sl.GetLastActivityAt()
 		}
 		if raw == "" {
-			return 0
+			return time.Unix(0, 0).UTC()
 		}
 		t, err := time.Parse(time.RFC3339Nano, raw)
 		if err != nil {
-			return 0
+			return time.Unix(0, 0).UTC()
 		}
-		return t.UTC().UnixNano()
+		return t.UTC()
 	}
 	sort.Slice(items, func(i, j int) bool {
 		hi := items[i].GetRef().GetSlice() == "home"
@@ -128,33 +124,31 @@ func (s *SliceStore) ListSorted(ctx context.Context, account, visibilityMode, su
 			return hi
 		}
 		ti, tj := sortTimestamp(items[i]), sortTimestamp(items[j])
-		if ti != tj {
-			return ti > tj
+		if !ti.Equal(tj) {
+			return ti.After(tj)
 		}
 		return items[i].GetRef().GetSlice() < items[j].GetRef().GetSlice()
 	})
-	start := 0
-	if afterCursor != "" {
-		found := false
-		for i, sl := range items {
-			if sl.GetRef().GetSlice() == afterCursor {
-				start = i + 1
-				found = true
-				break
+	if hasCur {
+		filtered := make([]*corev1.Slice, 0, len(items))
+		for _, sl := range items {
+			isHome := sl.GetRef().GetSlice() == "home"
+			ts := sortTimestamp(sl)
+			slug := sl.GetRef().GetSlice()
+			after := (!isHome && cur.IsHome) ||
+				(isHome == cur.IsHome && ts.Before(cur.Ts)) ||
+				(isHome == cur.IsHome && ts.Equal(cur.Ts) && slug > cur.Slug)
+			if after {
+				filtered = append(filtered, sl)
 			}
 		}
-		if !found {
-			return nil, "", nil
-		}
+		items = filtered
 	}
-	if start >= len(items) {
-		return nil, "", nil
-	}
-	items = items[start:]
 	var next string
 	if len(items) > limit {
 		items = items[:limit]
-		next = items[limit-1].GetRef().GetSlice()
+		last := items[limit-1]
+		next = storage.EncodeSliceCursor(last.GetRef().GetSlice() == "home", sortTimestamp(last), last.GetRef().GetSlice())
 	}
 	return items, next, nil
 }

@@ -188,7 +188,7 @@ func (s *RepositoryStore) ListCommitPageByPathPrefixes(ctx context.Context, refN
 	where, args := commitPathPrefixWhere(refName, prefixes)
 	cursorWhere := ""
 	if cursor != nil {
-		committedAt, err := cursor.committedAt()
+		committedAt, err := cursor.CommittedAtTime()
 		if err != nil {
 			return nil, err
 		}
@@ -399,7 +399,7 @@ func (s *RepositoryStore) ListCommitPageByEntityRefs(ctx context.Context, refNam
 	where, args := commitEntityRefWhere(refName, refs)
 	cursorWhere := ""
 	if cursor != nil {
-		committedAt, err := cursor.committedAt()
+		committedAt, err := cursor.CommittedAtTime()
 		if err != nil {
 			return nil, err
 		}
@@ -482,7 +482,7 @@ func (s *RepositoryStore) ListCommitPageByEntityRefsOrPathPrefixes(ctx context.C
 	args = append(args, pathArgs...)
 	cursorWhere := ""
 	if cursor != nil {
-		committedAt, err := cursor.committedAt()
+		committedAt, err := cursor.CommittedAtTime()
 		if err != nil {
 			return nil, err
 		}

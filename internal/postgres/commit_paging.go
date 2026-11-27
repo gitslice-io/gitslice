@@ -2,13 +2,12 @@ package postgres
 
 import (
 	"database/sql"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
+	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -47,65 +46,19 @@ func scanCommitHitRow(rows *sql.Rows) (*corev1.Commit, time.Time, error) {
 }
 
 func normalizeCommitListLimit(limit int) int {
-	if limit <= 0 || limit > 500 {
-		return 50
-	}
-	return limit
+	return storage.NormalizeCommitListLimit(limit)
 }
 
 func commitPageTokenForCommit(commit *corev1.Commit) (string, error) {
-	if commit == nil || commit.Id == "" {
-		return "", fmt.Errorf("%w: commit page token cannot be built from empty commit", ErrInvalid)
-	}
-	createdAt, err := time.Parse(time.RFC3339Nano, commit.CreatedAt)
-	if err != nil {
-		return "", fmt.Errorf("%w: invalid commit timestamp: %v", ErrInvalid, err)
-	}
-	return encodeCommitPageToken(commit.Id, createdAt)
+	return storage.CommitPageTokenForCommit(commit)
 }
 
 func encodeCommitPageToken(commitID string, committedAt time.Time) (string, error) {
-	if strings.TrimSpace(commitID) == "" || committedAt.IsZero() {
-		return "", fmt.Errorf("%w: invalid commit page cursor", ErrInvalid)
-	}
-	raw, err := json.Marshal(commitPageCursor{
-		CommitID:    commitID,
-		CommittedAt: committedAt.UTC().Format(time.RFC3339Nano),
-	})
-	if err != nil {
-		return "", err
-	}
-	return base64.RawURLEncoding.EncodeToString(raw), nil
+	return storage.EncodeCommitPageToken(commitID, committedAt)
 }
 
-func decodeCommitPageToken(token string) (*commitPageCursor, error) {
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return nil, nil
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(token)
-	if err != nil {
-		return nil, fmt.Errorf("%w: invalid page token", ErrInvalid)
-	}
-	var cursor commitPageCursor
-	if err := json.Unmarshal(raw, &cursor); err != nil {
-		return nil, fmt.Errorf("%w: invalid page token", ErrInvalid)
-	}
-	if strings.TrimSpace(cursor.CommitID) == "" || strings.TrimSpace(cursor.CommittedAt) == "" {
-		return nil, fmt.Errorf("%w: invalid page token", ErrInvalid)
-	}
-	if _, err := cursor.committedAt(); err != nil {
-		return nil, err
-	}
-	return &cursor, nil
-}
-
-func (c commitPageCursor) committedAt() (time.Time, error) {
-	committedAt, err := time.Parse(time.RFC3339Nano, c.CommittedAt)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("%w: invalid page token", ErrInvalid)
-	}
-	return committedAt, nil
+func decodeCommitPageToken(token string) (*storage.CommitPageCursor, error) {
+	return storage.DecodeCommitPageToken(token)
 }
 
 func normalizeCommitPathPrefixes(prefixes []string) []string {

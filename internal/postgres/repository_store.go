@@ -23,11 +23,6 @@ type HistoryEntityRef = storage.HistoryEntityRef
 
 type CurrentPathEntity = storage.CurrentPathEntity
 
-type commitPageCursor struct {
-	CommitID    string `json:"commit_id"`
-	CommittedAt string `json:"committed_at"`
-}
-
 func (s *RepositoryStore) GetRef(ctx context.Context, name string) (*corev1.Ref, error) {
 	var ref corev1.Ref
 	var updatedAt time.Time

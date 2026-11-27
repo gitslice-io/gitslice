@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"gitslice.io/gitslice/internal/storage"
-	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
 // Slice members (design/26_slice_members.md) for the in-memory store.
@@ -45,10 +44,6 @@ func (b *backend) sliceMemberLocked(sliceID, subjectID string, m memSliceMember)
 		AddedBy:     m.addedBy,
 		CreatedAt:   m.createdAt,
 	}
-}
-
-func (s *SliceStore) ListVisible(ctx context.Context, account, subjectID, after string, limit int, includeArchived bool) ([]*corev1.Slice, error) {
-	return s.list(account, after, limit, true, strings.TrimSpace(subjectID), includeArchived)
 }
 
 func (s *SliceStore) ListMembers(ctx context.Context, sliceID string) ([]storage.SliceMember, error) {
