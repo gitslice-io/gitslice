@@ -3,9 +3,10 @@
 // change: one changeset that writes the seed's own files back under the slice
 // root and deletes what agents added, approved by the reviewer identity.
 
-import type { Env } from "./env";
-import { Gitslice, GitsliceError, type Commit, type FileEdit, type SliceRef, type TreeEntry } from "./gitslice";
-import { mapLimit, waitPublished } from "./land";
+import type { Env } from "./env.ts";
+import { Gitslice, GitsliceError, type Commit, type FileEdit, type SliceRef, type TreeEntry } from "./gitslice.ts";
+import { mapLimit } from "./hubOverlap.ts";
+import { waitPublished } from "./land.ts";
 
 export interface RestoreResult {
   seed: string;

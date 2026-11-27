@@ -3,15 +3,14 @@
 // another agent landed on the same files first, the bridge merges line by line
 // and resubmits; only overlapping edits go back to the agent.
 
-import { diffTrees, gitMode, readBlob, type TreeChange } from "./artifacts";
-import type { Env } from "./env";
-import { Gitslice, GitsliceError, sleep, type FileEdit, type SliceRef } from "./gitslice";
-import { isText, merge3, type ConflictHunk } from "./merge";
-import { normalizeSlicePath, protectedPatterns } from "./policy";
-import { review, type ReviewFile } from "./review";
-import type { Session, Signal } from "./types";
-
-export { protectedPatterns };
+import { diffTrees, gitMode, readBlob, type TreeChange } from "./artifacts.ts";
+import type { Env } from "./env.ts";
+import { Gitslice, GitsliceError, sleep, type FileEdit, type SliceRef } from "./gitslice.ts";
+import { mapLimit, shortPath } from "./hubOverlap.ts";
+import { isText, merge3, type ConflictHunk } from "./merge.ts";
+import { normalizeSlicePath, protectedPatterns } from "./policy.ts";
+import { review, type ReviewFile } from "./review.ts";
+import type { Session, Signal } from "./types.ts";
 
 export interface HubPort {
   getSession(id: string): Promise<Session | null>;
@@ -323,23 +322,6 @@ function decode(data: Uint8Array): string {
   return new TextDecoder().decode(data);
 }
 
-function shortPath(path: string): string {
-  return path.split("/").slice(3).join("/") || path;
-}
-
 export function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
-}
-
-export async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out: R[] = new Array(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const index = next++;
-      out[index] = await fn(items[index]);
-    }
-  });
-  await Promise.all(workers);
-  return out;
 }

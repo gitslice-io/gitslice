@@ -1,4 +1,4 @@
-// The trigger dispatcher (design/34_triggers.md). The Gitslice server posts it
+// The automation dispatcher (design/34_automations.md). The Gitslice server posts it
 // run ids; it claims each run with the server, loads the trigger's script as
 // a Dynamic Worker (one isolate per script, keyed by its code hash), and calls
 // onEvent. Outside systems call runs back at /cb/<run>/<signature>, which

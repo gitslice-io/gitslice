@@ -5,12 +5,13 @@
 // Gitslice is the source of truth here: the agent submits its own changeset
 // once the reviewer identity has approved it, and the Hub notices the landing.
 
-import type { Env } from "./env";
-import { Gitslice, type Changeset, type PatchsetInfo, type SliceRef } from "./gitslice";
-import { errorMessage, mapLimit, protectedPatterns } from "./land";
-import { filterSlicePaths } from "./policy";
-import { review, type ReviewFile } from "./review";
-import type { Session, Signal } from "./types";
+import type { Env } from "./env.ts";
+import { Gitslice, type Changeset, type PatchsetInfo, type SliceRef } from "./gitslice.ts";
+import { mapLimit } from "./hubOverlap.ts";
+import { errorMessage } from "./land.ts";
+import { filterSlicePaths, protectedPatterns } from "./policy.ts";
+import { review, type ReviewFile } from "./review.ts";
+import type { Session, Signal } from "./types.ts";
 
 const MAX_FILES = 40;
 

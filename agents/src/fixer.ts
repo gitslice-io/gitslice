@@ -13,15 +13,16 @@
 import git from "isomorphic-git";
 import http from "isomorphic-git/http/web";
 import { createFsFromVolume, Volume } from "memfs";
-import { diffTrees, readBlob } from "./artifacts";
-import type { Env } from "./env";
-import { Gitslice } from "./gitslice";
-import { errorMessage, mapLimit } from "./land";
-import { findChange, readNativeFiles, reviewNativeChange, type NativeHub } from "./native";
-import { parseFix, type FileContext } from "./fixparse";
-import { filterSlicePaths, normalizeSlicePath } from "./policy";
-import { extractText, withTimeout } from "./review";
-import type { Session } from "./types";
+import { diffTrees, readBlob } from "./artifacts.ts";
+import type { Env } from "./env.ts";
+import { Gitslice } from "./gitslice.ts";
+import { mapLimit } from "./hubOverlap.ts";
+import { errorMessage } from "./land.ts";
+import { findChange, readNativeFiles, reviewNativeChange, type NativeHub } from "./native.ts";
+import { parseFix, type FileContext } from "./fixparse.ts";
+import { filterSlicePaths, normalizeSlicePath } from "./policy.ts";
+import { extractText, withTimeout } from "./review.ts";
+import type { Session } from "./types.ts";
 
 const MODEL = "@cf/openai/gpt-oss-120b";
 const MAX_FILE_CHARS = 6000;

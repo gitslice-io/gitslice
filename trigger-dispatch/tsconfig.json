@@ -6,9 +6,10 @@
     "lib": ["ES2022", "ESNext.Disposable"],
     "types": ["node"],
     "strict": true,
+    "noUnusedLocals": true,
     "noEmit": true,
     "skipLibCheck": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src/**/*.ts", "worker-configuration.d.ts"]
+  "include": ["src/**/*.ts", "test/**/*.ts", "worker-configuration.d.ts"]
 }

@@ -4,6 +4,7 @@ import { sessionRepoName } from "./artifacts.ts";
 import type { Env } from "./env.ts";
 import { Gitslice } from "./gitslice.ts";
 import type { HubCounters } from "./hubDashboard.ts";
+import { HUB_KEYS } from "./hubKeys.ts";
 import {
   findOverlappingSessions,
   hasOverlapSignal,
@@ -123,7 +124,7 @@ export async function registerNativePatchset(
     host.counters.pushes++;
     pushSignal(target, { kind: "info", message: `Patchset ${ps.number ?? "?"} pushed to ${cs.handle ?? cs.id}.` });
     await host.saveSession(target);
-    await host.storage.put("counters", host.counters);
+    await host.storage.put(HUB_KEYS.counters, host.counters);
     host.recordEvent({
       kind: "pushed",
       session: target.id,
@@ -170,7 +171,7 @@ export async function registerNativePatchset(
   host.counters.forks++;
   host.counters.pushes++;
   await host.saveSession(session);
-  await host.storage.put("counters", host.counters);
+  await host.storage.put(HUB_KEYS.counters, host.counters);
   host.recordEvent({ kind: "pushed", session: id, agent, message: `pushed ${cs.handle ?? cs.id} straight to Gitslice` });
   host.broadcast({ type: "session", session });
   host.broadcastStats();

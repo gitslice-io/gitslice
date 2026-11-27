@@ -1,5 +1,5 @@
-// Signatures shared with the Go server (internal/triggers/engine.go) and the
-// sealing of secret placeholders (design/34_triggers.md).
+// Signatures shared with the Go server (internal/automations/engine.go) and the
+// sealing of secret placeholders (design/34_automations.md).
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();

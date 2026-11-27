@@ -10,16 +10,16 @@
 //   GET  /slices/:account/:slice          the dashboard
 //   queue: Artifacts repo.pushed events → landing pipeline
 
-import { parseSessionRepo, slugify } from "./artifacts";
-import { dashboardHtml } from "./dashboard";
-import type { Env } from "./env";
-import { Hub, type OpenSessionInput } from "./hub";
-import { landPush, type HubPort } from "./land";
-import { findChange, reviewNativeChange, type NativeHub } from "./native";
-import { authorized, corsHeaders, readAuthRequired, redactSession, redactSignals } from "./policy";
-import { restoreSeed } from "./restore";
-import { extractText, withTimeout } from "./review";
-import type { Baseline, Session, Stats } from "./types";
+import { parseSessionRepo, slugify } from "./artifacts.ts";
+import { dashboardHtml } from "./dashboard.ts";
+import type { Env } from "./env.ts";
+import { Hub, type OpenSessionInput } from "./hub.ts";
+import { landPush, type HubPort } from "./land.ts";
+import { reviewNativeChange, type NativeHub } from "./native.ts";
+import { authorized, corsHeaders, readAuthRequired, redactSession, redactSignals } from "./policy.ts";
+import { restoreSeed } from "./restore.ts";
+import { extractText, withTimeout } from "./review.ts";
+import type { Baseline, Session, Stats } from "./types.ts";
 
 // HubApi is the Hub's RPC surface as the Worker uses it. Typing the stub
 // through it keeps TypeScript from expanding the recursive RPC types.
@@ -131,7 +131,8 @@ async function route(request: Request, env: Env, ctx: ExecutionContext): Promise
     if (!isAllowed(env, account, slice)) return json({ error: "unknown slice" }, 404, request, env);
     const hub = hubStub(env, account, slice);
     const activeNativeRequest = parts[4] === "changes";
-    if (nativeOn(env, account, slice)) {
+    // /stream wakes Hub.fetch() which calls watchNative() itself; skip the duplicate RPC here.
+    if (parts[4] !== "stream" && nativeOn(env, account, slice)) {
       ctx.waitUntil(hub.watchNative(account, slice, activeNativeRequest).catch(() => {}));
     }
     // Agents that push straight to Gitslice (refs/changes/new) ask here how

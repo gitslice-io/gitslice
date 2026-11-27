@@ -9919,3 +9919,15 @@ All checks passed with zero formatting diffs, zero `go vet` diagnostics, zero `g
   - Extracted shared `web/src/components/ui/PortalMenu.tsx` (viewport-clamped portal dropdown with Escape/outside-click/reflow dismissal) and migrated `ActionMenu.tsx` and `MoreActionsMenu.tsx` onto it.
   - Added `web/src/components/ui/Alert.tsx` (`role="alert"` on error, `role="status"` on success) and `web/src/components/ui/Textarea.tsx`, migrating `SliceNotice` onto `Alert` with unit coverage in `PortalMenu.test.tsx`.
   - Deduplicated `.doc-copy-tip` and `.landing-copy-tip` CSS rules in `web/src/index.css`.
+
+## 2026-11-27 — Architecture Governance Wave G7 (Edge Workers & Ops CI, Reliability, Scale-to-Zero & Hygiene)
+
+- **CI, TypeScript & Ops tooling**:
+  - Added `go vet ./...` and a Cloudflare Workers matrix job (`agents`, `trigger-dispatch`, `doorbell`: `npm ci && npm run check && npm test`) to `.github/workflows/ci.yml`.
+  - Enabled `"noUnusedLocals": true` and `"test/**/*.ts"` inclusion in `agents/tsconfig.json`, `trigger-dispatch/tsconfig.json`, and `doorbell/tsconfig.json`.
+  - Fixed `Makefile` (`run-web` now launches Vite dev server, `GO_FILES` includes `ops/`, added `vet` and `workers-test` targets, removed hardcoded `nic` Postgres username), synced `env.prod.template` with `web/build.production.vars` (pruning dead R2/Clerk keys and adding PostHog vars), and updated stale `Dockerfile` comments.
+- **Worker reliability & scale-to-zero**:
+  - Added bounded exponential backoff retry for transient `502`/`503`/network failures in `trigger-dispatch/src/api.ts` (+ unit tests in `trigger-dispatch/test/api.test.ts`).
+  - Eliminated shadow `appendLogLine` divergence in `trigger-dispatch/src/entry.ts` and updated stale `internal/triggers`/`design/34_triggers.md` references across `trigger-dispatch/src/`.
+  - Hardened `agents/src/` scale-to-zero and WebSocket behavior: added `setWebSocketAutoResponse("ping", "pong")` in `Hub` constructor (`hub.ts`), added exponential backoff + jitter + `document.hidden` pause in `dashboard.ts`, invoked `host.scheduleAlarm()` in `markSessionLanded` (`hubOverlap.ts` + test), and eliminated duplicate `watchNative()` RPC on `/stream` (`index.ts`).
+  - Centralized Hub DO storage keys in `agents/src/hubKeys.ts`, deleted dead `baselineRepoName` (`artifacts.ts`) and unused `findChange` import (`index.ts`), deduplicated `mapLimit` and `shortPath` (`land.ts`, `review.ts` -> `hubOverlap.ts`), removed shallow re-exports in `hub.ts`/`land.ts`, and standardized `.ts` relative imports across `agents/src/`.

@@ -1,6 +1,7 @@
 // Dashboard WebSocket stream, snapshot assembly, bounded event ring, reset, and aggregate stats for Hub.
 
 import type { Env } from "./env.ts";
+import { HUB_KEYS } from "./hubKeys.ts";
 import { ACTIVE, mapLimit } from "./hubOverlap.ts";
 import type { Baseline, HubEvent, Session, Stats } from "./types.ts";
 
@@ -133,7 +134,7 @@ export async function resetHubState(host: ResettableHubHost): Promise<{ deleted:
   host.nativeSince = host.floor;
   host.nativeQueued.clear();
   await host.storage.put({ baselineGen: host.baselineGen, floor: host.floor, nativeSince: host.nativeSince });
-  if (host.ident) await host.storage.put("ident", host.ident);
+  if (host.ident) await host.storage.put(HUB_KEYS.ident, host.ident);
   if (host.baseline) await host.storage.put({ baseline: host.baseline, baselineFor: host.baselineFor });
   host.broadcast({
     type: "snapshot",

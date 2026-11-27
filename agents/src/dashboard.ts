@@ -171,11 +171,36 @@ const fmtMs = (ms) => ms == null ? "–" : ms < 1000 ? ms + " ms" : (ms / 1000).
 $("slice").textContent = CONFIG.account + "/" + CONFIG.slice;
 $("legend").innerHTML = ORDER.map((k) => '<span><i style="background:' + STATUS[k].color + '"></i>' + STATUS[k].label + "</span>").join("");
 
+let reconnectAttempts = 0;
+let reconnectTimer = null;
+let socket = null;
+
+function scheduleReconnect() {
+  if (reconnectTimer || document.hidden) return;
+  const base = Math.min(30000, 1500 * Math.pow(2, reconnectAttempts));
+  const jitter = Math.floor(Math.random() * 500);
+  reconnectAttempts++;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect();
+  }, base + jitter);
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && (!socket || socket.readyState === WebSocket.CLOSED)) {
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    reconnectAttempts = 0;
+    connect();
+  }
+});
+
 function connect() {
+  if (document.hidden) return;
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   const ws = new WebSocket(proto + "//" + location.host + "/v1/slices/" + CONFIG.account + "/" + CONFIG.slice + "/stream");
-  ws.onopen = () => { $("live").classList.add("on"); $("liveText").textContent = "live"; };
-  ws.onclose = () => { $("live").classList.remove("on"); $("liveText").textContent = "reconnecting…"; setTimeout(connect, 1500); };
+  socket = ws;
+  ws.onopen = () => { reconnectAttempts = 0; $("live").classList.add("on"); $("liveText").textContent = "live"; };
+  ws.onclose = () => { $("live").classList.remove("on"); $("liveText").textContent = document.hidden ? "paused" : "reconnecting…"; scheduleReconnect(); };
   ws.onmessage = (m) => {
     const msg = JSON.parse(m.data);
     if (msg.type === "snapshot") {

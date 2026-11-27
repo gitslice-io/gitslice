@@ -3,6 +3,7 @@
 import { nativeCommitOf, sessionRepoName } from "./artifacts.ts";
 import type { Env } from "./env.ts";
 import type { HubCounters } from "./hubDashboard.ts";
+import { HUB_KEYS } from "./hubKeys.ts";
 import {
   disposeRepo,
   findOverlappingSessions,
@@ -64,7 +65,7 @@ export async function useHubBaseline(host: BaselineHost, baseline: Baseline, gen
   if (host.baseline && baseline.createdAt < host.baseline.createdAt) {
     // An import that started earlier finished later: keep the newer one.
     retireBaselineRepo(host, baseline.repo);
-    await host.storage.put("retired", host.retired);
+    await host.storage.put(HUB_KEYS.retired, host.retired);
     return host.baseline;
   }
   if (host.baseline && host.baseline.repo !== baseline.repo) {
@@ -252,7 +253,7 @@ export async function forkHubSession(
   }
   host.counters.forks++;
   await host.saveSession(session);
-  await host.storage.put("counters", host.counters);
+  await host.storage.put(HUB_KEYS.counters, host.counters);
   host.recordEvent({
     kind: "forked",
     session: session.id,

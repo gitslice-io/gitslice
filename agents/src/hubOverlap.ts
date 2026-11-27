@@ -3,6 +3,7 @@
 import { sessionRepoName, slugify } from "./artifacts.ts";
 import type { Env } from "./env.ts";
 import type { HubCounters } from "./hubDashboard.ts";
+import { HUB_KEYS } from "./hubKeys.ts";
 import { FIX_AFTER_MS } from "./policy.ts";
 import type { HubEvent, Session, Signal } from "./types.ts";
 
@@ -32,6 +33,7 @@ export interface SessionLifecycleHost {
   recordEvent(event: Omit<HubEvent, "at">): void;
   broadcast(message: unknown): void;
   broadcastStats(): void;
+  scheduleAlarm?: () => Promise<void>;
 }
 
 export function disposeRepo(repo: unknown): void {
@@ -124,7 +126,7 @@ export async function markSessionLanded(host: SessionLifecycleHost, id: string, 
   session.updatedAt = Date.now();
   pushSignal(session, { kind: "landed", message: `Landed as ${commit.slice(0, 19)}.` });
   host.baselineGen++;
-  await host.storage.put("baselineGen", host.baselineGen);
+  await host.storage.put(HUB_KEYS.baselineGen, host.baselineGen);
   await host.saveSession(session);
   host.recordEvent({
     kind: "landed",
@@ -144,6 +146,7 @@ export async function markSessionLanded(host: SessionLifecycleHost, id: string, 
     host.broadcast({ type: "session", session: original });
   }
   host.broadcastStats();
+  await host.scheduleAlarm?.();
 }
 
 export async function openFixerSession(
@@ -215,7 +218,7 @@ export async function openFixerSession(
   host.counters.forks++;
   await host.saveSession(failing);
   await host.saveSession(session);
-  await host.storage.put("counters", host.counters);
+  await host.storage.put(HUB_KEYS.counters, host.counters);
   host.recordEvent({
     kind: "forked",
     session: name,

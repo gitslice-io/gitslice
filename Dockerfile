@@ -1,13 +1,13 @@
 # Multi-stage build for the gitslice core server (cmd/gitslice-server).
 #
-# The binary is a pure-Go, CGO-free static binary. The runtime image is
-# distroless/static, which ships ca-certificates (needed for TLS to Neon,
-# Cloudflare R2, and Clerk) and nothing else.
+# The binary is a pure-Go, CGO-free static binary running on debian:bookworm-slim
+# with git (required by internal/gitcompat) and ca-certificates (needed for TLS
+# to Neon, Cloudflare R2, and Clerk).
 #
 # On Cloud Run the server multiplexes gRPC + Connect + REST on a single port
 # via h2c (see server.NewCombinedGRPCGatewayHandler). Bind it to 0.0.0.0 on the
 # Cloud Run container port by setting GITSLICE_GRPC_ADDR=0.0.0.0:8080 and
-# deploying with --use-http2 (see deploy/cloudrun.sh).
+# deploying with HTTP/2 enabled (see cloudbuild.yaml and ops/automation/).
 
 # ----- build stage -----
 FROM golang:1.24 AS build
@@ -42,7 +42,7 @@ RUN groupadd --gid 65532 nonroot \
 USER 65532:65532
 ENV HOME=/home/nonroot
 
-# Documented default; deploy/cloudrun.sh sets the real value. Cloud Run injects
+# Documented default; cloudbuild.yaml sets the real value. Cloud Run injects
 # PORT=8080 by default and routes to the --port we configure (also 8080).
 ENV GITSLICE_GRPC_ADDR=0.0.0.0:8080
 EXPOSE 8080

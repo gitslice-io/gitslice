@@ -2,7 +2,8 @@
 // from a Workers AI model before it can land. Deterministic checks run first,
 // protected paths always escalate to a human, and the model decides the rest.
 
-import { unifiedDiff } from "./merge";
+import { shortPath } from "./hubOverlap.ts";
+import { unifiedDiff } from "./merge.ts";
 
 export type Verdict = "approve" | "request_changes" | "escalate";
 
@@ -213,8 +214,4 @@ function renderDiff(files: ReviewFile[]): string {
     out += chunk + "\n";
   }
   return out;
-}
-
-function shortPath(path: string): string {
-  return path.split("/").slice(3).join("/") || path;
 }

@@ -160,24 +160,56 @@ export interface CheckRun {
   detailsUrl?: string;
 }
 
+const DEFAULT_RETRY_DELAYS_MS = [100, 250];
+
+function isTransientStatus(status: number): boolean {
+  return status === 502 || status === 503;
+}
+
 export class Api {
   private readonly base: string;
+  private readonly retryDelaysMs: readonly number[];
 
-  constructor(base: string) {
+  constructor(base: string, options: { retryDelaysMs?: readonly number[] } = {}) {
     this.base = base;
+    this.retryDelaysMs = options.retryDelaysMs ?? DEFAULT_RETRY_DELAYS_MS;
   }
 
   async call<T>(method: string, body: unknown): Promise<T> {
-    const res = await fetch(`${this.base.replace(/\/$/, "")}/gitslice.core.v1.AutomationRunService/${method}`, {
-      method: "POST",
-      headers: { "content-type": "application/json", "user-agent": "Gitslice-Trigger-Dispatch/1.0" },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    if (!res.ok) {
-      throw ApiError.fromResponse(res.status, text, `${method}: HTTP ${res.status}`);
+    const url = `${this.base.replace(/\/$/, "")}/gitslice.core.v1.AutomationRunService/${method}`;
+    const payload = JSON.stringify(body);
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= this.retryDelaysMs.length; attempt++) {
+      if (attempt > 0) {
+        const delay = this.retryDelaysMs[attempt - 1];
+        if (delay > 0) {
+          await new Promise((resolve) => setTimeout(resolve, delay));
+        }
+      }
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          method: "POST",
+          headers: { "content-type": "application/json", "user-agent": "Gitslice-Trigger-Dispatch/1.0" },
+          body: payload,
+        });
+      } catch (err) {
+        lastError = err;
+        if (attempt < this.retryDelaysMs.length) continue;
+        throw err;
+      }
+      const text = await res.text();
+      if (!res.ok) {
+        const apiErr = ApiError.fromResponse(res.status, text, `${method}: HTTP ${res.status}`);
+        if (isTransientStatus(res.status) && attempt < this.retryDelaysMs.length) {
+          lastError = apiErr;
+          continue;
+        }
+        throw apiErr;
+      }
+      return (text ? JSON.parse(text) : {}) as T;
     }
-    return (text ? JSON.parse(text) : {}) as T;
+    throw lastError;
   }
 
   async fetchArchive(runToken: string): Promise<Response> {

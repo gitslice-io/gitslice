@@ -1,4 +1,4 @@
-import type { Hub } from "./hub";
+import type { Hub } from "./hub.ts";
 
 export interface Env {
   ARTIFACTS: Artifacts;

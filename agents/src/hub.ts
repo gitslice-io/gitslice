@@ -13,6 +13,7 @@ import {
   type BaselineHost,
   type OpenSessionInput,
 } from "./hubBaseline.ts";
+import { HUB_KEYS, sessionStorageKey } from "./hubKeys.ts";
 import {
   appendHubEvent,
   broadcastToSockets,
@@ -35,7 +36,6 @@ import {
 } from "./hubNative.ts";
 import {
   followFixerSession,
-  globalPath,
   markSessionLanded,
   openFixerSession,
   pushSignal,
@@ -43,14 +43,19 @@ import {
   type SessionLifecycleHost,
 } from "./hubOverlap.ts";
 import { retryEscalated } from "./land.ts";
-import { computeNextAlarmMs, FIX_AFTER_MS, protectedPatterns, pruneSessionsMap } from "./policy.ts";
+import { computeNextAlarmMs, FIX_AFTER_MS, pruneSessionsMap } from "./policy.ts";
 import type { Baseline, HubEvent, Session, Signal, Stats } from "./types.ts";
 
-export { globalPath, protectedPatterns, type OpenSessionInput };
+export type { OpenSessionInput };
 
 type HubHost = BaselineHost & NativeHost & SessionLifecycleHost & ResettableHubHost;
 
 export class Hub extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    // Answer WebSocket heartbeats at the edge without waking a hibernating DO.
+    this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+  }
   private readonly host: HubHost = {
     env: this.env,
     storage: this.ctx.storage,
@@ -82,17 +87,17 @@ export class Hub extends DurableObject<Env> {
     if (!this.loaded) {
       this.loaded = (async () => {
         const h = this.host;
-        const stored = await this.ctx.storage.list<Session>({ prefix: "s:" });
+        const stored = await this.ctx.storage.list<Session>({ prefix: HUB_KEYS.sessionPrefix });
         for (const session of stored.values()) h.sessions.set(session.id, session);
-        h.events = (await this.ctx.storage.get<HubEvent[]>("events")) ?? [];
-        h.baseline = (await this.ctx.storage.get<Baseline>("baseline")) ?? null;
-        h.baselineGen = (await this.ctx.storage.get<number>("baselineGen")) ?? 0;
-        h.baselineFor = (await this.ctx.storage.get<number>("baselineFor")) ?? -1;
-        h.retired = (await this.ctx.storage.get<string[]>("retired")) ?? [];
-        h.floor = (await this.ctx.storage.get<number>("floor")) ?? 0;
-        h.ident = (await this.ctx.storage.get<{ account: string; slice: string }>("ident")) ?? null;
-        h.nativeSince = (await this.ctx.storage.get<number>("nativeSince")) ?? 0;
-        h.counters = (await this.ctx.storage.get<HubCounters>("counters")) ?? h.counters;
+        h.events = (await this.ctx.storage.get<HubEvent[]>(HUB_KEYS.events)) ?? [];
+        h.baseline = (await this.ctx.storage.get<Baseline>(HUB_KEYS.baseline)) ?? null;
+        h.baselineGen = (await this.ctx.storage.get<number>(HUB_KEYS.baselineGen)) ?? 0;
+        h.baselineFor = (await this.ctx.storage.get<number>(HUB_KEYS.baselineFor)) ?? -1;
+        h.retired = (await this.ctx.storage.get<string[]>(HUB_KEYS.retired)) ?? [];
+        h.floor = (await this.ctx.storage.get<number>(HUB_KEYS.floor)) ?? 0;
+        h.ident = (await this.ctx.storage.get<{ account: string; slice: string }>(HUB_KEYS.ident)) ?? null;
+        h.nativeSince = (await this.ctx.storage.get<number>(HUB_KEYS.nativeSince)) ?? 0;
+        h.counters = (await this.ctx.storage.get<HubCounters>(HUB_KEYS.counters)) ?? h.counters;
       })();
     }
     return this.loaded;
@@ -127,7 +132,7 @@ export class Hub extends DurableObject<Env> {
     session.updatedAt = Date.now();
     this.host.counters.pushes++;
     await this.save(session);
-    await this.ctx.storage.put("counters", this.host.counters);
+    await this.ctx.storage.put(HUB_KEYS.counters, this.host.counters);
     this.event({ kind: "pushed", session: id, agent: session.agent, message: `pushed ${commit.slice(0, 7)}` });
     this.broadcast({ type: "session", session });
     this.broadcastStats();
@@ -288,10 +293,10 @@ export class Hub extends DurableObject<Env> {
 
   private async save(session: Session): Promise<void> {
     this.host.sessions.set(session.id, session);
-    await this.ctx.storage.put(`s:${session.id}`, session);
+    await this.ctx.storage.put(sessionStorageKey(session.id), session);
     const evicted = pruneSessionsMap(this.host.sessions);
     if (evicted.length > 0) {
-      await this.ctx.storage.delete(evicted.map((s) => `s:${s.id}`));
+      await this.ctx.storage.delete(evicted.map((s) => sessionStorageKey(s.id)));
       let retiredChanged = false;
       for (const s of evicted) {
         if (!s.native) {
@@ -300,14 +305,14 @@ export class Hub extends DurableObject<Env> {
         }
       }
       if (retiredChanged) {
-        await this.ctx.storage.put("retired", this.host.retired);
+        await this.ctx.storage.put(HUB_KEYS.retired, this.host.retired);
       }
     }
   }
 
   private event(event: Omit<HubEvent, "at">): void {
     const full = appendHubEvent(this.host.events, event);
-    this.ctx.storage.put("events", this.host.events).catch(() => {});
+    this.ctx.storage.put(HUB_KEYS.events, this.host.events).catch(() => {});
     this.broadcast({ type: "event", event: full });
   }
 

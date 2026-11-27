@@ -1,4 +1,4 @@
-// What a trigger script may reach (design/34_triggers.md): https, to the hosts
+// What an automation script may reach (design/34_automations.md): https, to the hosts
 // its trigger lists in network, by public DNS name.
 
 import { openPlaceholders } from "./crypto.ts";

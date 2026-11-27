@@ -87,10 +87,6 @@ export function nativeCommitOf(message: string): string | null {
 
 // Repo names: letters, digits, ".", "_" and "-"; "." separates the parts
 // because Gitslice account and slice names never contain it.
-export function baselineRepoName(account: string, slice: string, nativeCommit: string): string {
-  return `base.${account}.${slice}.${nativeCommit.replace("sha256:", "").slice(0, 16)}`;
-}
-
 export function sessionRepoName(account: string, slice: string, agent: string, nonce: string): string {
   return `s.${account}.${slice}.${slugify(agent)}.${nonce}`;
 }

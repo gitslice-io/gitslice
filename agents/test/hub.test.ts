@@ -18,6 +18,7 @@ import {
   globalPath,
   hasOverlapSignal,
   intersect,
+  markSessionLanded,
   MAX_SIGNALS,
   overlapSignal,
   parseTitle,
@@ -25,6 +26,7 @@ import {
   pushSignal,
   shortPath,
   shortRepo,
+  type SessionLifecycleHost,
 } from "../src/hubOverlap.ts";
 import type { Baseline, HubEvent, Session } from "../src/types.ts";
 
@@ -74,6 +76,30 @@ test("hubOverlap detects overlapping sessions, directory prefix intents, and sig
   assert.equal(shortPath("/demo/store/src/cart.ts"), "src/cart.ts");
   assert.equal(shortRepo("a".repeat(40)).length, 34);
   assert.deepEqual(parseTitle("bot-1: Fix cart rounding", "fallback"), { agent: "bot-1", task: "Fix cart rounding" });
+});
+
+test("markSessionLanded schedules alarm recalculation to clear idle alarms", async () => {
+  const s1 = makeSession({ id: "s.1", status: "landing" });
+  let alarmCalls = 0;
+  const host: SessionLifecycleHost = {
+    env: {} as SessionLifecycleHost["env"],
+    storage: {
+      put: async () => {},
+    },
+    sessions: new Map([[s1.id, s1]]),
+    baselineGen: 0,
+    counters: { forks: 1, baselines: 1, pushes: 1 },
+    saveSession: async () => {},
+    recordEvent: () => {},
+    broadcast: () => {},
+    broadcastStats: () => {},
+    scheduleAlarm: async () => {
+      alarmCalls++;
+    },
+  };
+  await markSessionLanded(host, s1.id, "sha256:abcdef0123456789");
+  assert.equal(s1.status, "landed");
+  assert.equal(alarmCalls, 1);
 });
 
 test("hubDashboard computes stats, caps events, evicts stale sockets, and parses stream URLs", () => {

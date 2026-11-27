@@ -11,7 +11,7 @@ BIN_DIR ?= $(CURDIR)/bin
 TMP_DIR ?= $(CURDIR)/.tmp
 DATABASE_URL ?= $(GITSLICE_DATABASE_URL)
 ifeq ($(strip $(DATABASE_URL)),)
-DATABASE_URL := postgres://nic@localhost/gitslice_dev?sslmode=disable
+DATABASE_URL := postgres://localhost/gitslice_dev?sslmode=disable
 endif
 TEST_DATABASE_URL ?= $(GITSLICE_TEST_DATABASE_URL)
 OBJECT_STORE_ROOT ?= $(TMP_DIR)/object-store
@@ -27,12 +27,12 @@ LOAD_STATUS_ITERATIONS ?= 4
 LOAD_TWO_SLICE_EDITS ?= 100
 
 GO_PACKAGES := ./...
-GO_FILES := $(shell find cmd internal server service tests -name '*.go' -type f)
+GO_FILES := $(shell find cmd internal ops server service tests -name '*.go' -type f)
 PROTO_FILES := $(wildcard proto/core/v1/*.proto)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help deps fmt test build check install dev-install run-server run-web server require-test-database-url cli rpc functional load proto clean
+.PHONY: help deps fmt vet test workers-test build check install dev-install run-server run-web server require-test-database-url cli rpc functional load proto clean
 
 help: ## Show available targets.
 	@awk 'BEGIN {FS = ":.*##"; printf "Usage: make <target>\n\nTargets:\n"} /^[a-zA-Z0-9_-]+:.*##/ {printf "  %-16s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -43,15 +43,24 @@ deps: ## Download Go module dependencies.
 fmt: ## Format Go source files.
 	gofmt -w $(GO_FILES)
 
+vet: ## Run go vet across all Go packages.
+	$(GO) vet $(GO_PACKAGES)
+
 test: ## Run the default Go test suite.
 	$(GO) test $(GO_PACKAGES)
+
+workers-test: ## Run unit tests for all Cloudflare Workers (agents, trigger-dispatch, doorbell).
+	@for dir in agents trigger-dispatch doorbell; do \
+		printf '==> testing %s\n' "$$dir"; \
+		(cd "$$dir" && npm test) || exit 1; \
+	done
 
 build: ## Build local gs and gitslice-server binaries into ./bin.
 	mkdir -p $(BIN_DIR)
 	$(GO) build -o $(BIN_DIR)/gs ./cmd/gs
 	$(GO) build -o $(BIN_DIR)/gitslice-server ./cmd/gitslice-server
 
-check: fmt test build ## Format, test, and build.
+check: fmt vet test build ## Format, vet, test, and build.
 
 install: ## Install CLI and server binaries into the active Go install path.
 	$(GO) install ./cmd/...
@@ -72,8 +81,8 @@ run-server: ## Run the local server with PostgreSQL and filesystem object storag
 	GITSLICE_GIT_CACHE_ROOT="$(GIT_CACHE_ROOT)" \
 	$(GO) run ./cmd/gitslice-server
 
-run-web: ## Serve the static web app locally.
-	cd web && python3 -m http.server "$(WEB_PORT)" --bind "$(WEB_HOST)"
+run-web: ## Run the web app Vite dev server locally.
+	cd web && npm run dev -- --host "$(WEB_HOST)" --port "$(WEB_PORT)"
 
 server: run-server ## Alias for run-server.
 

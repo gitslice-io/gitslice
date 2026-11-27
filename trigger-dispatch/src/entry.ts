@@ -1,4 +1,4 @@
-// The module a trigger script runs behind (design/34_triggers.md). It is
+// The module an automation script runs behind (design/34_automations.md). It is
 // generated per script and is the dynamic Worker's main module: it imports
 // the script, gives it the gs API, keeps console output per run (an isolate
 // serves every run of its script, maybe at once), and calls onEvent or
@@ -20,11 +20,17 @@ export interface LogBuffer {
   truncated: boolean;
 }
 
-export function appendLogLine(buf: LogBuffer, stream: string, rawText: string): void {
+export function appendLogLine(
+  buf: LogBuffer,
+  stream: string,
+  rawText: string,
+  maxLines = MAX_RUN_LOG_LINES,
+  maxLineChars = MAX_RUN_LOG_LINE_CHARS,
+  maxTotalChars = MAX_RUN_LOG_TOTAL_CHARS,
+): void {
   if (buf.truncated) return;
-  const text =
-    rawText.length > MAX_RUN_LOG_LINE_CHARS ? rawText.slice(0, MAX_RUN_LOG_LINE_CHARS - 1) + "…" : rawText;
-  if (buf.lines.length >= MAX_RUN_LOG_LINES || buf.chars + text.length > MAX_RUN_LOG_TOTAL_CHARS) {
+  const text = rawText.length > maxLineChars ? rawText.slice(0, maxLineChars - 1) + "…" : rawText;
+  if (buf.lines.length >= maxLines || buf.chars + text.length > maxTotalChars) {
     buf.truncated = true;
     buf.lines.push({ stream: "stderr", text: "[gitslice: trigger console output truncated]" });
     return;
@@ -32,6 +38,21 @@ export function appendLogLine(buf: LogBuffer, stream: string, rawText: string): 
   buf.lines.push({ stream, text });
   buf.chars += text.length;
 }
+
+// Pure JS runtime helper embedded directly into entrySource() so the dynamic
+// Worker isolate executes the exact same line-capping logic tested via
+// appendLogLine() above (no shadow copy drift).
+const APPEND_LOG_LINE_JS = `function appendLogLine(buf, stream, rawText) {
+  if (buf.truncated) return;
+  const text = rawText.length > MAX_LINE_CHARS ? rawText.slice(0, MAX_LINE_CHARS - 1) + "…" : rawText;
+  if (buf.lines.length >= MAX_LINES || buf.chars + text.length > MAX_TOTAL_CHARS) {
+    buf.truncated = true;
+    buf.lines.push({ stream: "stderr", text: "[gitslice: trigger console output truncated]" });
+    return;
+  }
+  buf.lines.push({ stream, text });
+  buf.chars += text.length;
+}`;
 
 export function entrySource(mainModule: string): string {
   return `
@@ -56,6 +77,7 @@ const runLogs = new AsyncLocalStorage();
 const MAX_LINES = ${MAX_RUN_LOG_LINES};
 const MAX_LINE_CHARS = ${MAX_RUN_LOG_LINE_CHARS};
 const MAX_TOTAL_CHARS = ${MAX_RUN_LOG_TOTAL_CHARS};
+${APPEND_LOG_LINE_JS}
 
 function format(value) {
   if (typeof value === "string") return value;
@@ -67,16 +89,7 @@ for (const [name, stream] of [["log", "stdout"], ["info", "stdout"], ["debug", "
   console[name] = (...args) => {
     const store = runLogs.getStore();
     if (!store) return original(...args);
-    if (store.truncated) return;
-    const raw = args.map(format).join(" ");
-    const text = raw.length > MAX_LINE_CHARS ? raw.slice(0, MAX_LINE_CHARS - 1) + "…" : raw;
-    if (store.lines.length >= MAX_LINES || store.chars + text.length > MAX_TOTAL_CHARS) {
-      store.truncated = true;
-      store.lines.push({ stream: "stderr", text: "[gitslice: trigger console output truncated]" });
-      return;
-    }
-    store.lines.push({ stream, text });
-    store.chars += text.length;
+    appendLogLine(store, stream, args.map(format).join(" "));
   };
 }
 
