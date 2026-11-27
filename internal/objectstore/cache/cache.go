@@ -22,15 +22,13 @@ import (
 	"io"
 	"math"
 	"sync"
+
+	"gitslice.io/gitslice/internal/objectstore"
 )
 
 const defaultMaxObjectBytes int64 = 4 << 20
 
-type ObjectStore interface {
-	Put(context.Context, string, io.Reader) error
-	Get(context.Context, string, int64, int64) (io.ReadCloser, error)
-	Delete(context.Context, string) error
-}
+type ObjectStore = objectstore.Store
 
 type objectCopier interface {
 	Copy(ctx context.Context, dstKey, srcKey string) error

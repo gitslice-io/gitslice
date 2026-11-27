@@ -7,7 +7,7 @@ import (
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -168,7 +168,7 @@ func TestChangesetDiffListAndAbandonUseInMemoryStorage(t *testing.T) {
 
 	oldData := []byte("old\n")
 	oldHash := objectid.RawContentHash(oldData)
-	mem.PutObject(filesystem.BlobKey(oldHash), oldData)
+	mem.PutObject(objectstore.BlobKey(oldHash), oldData)
 	mem.PutCommitWithFiles("commit_old", []storage.FileEntry{{
 		Path:        "/acme/payment/value.txt",
 		BlobID:      objectid.BlobID(oldData),

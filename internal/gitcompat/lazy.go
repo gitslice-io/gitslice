@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 )
 
 // lazyChunkCommits is how many commits one pack holds. After each chunk the
@@ -196,7 +196,7 @@ func (p *Projector) prefetch(ctx context.Context, hashes []string) (next func() 
 				return
 			}
 			go func() {
-				rc, err := p.objectStore.Get(ctx, filesystem.BlobKey(h), 0, 0)
+				rc, err := p.objectStore.Get(ctx, objectstore.BlobKey(h), 0, 0)
 				ch <- fetchedBlob{rc: rc, err: err}
 			}()
 		}

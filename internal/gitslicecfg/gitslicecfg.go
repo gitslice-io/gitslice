@@ -14,7 +14,7 @@ import (
 	"strings"
 	"sync"
 
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/paths"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
@@ -113,7 +113,7 @@ func (r TreeReader) ReadFile(ctx context.Context, rootTreeID, p string) ([]byte,
 	if entry.Size > limit {
 		return nil, &FileTooLargeError{Path: p, Limit: limit}
 	}
-	rc, err := r.Objects.Get(ctx, filesystem.BlobKey(entry.ContentHash), 0, 0)
+	rc, err := r.Objects.Get(ctx, objectstore.BlobKey(entry.ContentHash), 0, 0)
 	if err != nil {
 		return nil, err
 	}

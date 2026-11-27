@@ -6,7 +6,7 @@ import (
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -44,7 +44,7 @@ func TestPatchsetApprovedForGitsliceSecretsCatchesDirectoryCopyAndRenameIntoGits
 	// and a plain directory /secorg/scripts/hooks containing run.sh.
 	data := []byte("version: 1\nchecks: {}\n")
 	hash := objectid.RawContentHash(data)
-	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutObject(objectstore.BlobKey(hash), data)
 	mem.PutCommitWithFiles("commit_sec_seed", []storage.FileEntry{
 		{Path: "/secorg/templates/bundle/.gitslice/checks.yaml", BlobID: objectid.BlobID(data), ContentHash: hash, Mode: 0o100644, Size: int64(len(data))},
 		{Path: "/secorg/scripts/hooks/run.sh", BlobID: objectid.BlobID(data), ContentHash: hash, Mode: 0o100755, Size: int64(len(data))},

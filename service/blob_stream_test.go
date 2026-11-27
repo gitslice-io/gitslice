@@ -10,7 +10,7 @@ import (
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -82,7 +82,7 @@ func TestUploadBlobStreamHashMismatchCleansStaging(t *testing.T) {
 	if objects.hasKeyPrefix("staging/") {
 		t.Fatalf("staging object was not cleaned up: %#v", objects.keys())
 	}
-	if objects.hasKey(filesystem.BlobKey(objectid.RawContentHash(data))) {
+	if objects.hasKey(objectstore.BlobKey(objectid.RawContentHash(data))) {
 		t.Fatalf("final object exists after failed upload: %#v", objects.keys())
 	}
 	records, err := mem.Blobs.GetByContentHash(context.Background(), []string{objectid.RawContentHash(data)})

@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
@@ -52,7 +52,7 @@ func mustCreateDraftOnSlice(t *testing.T, ctx context.Context, stores *Stores, a
 	data := []byte(content)
 	blobID := objectid.BlobID(data)
 	contentHash := objectid.RawContentHash(data)
-	key := filesystem.BlobKey(contentHash)
+	key := objectstore.BlobKey(contentHash)
 	if err := stores.Objects.Put(ctx, key, bytes.NewReader(data)); err != nil {
 		t.Fatalf("Objects.Put: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestPatchsetAuthorExclusionAndMechanicalSubmitMergeMemory(t *testing.T) {
 	ps1UpdatedData := []byte("two\n")
 	ps1UpdatedBlobID := objectid.BlobID(ps1UpdatedData)
 	ps1UpdatedHash := objectid.RawContentHash(ps1UpdatedData)
-	ps1UpdatedKey := filesystem.BlobKey(ps1UpdatedHash)
+	ps1UpdatedKey := objectstore.BlobKey(ps1UpdatedHash)
 	if err := stores.Objects.Put(ctx, ps1UpdatedKey, bytes.NewReader(ps1UpdatedData)); err != nil {
 		t.Fatal(err)
 	}

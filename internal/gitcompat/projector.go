@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -14,17 +13,14 @@ import (
 	"time"
 
 	"gitslice.io/gitslice/internal/authz"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/proto/core/v1"
 )
 
 // ObjectStore is the object store that holds file contents and, under
 // git-mirror/, the mirror of each slice's projection.
-type ObjectStore interface {
-	Put(ctx context.Context, key string, r io.Reader) error
-	Get(ctx context.Context, key string, offset, length int64) (io.ReadCloser, error)
-	Delete(ctx context.Context, key string) error
-}
+type ObjectStore = objectstore.Store
 
 type Projector struct {
 	auth        storage.AuthStore

@@ -7,7 +7,7 @@ import (
 
 	"gitslice.io/gitslice/internal/diffutil"
 	"gitslice.io/gitslice/internal/mergerules"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -189,7 +189,7 @@ func (s *ChangesetStackService) restackContent(ctx context.Context, contentHash 
 	if contentHash == "" {
 		return nil, false, nil
 	}
-	rc, err := s.ObjectStore.Get(ctx, filesystem.BlobKey(contentHash), 0, 0)
+	rc, err := s.ObjectStore.Get(ctx, objectstore.BlobKey(contentHash), 0, 0)
 	if err != nil {
 		return nil, false, grpcError(err)
 	}

@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"gitslice.io/gitslice/internal/authz"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/proto/core/v1"
 	"golang.org/x/sync/errgroup"
@@ -296,7 +296,7 @@ func (s *RepositoryService) streamCheckoutContents(ctx context.Context, stream c
 		group.SetLimit(checkoutObjectReads)
 		for _, hash := range hashes {
 			group.Go(func() error {
-				rc, err := s.ObjectStore.Get(groupCtx, filesystem.BlobKey(hash), 0, 0)
+				rc, err := s.ObjectStore.Get(groupCtx, objectstore.BlobKey(hash), 0, 0)
 				if err != nil {
 					return grpcError(err)
 				}

@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"golang.org/x/sync/errgroup"
@@ -340,7 +340,7 @@ func StreamAndUploadBlobs(
 		blobID := objectid.BlobID(data)
 		batch = append(batch, pendingBlob{
 			gitBlobID:   gitBlobID,
-			key:         filesystem.BlobKey(contentHash),
+			key:         objectstore.BlobKey(contentHash),
 			blobID:      blobID,
 			contentHash: contentHash,
 			size:        int64(len(data)),

@@ -21,6 +21,7 @@ import (
 
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/klauspost/compress/zstd"
+	"gitslice.io/gitslice/internal/objectstore"
 )
 
 const (
@@ -32,11 +33,7 @@ const (
 )
 
 // ObjectStore is the minimal object storage contract wrapped by Store.
-type ObjectStore interface {
-	Put(context.Context, string, io.Reader) error
-	Get(context.Context, string, int64, int64) (io.ReadCloser, error)
-	Delete(context.Context, string) error
-}
+type ObjectStore = objectstore.Store
 
 type objectCopier interface {
 	Copy(ctx context.Context, dstKey, srcKey string) error

@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -360,7 +360,7 @@ func (p *Projector) hydrateShard(ctx context.Context, repoPath string, ids []str
 			}
 		}
 		record := records[id]
-		rc, err := p.objectStore.Get(ctx, filesystem.BlobKey(record.ContentHash), 0, 0)
+		rc, err := p.objectStore.Get(ctx, objectstore.BlobKey(record.ContentHash), 0, 0)
 		if err != nil {
 			pack.discard()
 			return written, fmt.Errorf("read blob %s: %w", record.ContentHash, err)

@@ -11,7 +11,7 @@ import (
 	"unicode/utf8"
 
 	"gitslice.io/gitslice/internal/diffutil"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"golang.org/x/sync/errgroup"
@@ -385,7 +385,7 @@ func sniffDiffBinary(data []byte) bool {
 }
 
 func (s *ChangesetService) readDiffContentHash(ctx context.Context, contentHash string, knownSize int64) (diffBlobData, error) {
-	key := filesystem.BlobKey(contentHash)
+	key := objectstore.BlobKey(contentHash)
 	if knownSize > maxDiffFileBytes {
 		rc, err := s.ObjectStore.Get(ctx, key, 0, diffBinarySniffBytes)
 		if err != nil {

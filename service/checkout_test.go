@@ -9,7 +9,7 @@ import (
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc"
@@ -36,7 +36,7 @@ func TestRepositoryCheckoutStreamsSliceListingAndContent(t *testing.T) {
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
 	same, other := []byte("same\n"), []byte("other\n")
 	for _, data := range [][]byte{same, other} {
-		mem.PutObject(filesystem.BlobKey(objectid.RawContentHash(data)), data)
+		mem.PutObject(objectstore.BlobKey(objectid.RawContentHash(data)), data)
 	}
 	file := func(p string, data []byte) storage.FileEntry {
 		return storage.FileEntry{Path: p, BlobID: objectid.BlobID(data), ContentHash: objectid.RawContentHash(data), Mode: 0o100644, Size: int64(len(data))}
@@ -98,7 +98,7 @@ func TestRepositoryCheckoutOfATree(t *testing.T) {
 	alice := authctx.WithSubjectID(context.Background(), "user_alice")
 	a, b := []byte("a\n"), []byte("b\n")
 	for _, data := range [][]byte{a, b} {
-		mem.PutObject(filesystem.BlobKey(objectid.RawContentHash(data)), data)
+		mem.PutObject(objectstore.BlobKey(objectid.RawContentHash(data)), data)
 	}
 	file := func(p string, data []byte) storage.FileEntry {
 		return storage.FileEntry{Path: p, BlobID: objectid.BlobID(data), ContentHash: objectid.RawContentHash(data), Mode: 0o100644, Size: int64(len(data))}
@@ -157,7 +157,7 @@ func TestRepositoryCheckoutDeltaSinceACommit(t *testing.T) {
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
 	one, two := []byte("one\n"), []byte("two\n")
 	for _, data := range [][]byte{one, two} {
-		mem.PutObject(filesystem.BlobKey(objectid.RawContentHash(data)), data)
+		mem.PutObject(objectstore.BlobKey(objectid.RawContentHash(data)), data)
 	}
 	file := func(p string, data []byte) storage.FileEntry {
 		return storage.FileEntry{Path: p, BlobID: objectid.BlobID(data), ContentHash: objectid.RawContentHash(data), Mode: 0o100644, Size: int64(len(data))}

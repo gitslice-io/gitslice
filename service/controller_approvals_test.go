@@ -7,7 +7,7 @@ import (
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
@@ -18,7 +18,7 @@ func TestServiceControllerApprovalsAndHumanGateEndToEnd(t *testing.T) {
 	ctx := context.Background()
 	seedData := []byte("seed\n")
 	seedHash := objectid.RawContentHash(seedData)
-	mem.PutObject(filesystem.BlobKey(seedHash), seedData)
+	mem.PutObject(objectstore.BlobKey(seedHash), seedData)
 	mem.PutCommitWithFiles("commit_svc_controller_seed", []storage.FileEntry{
 		{Path: "/acme/svc-agent-only/seed.txt", BlobID: objectid.BlobID(seedData), ContentHash: seedHash, Mode: 0o100644, Size: int64(len(seedData))},
 		{Path: "/acme/svc-human-gate/seed.txt", BlobID: objectid.BlobID(seedData), ContentHash: seedHash, Mode: 0o100644, Size: int64(len(seedData))},

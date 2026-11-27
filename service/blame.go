@@ -45,12 +45,6 @@ func (s *RepositoryService) NewBlameWarmer(gate *activity.Gate) *blame.Warmer {
 	return blame.NewWarmer(s.blameEngine(), gate, s.bulkImportActive)
 }
 
-// RunBlameWarmer warms the blames of the files each landing on the default ref
-// changed, until ctx ends.
-func (s *RepositoryService) RunBlameWarmer(ctx context.Context) {
-	s.NewBlameWarmer(nil).Run(ctx)
-}
-
 func (s *RepositoryService) BlameFile(ctx context.Context, req *corev1.BlameFileRequest) (*corev1.BlameFileResponse, error) {
 	trace := blame.NewTrace()
 	ctx = blame.WithTrace(ctx, trace)

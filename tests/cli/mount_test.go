@@ -16,7 +16,7 @@ import (
 
 	"gitslice.io/gitslice/internal/cli"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 )
 
 func mounted(dir string) bool {
@@ -222,7 +222,7 @@ func TestMountKeepsEditsLocalUntilCreate(t *testing.T) {
 	must(os.Rename(filepath.Join(app, "docs"), filepath.Join(app, "manual")))
 
 	// Nothing has left the machine: the server has no copy of the new file.
-	blob := filepath.Join(ts.objectRoot, filepath.FromSlash(filesystem.BlobKey(objectid.RawContentHash([]byte(newContent)))))
+	blob := filepath.Join(ts.objectRoot, filepath.FromSlash(objectstore.BlobKey(objectid.RawContentHash([]byte(newContent)))))
 	if _, err := os.Stat(blob); err == nil {
 		t.Fatal("the new file reached the server before gs create")
 	}

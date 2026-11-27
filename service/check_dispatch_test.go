@@ -9,7 +9,7 @@ import (
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -136,7 +136,7 @@ checks:
     run: "echo root"
 `)
 	checksHash := objectid.RawContentHash(checksFile)
-	mem.PutObject(filesystem.BlobKey(checksHash), checksFile)
+	mem.PutObject(objectstore.BlobKey(checksHash), checksFile)
 	mem.PutCommitWithFiles("commit_with_root_checks", []storage.FileEntry{{
 		Path:        "/acme/.gitslice/checks.yaml",
 		BlobID:      objectid.BlobID(checksFile),
@@ -423,7 +423,7 @@ func putRootCheckFileForDispatchTest(t *testing.T, mem *memory.Stores, checkName
 	t.Helper()
 	checksFile := []byte("version: 1\nchecks:\n  " + checkName + ":\n    run: \"" + command + "\"\n")
 	checksHash := objectid.RawContentHash(checksFile)
-	mem.PutObject(filesystem.BlobKey(checksHash), checksFile)
+	mem.PutObject(objectstore.BlobKey(checksHash), checksFile)
 	mem.PutCommitWithFiles("commit_with_"+strings.ReplaceAll(checkName, "-", "_")+"_checks", []storage.FileEntry{{
 		Path:        "/acme/.gitslice/checks.yaml",
 		BlobID:      objectid.BlobID(checksFile),

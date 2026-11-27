@@ -11,14 +11,6 @@ import (
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
-func (s *RepositoryStore) ListCommits(ctx context.Context, refName string, limit int) ([]*corev1.Commit, error) {
-	page, err := s.ListCommitPage(ctx, refName, limit, "")
-	if err != nil {
-		return nil, err
-	}
-	return page.Commits, nil
-}
-
 func (s *RepositoryStore) ListCommitPage(ctx context.Context, refName string, limit int, pageToken string) (*CommitListPage, error) {
 	if refName == "" {
 		refName = DefaultTargetRef
@@ -178,14 +170,6 @@ func (s *RepositoryStore) ListCommitPage(ctx context.Context, refName string, li
 		commits = commits[:limit]
 	}
 	return &CommitListPage{Commits: commits, NextPageToken: nextToken}, nil
-}
-
-func (s *RepositoryStore) ListCommitsByPathPrefixes(ctx context.Context, refName string, prefixes []string, limit int) ([]*corev1.Commit, error) {
-	page, err := s.ListCommitPageByPathPrefixes(ctx, refName, prefixes, limit, "")
-	if err != nil {
-		return nil, err
-	}
-	return page.Commits, nil
 }
 
 func (s *RepositoryStore) ListCommitPageByPathPrefixes(ctx context.Context, refName string, prefixes []string, limit int, pageToken string) (*CommitListPage, error) {

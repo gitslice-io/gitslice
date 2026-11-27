@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
@@ -45,7 +45,7 @@ func TestIntentCLIDeclareListOverlapAndClear(t *testing.T) {
 
 	data := []byte("package api\n")
 	hash := objectid.RawContentHash(data)
-	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutObject(objectstore.BlobKey(hash), data)
 	mem.PutCommitWithFiles("commit_cli_int", []storage.FileEntry{{
 		Path:        "/acme/api/src/auth/login.go",
 		BlobID:      objectid.BlobID(data),

@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"gitslice.io/gitslice/internal/automations"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/owners"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -458,7 +458,7 @@ func (s *ChangesetService) validateOwnersConfigEdits(ctx context.Context, baseTr
 			if blob == nil || s.ObjectStore == nil {
 				continue
 			}
-			rc, err := s.ObjectStore.Get(ctx, filesystem.BlobKey(blob.ContentHash), 0, 0)
+			rc, err := s.ObjectStore.Get(ctx, objectstore.BlobKey(blob.ContentHash), 0, 0)
 			if err != nil {
 				return grpcError(err)
 			}

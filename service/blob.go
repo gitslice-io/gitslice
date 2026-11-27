@@ -9,7 +9,7 @@ import (
 	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/proto/core/v1"
@@ -186,7 +186,7 @@ func (s *BlobService) uploadBlobs(ctx context.Context, sliceRef *corev1.SliceRef
 			continue
 		}
 		data[hb.contentHash] = blobs[i].GetData()
-		rows = append(rows, storage.BlobUpsert{ID: hb.blobID, ContentHash: hb.contentHash, Size: hb.size, StorageLocation: filesystem.BlobKey(hb.contentHash)})
+		rows = append(rows, storage.BlobUpsert{ID: hb.blobID, ContentHash: hb.contentHash, Size: hb.size, StorageLocation: objectstore.BlobKey(hb.contentHash)})
 		if hb.gitID != "" {
 			gitIDs[hb.contentHash] = hb.gitID
 		}
@@ -202,7 +202,7 @@ func (s *BlobService) uploadBlobs(ctx context.Context, sliceRef *corev1.SliceRef
 		}
 		packObjects := make(map[string][]byte, len(hashes))
 		for _, contentHash := range hashes {
-			packObjects[filesystem.BlobKey(contentHash)] = data[contentHash]
+			packObjects[objectstore.BlobKey(contentHash)] = data[contentHash]
 		}
 		if err := pw.PutPack(ctx, "packs/blobs/"+packID+".pack", packObjects); err != nil {
 			return nil, grpcError(err)
@@ -212,7 +212,7 @@ func (s *BlobService) uploadBlobs(ctx context.Context, sliceRef *corev1.SliceRef
 		group.SetLimit(uploadBlobsWrites)
 		for _, contentHash := range hashes {
 			group.Go(func() error {
-				return s.ObjectStore.Put(groupCtx, filesystem.BlobKey(contentHash), bytes.NewReader(data[contentHash]))
+				return s.ObjectStore.Put(groupCtx, objectstore.BlobKey(contentHash), bytes.NewReader(data[contentHash]))
 			})
 		}
 		if err := group.Wait(); err != nil {

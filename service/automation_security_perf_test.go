@@ -15,7 +15,7 @@ import (
 	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/automations"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -558,7 +558,7 @@ func TestBlobAndRepositoryResourceCaps(t *testing.T) {
 		Changesets: mem.Changesets,
 		ObjectStore: oversizedZeroStreamObjectStore{
 			ObjectStore: mem.Objects,
-			key:         filesystem.BlobKey(small.ContentHash),
+			key:         objectstore.BlobKey(small.ContentHash),
 			size:        maxUnaryReadFileBytes + 1024,
 		},
 	}

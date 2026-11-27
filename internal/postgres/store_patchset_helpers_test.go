@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"gitslice.io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
@@ -144,7 +145,7 @@ func upsertTestBlob(t *testing.T, ctx context.Context, store *DB, content string
 	data := []byte(content)
 	blobID := objectid.BlobID(data)
 	contentHash := objectid.RawContentHash(data)
-	if err := store.Blobs().Upsert(ctx, blobID, contentHash, int64(len(data)), filesystem.BlobKey(contentHash)); err != nil {
+	if err := store.Blobs().Upsert(ctx, blobID, contentHash, int64(len(data)), objectstore.BlobKey(contentHash)); err != nil {
 		t.Fatal(err)
 	}
 	return blobID, contentHash
@@ -155,7 +156,7 @@ func upsertTestBlobObject(t *testing.T, ctx context.Context, store *DB, objectSt
 	data := []byte(content)
 	blobID := objectid.BlobID(data)
 	contentHash := objectid.RawContentHash(data)
-	key := filesystem.BlobKey(contentHash)
+	key := objectstore.BlobKey(contentHash)
 	if err := objectStore.Put(ctx, key, bytes.NewReader(data)); err != nil {
 		t.Fatal(err)
 	}

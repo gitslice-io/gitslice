@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -158,7 +158,7 @@ func TestBlameRedactsUnreadableMovesAndPrivateChangedPaths(t *testing.T) {
 	pubContent := []byte("line1\nline2\nline3\n")
 	privSideContent := []byte("top-secret\n")
 	for _, data := range [][]byte{privContent, pubContent, privSideContent} {
-		mem.PutObject(filesystem.BlobKey(objectid.RawContentHash(data)), data)
+		mem.PutObject(objectstore.BlobKey(objectid.RawContentHash(data)), data)
 	}
 
 	// Commit 1 creates /acme/secret/orig.txt in a private slice.
@@ -273,7 +273,7 @@ func TestRepositoryRefEmptyCommitAndRootTreeAuthorization(t *testing.T) {
 	// 3. RootTreeId verification: private draft changeset tree cannot be read through public path by non-member,
 	// and forged/non-existent RootTreeId is rejected.
 	docData := []byte("public doc\n")
-	mem.PutObject(filesystem.BlobKey(objectid.RawContentHash(docData)), docData)
+	mem.PutObject(objectstore.BlobKey(objectid.RawContentHash(docData)), docData)
 	mem.PutCommitWithFiles("c_pub_seed", []storage.FileEntry{{
 		Path:        "/acme/docs/readme.md",
 		BlobID:      objectid.BlobID(docData),

@@ -14,7 +14,7 @@ import (
 	"strings"
 
 	"gitslice.io/gitslice/internal/automations"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	gspaths "gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
 	"google.golang.org/grpc/codes"
@@ -191,7 +191,7 @@ func (s *AutomationRunService) prefetchArchiveBlobs(ctx context.Context, entries
 }
 
 func (s *AutomationRunService) readArchiveBlob(ctx context.Context, entry storage.TreeEntry) archiveBlob {
-	rc, err := s.Tree.Objects.Get(ctx, filesystem.BlobKey(entry.ContentHash), 0, 0)
+	rc, err := s.Tree.Objects.Get(ctx, objectstore.BlobKey(entry.ContentHash), 0, 0)
 	if err != nil {
 		return archiveBlob{err: err}
 	}

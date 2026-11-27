@@ -9,7 +9,7 @@ import (
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -54,8 +54,8 @@ func TestPublicSliceReadsAllowAnonymousContext(t *testing.T) {
 	publicHash := objectid.RawContentHash(publicData)
 	privateData := []byte("private secret\n")
 	privateHash := objectid.RawContentHash(privateData)
-	mem.PutObject(filesystem.BlobKey(publicHash), publicData)
-	mem.PutObject(filesystem.BlobKey(privateHash), privateData)
+	mem.PutObject(objectstore.BlobKey(publicHash), publicData)
+	mem.PutObject(objectstore.BlobKey(privateHash), privateData)
 	mem.PutCommitWithFiles("commit_public_slice", []storage.FileEntry{
 		{
 			Path:        "/acme/public/readme.txt",
@@ -224,7 +224,7 @@ func TestRepositoryListDirectoryPaginationUsesCursor(t *testing.T) {
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
 	data := []byte("page\n")
 	hash := objectid.RawContentHash(data)
-	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutObject(objectstore.BlobKey(hash), data)
 	files := make([]storage.FileEntry, 0, 7)
 	for i := range 7 {
 		files = append(files, storage.FileEntry{
@@ -328,7 +328,7 @@ func TestRepositoryReadFileRejectsNegativeRange(t *testing.T) {
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
 	data := []byte("range\n")
 	hash := objectid.RawContentHash(data)
-	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutObject(objectstore.BlobKey(hash), data)
 	mem.PutCommitWithFiles("commit_range", []storage.FileEntry{{
 		Path:        "/acme/range.txt",
 		BlobID:      objectid.BlobID(data),

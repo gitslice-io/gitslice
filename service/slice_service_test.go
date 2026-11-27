@@ -7,7 +7,7 @@ import (
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -29,7 +29,7 @@ func TestSliceServiceUsesInMemoryRepositoryValidation(t *testing.T) {
 
 	data := []byte("package payment\n")
 	hash := objectid.RawContentHash(data)
-	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutObject(objectstore.BlobKey(hash), data)
 	mem.PutCommitWithFiles("commit_payment", []storage.FileEntry{{
 		Path:        "/acme/payment/main.go",
 		BlobID:      objectid.BlobID(data),
@@ -59,7 +59,7 @@ func TestListSlicesShowsNonMembersOnlyPublicSlices(t *testing.T) {
 
 	data := []byte("package api\n")
 	hash := objectid.RawContentHash(data)
-	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutObject(objectstore.BlobKey(hash), data)
 	mem.PutCommitWithFiles("commit_api", []storage.FileEntry{{
 		Path:        "/acme/payment/api/main.go",
 		BlobID:      objectid.BlobID(data),
@@ -103,7 +103,7 @@ func TestListSlicesPagesThroughAnAccountAndRejectsUnknownAccounts(t *testing.T) 
 	alice := authctx.WithSubjectID(context.Background(), "user_alice")
 	data := []byte("package api\n")
 	hash := objectid.RawContentHash(data)
-	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutObject(objectstore.BlobKey(hash), data)
 	mem.PutCommitWithFiles("commit_api", []storage.FileEntry{{
 		Path:        "/acme/payment/api/main.go",
 		BlobID:      objectid.BlobID(data),
@@ -191,7 +191,7 @@ func TestSliceCRUDAndCommitHistoryUseInMemoryStorage(t *testing.T) {
 
 	data := []byte("package api\n")
 	hash := objectid.RawContentHash(data)
-	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutObject(objectstore.BlobKey(hash), data)
 	mem.PutCommitWithFiles("commit_api", []storage.FileEntry{{
 		Path:        "/acme/payment/api/main.go",
 		BlobID:      objectid.BlobID(data),
@@ -312,7 +312,7 @@ func TestCreateAndUpdateSliceRequiredHumanApprovals(t *testing.T) {
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
 	seedData := []byte("seed\n")
 	seedHash := objectid.RawContentHash(seedData)
-	mem.PutObject(filesystem.BlobKey(seedHash), seedData)
+	mem.PutObject(objectstore.BlobKey(seedHash), seedData)
 	mem.PutCommitWithFiles("commit_human_approvals_seed", []storage.FileEntry{{
 		Path:        "/acme/human-approvals/seed.txt",
 		BlobID:      objectid.BlobID(seedData),

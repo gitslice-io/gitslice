@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
@@ -308,7 +308,7 @@ func (p *Projector) listCommitTargets(ctx context.Context, commits []*corev1.Com
 }
 
 func (p *Projector) readBlob(ctx context.Context, contentHash string) ([]byte, error) {
-	rc, err := p.objectStore.Get(ctx, filesystem.BlobKey(contentHash), 0, 0)
+	rc, err := p.objectStore.Get(ctx, objectstore.BlobKey(contentHash), 0, 0)
 	if err != nil {
 		return nil, fmt.Errorf("read blob %s: %w", contentHash, err)
 	}

@@ -37,10 +37,6 @@ func (s *AgentService) replayDaemonCheckRuns(ctx context.Context, daemonID strin
 	s.dispatcher.dispatchQueued(ctx, daemonID)
 }
 
-func (s *AgentService) RunCheckDispatchSweep(ctx context.Context) {
-	s.runCheckDispatchSweepWithGate(ctx, nil)
-}
-
 func (s *AgentService) runCheckDispatchSweepWithGate(ctx context.Context, gate *activity.Gate) {
 	if s == nil || s.hub == nil || s.Checks == nil || s.dispatcher == nil {
 		return

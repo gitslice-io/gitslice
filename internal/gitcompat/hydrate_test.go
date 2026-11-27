@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"gitslice.io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
 	"gitslice.io/gitslice/internal/storage/memory"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -56,7 +57,7 @@ func newLazyFixture(t *testing.T) *lazyFixture {
 	for path, data := range contents {
 		i++
 		hash := objectid.RawContentHash(data)
-		key := filesystem.BlobKey(hash)
+		key := objectstore.BlobKey(hash)
 		if err := store.Put(ctx, key, bytes.NewReader(data)); err != nil {
 			t.Fatal(err)
 		}
@@ -165,7 +166,7 @@ func TestHydrateRefusesContentThatDoesNotMatchItsID(t *testing.T) {
 	f := newLazyFixture(t)
 	// Replace the stored bytes of a.txt with other bytes of the same length.
 	data := f.contents["acme/p/a.txt"]
-	key := filesystem.BlobKey(objectid.RawContentHash(data))
+	key := objectstore.BlobKey(objectid.RawContentHash(data))
 	if err := os.WriteFile(filepath.Join(f.storeRoot(t), filepath.FromSlash(key)), []byte("ALPHA\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

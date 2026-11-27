@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 )
 
@@ -38,7 +38,7 @@ func TestGroupAndApproversCLI(t *testing.T) {
 
 	data := []byte("package api\n")
 	hash := objectid.RawContentHash(data)
-	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutObject(objectstore.BlobKey(hash), data)
 	mem.PutCommitWithFiles("commit_cli_grp", []storage.FileEntry{{
 		Path:        "/acme/api/main.go",
 		BlobID:      objectid.BlobID(data),

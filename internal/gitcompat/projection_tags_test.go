@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -135,8 +135,8 @@ func TestHomeProjectionAggregatesSubSliceTags(t *testing.T) {
 		data := []byte(content)
 		hash := objectid.RawContentHash(data)
 		blobID := objectid.BlobID(data)
-		mem.PutObject(filesystem.BlobKey(hash), data)
-		if err := mem.Blobs.Upsert(ctx, blobID, hash, int64(len(data)), filesystem.BlobKey(hash)); err != nil {
+		mem.PutObject(objectstore.BlobKey(hash), data)
+		if err := mem.Blobs.Upsert(ctx, blobID, hash, int64(len(data)), objectstore.BlobKey(hash)); err != nil {
 			t.Fatal(err)
 		}
 		allFiles = append(allFiles, storage.FileEntry{

@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"gitslice.io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
@@ -28,7 +29,7 @@ func TestHydrateRefusesUnreachableCrossTenantBlobAndMalformedBodies(t *testing.T
 	// and object stores.
 	secret := []byte("PRIVATE_TENANT_API_KEY=super-secret\n")
 	secretHash := objectid.RawContentHash(secret)
-	secretKey := filesystem.BlobKey(secretHash)
+	secretKey := objectstore.BlobKey(secretHash)
 	secretGitID := objectid.GitBlobID(secret)
 	if err := f.store.Put(ctx, secretKey, bytes.NewReader(secret)); err != nil {
 		t.Fatal(err)
@@ -110,7 +111,7 @@ func TestHTTPHandlerBlocksCrossTenantBlobWantAndPathTraversal(t *testing.T) {
 	buildLazySliceRepo := func(account, slug string, slice *corev1.Slice, relPath string, data []byte) (string, string) {
 		t.Helper()
 		hash := objectid.RawContentHash(data)
-		key := filesystem.BlobKey(hash)
+		key := objectstore.BlobKey(hash)
 		if err := store.Put(ctx, key, bytes.NewReader(data)); err != nil {
 			t.Fatal(err)
 		}

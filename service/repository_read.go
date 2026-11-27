@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"gitslice.io/gitslice/internal/authz"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -118,7 +118,7 @@ func (s *RepositoryService) ReadFiles(ctx context.Context, req *corev1.ReadFiles
 	group.SetLimit(readFilesObjectReads)
 	for i, entry := range entries {
 		group.Go(func() error {
-			rc, err := s.ObjectStore.Get(groupCtx, filesystem.BlobKey(entry.ContentHash), 0, 0)
+			rc, err := s.ObjectStore.Get(groupCtx, objectstore.BlobKey(entry.ContentHash), 0, 0)
 			if err != nil {
 				return grpcError(err)
 			}
@@ -167,7 +167,7 @@ func readFile(ctx context.Context, repository storage.RepositoryStore, objectSto
 	if req.Length == 0 && entry.Size-req.Offset > maxUnaryReadFileBytes {
 		return nil, status.Errorf(codes.ResourceExhausted, "file %s (%d bytes from offset) exceeds %d byte unary read limit", p, entry.Size-req.Offset, maxUnaryReadFileBytes)
 	}
-	rc, err := objectStore.Get(ctx, filesystem.BlobKey(entry.ContentHash), req.Offset, req.Length)
+	rc, err := objectStore.Get(ctx, objectstore.BlobKey(entry.ContentHash), req.Offset, req.Length)
 	if err != nil {
 		return nil, grpcError(err)
 	}

@@ -35,10 +35,6 @@ func (s *SliceStore) CreateDefinition(ctx context.Context, subjectID string, ref
 	return s.b.putSliceLocked(ref, definition.IncludedPaths, definition.Visibility, definition.RequiredApprovals, definition.RequiredHumanApprovals, definition.RequiredChecks, definition.Approvers, subjectID)
 }
 
-func (s *SliceStore) ValidateDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) ([]string, string, int32, []string, error) {
-	return validateSliceDefinition(ref, includedPaths, visibility, requiredApprovals, requiredChecks)
-}
-
 func (s *SliceStore) ValidateSliceDefinition(ref *corev1.SliceRef, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error) {
 	return validateSliceDefinitionProto(ref, definition)
 }

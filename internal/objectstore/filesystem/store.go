@@ -127,14 +127,6 @@ func (s *Store) Delete(_ context.Context, key string) error {
 	return nil
 }
 
-func BlobKey(contentHash string) string {
-	hash := strings.TrimPrefix(contentHash, "sha256:")
-	if len(hash) >= 4 {
-		return filepath.ToSlash(filepath.Join("blobs", "sha256", hash[:2], hash[2:4], hash))
-	}
-	return filepath.ToSlash(filepath.Join("blobs", "sha256", hash))
-}
-
 func (s *Store) pathForKey(key string) (string, error) {
 	key = filepath.Clean(strings.TrimPrefix(key, "/"))
 	if key == "." || strings.HasPrefix(key, "..") || filepath.IsAbs(key) {

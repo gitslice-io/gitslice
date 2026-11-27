@@ -8,7 +8,7 @@ import (
 
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -107,7 +107,7 @@ func (s *BlobService) UploadBlobStream(stream corev1.BlobService_UploadBlobStrea
 	contentHash := writer.ContentHash()
 	blobID := writer.BlobID()
 	size := writer.Size()
-	finalKey := filesystem.BlobKey(contentHash)
+	finalKey := objectstore.BlobKey(contentHash)
 	if err := copyObject(ctx, s.ObjectStore, stagingKey, finalKey); err != nil {
 		_ = s.ObjectStore.Delete(context.WithoutCancel(ctx), stagingKey)
 		return grpcError(err)
@@ -167,7 +167,7 @@ func (s *BlobService) ReadBlobStream(req *corev1.ReadBlobStreamRequest, stream c
 	}
 	location := records[0].StorageLocation
 	if location == "" {
-		location = filesystem.BlobKey(contentHash)
+		location = objectstore.BlobKey(contentHash)
 	}
 	rc, err := s.ObjectStore.Get(ctx, location, req.Offset, req.Length)
 	if err != nil {

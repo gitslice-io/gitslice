@@ -7,7 +7,7 @@ import (
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -23,7 +23,7 @@ func lifecycleFixture(t *testing.T, files ...string) (*memory.Stores, *Handlers,
 	ctx := authctx.WithSubjectID(context.Background(), "user_alice")
 	data := []byte("content\n")
 	hash := objectid.RawContentHash(data)
-	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutObject(objectstore.BlobKey(hash), data)
 	var entries []storage.FileEntry
 	for _, p := range files {
 		entries = append(entries, storage.FileEntry{Path: p, BlobID: objectid.BlobID(data), ContentHash: hash, Mode: 0o100644, Size: int64(len(data))})

@@ -7,7 +7,7 @@ import (
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -125,7 +125,7 @@ func TestPathOwnersReadFromLandedHeadNearestPrecedenceAndClearing(t *testing.T) 
 	// Seed root + sub-folder files so slices exist.
 	data := []byte("init\n")
 	hash := objectid.RawContentHash(data)
-	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutObject(objectstore.BlobKey(hash), data)
 	mem.PutCommitWithFiles("commit_init", []storage.FileEntry{{
 		Path: "/team/app/api/v2/handler.go", BlobID: objectid.BlobID(data), ContentHash: hash, Mode: 0o100644, Size: int64(len(data)),
 	}}, []string{"/team/app/api/v2/handler.go"})
@@ -470,7 +470,7 @@ func TestPathOwnersEnforcedOnRenamesDeletesAndDirectPathOperations(t *testing.T)
 	appRef := &corev1.SliceRef{Account: "opsorg", Slice: "home"}
 	data := []byte("v1\n")
 	hash := objectid.RawContentHash(data)
-	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutObject(objectstore.BlobKey(hash), data)
 	mem.PutCommitWithFiles("commit_ops_seed", []storage.FileEntry{
 		{Path: "/opsorg/app/api/secret.go", BlobID: objectid.BlobID(data), ContentHash: hash, Mode: 0o100644, Size: int64(len(data))},
 		{Path: "/opsorg/app/public/readme.md", BlobID: objectid.BlobID(data), ContentHash: hash, Mode: 0o100644, Size: int64(len(data))},

@@ -6,7 +6,7 @@ import (
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
@@ -135,7 +135,7 @@ func TestSimpleServiceMethodsUseInMemoryStorage(t *testing.T) {
 
 	data := []byte("read me\n")
 	hash := objectid.RawContentHash(data)
-	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutObject(objectstore.BlobKey(hash), data)
 	mem.PutCommitWithFiles("commit_readme", []storage.FileEntry{{
 		Path:        "/acme/readme.txt",
 		BlobID:      objectid.BlobID(data),

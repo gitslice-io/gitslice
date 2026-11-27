@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"gitslice.io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
 	"gitslice.io/gitslice/internal/storage/memory"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -48,7 +49,7 @@ func buildLazy(t *testing.T, n int, record, dropOne bool) lazyBuild {
 	for i := 0; i < n; i++ {
 		data := append(bytes.Repeat([]byte{byte('a' + i%26)}, 100+i*37), strconv.Itoa(i)...)
 		hash := objectid.RawContentHash(data)
-		key := filesystem.BlobKey(hash)
+		key := objectstore.BlobKey(hash)
 		if !dropOne || i != n/2 {
 			if err := store.Put(ctx, key, bytes.NewReader(data)); err != nil {
 				t.Fatal(err)

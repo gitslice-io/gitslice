@@ -182,14 +182,6 @@ func (s *RepositoryStore) ResolveCommitCandidates(ctx context.Context, filter st
 	return commits, nil
 }
 
-func (s *RepositoryStore) ListCommits(ctx context.Context, refName string, limit int) ([]*corev1.Commit, error) {
-	page, err := s.ListCommitPage(ctx, refName, limit, "")
-	if err != nil {
-		return nil, err
-	}
-	return page.Commits, nil
-}
-
 func (s *RepositoryStore) ListCommitPage(ctx context.Context, refName string, limit int, pageToken string) (*storage.CommitListPage, error) {
 	s.b.mu.Lock()
 	defer s.b.mu.Unlock()
@@ -244,14 +236,6 @@ func commitTouchesPrefixes(changed, prefixes []string) bool {
 		}
 	}
 	return false
-}
-
-func (s *RepositoryStore) ListCommitsByPathPrefixes(ctx context.Context, refName string, prefixes []string, limit int) ([]*corev1.Commit, error) {
-	page, err := s.ListCommitPageByPathPrefixes(ctx, refName, prefixes, limit, "")
-	if err != nil {
-		return nil, err
-	}
-	return page.Commits, nil
 }
 
 func (s *RepositoryStore) ListCommitPageByPathPrefixes(ctx context.Context, refName string, prefixes []string, limit int, pageToken string) (*storage.CommitListPage, error) {

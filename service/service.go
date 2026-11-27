@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"io"
 
 	"gitslice.io/gitslice/internal/activity"
 	"gitslice.io/gitslice/internal/analytics"
@@ -11,14 +10,11 @@ import (
 	"gitslice.io/gitslice/internal/blame"
 	"gitslice.io/gitslice/internal/doorbell"
 	"gitslice.io/gitslice/internal/gitmirror"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 )
 
-type ObjectStore interface {
-	Put(context.Context, string, io.Reader) error
-	Get(context.Context, string, int64, int64) (io.ReadCloser, error)
-	Delete(context.Context, string) error
-}
+type ObjectStore = objectstore.Store
 
 // Options configures optional server integrations and runtime dependencies for
 // service handlers, avoiding post-hoc field mutation after construction.

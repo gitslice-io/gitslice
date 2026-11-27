@@ -12,7 +12,7 @@ import (
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"gitslice.io/gitslice/service"
@@ -46,7 +46,7 @@ func TestCheckAllowCLIAndSchema(t *testing.T) {
 
 	checksYAML := []byte("version: 1\nchecks:\n  unit:\n    run: echo ok\n")
 	checksHash := objectid.RawContentHash(checksYAML)
-	mem.PutObject(filesystem.BlobKey(checksHash), checksYAML)
+	mem.PutObject(objectstore.BlobKey(checksHash), checksYAML)
 	mem.PutCommitWithFiles("commit_cli_allow_seed", []storage.FileEntry{{
 		Path:        "/acme/payment/.gitslice/checks.yaml",
 		BlobID:      objectid.BlobID(checksYAML),

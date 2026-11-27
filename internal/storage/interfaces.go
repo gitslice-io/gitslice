@@ -119,9 +119,7 @@ type RepositoryStore interface {
 	GetCommit(ctx context.Context, commitID string) (*corev1.Commit, error)
 	GetCommits(ctx context.Context, commitIDs []string) (map[string]*corev1.Commit, error)
 	ResolveCommitCandidates(ctx context.Context, filter CommitResolveFilter) ([]*corev1.Commit, error)
-	ListCommits(ctx context.Context, refName string, limit int) ([]*corev1.Commit, error)
 	ListCommitPage(ctx context.Context, refName string, limit int, pageToken string) (*CommitListPage, error)
-	ListCommitsByPathPrefixes(ctx context.Context, refName string, prefixes []string, limit int) ([]*corev1.Commit, error)
 	ListCommitChain(ctx context.Context, refName, stopCommitID string, prefixes []string) (*CommitChain, error)
 	CommitAncestry(ctx context.Context, startCommitID string, limit int) ([]string, error)
 	ListCommitPageByPathPrefixes(ctx context.Context, refName string, prefixes []string, limit int, pageToken string) (*CommitListPage, error)
@@ -143,7 +141,6 @@ type SliceStore interface {
 
 	Create(ctx context.Context, subjectID string, ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) (*corev1.Slice, error)
 	CreateDefinition(ctx context.Context, subjectID string, ref *corev1.SliceRef, definition *corev1.SliceDefinition) (*corev1.Slice, error)
-	ValidateDefinition(ref *corev1.SliceRef, includedPaths []string, visibility string, requiredApprovals int32, requiredChecks []string) ([]string, string, int32, []string, error)
 	ValidateSliceDefinition(ref *corev1.SliceRef, definition *corev1.SliceDefinition) (*corev1.SliceDefinition, error)
 	Get(ctx context.Context, sliceID string) (*corev1.Slice, error)
 	List(ctx context.Context, account, after string, limit int, includeArchived bool) ([]*corev1.Slice, error)

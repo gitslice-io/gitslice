@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
 
@@ -54,8 +54,8 @@ func TestConfigPathsAccountBounded(t *testing.T) {
 
 func TestTreeReaderBoundsAndAccountPrefix(t *testing.T) {
 	objs := fakeObjects{
-		filesystem.BlobKey("hash_small"): []byte("version: 1\n"),
-		filesystem.BlobKey("hash_big"):   bytes.Repeat([]byte("x"), 32),
+		objectstore.BlobKey("hash_small"): []byte("version: 1\n"),
+		objectstore.BlobKey("hash_big"):   bytes.Repeat([]byte("x"), 32),
 	}
 	customNotFound := errors.New("custom not found")
 	reader := TreeReader{

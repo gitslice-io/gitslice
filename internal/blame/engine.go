@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/paths"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -182,7 +182,7 @@ func (e *Engine) Lines(ctx context.Context, p, contentHash string, size int64) (
 	if t := TraceFrom(ctx); t != nil {
 		t.Blobs.Add(1)
 	}
-	rc, err := e.Objects.Get(ctx, filesystem.BlobKey(contentHash), 0, 0)
+	rc, err := e.Objects.Get(ctx, objectstore.BlobKey(contentHash), 0, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -204,7 +204,7 @@ func (e *Engine) LinesByHash(ctx context.Context, contentHash string) ([]string,
 	if t := TraceFrom(ctx); t != nil {
 		t.Blobs.Add(1)
 	}
-	rc, err := e.Objects.Get(ctx, filesystem.BlobKey(contentHash), 0, 0)
+	rc, err := e.Objects.Get(ctx, objectstore.BlobKey(contentHash), 0, 0)
 	if err != nil {
 		return nil, err
 	}

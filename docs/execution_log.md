@@ -9827,3 +9827,19 @@ go test -race -count=1 ./...
 go test -race -count=1 ./server/... ./service/... ./internal/lru/... ./internal/bgloop/... ./internal/indexworker/... ./internal/events/... ./internal/avatar/... ./internal/socialcard/... ./internal/mcpserver/... ./internal/doorbell/... ./internal/gitmirror/... ./internal/gitimport/... ./internal/blame/... ./cmd/...
 ```
 All checks passed with zero formatting diffs, zero `go vet` diagnostics, zero `go generate` drift, zero race failures, and all touched/added non-generated `.go` files under 600 LOC (max non-test: `server/server.go` at 546 LOC; max test: `server/ratelimit_test.go` at 586 LOC). Live-PG e2e tests in `tests/cli` and `tests/rpc` compiled cleanly and skipped automatically without `GITSLICE_TEST_DATABASE_URL`.
+
+## 2026-11-27 — Governance Wave G1: prune dead grpc-gateway/methods, canonicalize internal/objectstore, enforce Go layer boundaries
+
+**Why**
+- `proto/core/v1/*.pb.gw.go` carried 12,579 LOC of unused grpc-gateway stubs and `github.com/grpc-ecosystem/grpc-gateway/v2` in `go.mod` despite ConnectRPC being the sole HTTP transport.
+- 47 Go files across `service/`, `internal/`, and tests imported the prototype `internal/objectstore/filesystem` driver solely to call `BlobKey`, and 5 packages re-declared identical `ObjectStore` interfaces.
+- Several dead zero-caller methods (`SliceStore.ValidateDefinition`, `RepositoryStore.ListCommits`, `RepositoryStore.ListCommitsByPathPrefixes`, `AgentService.RunCheckDispatchSweep`, `RepositoryService.RunBlameWarmer`), dead `ops/nginx.conf`, and empty directories (`internal/rpcjson/`, `internal/webhooks/`) remained without automated layer guardrails.
+
+**What changed**
+- Added canonical `internal/objectstore` (`Store` interface and `BlobKey`), migrated all 47 `BlobKey` call sites and 5 `ObjectStore` declarations (`service`, `internal/gitcompat`, `internal/objectstore/{cache,latency,packed}`), and deleted `filesystem.BlobKey`.
+- Deleted all 11 `proto/core/v1/*.pb.gw.go` files, removed `--grpc-gateway_out` from `Makefile` and `AGENTS.md`, and pruned `grpc-gateway/v2` via `go mod tidy`.
+- Deleted zero-caller methods (`ValidateDefinition`, `ListCommits`, `ListCommitsByPathPrefixes`, `RunCheckDispatchSweep`, `RunBlameWarmer`), `ops/nginx.conf`, and empty `internal/rpcjson/` & `internal/webhooks/`.
+- Added `server/architecture_test.go` enforcing zero `*.pb.gw.go` / `grpc-gateway`, Go package layer DAG (`internal/*`, `service/`, `internal/storage`, `server/`), no concrete `objectstore/*` driver leaks outside composition roots, no `activity.Default` or `database/sql` in `server/`, and `internal/postgres` restricted to `server/server.go`.
+
+**Verification**
+- `gofmt -l .`, `go vet ./...`, `go test -race -count=1 ./server/... ./internal/objectstore/... ./service/...`, `TestCmdGSBinaryDoesNotLinkServerStorageStack`, `go test -c` on `tests/{cli,rpc,load}`, `go build ./cmd/...`, and full remote CI (`gitslice/{gofmt,vet,test,build,e2e,web/build}`).

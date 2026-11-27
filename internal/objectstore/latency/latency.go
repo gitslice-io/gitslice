@@ -8,14 +8,12 @@ import (
 	"context"
 	"io"
 	"time"
+
+	"gitslice.io/gitslice/internal/objectstore"
 )
 
 // ObjectStore is the storage contract wrapped by Store.
-type ObjectStore interface {
-	Put(context.Context, string, io.Reader) error
-	Get(context.Context, string, int64, int64) (io.ReadCloser, error)
-	Delete(context.Context, string) error
-}
+type ObjectStore = objectstore.Store
 
 // Store delays each operation before forwarding it to the base object store.
 type Store struct {

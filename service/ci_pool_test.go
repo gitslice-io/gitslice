@@ -7,7 +7,7 @@ import (
 
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	"gitslice.io/gitslice/internal/storage/memory"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
@@ -24,7 +24,7 @@ func putChecksForPoolTest(t *testing.T, mem *memory.Stores, names ...string) {
 	}
 	data := []byte(content)
 	hash := objectid.RawContentHash(data)
-	mem.PutObject(filesystem.BlobKey(hash), data)
+	mem.PutObject(objectstore.BlobKey(hash), data)
 	mem.PutCommitWithFiles("commit_with_pool_checks", []storage.FileEntry{{
 		Path:        "/acme/.gitslice/checks.yaml",
 		BlobID:      objectid.BlobID(data),

@@ -10,7 +10,7 @@ import (
 	"gitslice.io/gitslice/internal/authctx"
 	"gitslice.io/gitslice/internal/authz"
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 	"google.golang.org/grpc/codes"
@@ -63,10 +63,10 @@ func TestScopedAndChildAPIKeysServiceEndToEnd(t *testing.T) {
 	// Put repository files for allowed, public-outside, and empty commits.
 	appData := []byte("package app\n")
 	appHash := objectid.RawContentHash(appData)
-	mem.PutObject(filesystem.BlobKey(appHash), appData)
+	mem.PutObject(objectstore.BlobKey(appHash), appData)
 	docsData := []byte("secret-outside-scope docs\n")
 	docsHash := objectid.RawContentHash(docsData)
-	mem.PutObject(filesystem.BlobKey(docsHash), docsData)
+	mem.PutObject(objectstore.BlobKey(docsHash), docsData)
 	commitMixed := "sha256:" + strings.Repeat("1", 64)
 	commitApp := "sha256:" + strings.Repeat("2", 64)
 	commitDocs := "sha256:" + strings.Repeat("3", 64)

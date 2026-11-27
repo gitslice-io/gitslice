@@ -15,6 +15,7 @@ import (
 
 	"gitslice.io/gitslice/internal/gitcompat"
 	"gitslice.io/gitslice/internal/objectid"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/objectstore/filesystem"
 	"gitslice.io/gitslice/internal/postgres"
 	"gitslice.io/gitslice/internal/treestore"
@@ -581,7 +582,7 @@ func assertFinalProjectionMatchesNative(t *testing.T, ctx context.Context, repos
 		if err != nil {
 			t.Fatal(err)
 		}
-		rc, err := objectStore.Get(ctx, filesystem.BlobKey(entry.ContentHash), 0, 0)
+		rc, err := objectStore.Get(ctx, objectstore.BlobKey(entry.ContentHash), 0, 0)
 		if err != nil {
 			t.Fatal(err)
 		}

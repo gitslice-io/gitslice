@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"gitslice.io/gitslice/internal/objectid"
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 	"gitslice.io/gitslice/internal/storage"
 	corev1 "gitslice.io/gitslice/proto/core/v1"
 )
@@ -28,7 +28,7 @@ func TestSliceCLIRequiredHumanApprovalsAndCSStatus(t *testing.T) {
 	mem.AddAccountRole("user_alice", "acme", "owner")
 	seedData := []byte("seed\n")
 	seedHash := objectid.RawContentHash(seedData)
-	mem.PutObject(filesystem.BlobKey(seedHash), seedData)
+	mem.PutObject(objectstore.BlobKey(seedHash), seedData)
 	mem.PutCommitWithFiles("commit_cli_human_seed", []storage.FileEntry{{
 		Path:        "/acme/cli-human/seed.txt",
 		BlobID:      objectid.BlobID(seedData),
@@ -150,7 +150,7 @@ func TestSliceCLIRequiredHumanApprovalsAndCSStatus(t *testing.T) {
 	fileData := []byte("updated\n")
 	fileBlobID := objectid.BlobID(fileData)
 	fileHash := objectid.RawContentHash(fileData)
-	fileKey := filesystem.BlobKey(fileHash)
+	fileKey := objectstore.BlobKey(fileHash)
 	if err := mem.Objects.Put(ctx, fileKey, bytes.NewReader(fileData)); err != nil {
 		t.Fatal(err)
 	}

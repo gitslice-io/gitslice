@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"gitslice.io/gitslice/internal/objectstore/filesystem"
+	"gitslice.io/gitslice/internal/objectstore"
 )
 
 func TestStorageIntegrityVerifierPassesAfterPublish(t *testing.T) {
@@ -46,7 +46,7 @@ func TestStorageIntegrityVerifierDetectsMissingBlobObject(t *testing.T) {
 	if _, err := store.Changesets().PublishPending(ctx, 10); err != nil {
 		t.Fatal(err)
 	}
-	if err := objectStore.Delete(ctx, filesystem.BlobKey(contentHash)); err != nil {
+	if err := objectStore.Delete(ctx, objectstore.BlobKey(contentHash)); err != nil {
 		t.Fatal(err)
 	}
 
