@@ -80,6 +80,31 @@ export function isDefiniteClientError(error: unknown): boolean {
   );
 }
 
+// isTransientTransportError reports a timeout, cancellation, or temporary
+// unavailability error from the RPC layer (DeadlineExceeded, Canceled, Unavailable).
+export function isTransientTransportError(error: unknown): boolean {
+  if (!(error instanceof RpcError)) {
+    return false;
+  }
+  return (
+    error.status === 499 ||
+    error.status === 503 ||
+    error.status === 504 ||
+    error.code === 1 ||
+    error.code === "1" ||
+    error.code === "Canceled" ||
+    error.code === "canceled" ||
+    error.code === 4 ||
+    error.code === "4" ||
+    error.code === "DeadlineExceeded" ||
+    error.code === "deadline_exceeded" ||
+    error.code === 14 ||
+    error.code === "14" ||
+    error.code === "Unavailable" ||
+    error.code === "unavailable"
+  );
+}
+
 export const defaultApiBaseUrl = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export interface CreateApiClientOptions {

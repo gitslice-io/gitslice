@@ -1,5 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -85,7 +86,12 @@ describe("Institutional trust & legal pages", () => {
       })
     });
     vi.stubGlobal("fetch", fetchMock);
-    render(<StatusPage />);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StatusPage />
+      </QueryClientProvider>
+    );
     expect(screen.getByRole("heading", { level: 1, name: "Gitslice Status" })).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByText("All core systems operational")).toBeInTheDocument();

@@ -1,5 +1,5 @@
 import { pathSearchValue } from "./slice-detail/sourceTree";
-import { parseStatusTab, type StatusTab } from "./changesets-list/filters";
+import { parseStatusTab, type StatusTab } from "../lib/changesetFilters";
 
 // Validated search (query string) shapes of the routes whose addresses carry
 // state. Each validator is a pure function from whatever the address held

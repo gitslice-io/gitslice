@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { Navigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useApi } from "../api/useApi";
@@ -11,6 +11,7 @@ import { Button } from "../components/ui/Button";
 export function CliLoginPage() {
   const { authKind, getToken, isLoaded, isSignedIn, signOut } = useAppAuth();
   const api = useApi();
+  const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [completeSucceeded, setCompleteSucceeded] = useState(false);
   const completedCodeRef = useRef<string | null>(null);
@@ -97,6 +98,14 @@ export function CliLoginPage() {
     };
   }, [callbackUrl, code, getToken, isHumanSession, state]);
 
+  useEffect(() => {
+    if (!isLoaded || isSignedIn) {
+      return;
+    }
+    sessionStorage.setItem(CLI_LOGIN_SEARCH_STORAGE_KEY, window.location.search);
+    void navigate({ replace: true, to: "/login" });
+  }, [isLoaded, isSignedIn, navigate]);
+
   if (!isLoaded) {
     return (
       <AuthFrame title="Authorizing CLI">
@@ -133,8 +142,11 @@ export function CliLoginPage() {
   }
 
   if (!isSignedIn) {
-    sessionStorage.setItem(CLI_LOGIN_SEARCH_STORAGE_KEY, window.location.search);
-    return <Navigate replace to="/login" />;
+    return (
+      <AuthFrame title="Redirecting to sign in">
+        <p className="text-sm text-slate-600 dark:text-zinc-400">Redirecting to sign in...</p>
+      </AuthFrame>
+    );
   }
 
   const title = completeSucceeded ? "You're signed in" : "Authorizing CLI";

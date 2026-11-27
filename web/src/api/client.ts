@@ -20,19 +20,6 @@ import { decodeMessage, encodeMessage } from "./codec";
 
 import { RpcError, defaultApiBaseUrl, type CreateApiClientOptions } from "./rpcError";
 
-// Kept here for the code that has always imported them from the client. Code
-// that every page loads imports them from ./rpcError instead, so it does not
-// bring the client with it (see ./lazyClient).
-export {
-  RpcError,
-  defaultApiBaseUrl,
-  isDefiniteClientError,
-  isNotFoundError,
-  isPermissionDeniedError,
-  isUnauthenticatedError
-} from "./rpcError";
-export type { CreateApiClientOptions, RpcErrorBody } from "./rpcError";
-
 // The services a browser calls. AutomationRunService, WorkspaceService and the
 // daemon half of AgentService are for the CLI and agents, and share method
 // names (readFile, listDirectory, getChangeset) with these.

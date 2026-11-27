@@ -9894,3 +9894,16 @@ All checks passed with zero formatting diffs, zero `go vet` diagnostics, zero `g
 
 **Verification**
 - `gofmt -l .`, `go vet ./...`, `go test -race -timeout 60s -count=1 ./internal/cli/... ./internal/clientcache/... ./internal/agentd/... ./internal/mountd/... ./internal/checkexec/... ./internal/mcpserver/... ./cmd/...`, `go build ./cmd/...`, `CGO_ENABLED=0` cross-builds of `./cmd/gs` (`darwin/arm64`, `windows/arm64`), and full remote CI (`gitslice/{gofmt,vet,test,build,e2e,web/build}`).
+
+## 2026-11-27 — Architecture Governance Wave G5 (Web Frontend P0 Bugs, Dead Code & Boundary Guards)
+
+- **Fixed P0 frontend bugs**:
+  - Replaced broken `ConnectError.from(error)` (and removed direct `@connectrpc/connect` import outside `src/api/`) in `web/src/routes/changeset-detail/status.ts` with canonical `isTransientTransportError(error)` on `RpcError` in `web/src/api/rpcError.ts`, with unit coverage in `status.test.ts`.
+  - Cleared the memoized `client` promise on rejection inside `web/src/api/lazyClient.ts` so transient chunk-load failures do not permanently poison `useApi()`.
+  - Fixed TanStack Query cache invalidation and sign-out isolation: exported `accountSlicesKeyPrefix` (`queries/accounts.ts`) and invalidated it alongside `slicesKeyPrefix` in `SliceCreatePage`, `SliceDefinitionSettingsPanel`, `SliceCIDaemonPanel`, and `PendingClaims`; invalidated `allConversationsKey` (and `recentConversationsKey`) in `AgentConversation` and `AgentsTab`; invalidated `sliceSecretsKeyPrefix` in `FolderPolicyDrawer`; cleared `queryClient` and `ACTIVE_ACCOUNT_KEY` on Clerk `signOut()` in `AppAuthProvider`.
+  - Eliminated render-time `sessionStorage.setItem` in `CliLoginPage.tsx` (moved into `useEffect` + `useNavigate`), and migrated `StatusPage.tsx` from manual `useEffect`/`fetch` to TanStack `useQuery` via `web/src/queries/status.ts`.
+- **Fixed layer inversion & pruned dead code (~1,200 LOC)**:
+  - Moved `changesets-list/filters.ts` into `web/src/lib/changesetFilters.ts` so `src/queries/` never imports `src/routes/`.
+  - Deleted unreachable zombie components and barrels: `ChecksPanel.tsx`/test, `TriggerRunsPanel.tsx`/test (preserving `CheckRunLogTail` unit test in `CheckRunLogTail.test.ts`), `DraftChangesetPanel.tsx`, `web/src/api/index.ts`, empty `web/signup/`, dead `RpcError` re-exports from `web/src/api/client.ts`, 23 unused exports from `stackPageUtils.tsx`, 4 unused exports from `sourceUtils.ts`, and duplicate `canModifyPath`/`isIncludedRoot` in `DirectoryHeader.tsx`.
+  - Split `AutomationsDoc.tsx` (711 LOC -> <600 LOC) by extracting reference tables into `AutomationsDocData.ts`, and cleaned stale comments/paths in `tailwind.config.js`, `vite.config.ts`, and `wrangler.jsonc`.
+- **Enforceable architecture**: Extended `web/src/architecture.test.ts` to ban `src/queries/ -> src/routes/` and to isolate `@connectrpc/*` and `src/api/client` (both static and dynamic imports) strictly inside `src/api/`.

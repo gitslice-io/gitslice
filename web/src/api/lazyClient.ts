@@ -24,7 +24,13 @@ export function loadApiClientModule(): Promise<ClientModule> {
 // streams, one request later the first time.
 export function createLazyApiClient(options: CreateApiClientOptions): ApiClient {
   let client: Promise<ApiClient> | undefined;
-  const load = () => (client ??= loadApiClientModule().then((module) => module.createApiClient(options)));
+  const load = () =>
+    (client ??= loadApiClientModule()
+      .then((module) => module.createApiClient(options))
+      .catch((error: unknown) => {
+        client = undefined;
+        throw error;
+      }));
   const methods = new Map<string, unknown>();
 
   return new Proxy({} as ApiClient, {

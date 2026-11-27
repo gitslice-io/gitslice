@@ -1,21 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
+import { statusHealthQuery } from "../queries/status";
 import {
   CONTACT_EMAIL,
   GITHUB_ISSUES_URL,
   SitePageHeader,
   SiteSection
 } from "./site/SitePageChrome";
-
-interface ServiceHealthPayload {
-  overall: "operational" | "degraded";
-  checkedAt: string;
-  api: {
-    status: "operational" | "degraded";
-    latencyMs: number | null;
-    httpStatus: number | null;
-  };
-}
 
 type ProbeState = "checking" | "operational" | "degraded";
 
@@ -42,38 +33,22 @@ const components: Array<{ name: string; detail: string; dependsOnApi?: boolean }
 ];
 
 export function StatusPage() {
-  const [probe, setProbe] = useState<ProbeState>("checking");
-  const [latencyMs, setLatencyMs] = useState<number | null>(null);
-  const [checkedAt, setCheckedAt] = useState<string>("");
+  const healthQuery = useQuery(statusHealthQuery());
 
-  const runProbe = useCallback((signal?: AbortSignal) => {
-    setProbe("checking");
-    fetch("/api/status", {
-      method: "GET",
-      cache: "no-store",
-      signal
-    })
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = (await res.json()) as ServiceHealthPayload;
-        if (signal?.aborted) return;
-        setLatencyMs(data.api.latencyMs);
-        setCheckedAt(data.checkedAt);
-        setProbe(data.overall === "operational" ? "operational" : "degraded");
-      })
-      .catch(() => {
-        if (signal?.aborted) return;
-        setLatencyMs(null);
-        setCheckedAt(new Date().toISOString());
-        setProbe("degraded");
-      });
-  }, []);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    runProbe(controller.signal);
-    return () => controller.abort();
-  }, [runProbe]);
+  const probe: ProbeState = healthQuery.isFetching
+    ? "checking"
+    : healthQuery.isError
+      ? "degraded"
+      : healthQuery.data?.overall === "operational"
+        ? "operational"
+        : "degraded";
+  const latencyMs = healthQuery.isError ? null : (healthQuery.data?.api.latencyMs ?? null);
+  const checkedAt =
+    healthQuery.data?.checkedAt ??
+    (healthQuery.errorUpdatedAt ? new Date(healthQuery.errorUpdatedAt).toISOString() : "");
+  const runProbe = () => {
+    void healthQuery.refetch();
+  };
 
   const bannerTone =
     probe === "operational"

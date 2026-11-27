@@ -1,5 +1,4 @@
-import { Code, ConnectError } from "@connectrpc/connect";
-
+import { isTransientTransportError } from "../../api/rpcError";
 import type { Changeset } from "../../api/types";
 import type { Crumb } from "../../components/Breadcrumb";
 import { shortChangesetId } from "../../lib/objectId";
@@ -117,15 +116,7 @@ export function errorMessage(error: unknown) {
 // Merge submits can legitimately run for minutes on large changesets; an
 // aborted or timed-out request needs guidance, not a raw fetch error.
 export function mergeErrorMessage(error: unknown): string {
-  if (error instanceof TypeError) {
-    return mergeIncompleteMessage;
-  }
-  const connectError = ConnectError.from(error);
-  if (
-    connectError.code === Code.DeadlineExceeded ||
-    connectError.code === Code.Canceled ||
-    connectError.code === Code.Unavailable
-  ) {
+  if (error instanceof TypeError || isTransientTransportError(error)) {
     return mergeIncompleteMessage;
   }
   return errorMessage(error);

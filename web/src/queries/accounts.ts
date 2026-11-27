@@ -14,8 +14,10 @@ export const accountMembersKey = (account: string) => ["accountMembers", account
 
 export const accountInvitationsKey = (account: string) => ["accountInvitations", account] as const;
 
+export const accountSlicesKeyPrefix = ["accountSlices"] as const;
+
 export const accountSlicesKey = (account: string, role: string, sort: SliceSort) =>
-  ["accountSlices", account, role, sort] as const;
+  [...accountSlicesKeyPrefix, account, role, sort] as const;
 
 export function accountCIDaemonsQuery(api: Pick<ApiClient, "getAccountCIDaemons">, account: string) {
   return queryOptions({

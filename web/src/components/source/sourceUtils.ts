@@ -2,7 +2,6 @@ import { RpcError, isNotFoundError } from "../../api/rpcError";
 import type { ApiClient } from "../../api/useApi";
 import type {
   ListDirectoryResponse,
-  Slice,
   SliceRef,
   TreeEntry
 } from "../../api/types";
@@ -134,10 +133,6 @@ export function entryKindLabel(kind: TreeEntry["kind"]) {
   }
 }
 
-export function formatMode(mode: number | undefined) {
-  return typeof mode === "number" ? `0${mode.toString(8)}` : "";
-}
-
 export function formatSize(size: string | undefined) {
   if (!size) {
     return "";
@@ -161,15 +156,6 @@ export function formatSize(size: string | undefined) {
   }
 
   return `${value.toFixed(value >= 10 ? 0 : 1)} ${units[unitIndex]}`;
-}
-
-export function trimMiddle(value: string, maxLength = 28) {
-  if (value.length <= maxLength) {
-    return value;
-  }
-
-  const edge = Math.floor((maxLength - 1) / 2);
-  return `${value.slice(0, edge)}...${value.slice(-edge)}`;
 }
 
 export function languageFromPath(path: string) {
@@ -358,25 +344,6 @@ export function isPathNotFoundError(error: unknown) {
     return isNotFoundError(error);
   }
   return error.message.toLowerCase().includes("path not found");
-}
-
-export function sliceLabel(slice: Slice) {
-  const account = slice.ref?.account;
-  const name = slice.ref?.slice;
-  if (account && name) {
-    return `${account}/${name}`;
-  }
-  return slice.id ?? "unknown slice";
-}
-
-export function coveringSlices(slices: Slice[], repositoryPath: string) {
-  const currentPath = normalizeRepositoryPath(repositoryPath);
-
-  return slices.filter((slice) =>
-    (slice.definition?.includedPaths ?? []).some((includedPath) =>
-      pathCoversCurrentPath(includedPath, currentPath)
-    )
-  );
 }
 
 export function pathCoversCurrentPath(includedPath: string, currentPath: string) {

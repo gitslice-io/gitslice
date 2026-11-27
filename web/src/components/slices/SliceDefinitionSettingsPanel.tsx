@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { Slice, SliceDefinition } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { shortHash } from "../../lib/objectId";
+import { accountSlicesKeyPrefix } from "../../queries/accounts";
 import { sliceRefKey, slicesKeyPrefix } from "../../queries/slices";
 import {
   SliceDefinitionForm,
@@ -83,10 +84,13 @@ export function SliceDefinitionSettingsPanel({
     onSuccess: async () => {
       setConflictMessage(null);
       setSaveMessage("Definition saved.");
-      await queryClient.invalidateQueries({
-        queryKey: sliceRefKey(routeAccount, routeSlice)
-      });
-      await queryClient.invalidateQueries({ queryKey: slicesKeyPrefix });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: sliceRefKey(routeAccount, routeSlice)
+        }),
+        queryClient.invalidateQueries({ queryKey: slicesKeyPrefix }),
+        queryClient.invalidateQueries({ queryKey: accountSlicesKeyPrefix })
+      ]);
     }
   });
 

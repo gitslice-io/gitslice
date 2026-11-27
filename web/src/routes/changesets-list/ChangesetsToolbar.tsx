@@ -3,7 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { SliceNotice } from "../../components/slices/SlicePageParts";
 import { Input } from "../../components/ui/Input";
 import { cn } from "../../lib/cn";
-import { statusTabs, type StatusTab } from "./filters";
+import { statusTabs, type StatusTab } from "../../lib/changesetFilters";
 
 // ChangesetsToolbar picks which changesets to list: a status group, and text
 // to find in titles and ids or `author:name`. Typing updates the address after

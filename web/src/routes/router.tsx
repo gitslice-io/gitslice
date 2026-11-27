@@ -15,7 +15,7 @@ import { conversationQuery } from "../queries/agents";
 import { authStatusQuery } from "../queries/auth";
 import { changesetsListQuery } from "../queries/changesets";
 import { globalRefQuery, sliceRefQuery } from "../queries/slices";
-import { parseStatusTab } from "./changesets-list/filters";
+import { parseStatusTab } from "../lib/changesetFilters";
 import { appRoute, lookupOrNotFound, publicAppRoute } from "./layouts";
 import { loadChangesetDetail } from "./loaders/changesetDetailLoader";
 import { loadSliceDetail } from "./loaders/sliceDetailLoader";

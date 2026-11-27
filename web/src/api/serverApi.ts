@@ -6,7 +6,8 @@ import {
   type AgentSessionPublic
 } from "../lib/agentSession";
 import { hasSessionCookie } from "../lib/sessionCookie";
-import { createApiClient, defaultApiBaseUrl } from "./client";
+import { createApiClient } from "./client";
+import { defaultApiBaseUrl } from "./rpcError";
 import type { ApiClient } from "./useApi";
 
 async function readServerAgentCookie() {

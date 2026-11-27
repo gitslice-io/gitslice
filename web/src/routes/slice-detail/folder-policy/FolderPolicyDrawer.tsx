@@ -7,7 +7,7 @@ import { SliceNotice } from "../../../components/slices/SlicePageParts";
 import { Drawer } from "../../../components/ui/Drawer";
 import { cn } from "../../../lib/cn";
 import { folderPolicyKey, folderPolicyQuery } from "../../../queries/automations";
-import { secretsKey } from "../../../queries/secrets";
+import { secretsKey, sliceSecretsKeyPrefix } from "../../../queries/secrets";
 import { PolicyAutomationsTab } from "./PolicyAutomationsTab";
 import { PolicyOwnersTab } from "./PolicyOwnersTab";
 import { PolicySecretsTab } from "./PolicySecretsTab";
@@ -87,7 +87,8 @@ export function FolderPolicyDrawer({
       setAddingSecret(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: folderPolicyKey(folder) }),
-        queryClient.invalidateQueries({ queryKey: secretsKey(account) })
+        queryClient.invalidateQueries({ queryKey: secretsKey(account) }),
+        queryClient.invalidateQueries({ queryKey: sliceSecretsKeyPrefix })
       ]);
     }
   });

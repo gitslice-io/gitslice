@@ -10,7 +10,7 @@ import {
   type PendingEdit
 } from "../../components/source/SliceEditing";
 import { ActionMenu, type ActionMenuItem } from "../../components/source/ActionMenu";
-import { canCreateInPath } from "../../components/source/sourceUtils";
+import { canCreateInPath, canModifyPath } from "../../components/source/sourceUtils";
 import { shortHash } from "../../lib/objectId";
 import { cn } from "../../lib/cn";
 import { useMobileDetailsClass } from "../../components/MobileDetails";
@@ -203,27 +203,7 @@ export function DirectoryHeader({
   );
 }
 
-export function canModifyPath(includedPaths: string[], path: string): boolean {
-  const normalizedPath = path.replace(/^\/+|\/+$/g, "");
-  return includedPaths.some((includedPath) =>
-    pathCoversCurrentPath(includedPath, normalizedPath)
-  ) && !isIncludedRoot(includedPaths, path);
-}
-
-function pathCoversCurrentPath(includedPath: string, currentPath: string) {
-  const normalizedIncluded = includedPath.replace(/^\/+|\/+$/g, "");
-  if (normalizedIncluded === "") {
-    return true;
-  }
-  return currentPath === normalizedIncluded || currentPath.startsWith(`${normalizedIncluded}/`);
-}
-
-function isIncludedRoot(includedPaths: string[], path: string): boolean {
-  const normalizedPath = path.replace(/^\/+|\/+$/g, "");
-  return includedPaths.some(
-    (includedPath) => includedPath.replace(/^\/+|\/+$/g, "") === normalizedPath
-  );
-}
+export { canModifyPath } from "../../components/source/sourceUtils";
 
 export function joinRepositoryPath(...parts: string[]) {
   return "/" + parts.filter(Boolean).join("/");

@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { changesetsListKeyPrefix, changesetsListQuery } from "../../queries/changesets";
+import { changesetsListKeyPrefix, changesetsListQuery } from "../queries/changesets";
 import {
   changesetsListRequest,
   parseSearch,
   parseStatusTab,
   statusTabs
-} from "./filters";
+} from "./changesetFilters";
 
 const slice = { account: "gitslice", slice: "gitslice" };
 

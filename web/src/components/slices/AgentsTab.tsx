@@ -6,7 +6,12 @@ import type { ApiClient } from "../../api/useApi";
 import { cn } from "../../lib/cn";
 import { canHostConversations } from "../../lib/daemons";
 import { useMediaQuery } from "../../lib/useMediaQuery";
-import { agentDaemonsQuery, sliceConversationsQuery } from "../../queries/agents";
+import {
+  agentDaemonsQuery,
+  allConversationsKey,
+  recentConversationsKey,
+  sliceConversationsQuery
+} from "../../queries/agents";
 import { AgentConversation } from "./AgentConversation";
 import { AgentsSidebar, sortConversationsNewestFirst } from "./AgentsSidebar";
 import { CreateConversationDialog } from "./CreateConversationDialog";
@@ -133,6 +138,8 @@ export function AgentsTab({
           ...(current ?? []).filter((item) => item.id !== conversation.id),
         ],
       );
+      void queryClient.invalidateQueries({ queryKey: recentConversationsKey });
+      void queryClient.invalidateQueries({ queryKey: allConversationsKey });
       selectConversation(conversation.id ?? "");
       setTitle("");
       setIsCreateOpen(false);

@@ -1,4 +1,4 @@
-import type { ListChangesetsRequest, SliceRef } from "../../api/types";
+import type { ListChangesetsRequest, SliceRef } from "../api/types";
 
 // The changesets list shows one status group at a time (the review queue is
 // the open ones) and can narrow it by text and author. They live in the URL,

@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { RpcError } from "../../api/client";
+import { RpcError } from "../../api/rpcError";
 import { groupTriggersAndChecks } from "./automationGrouping";
 import { TriggersChecksPanel } from "./TriggersChecksPanel";
 

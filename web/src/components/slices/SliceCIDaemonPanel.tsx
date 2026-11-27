@@ -5,7 +5,7 @@ import { useState } from "react";
 import type { AgentDaemon, Slice, SliceRef } from "../../api/types";
 import { useApi } from "../../api/useApi";
 import { daemonName } from "../../lib/daemons";
-import { accountCIDaemonsQuery } from "../../queries/accounts";
+import { accountCIDaemonsQuery, accountSlicesKeyPrefix } from "../../queries/accounts";
 import { sliceDaemonsQuery } from "../../queries/agents";
 import { sliceRefKey, slicesKeyPrefix } from "../../queries/slices";
 import { SlicePanel, getErrorMessage } from "./SlicePageParts";
@@ -70,10 +70,13 @@ export function SliceCIDaemonPanel({
         sliceRefKey(routeAccount, routeSlice),
         updatedSlice
       );
-      await queryClient.invalidateQueries({
-        queryKey: sliceRefKey(routeAccount, routeSlice)
-      });
-      await queryClient.invalidateQueries({ queryKey: slicesKeyPrefix });
+      await Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: sliceRefKey(routeAccount, routeSlice)
+        }),
+        queryClient.invalidateQueries({ queryKey: slicesKeyPrefix }),
+        queryClient.invalidateQueries({ queryKey: accountSlicesKeyPrefix })
+      ]);
     }
   });
 

@@ -11,6 +11,9 @@ const sources = import.meta.glob<string>(
 
 const IMPORT_SPECIFIER_RE =
   /(?:^|\n)\s*(?:import|export)\s+(?:type\s+)?(?:[^"'\n]*?\s+from\s+)?["'](\.[^"']+)["']/g;
+const DYNAMIC_IMPORT_RE = /\bimport\(\s*["']([^"']+)["']\s*\)/g;
+const PACKAGE_IMPORT_RE =
+  /(?:^|\n)\s*(?:import|export)\s+(?:type\s+)?(?:[^"'\n]*?\s+from\s+)?["']([^."'][^"']*)["']/g;
 
 function normalizePosix(segments: string[]): string {
   const stack: string[] = [];
@@ -36,13 +39,34 @@ function extractRelativeImports(sourceKey: string, text: string): string[] {
     const spec = match[1];
     imports.push(normalizePosix([...dirParts, ...spec.split("/")]));
   }
+  for (const match of text.matchAll(DYNAMIC_IMPORT_RE)) {
+    const spec = match[1];
+    if (spec.startsWith(".")) {
+      imports.push(normalizePosix([...dirParts, ...spec.split("/")]));
+    }
+  }
+  return imports;
+}
+
+function extractPackageImports(text: string): string[] {
+  const imports: string[] = [];
+  for (const match of text.matchAll(PACKAGE_IMPORT_RE)) {
+    imports.push(match[1]);
+  }
+  for (const match of text.matchAll(DYNAMIC_IMPORT_RE)) {
+    const spec = match[1];
+    if (!spec.startsWith(".")) {
+      imports.push(spec);
+    }
+  }
   return imports;
 }
 
 describe("web architecture boundaries", () => {
   const entries = Object.entries(sources).map(([key, text]) => ({
     rel: key.replace(/^\/src\//, ""),
-    imports: extractRelativeImports(key, text)
+    imports: extractRelativeImports(key, text),
+    packages: extractPackageImports(text)
   }));
 
   it("keeps src/lib free of components, routes, and server-only modules", () => {
@@ -135,6 +159,41 @@ describe("web architecture boundaries", () => {
       }
       if (/queryKey\s*:\s*\[/.test(text)) {
         violations.push(rel);
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it("keeps src/queries free of src/routes imports", () => {
+    const violations: string[] = [];
+    for (const { rel, imports } of entries) {
+      if (!rel.startsWith("queries/")) {
+        continue;
+      }
+      for (const imp of imports) {
+        if (imp.startsWith("routes/")) {
+          violations.push(`${rel} -> ${imp}`);
+        }
+      }
+    }
+    expect(violations).toEqual([]);
+  });
+
+  it("keeps @connectrpc/connect and src/api/client isolated inside src/api", () => {
+    const violations: string[] = [];
+    for (const { rel, imports, packages } of entries) {
+      if (rel.startsWith("api/")) {
+        continue;
+      }
+      for (const pkg of packages) {
+        if (pkg === "@connectrpc/connect" || pkg.startsWith("@connectrpc/")) {
+          violations.push(`${rel} -> ${pkg}`);
+        }
+      }
+      for (const imp of imports) {
+        if (imp === "api/client" || imp === "api/client.ts") {
+          violations.push(`${rel} -> ${imp}`);
+        }
       }
     }
     expect(violations).toEqual([]);

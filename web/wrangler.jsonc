@@ -32,7 +32,7 @@
         "PUBLIC_GITSLICE_GIT_HTTP_BASE_URL": "https://gitslice.io"
       },
       // gs release files under releases/ (ops/release); the worker reads only
-      // that prefix (src/lib/releases.ts).
+      // that prefix (src/server/releases.ts).
       "r2_buckets": [{ "binding": "RELEASES", "bucket_name": "gitslice-production" }]
     }
   }

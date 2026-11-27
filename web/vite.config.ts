@@ -5,7 +5,7 @@ import { nitro } from "nitro/vite";
 
 export default defineConfig({
   // A new value for every build: cached pages never outlive the build whose
-  // scripts they name (src/lib/pageCache.ts).
+  // scripts they name (src/server/pageCache.ts).
   define: {
     __BUILD_ID__: JSON.stringify(Date.now().toString(36))
   },

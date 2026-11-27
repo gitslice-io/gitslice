@@ -3,7 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { RpcError } from "../api/client";
+import { RpcError } from "../api/rpcError";
 import { AccountPage } from "./AccountPage";
 import { HomePage } from "./HomePage";
 import { NewOrganizationPage } from "./NewOrganizationPage";

@@ -94,7 +94,7 @@ export default createServerEntry({
     }
 
     // Pages for visitors with no session are kept briefly at the edge
-    // (lib/pageCache); everything else is rendered for the request.
+    // (server/pageCache); everything else is rendered for the request.
     return servePage(request, {
       buildId: typeof __BUILD_ID__ === "string" ? __BUILD_ID__ : "dev",
       cache: edgePageCache(),

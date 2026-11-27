@@ -2,7 +2,7 @@ import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 
 import type { ListChangesetsResponse, SliceRef } from "../api/types";
 import type { ApiClient } from "../api/useApi";
-import { changesetsListRequest, type StatusTab } from "../routes/changesets-list/filters";
+import { changesetsListRequest, type StatusTab } from "../lib/changesetFilters";
 
 export const changesetsListKeyPrefix = (slice: SliceRef) =>
   ["changesets", slice.account ?? "", slice.slice ?? ""] as const;

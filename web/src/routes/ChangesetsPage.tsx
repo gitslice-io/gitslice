@@ -24,7 +24,7 @@ import {
   ChangesetsToolbar,
   MissingSliceState
 } from "./changesets-list/ChangesetsToolbar";
-import { parseStatusTab, type StatusTab } from "./changesets-list/filters";
+import { parseStatusTab, type StatusTab } from "../lib/changesetFilters";
 import { parseSliceSearch } from "./stackPageUtils";
 
 export function ChangesetsPage() {

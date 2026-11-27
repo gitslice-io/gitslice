@@ -10,6 +10,7 @@ import {
   type ReactNode
 } from "react";
 
+import { ACTIVE_ACCOUNT_KEY } from "../lib/accounts";
 import {
   AGENT_AUTH_HEADER,
   isAgentSessionExpired,
@@ -144,6 +145,9 @@ export function AppAuthProvider({
     pendingTokenFetchRef.current = null;
     setAgentSession(null);
     queryClient.clear();
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
+    }
     try {
       await fetch("/auth/agent/logout", {
         method: "POST",
@@ -172,13 +176,18 @@ export function AppAuthProvider({
 
   const signOut = useCallback(async (): Promise<void> => {
     if (clerkSignedIn) {
+      await queryClient.cancelQueries();
       await clerk.signOut();
+      queryClient.clear();
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem(ACTIVE_ACCOUNT_KEY);
+      }
       return;
     }
     if (agentActive) {
       await signOutAgent();
     }
-  }, [agentActive, clerk, clerkSignedIn, signOutAgent]);
+  }, [agentActive, clerk, clerkSignedIn, queryClient, signOutAgent]);
 
   const value = useMemo<AppAuthState>(() => {
     if (clerkSignedIn) {

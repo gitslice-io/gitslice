@@ -11,6 +11,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { Conversation } from "../../api/types";
 import { type ApiClient } from "../../api/useApi";
 import {
+  allConversationsKey,
   conversationKey,
   conversationQuery,
   recentConversationsKey,
@@ -129,6 +130,7 @@ export function AgentConversation({
       });
       void queryClient.invalidateQueries({ queryKey: sliceConversationsKeyPrefix });
       void queryClient.invalidateQueries({ queryKey: recentConversationsKey });
+      void queryClient.invalidateQueries({ queryKey: allConversationsKey });
       setIsCloseConfirmOpen(false);
     }
   });

@@ -15,7 +15,7 @@ interface ImportMetaEnv {
   readonly VITE_POSTHOG_UPSTREAM_ASSETS_HOST?: string;
 }
 
-// Set per build in vite.config.ts; keys the edge page cache (lib/pageCache).
+// Set per build in vite.config.ts; keys the edge page cache (server/pageCache).
 declare const __BUILD_ID__: string | undefined;
 
 interface ImportMeta {

@@ -19,7 +19,6 @@ export {
 export type { DraftChangesetController } from "./slice-editing/useDraftChangesetController";
 export { useDraftChangesetController } from "./slice-editing/useDraftChangesetController";
 
-export { DraftChangesetPanel } from "./slice-editing/DraftChangesetPanel";
 export {
   DirectoryCreateControls,
   InlineRenameForm,

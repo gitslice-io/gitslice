@@ -10,7 +10,7 @@ import {
   isNotFoundError,
   isPermissionDeniedError,
   isUnauthenticatedError
-} from "../api/client";
+} from "../api/rpcError";
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({ children, to, ...rest }: { children: ReactNode; to: string }) => (
